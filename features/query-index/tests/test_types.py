@@ -56,3 +56,48 @@ def test_searchhit_str_shows_id_and_score_only() -> None:
     assert "c42" in s
     assert "0.875" in s
     assert "body" not in s
+
+
+def test_chunk_accepts_optional_section_heading_and_source_file() -> None:
+    from query_index.types import Chunk
+
+    c = Chunk(
+        chunk_id="c1",
+        title="T",
+        chunk="body",
+        section_heading="3.3 Werkstoffkennwerte",
+        source_file="GNB B 147_2001 Rev. 1.pdf",
+    )
+    assert c.section_heading == "3.3 Werkstoffkennwerte"
+    assert c.source_file == "GNB B 147_2001 Rev. 1.pdf"
+
+
+def test_chunk_section_heading_and_source_file_default_to_none() -> None:
+    from query_index.types import Chunk
+
+    c = Chunk(chunk_id="c1", title="T", chunk="body")
+    assert c.section_heading is None
+    assert c.source_file is None
+
+
+def test_searchhit_accepts_optional_section_heading_and_source_file() -> None:
+    from query_index.types import SearchHit
+
+    h = SearchHit(
+        chunk_id="c1",
+        title="T",
+        chunk="body",
+        score=0.9,
+        section_heading="3.3 Werkstoffkennwerte",
+        source_file="GNB B 147_2001 Rev. 1.pdf",
+    )
+    assert h.section_heading == "3.3 Werkstoffkennwerte"
+    assert h.source_file == "GNB B 147_2001 Rev. 1.pdf"
+
+
+def test_searchhit_section_heading_and_source_file_default_to_none() -> None:
+    from query_index.types import SearchHit
+
+    h = SearchHit(chunk_id="c1", title="T", chunk="body", score=0.9)
+    assert h.section_heading is None
+    assert h.source_file is None
