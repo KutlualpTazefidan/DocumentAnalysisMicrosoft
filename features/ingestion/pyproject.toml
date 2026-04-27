@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ingestion"
+version = "0.1.0"
+description = "PDF ingestion pipeline: analyze, chunk, embed, upload to Azure AI Search."
+requires-python = ">=3.11"
+dependencies = [
+    "query-index",
+    "azure-ai-documentintelligence>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "tiktoken>=0.7.0",
+]
+
+[project.scripts]
+ingest = "ingestion.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=ingestion --cov-report=term-missing --cov-fail-under=90"
+testpaths = ["tests"]
