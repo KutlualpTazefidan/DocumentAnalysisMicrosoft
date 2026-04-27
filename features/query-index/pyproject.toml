@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-index"
+version = "0.1.0"
+description = "Azure AI Search hybrid-query library — the only package that talks to Azure."
+requires-python = ">=3.11"
+dependencies = [
+    "azure-search-documents>=11.5.0",
+    "azure-identity>=1.17.0",
+    "openai>=1.40.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=query_index --cov-report=term-missing --cov-fail-under=90"
+testpaths = ["tests"]
