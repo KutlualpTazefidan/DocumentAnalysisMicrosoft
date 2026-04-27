@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-index-eval"
+version = "0.1.0"
+description = "Retrieval-quality evaluation pipeline for the query-index search library."
+requires-python = ">=3.11"
+dependencies = [
+    "query-index",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+query-eval = "query_index_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=query_index_eval --cov-report=term-missing --cov-fail-under=90"
+testpaths = ["tests"]
