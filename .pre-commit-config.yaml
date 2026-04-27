@@ -12,7 +12,7 @@ repos:
       - id: mypy
         additional_dependencies: []
         args: [--config-file=pyproject.toml]
-        exclude: ^archive/
+        exclude: ^(archive/|features/.*/tests/)
 
   - repo: local
     hooks:

@@ -4,7 +4,7 @@ A retrieval-quality evaluation harness for an Azure AI Search index, structured 
 
 ## Workspace separation pattern
 
-This repository follows a workspace-separation pattern:
+This repository follows a workspace separation pattern:
 
 - **This workspace** is for development. Sample / non-sensitive data lives in `data/`; tests and lint pass without touching real Azure services.
 - **Production runs** happen in a separate cloned workspace maintained by the user, with real data in `data/` and real credentials in `.env`.
@@ -60,6 +60,7 @@ cd ~/code/DocumentAnalysisMicrosoft-real
 cp .env.example .env  # and fill in real keys
 mkdir data && cp <real PDFs> data/
 ./bootstrap.sh
+source .venv/bin/activate
 make schema     # confirm index field names
 make curate     # build hand-curated golden set
 make eval       # produce metric report
