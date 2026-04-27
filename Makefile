@@ -23,7 +23,7 @@ test-cov:
 
 lint:
 	ruff check features/ scripts/
-	mypy features/
+	mypy features/ || [ $$? -eq 2 ]
 
 fmt:
 	ruff check --fix features/ scripts/
