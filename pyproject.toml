@@ -4,13 +4,14 @@ target-version = "py311"
 extend-exclude = ["archive/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "N", "TCH"]
 ignore = []
 
 [tool.ruff.format]
 quote-style = "double"
 
 [tool.mypy]
+# Tightening path: enable disallow_untyped_defs and strict_optional once stubs stabilize.
 python_version = "3.11"
 warn_unused_ignores = true
 warn_return_any = true
@@ -21,3 +22,18 @@ exclude = ["archive/", "build/", "dist/"]
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers"
 testpaths = ["features"]
+
+[tool.coverage.run]
+branch = true
+source = ["features"]
+
+[tool.coverage.report]
+omit = [
+    "*/tests/*",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
