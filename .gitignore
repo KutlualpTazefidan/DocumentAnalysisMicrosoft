@@ -1,0 +1,38 @@
+# Secrets
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Data (workspace separation pattern — production data lives in user's separate clone)
+data/
+data_dummy/
+
+# Generated runtime artifacts
+features/*/datasets/golden_*.jsonl
+features/*/reports/
+features/*/logs/
+
+# Local Claude settings (per-machine)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
