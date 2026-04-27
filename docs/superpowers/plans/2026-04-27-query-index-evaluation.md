@@ -2109,11 +2109,2180 @@ End of Phase 1. Hand back to user for review before starting Phase 2 (`query-ind
 
 ---
 
-# Phase 2 and Phase 3 — to be added
+# Phase 2 — `query-index-eval` package
 
-After Phase 1 is reviewed and accepted, this plan will be extended with:
+Goal: a fully tested evaluation pipeline that consumes `query-index`, computes IR metrics against a hand-curated golden set, and produces JSON reports. All tests are mocked (the `query_index` calls are mocked at the import boundary).
 
-- **Phase 2 — `query-index-eval` package** (~9 tasks): schema, datasets (with mutation enforcement), metrics (Recall@k, Hit Rate@k, MRR, MAP), runner (with sample-size flagging and report-metadata), curate (TTY enforcement + substring check), CLI dispatch, public API.
-- **Phase 3 — Acceptance** (~3 tasks): full `make test` + `make lint`, pre-commit boundary-violation negative test, README polish, final verification against the spec's acceptance criteria.
+Tasks ordered so each builds on the previous: schema → datasets → metrics → runner → curate → cli → public API.
 
-These will be appended to this same file on user signal.
+Hybrid `cfg` convention from Phase 1 also applies here: any function that needs a `query_index.Config` accepts an optional `cfg=None` and falls back to `Config.from_env()`.
+
+## Task 18: Package skeleton for `query-index-eval`
+
+**Files:**
+- Create: `features/query-index-eval/pyproject.toml`
+- Create: `features/query-index-eval/.env.example`
+- Create: `features/query-index-eval/README.md`
+- Create: `features/query-index-eval/src/query_index_eval/__init__.py` (empty)
+- Create: `features/query-index-eval/tests/__init__.py` (empty)
+- Create: `features/query-index-eval/tests/conftest.py`
+
+- [ ] **Step 1: Create the directory tree**
+
+```bash
+mkdir -p features/query-index-eval/src/query_index_eval features/query-index-eval/tests features/query-index-eval/datasets features/query-index-eval/reports
+```
+
+- [ ] **Step 2: Create `pyproject.toml`**
+
+```toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-index-eval"
+version = "0.1.0"
+description = "Retrieval-quality evaluation pipeline for the query-index search library."
+requires-python = ">=3.11"
+dependencies = [
+    "query-index",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+query-eval = "query_index_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --cov=query_index_eval --cov-report=term-missing --cov-fail-under=90"
+testpaths = ["tests"]
+```
+
+- [ ] **Step 3: Create `.env.example`**
+
+```
+# query-index-eval reuses the variables defined by query-index.
+# Copy/symlink the values from query-index/.env at the repo root.
+AI_FOUNDRY_KEY=
+AI_FOUNDRY_ENDPOINT=https://your-foundry.services.ai.azure.com
+AI_SEARCH_KEY=
+AI_SEARCH_ENDPOINT=https://your-search.search.windows.net
+AI_SEARCH_INDEX_NAME=
+EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
+EMBEDDING_MODEL_VERSION=1
+EMBEDDING_DIMENSIONS=3072
+AZURE_OPENAI_API_VERSION=2024-02-01
+```
+
+- [ ] **Step 4: Create `README.md`**
+
+````markdown
+# query-index-eval
+
+Retrieval-quality evaluation pipeline for the `query-index` search library.
+
+## Public API
+
+```python
+from query_index_eval import (
+    AggregateMetrics,
+    EvalExample,
+    MetricsReport,
+    OperationalMetrics,
+    QueryRecord,
+    RunMetadata,
+    average_precision,
+    hit_rate_at_k,
+    load_dataset,
+    mrr,
+    recall_at_k,
+    run_eval,
+)
+```
+
+## CLI
+
+```bash
+query-eval curate                        # interactive curation (TTY required)
+query-eval eval --top 20                 # run evaluation, write report
+query-eval report --compare A.json B.json
+query-eval schema-discovery              # dump current index schema
+```
+
+## Datasets
+
+Hand-curated golden set lives at `features/query-index-eval/datasets/golden_v1.jsonl`. Gitignored — your curation work stays local. Format: one `EvalExample` per line, append-only with controlled deprecation.
+
+## Reports
+
+Produced under `features/query-index-eval/reports/<utc-timestamp>-golden_v1.json`. Gitignored.
+
+## Tests
+
+```bash
+pytest features/query-index-eval/
+```
+
+All tests are mocked — `query_index` calls are patched at the import boundary.
+````
+
+- [ ] **Step 5: Create empty `__init__.py` files**
+
+```bash
+: > features/query-index-eval/src/query_index_eval/__init__.py
+: > features/query-index-eval/tests/__init__.py
+```
+
+- [ ] **Step 6: Create `tests/conftest.py`**
+
+```python
+"""Shared fixtures for query_index_eval tests.
+
+The `query_index` package is patched at module level so that no test in this
+suite ever touches Azure. Fixtures expose: a temporary JSONL path, sample
+EvalExample objects, and a sample MetricsReport.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def tmp_dataset_path(tmp_path: Path) -> Path:
+    return tmp_path / "golden_v1.jsonl"
+
+
+@pytest.fixture
+def sample_example_dict() -> dict:
+    return {
+        "query_id": "g0001",
+        "query": "Wo ist die Änderung des Tragkorbdurchmessers aufgeführt?",
+        "expected_chunk_ids": ["c42"],
+        "source": "curated",
+        "chunk_hashes": {"c42": "sha256:abc"},
+        "filter": None,
+        "deprecated": False,
+        "created_at": "2026-04-27T10:00:00Z",
+        "notes": None,
+    }
+```
+
+- [ ] **Step 7: Install the (empty) package in editable mode**
+
+```bash
+source .venv/bin/activate
+pip install -e features/query-index-eval
+pip show query-index-eval | head -5
+```
+
+Expected: install succeeds, `pip show` reports name `query-index-eval`, version `0.1.0`. The `query-eval` console script is now in PATH.
+
+- [ ] **Step 8: Verify package is importable**
+
+```bash
+python -c "import query_index_eval; print(query_index_eval.__file__)"
+```
+
+Expected: prints the package path.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add features/query-index-eval/ Makefile  # Makefile is unchanged but git may show no diff — that's fine
+# If Makefile shows no diff, just:
+git add features/query-index-eval/
+git commit -m "feat(query-index-eval): scaffold package (pyproject, README, conftest, console-script)"
+```
+
+---
+
+## Task 19: `schema.py` — `EvalExample`, `MetricsReport`, and helpers
+
+Frozen dataclasses for dataset entries and metric reports. Designed so that `dataclasses.asdict` produces JSON-serialisable dicts directly.
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/schema.py`
+- Create: `features/query-index-eval/tests/test_schema.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for query_index_eval.schema dataclasses."""
+from __future__ import annotations
+
+from dataclasses import asdict
+
+import pytest
+
+
+def test_eval_example_holds_all_fields(sample_example_dict: dict) -> None:
+    from query_index_eval.schema import EvalExample
+
+    e = EvalExample(**sample_example_dict)
+    assert e.query_id == "g0001"
+    assert e.expected_chunk_ids == ["c42"]
+    assert e.source == "curated"
+    assert e.deprecated is False
+
+
+def test_eval_example_round_trip_via_asdict(sample_example_dict: dict) -> None:
+    from query_index_eval.schema import EvalExample
+
+    e = EvalExample(**sample_example_dict)
+    out = asdict(e)
+    assert out["query_id"] == "g0001"
+    # Reconstruct
+    e2 = EvalExample(**out)
+    assert e2 == e
+
+
+def test_eval_example_is_frozen(sample_example_dict: dict) -> None:
+    from dataclasses import FrozenInstanceError
+
+    from query_index_eval.schema import EvalExample
+
+    e = EvalExample(**sample_example_dict)
+    with pytest.raises(FrozenInstanceError):
+        e.query_id = "g0002"  # type: ignore[misc]
+
+
+def test_aggregate_metrics_holds_all_metric_fields() -> None:
+    from query_index_eval.schema import AggregateMetrics
+
+    m = AggregateMetrics(
+        recall_at_5=0.7, recall_at_10=0.85, recall_at_20=0.95,
+        map_score=0.65, hit_rate_at_1=0.8, mrr=0.72,
+    )
+    assert m.recall_at_10 == 0.85
+    assert m.mrr == 0.72
+
+
+def test_operational_metrics_holds_counts_and_latency() -> None:
+    from query_index_eval.schema import OperationalMetrics
+
+    m = OperationalMetrics(
+        mean_latency_ms=120.0, p95_latency_ms=350.0,
+        total_queries=42, total_embedding_calls=42, failure_count=1,
+    )
+    assert m.total_queries == 42
+
+
+def test_query_record_holds_per_query_data() -> None:
+    from query_index_eval.schema import QueryRecord
+
+    r = QueryRecord(
+        query_id="g0001",
+        expected_chunk_ids=["c42"],
+        retrieved_chunk_ids=["c10", "c42", "c7"],
+        ranks=[2],
+        hits=[True],
+        latency_ms=110.0,
+    )
+    assert r.ranks == [2]
+    assert r.hits == [True]
+
+
+def test_run_metadata_includes_embedding_and_size_status() -> None:
+    from query_index_eval.schema import RunMetadata
+
+    md = RunMetadata(
+        dataset_path="features/query-index-eval/datasets/golden_v1.jsonl",
+        dataset_size_active=42, dataset_size_deprecated=3,
+        embedding_deployment_name="text-embedding-3-large",
+        embedding_model_version="1",
+        azure_openai_api_version="2024-02-01",
+        search_index_name="wizard-1",
+        run_timestamp_utc="2026-04-27T10:00:00Z",
+        size_status="preliminary",
+    )
+    assert md.size_status == "preliminary"
+
+
+def test_metrics_report_composes_all_subobjects() -> None:
+    from query_index_eval.schema import (
+        AggregateMetrics,
+        MetricsReport,
+        OperationalMetrics,
+        QueryRecord,
+        RunMetadata,
+    )
+
+    aggregate = AggregateMetrics(0.7, 0.85, 0.95, 0.65, 0.8, 0.72)
+    operational = OperationalMetrics(120.0, 350.0, 42, 42, 1)
+    metadata = RunMetadata(
+        "features/query-index-eval/datasets/golden_v1.jsonl",
+        42, 3, "text-embedding-3-large", "1", "2024-02-01", "wizard-1",
+        "2026-04-27T10:00:00Z", "preliminary",
+    )
+    record = QueryRecord("g0001", ["c42"], ["c42"], [1], [True], 110.0)
+    report = MetricsReport(
+        aggregate=aggregate,
+        operational=operational,
+        metadata=metadata,
+        per_query=[record],
+    )
+    assert report.aggregate is aggregate
+    assert len(report.per_query) == 1
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_schema.py -v 2>&1 | tail -10
+```
+
+Expected: 8 errors with `ModuleNotFoundError: No module named 'query_index_eval.schema'`.
+
+- [ ] **Step 3: Implement `schema.py`**
+
+```python
+"""Frozen dataclasses for the eval pipeline.
+
+Designed so that `dataclasses.asdict` produces a JSON-serialisable structure.
+EvalExample mirrors the JSONL row schema documented in the design spec; the
+metric/report dataclasses compose into a single MetricsReport that the CLI
+serialises to disk.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class EvalExample:
+    query_id: str
+    query: str
+    expected_chunk_ids: list[str]
+    source: str
+    chunk_hashes: dict[str, str]
+    filter: str | None
+    deprecated: bool
+    created_at: str
+    notes: str | None
+
+
+@dataclass(frozen=True)
+class AggregateMetrics:
+    recall_at_5: float
+    recall_at_10: float
+    recall_at_20: float
+    map_score: float
+    hit_rate_at_1: float
+    mrr: float
+
+
+@dataclass(frozen=True)
+class OperationalMetrics:
+    mean_latency_ms: float
+    p95_latency_ms: float
+    total_queries: int
+    total_embedding_calls: int
+    failure_count: int
+
+
+@dataclass(frozen=True)
+class RunMetadata:
+    dataset_path: str
+    dataset_size_active: int
+    dataset_size_deprecated: int
+    embedding_deployment_name: str
+    embedding_model_version: str
+    azure_openai_api_version: str
+    search_index_name: str
+    run_timestamp_utc: str
+    size_status: str  # "indicative" | "preliminary" | "reportable"
+
+
+@dataclass(frozen=True)
+class QueryRecord:
+    query_id: str
+    expected_chunk_ids: list[str]
+    retrieved_chunk_ids: list[str]
+    ranks: list[int]   # 1-based rank of each expected; -1 if not retrieved
+    hits: list[bool]   # parallel to expected_chunk_ids
+    latency_ms: float
+
+
+@dataclass(frozen=True)
+class MetricsReport:
+    aggregate: AggregateMetrics
+    operational: OperationalMetrics
+    metadata: RunMetadata
+    per_query: list[QueryRecord] = field(default_factory=list)
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_schema.py -v 2>&1 | tail -10
+```
+
+Expected: 8 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/schema.py features/query-index-eval/tests/test_schema.py
+git commit -m "feat(eval): add EvalExample, MetricsReport, and supporting dataclasses"
+```
+
+---
+
+## Task 20: `datasets.py` — JSONL load/save with mutation enforcement
+
+Public API: `load_dataset(path) -> list[EvalExample]`, `append_example(path, example)`, `deprecate_example(path, query_id)`. Direct file edits are not protected — but in-process, only these functions touch the file, and they enforce the rules from the spec.
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/datasets.py`
+- Create: `features/query-index-eval/tests/test_datasets.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for query_index_eval.datasets — JSONL I/O with mutation rules."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+
+def _example(qid: str = "g0001", deprecated: bool = False) -> dict:
+    return {
+        "query_id": qid,
+        "query": f"Question {qid}?",
+        "expected_chunk_ids": [f"c{qid[1:]}"],
+        "source": "curated",
+        "chunk_hashes": {f"c{qid[1:]}": f"sha256:hash_{qid}"},
+        "filter": None,
+        "deprecated": deprecated,
+        "created_at": "2026-04-27T10:00:00Z",
+        "notes": None,
+    }
+
+
+def test_load_dataset_returns_empty_list_when_file_missing(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import load_dataset
+
+    assert load_dataset(tmp_dataset_path) == []
+
+
+def test_load_dataset_parses_jsonl_into_eval_examples(tmp_dataset_path: Path) -> None:
+    import json
+
+    from query_index_eval.datasets import load_dataset
+    from query_index_eval.schema import EvalExample
+
+    rows = [_example("g0001"), _example("g0002")]
+    tmp_dataset_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    result = load_dataset(tmp_dataset_path)
+    assert len(result) == 2
+    assert all(isinstance(e, EvalExample) for e in result)
+    assert {e.query_id for e in result} == {"g0001", "g0002"}
+
+
+def test_append_example_creates_file_if_missing(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import append_example, load_dataset
+    from query_index_eval.schema import EvalExample
+
+    e = EvalExample(**_example("g0001"))
+    append_example(tmp_dataset_path, e)
+    assert tmp_dataset_path.exists()
+    loaded = load_dataset(tmp_dataset_path)
+    assert len(loaded) == 1
+    assert loaded[0].query_id == "g0001"
+
+
+def test_append_example_appends_subsequent_rows(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import append_example, load_dataset
+    from query_index_eval.schema import EvalExample
+
+    append_example(tmp_dataset_path, EvalExample(**_example("g0001")))
+    append_example(tmp_dataset_path, EvalExample(**_example("g0002")))
+    loaded = load_dataset(tmp_dataset_path)
+    assert [e.query_id for e in loaded] == ["g0001", "g0002"]
+
+
+def test_append_example_rejects_duplicate_query_id(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import DatasetMutationError, append_example
+    from query_index_eval.schema import EvalExample
+
+    append_example(tmp_dataset_path, EvalExample(**_example("g0001")))
+    with pytest.raises(DatasetMutationError, match="g0001"):
+        append_example(tmp_dataset_path, EvalExample(**_example("g0001")))
+
+
+def test_deprecate_example_flips_flag_in_place(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import (
+        append_example,
+        deprecate_example,
+        load_dataset,
+    )
+    from query_index_eval.schema import EvalExample
+
+    append_example(tmp_dataset_path, EvalExample(**_example("g0001")))
+    append_example(tmp_dataset_path, EvalExample(**_example("g0002")))
+
+    deprecate_example(tmp_dataset_path, "g0001")
+    loaded = load_dataset(tmp_dataset_path)
+    by_id = {e.query_id: e for e in loaded}
+    assert by_id["g0001"].deprecated is True
+    assert by_id["g0002"].deprecated is False
+
+
+def test_deprecate_example_raises_when_id_missing(tmp_dataset_path: Path) -> None:
+    from query_index_eval.datasets import DatasetMutationError, deprecate_example
+
+    tmp_dataset_path.write_text("")  # empty file
+    with pytest.raises(DatasetMutationError, match="not found"):
+        deprecate_example(tmp_dataset_path, "g0099")
+
+
+def test_deprecate_example_refuses_to_undeprecate(tmp_dataset_path: Path) -> None:
+    """Once deprecated, an example stays deprecated — deprecate_example called
+    on an already-deprecated id is a no-op (or raises, depending on
+    implementation choice; here we expect a no-op-or-raise)."""
+    from query_index_eval.datasets import (
+        DatasetMutationError,
+        append_example,
+        deprecate_example,
+        load_dataset,
+    )
+    from query_index_eval.schema import EvalExample
+
+    append_example(
+        tmp_dataset_path, EvalExample(**_example("g0001", deprecated=True))
+    )
+    with pytest.raises(DatasetMutationError, match="already deprecated"):
+        deprecate_example(tmp_dataset_path, "g0001")
+    loaded = load_dataset(tmp_dataset_path)
+    assert loaded[0].deprecated is True
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_datasets.py -v 2>&1 | tail -15
+```
+
+Expected: 8 errors with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement `datasets.py`**
+
+```python
+"""JSONL load/save for EvalExamples with controlled-mutation rules.
+
+Public API:
+- `load_dataset(path)` reads JSONL into a list of EvalExample (empty if file missing).
+- `append_example(path, example)` appends one row; raises on duplicate query_id.
+- `deprecate_example(path, query_id)` flips the example's `deprecated` flag to
+  True. Refuses to operate on an already-deprecated row (the rule is "deprecate
+  is one-way"); raises if the id is not found.
+
+Direct file edits are not protected. The convention is: only these three
+functions touch the JSONL file in process. The rules implement the
+"controlled mutation" contract from the design spec.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+from query_index_eval.schema import EvalExample
+
+
+class DatasetMutationError(Exception):
+    """Raised when a mutation violates the controlled-mutation rules."""
+
+
+def load_dataset(path: Path) -> list[EvalExample]:
+    if not path.exists():
+        return []
+    examples: list[EvalExample] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            examples.append(EvalExample(**json.loads(line)))
+    return examples
+
+
+def append_example(path: Path, example: EvalExample) -> None:
+    existing = load_dataset(path)
+    if any(e.query_id == example.query_id for e in existing):
+        raise DatasetMutationError(
+            f"query_id {example.query_id!r} already exists in {path}; "
+            f"deprecate-and-append-new instead of editing in place"
+        )
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(asdict(example), ensure_ascii=False) + "\n")
+
+
+def deprecate_example(path: Path, query_id: str) -> None:
+    existing = load_dataset(path)
+    found = False
+    new_rows: list[EvalExample] = []
+    for e in existing:
+        if e.query_id == query_id:
+            found = True
+            if e.deprecated:
+                raise DatasetMutationError(
+                    f"query_id {query_id!r} is already deprecated; "
+                    f"deprecation is one-way (no un-deprecate in v1)"
+                )
+            new_rows.append(
+                EvalExample(
+                    query_id=e.query_id,
+                    query=e.query,
+                    expected_chunk_ids=e.expected_chunk_ids,
+                    source=e.source,
+                    chunk_hashes=e.chunk_hashes,
+                    filter=e.filter,
+                    deprecated=True,
+                    created_at=e.created_at,
+                    notes=e.notes,
+                )
+            )
+        else:
+            new_rows.append(e)
+    if not found:
+        raise DatasetMutationError(
+            f"query_id {query_id!r} not found in {path}; cannot deprecate"
+        )
+    with path.open("w", encoding="utf-8") as f:
+        for e in new_rows:
+            f.write(json.dumps(asdict(e), ensure_ascii=False) + "\n")
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_datasets.py -v 2>&1 | tail -15
+```
+
+Expected: 8 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/datasets.py features/query-index-eval/tests/test_datasets.py
+git commit -m "feat(eval): add JSONL load/append/deprecate with controlled-mutation rules"
+```
+
+---
+
+## Task 21: `metrics.py` — pure metric functions
+
+Public API: `recall_at_k`, `hit_rate_at_k`, `mrr`, `average_precision`, plus a `mean_average_precision` aggregate. All pure, no I/O, no Azure. The module that earns the most rigour because correctness here is the foundation of every report.
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/metrics.py`
+- Create: `features/query-index-eval/tests/test_metrics.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for query_index_eval.metrics.
+
+Each metric tested with:
+- Single-relevant scenarios (the synthetic-style case)
+- Multi-relevant scenarios (the golden-style case)
+- Edge: empty expected, empty retrieved, all-miss, all-hit, partial-hit
+- Order sensitivity where relevant (MRR, MAP)
+"""
+from __future__ import annotations
+
+import pytest
+
+
+# ---------- recall_at_k ----------
+
+@pytest.mark.parametrize(
+    "expected,retrieved,k,want",
+    [
+        ({"a"}, ["a"], 1, 1.0),
+        ({"a"}, ["b"], 1, 0.0),
+        ({"a"}, ["b", "a"], 2, 1.0),
+        ({"a"}, ["b", "a"], 1, 0.0),
+        ({"a", "b"}, ["a", "c"], 2, 0.5),
+        ({"a", "b"}, ["a", "b", "c"], 3, 1.0),
+        ({"a", "b", "c"}, ["d", "e", "f"], 3, 0.0),
+        (set(), [], 5, 0.0),
+        (set(), ["a"], 5, 0.0),
+        ({"a"}, [], 5, 0.0),
+    ],
+)
+def test_recall_at_k(expected, retrieved, k, want) -> None:
+    from query_index_eval.metrics import recall_at_k
+
+    assert recall_at_k(expected, retrieved, k) == pytest.approx(want)
+
+
+# ---------- hit_rate_at_k ----------
+
+@pytest.mark.parametrize(
+    "expected,retrieved,k,want",
+    [
+        ({"a"}, ["a"], 1, 1.0),
+        ({"a"}, ["b"], 1, 0.0),
+        ({"a"}, ["b", "a"], 2, 1.0),
+        ({"a", "b"}, ["a", "c"], 2, 1.0),
+        ({"a", "b"}, ["c", "d"], 2, 0.0),
+        (set(), ["a"], 5, 0.0),
+        ({"a"}, [], 5, 0.0),
+    ],
+)
+def test_hit_rate_at_k(expected, retrieved, k, want) -> None:
+    from query_index_eval.metrics import hit_rate_at_k
+
+    assert hit_rate_at_k(expected, retrieved, k) == pytest.approx(want)
+
+
+# ---------- MRR ----------
+
+@pytest.mark.parametrize(
+    "expected,retrieved,want",
+    [
+        ({"a"}, ["a"], 1.0),
+        ({"a"}, ["b", "a"], 0.5),
+        ({"a"}, ["b", "c", "a"], 1 / 3),
+        ({"a", "b"}, ["b", "a"], 1.0),  # earliest of any expected
+        ({"a", "b"}, ["c", "a", "b"], 0.5),
+        ({"a"}, ["b", "c", "d"], 0.0),
+        (set(), ["a"], 0.0),
+    ],
+)
+def test_mrr(expected, retrieved, want) -> None:
+    from query_index_eval.metrics import mrr
+
+    assert mrr(expected, retrieved) == pytest.approx(want)
+
+
+# ---------- Average Precision ----------
+
+def test_average_precision_single_relevant_at_top() -> None:
+    from query_index_eval.metrics import average_precision
+
+    # one relevant at rank 1 -> AP = 1/1 / 1 = 1.0
+    assert average_precision({"a"}, ["a", "b", "c"]) == pytest.approx(1.0)
+
+
+def test_average_precision_single_relevant_at_rank_3() -> None:
+    from query_index_eval.metrics import average_precision
+
+    # one relevant at rank 3 -> precision at hit = 1/3, mean = 1/3
+    assert average_precision({"a"}, ["b", "c", "a"]) == pytest.approx(1 / 3)
+
+
+def test_average_precision_two_relevant_well_ranked() -> None:
+    from query_index_eval.metrics import average_precision
+
+    # rank 1: precision = 1/1; rank 2: precision = 2/2; mean = (1 + 1) / 2 = 1.0
+    assert average_precision({"a", "b"}, ["a", "b", "c"]) == pytest.approx(1.0)
+
+
+def test_average_precision_two_relevant_with_gap() -> None:
+    from query_index_eval.metrics import average_precision
+
+    # rank 1: precision = 1/1; rank 3: precision = 2/3; mean = (1 + 2/3) / 2 = 5/6
+    assert average_precision({"a", "b"}, ["a", "x", "b"]) == pytest.approx(5 / 6)
+
+
+def test_average_precision_zero_when_no_hit() -> None:
+    from query_index_eval.metrics import average_precision
+
+    assert average_precision({"a"}, ["b", "c"]) == 0.0
+
+
+def test_average_precision_zero_when_expected_empty() -> None:
+    from query_index_eval.metrics import average_precision
+
+    assert average_precision(set(), ["a"]) == 0.0
+
+
+# ---------- mean_average_precision ----------
+
+def test_mean_average_precision_averages_per_query_ap() -> None:
+    from query_index_eval.metrics import mean_average_precision
+
+    pairs = [
+        ({"a"}, ["a", "b"]),    # AP = 1.0
+        ({"x"}, ["y", "x"]),    # AP = 1/2
+        ({"q"}, ["w", "e", "r"]),  # AP = 0.0
+    ]
+    # mean of [1.0, 0.5, 0.0] = 0.5
+    assert mean_average_precision(pairs) == pytest.approx(0.5)
+
+
+def test_mean_average_precision_empty_input_is_zero() -> None:
+    from query_index_eval.metrics import mean_average_precision
+
+    assert mean_average_precision([]) == 0.0
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_metrics.py -v 2>&1 | tail -15
+```
+
+Expected: ~30 errors with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement `metrics.py`**
+
+```python
+"""Pure IR metric functions over (expected, retrieved) chunk-id collections.
+
+No I/O, no Azure, no global state. Every function accepts a `set[str]` of
+expected chunk_ids and a `list[str]` of retrieved chunk_ids in rank order.
+"""
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+
+def recall_at_k(expected: set[str], retrieved: list[str], k: int) -> float:
+    if not expected:
+        return 0.0
+    top_k = set(retrieved[:k])
+    return len(expected & top_k) / len(expected)
+
+
+def hit_rate_at_k(expected: set[str], retrieved: list[str], k: int) -> float:
+    if not expected:
+        return 0.0
+    top_k = set(retrieved[:k])
+    return 1.0 if expected & top_k else 0.0
+
+
+def mrr(expected: set[str], retrieved: list[str]) -> float:
+    if not expected:
+        return 0.0
+    for i, item in enumerate(retrieved, start=1):
+        if item in expected:
+            return 1.0 / i
+    return 0.0
+
+
+def average_precision(expected: set[str], retrieved: list[str]) -> float:
+    """Precision averaged at the ranks where each relevant item appears.
+
+    Standard IR definition:
+        AP = (1 / |expected|) * sum over k where retrieved[k-1] is relevant
+              of (number-of-hits-up-to-k / k)
+    """
+    if not expected:
+        return 0.0
+    hits = 0
+    precision_sum = 0.0
+    for i, item in enumerate(retrieved, start=1):
+        if item in expected:
+            hits += 1
+            precision_sum += hits / i
+    return precision_sum / len(expected) if precision_sum else 0.0
+
+
+def mean_average_precision(
+    pairs: Iterable[tuple[set[str], list[str]]],
+) -> float:
+    pair_list = list(pairs)
+    if not pair_list:
+        return 0.0
+    return sum(average_precision(e, r) for e, r in pair_list) / len(pair_list)
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_metrics.py -v 2>&1 | tail -10
+```
+
+Expected: ~30 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/metrics.py features/query-index-eval/tests/test_metrics.py
+git commit -m "feat(eval): add pure IR metrics (recall@k, hit@k, MRR, AP, MAP)"
+```
+
+---
+
+## Task 22: `runner.py` — `run_eval`
+
+Loads a dataset, runs each non-deprecated example through `query_index.hybrid_search`, computes per-query records and aggregates, and returns a `MetricsReport`. Sample-size flagging is computed here (`indicative` / `preliminary` / `reportable`).
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/runner.py`
+- Create: `features/query-index-eval/tests/test_runner.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for query_index_eval.runner.run_eval()."""
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+
+def _write_dataset(path: Path, rows: list[dict]) -> None:
+    import json
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+
+def _example_dict(qid: str, expected: list[str], deprecated: bool = False) -> dict:
+    return {
+        "query_id": qid,
+        "query": f"Q? {qid}",
+        "expected_chunk_ids": expected,
+        "source": "curated",
+        "chunk_hashes": {c: f"sha256:hash_{c}" for c in expected},
+        "filter": None,
+        "deprecated": deprecated,
+        "created_at": "2026-04-27T10:00:00Z",
+        "notes": None,
+    }
+
+
+def _hit(chunk_id: str, score: float = 0.5):
+    """Build a minimal SearchHit-like object."""
+    from query_index.types import SearchHit
+    return SearchHit(chunk_id=chunk_id, title="t", chunk="x", score=score)
+
+
+def test_run_eval_skips_deprecated_examples(tmp_dataset_path: Path, env_vars: dict) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(
+        tmp_dataset_path,
+        [
+            _example_dict("g0001", ["c1"]),
+            _example_dict("g0002", ["c2"], deprecated=True),
+        ],
+    )
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert len(report.per_query) == 1
+    assert report.per_query[0].query_id == "g0001"
+    assert report.metadata.dataset_size_active == 1
+    assert report.metadata.dataset_size_deprecated == 1
+
+
+def test_run_eval_records_ranks_and_hits_per_query(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(tmp_dataset_path, [_example_dict("g0001", ["c2", "c4"])])
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit(f"c{i}") for i in [1, 2, 3, 4, 5]]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    record = report.per_query[0]
+    assert record.expected_chunk_ids == ["c2", "c4"]
+    assert record.retrieved_chunk_ids == ["c1", "c2", "c3", "c4", "c5"]
+    assert record.ranks == [2, 4]
+    assert record.hits == [True, True]
+
+
+def test_run_eval_records_minus_one_rank_when_expected_not_found(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(tmp_dataset_path, [_example_dict("g0001", ["c99"])])
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit(f"c{i}") for i in [1, 2, 3]]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    record = report.per_query[0]
+    assert record.ranks == [-1]
+    assert record.hits == [False]
+
+
+def test_run_eval_aggregates_metrics_across_queries(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(
+        tmp_dataset_path,
+        [
+            _example_dict("g0001", ["c1"]),  # found at rank 1
+            _example_dict("g0002", ["c2"]),  # found at rank 2
+            _example_dict("g0003", ["c99"]),  # not found
+        ],
+    )
+
+    call_to_results = {
+        "Q? g0001": [_hit("c1"), _hit("c5"), _hit("c6")],
+        "Q? g0002": [_hit("c4"), _hit("c2"), _hit("c6")],
+        "Q? g0003": [_hit("c4"), _hit("c5"), _hit("c6")],
+    }
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return call_to_results[query]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    # Hit rate@1: 1/3 (only g0001 has c1 at rank 1)
+    assert report.aggregate.hit_rate_at_1 == pytest.approx(1 / 3)
+    # MRR: (1 + 1/2 + 0) / 3 = 0.5
+    assert report.aggregate.mrr == pytest.approx(0.5)
+    # Recall@5: g0001 1.0, g0002 1.0, g0003 0.0; mean = 2/3
+    assert report.aggregate.recall_at_5 == pytest.approx(2 / 3)
+
+
+def test_run_eval_assigns_size_status_indicative_for_small_n(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(
+        tmp_dataset_path,
+        [_example_dict(f"g{i:04d}", ["c1"]) for i in range(5)],
+    )
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert report.metadata.size_status == "indicative"
+
+
+def test_run_eval_assigns_size_status_preliminary_in_30_to_99(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(
+        tmp_dataset_path,
+        [_example_dict(f"g{i:04d}", ["c1"]) for i in range(50)],
+    )
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert report.metadata.size_status == "preliminary"
+
+
+def test_run_eval_assigns_size_status_reportable_at_100(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(
+        tmp_dataset_path,
+        [_example_dict(f"g{i:04d}", ["c1"]) for i in range(100)],
+    )
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert report.metadata.size_status == "reportable"
+
+
+def test_run_eval_metadata_includes_embedding_and_index_info(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    _write_dataset(tmp_dataset_path, [_example_dict("g0001", ["c1"])])
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    md = report.metadata
+    assert md.embedding_deployment_name == env_vars["EMBEDDING_DEPLOYMENT_NAME"]
+    assert md.embedding_model_version == env_vars["EMBEDDING_MODEL_VERSION"]
+    assert md.azure_openai_api_version == env_vars["AZURE_OPENAI_API_VERSION"]
+    assert md.search_index_name == env_vars["AI_SEARCH_INDEX_NAME"]
+    assert md.run_timestamp_utc.endswith("Z")  # ISO-8601 UTC
+
+
+def test_run_eval_passes_filter_per_example_when_set(
+    tmp_dataset_path: Path, env_vars: dict,
+) -> None:
+    from query_index_eval.runner import run_eval
+
+    rows = [_example_dict("g0001", ["c1"])]
+    rows[0]["filter"] = "category eq 'manual'"
+    _write_dataset(tmp_dataset_path, rows)
+
+    captured: dict = {}
+
+    def fake_search(query, top, filter=None, cfg=None):
+        captured["filter"] = filter
+        return [_hit("c1")]
+
+    with patch("query_index_eval.runner.hybrid_search", side_effect=fake_search):
+        run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert captured["filter"] == "category eq 'manual'"
+```
+
+The test file is missing a `pytest` import — add `import pytest` at the top:
+
+```python
+"""Tests for query_index_eval.runner.run_eval()."""
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+```
+
+(Apologies for forgetting — make sure your final test file has it.)
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_runner.py -v 2>&1 | tail -15
+```
+
+Expected: 9 errors with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement `runner.py`**
+
+```python
+"""Evaluation orchestration.
+
+Loads a dataset, runs each non-deprecated example through query_index's
+hybrid search, computes per-query records and aggregate metrics, and returns
+a MetricsReport ready for serialization.
+"""
+from __future__ import annotations
+
+import statistics
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from query_index import Config, hybrid_search
+
+from query_index_eval.datasets import load_dataset
+from query_index_eval.metrics import (
+    average_precision,
+    hit_rate_at_k,
+    mean_average_precision,
+    mrr,
+    recall_at_k,
+)
+from query_index_eval.schema import (
+    AggregateMetrics,
+    EvalExample,
+    MetricsReport,
+    OperationalMetrics,
+    QueryRecord,
+    RunMetadata,
+)
+
+
+SIZE_THRESHOLD_INDICATIVE = 30
+SIZE_THRESHOLD_REPORTABLE = 100
+
+
+def _size_status(n: int) -> str:
+    if n < SIZE_THRESHOLD_INDICATIVE:
+        return "indicative"
+    if n < SIZE_THRESHOLD_REPORTABLE:
+        return "preliminary"
+    return "reportable"
+
+
+def _ranks_and_hits(
+    expected: list[str], retrieved: list[str]
+) -> tuple[list[int], list[bool]]:
+    """For each expected chunk_id, the 1-based rank in retrieved (or -1 if absent),
+    and a parallel hits list."""
+    ranks: list[int] = []
+    hits: list[bool] = []
+    for chunk_id in expected:
+        if chunk_id in retrieved:
+            ranks.append(retrieved.index(chunk_id) + 1)
+            hits.append(True)
+        else:
+            ranks.append(-1)
+            hits.append(False)
+    return ranks, hits
+
+
+def run_eval(
+    dataset_path: Path,
+    top_k_max: int = 20,
+    filter_default: str | None = None,
+    cfg: Config | None = None,
+) -> MetricsReport:
+    if cfg is None:
+        cfg = Config.from_env()
+
+    all_examples = load_dataset(dataset_path)
+    deprecated_count = sum(1 for e in all_examples if e.deprecated)
+    active: list[EvalExample] = [e for e in all_examples if not e.deprecated]
+
+    per_query: list[QueryRecord] = []
+    latencies: list[float] = []
+    failures = 0
+
+    for example in active:
+        try:
+            t0 = time.perf_counter()
+            hits = hybrid_search(
+                example.query,
+                top=top_k_max,
+                filter=example.filter or filter_default,
+                cfg=cfg,
+            )
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            retrieved_ids = [h.chunk_id for h in hits]
+            ranks, hit_flags = _ranks_and_hits(example.expected_chunk_ids, retrieved_ids)
+            per_query.append(
+                QueryRecord(
+                    query_id=example.query_id,
+                    expected_chunk_ids=list(example.expected_chunk_ids),
+                    retrieved_chunk_ids=retrieved_ids,
+                    ranks=ranks,
+                    hits=hit_flags,
+                    latency_ms=latency_ms,
+                )
+            )
+            latencies.append(latency_ms)
+        except Exception:  # noqa: BLE001 — operational counter; details preserved by Azure SDK
+            failures += 1
+
+    # Aggregate metrics
+    pairs = [(set(r.expected_chunk_ids), r.retrieved_chunk_ids) for r in per_query]
+    aggregate = AggregateMetrics(
+        recall_at_5=_mean(recall_at_k(set(r.expected_chunk_ids), r.retrieved_chunk_ids, 5) for r in per_query),
+        recall_at_10=_mean(recall_at_k(set(r.expected_chunk_ids), r.retrieved_chunk_ids, 10) for r in per_query),
+        recall_at_20=_mean(recall_at_k(set(r.expected_chunk_ids), r.retrieved_chunk_ids, 20) for r in per_query),
+        map_score=mean_average_precision(pairs),
+        hit_rate_at_1=_mean(hit_rate_at_k(set(r.expected_chunk_ids), r.retrieved_chunk_ids, 1) for r in per_query),
+        mrr=_mean(mrr(set(r.expected_chunk_ids), r.retrieved_chunk_ids) for r in per_query),
+    )
+
+    operational = OperationalMetrics(
+        mean_latency_ms=statistics.fmean(latencies) if latencies else 0.0,
+        p95_latency_ms=_p95(latencies),
+        total_queries=len(per_query),
+        total_embedding_calls=len(per_query),  # one embedding per hybrid_search
+        failure_count=failures,
+    )
+
+    metadata = RunMetadata(
+        dataset_path=str(dataset_path),
+        dataset_size_active=len(active),
+        dataset_size_deprecated=deprecated_count,
+        embedding_deployment_name=cfg.embedding_deployment_name,
+        embedding_model_version=cfg.embedding_model_version,
+        azure_openai_api_version=cfg.azure_openai_api_version,
+        search_index_name=cfg.ai_search_index_name,
+        run_timestamp_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        size_status=_size_status(len(active)),
+    )
+
+    return MetricsReport(
+        aggregate=aggregate,
+        operational=operational,
+        metadata=metadata,
+        per_query=per_query,
+    )
+
+
+def _mean(values) -> float:  # type: ignore[no-untyped-def]
+    vs = list(values)
+    return sum(vs) / len(vs) if vs else 0.0
+
+
+def _p95(latencies: list[float]) -> float:
+    if not latencies:
+        return 0.0
+    sorted_l = sorted(latencies)
+    idx = int(0.95 * (len(sorted_l) - 1))
+    return sorted_l[idx]
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_runner.py -v 2>&1 | tail -15
+```
+
+Expected: 9 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/runner.py features/query-index-eval/tests/test_runner.py
+git commit -m "feat(eval): add run_eval orchestration with sample-size flagging"
+```
+
+---
+
+## Task 23: `curate.py` — interactive curation CLI
+
+Refuses to start without an interactive TTY. Substring check guards against accidental copy-paste of chunk text into the user-written query field.
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/curate.py`
+- Create: `features/query-index-eval/tests/test_curate.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for query_index_eval.curate.
+
+Most of curate's surface is interactive, so we test the pure-logic helpers
+plus the substring check in isolation. The interactive run loop is not
+exercised end-to-end here — that's verified manually by the user in their
+real workspace.
+"""
+from __future__ import annotations
+
+import pytest
+
+
+def test_query_substring_check_flags_long_overlap() -> None:
+    from query_index_eval.curate import query_substring_overlap
+
+    chunk = "Der Tragkorbdurchmesser beträgt 850 mm gemäß DIN 15020."
+    leaky_query = "Tragkorbdurchmesser beträgt 850 mm gemäß DIN 15020"
+    assert query_substring_overlap(leaky_query, chunk) >= 30
+
+
+def test_query_substring_check_passes_short_keyword_overlap() -> None:
+    from query_index_eval.curate import query_substring_overlap
+
+    chunk = "Der Tragkorbdurchmesser beträgt 850 mm gemäß DIN 15020."
+    safe_query = "Wo steht der Tragkorbdurchmesser?"
+    # Overlap "Tragkorbdurchmesser" is 19 chars — below the 30-char heuristic
+    assert query_substring_overlap(safe_query, chunk) < 30
+
+
+def test_query_substring_check_zero_when_disjoint() -> None:
+    from query_index_eval.curate import query_substring_overlap
+
+    assert query_substring_overlap("etwas anderes", "Tragkorb") == 0
+
+
+def test_require_tty_raises_when_stdin_not_a_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from query_index_eval.curate import require_interactive_tty
+
+    class FakeStdin:
+        def fileno(self) -> int:
+            return 999  # non-tty fd
+
+    monkeypatch.setattr("sys.stdin", FakeStdin())
+    monkeypatch.setattr("os.isatty", lambda _fd: False)
+    with pytest.raises(SystemExit) as excinfo:
+        require_interactive_tty()
+    assert excinfo.value.code == 1
+
+
+def test_require_tty_passes_when_stdin_is_a_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from query_index_eval.curate import require_interactive_tty
+
+    monkeypatch.setattr("os.isatty", lambda _fd: True)
+    require_interactive_tty()  # should not raise
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_curate.py -v 2>&1 | tail -10
+```
+
+Expected: 5 errors with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement `curate.py`**
+
+```python
+"""Interactive curation CLI helpers.
+
+Two mechanical safeties for the curation flow:
+1. require_interactive_tty() — refuses to run if stdin is not a tty.
+   Prevents accidental invocation through a non-interactive shell (in
+   particular, an LLM agent's Bash tool would have no tty here).
+2. query_substring_overlap() — heuristic detection of accidental copy-paste
+   of chunk text into the user-written query.
+
+The full interactive loop is implemented in `interactive_curate()` but is
+exercised by the user manually rather than in unit tests.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from query_index import Config, get_chunk, hybrid_search, sample_chunks
+
+from query_index_eval.datasets import append_example
+from query_index_eval.schema import EvalExample
+
+
+SUBSTRING_OVERLAP_THRESHOLD = 30
+"""If a user-written query shares a contiguous substring of this many
+characters or more with the chunk text, warn before saving — that's almost
+certainly an accidental copy-paste rather than a real user query."""
+
+
+def require_interactive_tty() -> None:
+    """Exit with code 1 if stdin is not an interactive TTY."""
+    try:
+        is_tty = os.isatty(sys.stdin.fileno())
+    except (AttributeError, OSError, ValueError):
+        is_tty = False
+    if not is_tty:
+        print(
+            "ERROR: query-eval curate requires an interactive TTY. "
+            "Run it in a regular terminal — not through a non-interactive shell, "
+            "subprocess, or LLM agent tool.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+
+def query_substring_overlap(query: str, chunk_text: str) -> int:
+    """Return the length of the longest contiguous substring of `query` that
+    also appears in `chunk_text`. Linear scan over query positions; quadratic
+    in the worst case but query is short. Used as a copy-paste heuristic."""
+    if not query or not chunk_text:
+        return 0
+    longest = 0
+    n = len(query)
+    for start in range(n):
+        end = start + longest + 1
+        # Try to extend matches starting at `start`
+        while end <= n and query[start:end] in chunk_text:
+            longest = end - start
+            end += 1
+    return longest
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _hash(text: str) -> str:
+    return "sha256:" + hashlib.sha256(_normalize(text).encode("utf-8")).hexdigest()
+
+
+def _next_query_id(existing_ids: set[str]) -> str:
+    n = 1
+    while f"g{n:04d}" in existing_ids:
+        n += 1
+    return f"g{n:04d}"
+
+
+def interactive_curate(
+    dataset_path: Path,
+    chunk_id: str | None = None,
+    seed: int | None = None,
+    cfg: Config | None = None,
+) -> None:
+    require_interactive_tty()
+    if cfg is None:
+        cfg = Config.from_env()
+
+    print(
+        "REMINDER: never paste chunk text into Claude or any other shared chat. "
+        "Reference chunks only by chunk_id.\n"
+    )
+
+    if chunk_id is not None:
+        chunk = get_chunk(chunk_id, cfg)
+    else:
+        seed_val = seed if seed is not None else int(datetime.now(timezone.utc).timestamp())
+        [chunk] = sample_chunks(1, seed=seed_val, cfg=cfg)
+
+    print("=" * 70)
+    print(f"chunk_id: {chunk.chunk_id}")
+    print(f"title:    {chunk.title}")
+    print("-" * 70)
+    print(chunk.chunk)
+    print("=" * 70)
+
+    query = input("Write a query this chunk should answer:\n> ").strip()
+
+    overlap = query_substring_overlap(query, chunk.chunk)
+    if overlap >= SUBSTRING_OVERLAP_THRESHOLD:
+        print(
+            f"WARNING: your query shares a {overlap}-char substring with the chunk "
+            "— this looks like accidental copy-paste."
+        )
+        if input("Save anyway? [y/N] ").strip().lower() != "y":
+            print("Aborted; nothing saved.")
+            return
+
+    show_search = input("Run hybrid_search on this query to preview top-5? [y/N] ").strip().lower()
+    if show_search == "y":
+        hits = hybrid_search(query, top=5, cfg=cfg)
+        print("Top 5 retrieved:")
+        for i, h in enumerate(hits, start=1):
+            print(f"  {i}. {h.chunk_id}  (score {h.score:.3f})")
+
+    if input(f"Add example to {dataset_path}? [y/N] ").strip().lower() != "y":
+        print("Aborted; nothing saved.")
+        return
+
+    # Look up existing ids to avoid collision
+    existing_ids: set[str] = set()
+    if dataset_path.exists():
+        from query_index_eval.datasets import load_dataset
+        existing_ids = {e.query_id for e in load_dataset(dataset_path)}
+
+    example = EvalExample(
+        query_id=_next_query_id(existing_ids),
+        query=query,
+        expected_chunk_ids=[chunk.chunk_id],
+        source="curated",
+        chunk_hashes={chunk.chunk_id: _hash(chunk.chunk)},
+        filter=None,
+        deprecated=False,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        notes=None,
+    )
+    append_example(dataset_path, example)
+    print(f"Saved {example.query_id} to {dataset_path}")
+    print(
+        "\nREMINDER: never paste chunk text into Claude or any other shared chat. "
+        "Reference chunks only by chunk_id."
+    )
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_curate.py -v 2>&1 | tail -10
+```
+
+Expected: 5 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/curate.py features/query-index-eval/tests/test_curate.py
+git commit -m "feat(eval): add curate CLI with TTY guard and substring-overlap check"
+```
+
+---
+
+## Task 24: `cli.py` — entry-point dispatcher
+
+The `query-eval` console script. Subcommands: `curate`, `eval`, `report`, `schema-discovery`. Loads `.env` from repo root once. Tested at the dispatch layer — each subcommand's logic is in its own module already.
+
+**Files:**
+- Create: `features/query-index-eval/src/query_index_eval/cli.py`
+- Create: `features/query-index-eval/tests/test_cli.py`
+
+- [ ] **Step 1: Write failing tests**
+
+```python
+"""Tests for the query-eval CLI dispatcher."""
+from __future__ import annotations
+
+from unittest.mock import patch
+
+
+def test_cli_dispatches_curate(monkeypatch) -> None:
+    from query_index_eval.cli import main
+
+    with patch("query_index_eval.cli.interactive_curate") as mock_curate:
+        rc = main(["curate", "--dataset", "ds.jsonl"])
+    assert rc == 0
+    mock_curate.assert_called_once()
+
+
+def test_cli_dispatches_eval_with_default_top_k(monkeypatch) -> None:
+    from query_index_eval.cli import main
+
+    with patch("query_index_eval.cli.run_eval") as mock_run, patch(
+        "query_index_eval.cli._write_report"
+    ):
+        rc = main(["eval", "--dataset", "ds.jsonl"])
+    assert rc == 0
+    args, kwargs = mock_run.call_args
+    assert kwargs["top_k_max"] == 20  # default
+
+
+def test_cli_dispatches_eval_passes_top_argument(monkeypatch) -> None:
+    from query_index_eval.cli import main
+
+    with patch("query_index_eval.cli.run_eval") as mock_run, patch(
+        "query_index_eval.cli._write_report"
+    ):
+        main(["eval", "--dataset", "ds.jsonl", "--top", "10"])
+    args, kwargs = mock_run.call_args
+    assert kwargs["top_k_max"] == 10
+
+
+def test_cli_dispatches_schema_discovery(monkeypatch) -> None:
+    from query_index_eval.cli import main
+
+    with patch("query_index_eval.cli.print_index_schema") as mock_schema:
+        rc = main(["schema-discovery"])
+    assert rc == 0
+    mock_schema.assert_called_once()
+
+
+def test_cli_unknown_subcommand_returns_nonzero(monkeypatch) -> None:
+    from query_index_eval.cli import main
+
+    rc = main(["unknown-thing"])
+    assert rc != 0
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_cli.py -v 2>&1 | tail -10
+```
+
+Expected: 5 errors with `ModuleNotFoundError`.
+
+- [ ] **Step 3: Implement `cli.py`**
+
+```python
+"""query-eval CLI entry point."""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from query_index import Config, print_index_schema as _print_index_schema_impl  # type: ignore[attr-defined]
+
+from query_index_eval.curate import interactive_curate
+from query_index_eval.runner import run_eval
+from query_index_eval.schema import MetricsReport
+
+
+# Re-bind for patchability in tests
+print_index_schema = _print_index_schema_impl
+
+
+DEFAULT_DATASET = Path("features/query-index-eval/datasets/golden_v1.jsonl")
+DEFAULT_REPORTS_DIR = Path("features/query-index-eval/reports")
+
+
+def _write_report(report: MetricsReport, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dataset_stem = Path(report.metadata.dataset_path).stem
+    out_path = out_dir / f"{timestamp}-{dataset_stem}.json"
+    out_path.write_text(json.dumps(asdict(report), indent=2, ensure_ascii=False))
+    return out_path
+
+
+def _print_summary(report: MetricsReport, out_path: Path) -> None:
+    a = report.aggregate
+    md = report.metadata
+    if md.size_status == "indicative":
+        banner = "INDICATIVE — n < 30, results NOT statistically reliable"
+    elif md.size_status == "preliminary":
+        banner = "PRELIMINARY — 30 ≤ n < 100, treat with caution"
+    else:
+        banner = "REPORTABLE — n ≥ 100"
+    print()
+    print(f"=== {banner} ===")
+    print(f"dataset:      {md.dataset_path}")
+    print(f"active:       {md.dataset_size_active}    deprecated: {md.dataset_size_deprecated}")
+    print(f"index:        {md.search_index_name}")
+    print(f"embedding:    {md.embedding_deployment_name} v{md.embedding_model_version}")
+    print(f"timestamp:    {md.run_timestamp_utc}")
+    print()
+    print(f"Recall@5:     {a.recall_at_5:.3f}")
+    print(f"Recall@10:    {a.recall_at_10:.3f}")
+    print(f"Recall@20:    {a.recall_at_20:.3f}")
+    print(f"MAP:          {a.map_score:.3f}")
+    print(f"Hit Rate@1:   {a.hit_rate_at_1:.3f}")
+    print(f"MRR:          {a.mrr:.3f}")
+    print()
+    print(f"report file:  {out_path}")
+
+
+def _load_env() -> None:
+    """Load .env from repo root (or current dir as fallback) once."""
+    repo_root = Path(__file__).resolve().parents[4]  # src/query_index_eval/cli.py -> repo root
+    env_path = repo_root / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+    else:
+        load_dotenv()  # falls back to default search
+
+
+def _cmd_curate(args: argparse.Namespace) -> int:
+    interactive_curate(
+        dataset_path=Path(args.dataset),
+        chunk_id=args.chunk_id,
+        seed=args.seed,
+    )
+    return 0
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    cfg = Config.from_env()
+    report = run_eval(
+        dataset_path=Path(args.dataset),
+        top_k_max=args.top,
+        cfg=cfg,
+    )
+    out_path = _write_report(report, DEFAULT_REPORTS_DIR)
+    _print_summary(report, out_path)
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    a = json.loads(Path(args.compare[0]).read_text())
+    b = json.loads(Path(args.compare[1]).read_text())
+    a_md = a["metadata"]
+    b_md = b["metadata"]
+    drift = []
+    for key in (
+        "embedding_deployment_name",
+        "embedding_model_version",
+        "azure_openai_api_version",
+        "search_index_name",
+    ):
+        if a_md[key] != b_md[key]:
+            drift.append(f"{key}: A={a_md[key]!r}  B={b_md[key]!r}")
+    if drift:
+        print("WARNING: reports differ in run-defining metadata; comparison may be misleading:")
+        for d in drift:
+            print(f"  {d}")
+        print()
+    print(f"{'metric':<14} {'A':>10} {'B':>10} {'B-A':>10}")
+    for key in ("recall_at_5", "recall_at_10", "recall_at_20", "map_score", "hit_rate_at_1", "mrr"):
+        av = a["aggregate"][key]
+        bv = b["aggregate"][key]
+        print(f"{key:<14} {av:>10.3f} {bv:>10.3f} {bv - av:>+10.3f}")
+    return 0
+
+
+def _cmd_schema_discovery(args: argparse.Namespace) -> int:
+    cfg = Config.from_env()
+    print_index_schema(args.index_name or cfg.ai_search_index_name, cfg)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    _load_env()
+    parser = argparse.ArgumentParser(prog="query-eval")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_curate = sub.add_parser("curate", help="Interactive curation (TTY required)")
+    p_curate.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    p_curate.add_argument("--chunk-id", default=None)
+    p_curate.add_argument("--seed", type=int, default=None)
+    p_curate.set_defaults(func=_cmd_curate)
+
+    p_eval = sub.add_parser("eval", help="Run evaluation, write report")
+    p_eval.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    p_eval.add_argument("--top", type=int, default=20)
+    p_eval.set_defaults(func=_cmd_eval)
+
+    p_report = sub.add_parser("report", help="Compare two metric reports")
+    p_report.add_argument("--compare", nargs=2, required=True, metavar=("A", "B"))
+    p_report.set_defaults(func=_cmd_report)
+
+    p_schema = sub.add_parser("schema-discovery", help="Print the configured index schema")
+    p_schema.add_argument("--index-name", default=None)
+    p_schema.set_defaults(func=_cmd_schema_discovery)
+
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as e:
+        return int(e.code or 2)
+    try:
+        return int(args.func(args) or 0)
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Note: the `print_index_schema` import alias above is required because `query_index.print_index_schema` is exposed at the submodule level but not in the public `__init__`. Adjust the import based on what's actually exported. If it's NOT in the public API, import it as `from query_index.schema_discovery import print_index_schema as _print_index_schema_impl`.
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_cli.py -v 2>&1 | tail -10
+```
+
+Expected: 5 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/cli.py features/query-index-eval/tests/test_cli.py
+git commit -m "feat(eval): add query-eval CLI dispatcher (curate/eval/report/schema-discovery)"
+```
+
+---
+
+## Task 25: Public API in `query_index_eval/__init__.py`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `features/query-index-eval/tests/test_public_api.py`:
+
+```python
+"""Tests for the re-exported public API at query_index_eval.__init__."""
+from __future__ import annotations
+
+
+def test_public_api_exports_expected_names() -> None:
+    import query_index_eval
+
+    expected = {
+        "AggregateMetrics",
+        "EvalExample",
+        "MetricsReport",
+        "OperationalMetrics",
+        "QueryRecord",
+        "RunMetadata",
+        "average_precision",
+        "hit_rate_at_k",
+        "load_dataset",
+        "mean_average_precision",
+        "mrr",
+        "recall_at_k",
+        "run_eval",
+    }
+    missing = expected - set(dir(query_index_eval))
+    assert not missing, f"Missing public exports: {missing}"
+```
+
+- [ ] **Step 2: Run, confirm fail**
+
+```bash
+pytest features/query-index-eval/tests/test_public_api.py -v 2>&1 | tail -10
+```
+
+Expected: failure citing missing exports.
+
+- [ ] **Step 3: Populate `__init__.py`**
+
+Replace `features/query-index-eval/src/query_index_eval/__init__.py` content with:
+
+```python
+"""Public API for the query_index_eval package."""
+from query_index_eval.datasets import load_dataset
+from query_index_eval.metrics import (
+    average_precision,
+    hit_rate_at_k,
+    mean_average_precision,
+    mrr,
+    recall_at_k,
+)
+from query_index_eval.runner import run_eval
+from query_index_eval.schema import (
+    AggregateMetrics,
+    EvalExample,
+    MetricsReport,
+    OperationalMetrics,
+    QueryRecord,
+    RunMetadata,
+)
+
+__all__ = [
+    "AggregateMetrics",
+    "EvalExample",
+    "MetricsReport",
+    "OperationalMetrics",
+    "QueryRecord",
+    "RunMetadata",
+    "average_precision",
+    "hit_rate_at_k",
+    "load_dataset",
+    "mean_average_precision",
+    "mrr",
+    "recall_at_k",
+    "run_eval",
+]
+```
+
+- [ ] **Step 4: Run, confirm pass**
+
+```bash
+pytest features/query-index-eval/tests/test_public_api.py -v 2>&1 | tail -10
+```
+
+Expected: 1 test passes.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add features/query-index-eval/src/query_index_eval/__init__.py features/query-index-eval/tests/test_public_api.py
+git commit -m "feat(eval): expose public API"
+```
+
+---
+
+## Task 26: Phase-2 acceptance check (verification only)
+
+- [ ] **Step 1: Full test run on the eval package**
+
+```bash
+pytest features/query-index-eval/ --cov=query_index_eval --cov-report=term-missing 2>&1 | tail -30
+```
+
+Expected: every test passes, coverage ≥ 90 % on `src/query_index_eval/`.
+
+- [ ] **Step 2: Combined test run on both packages**
+
+```bash
+pytest features/ 2>&1 | tail -10
+```
+
+Expected: ~85+ tests passing total.
+
+- [ ] **Step 3: Lint clean across all features**
+
+```bash
+make lint
+```
+
+Expected: zero issues.
+
+- [ ] **Step 4: Pre-commit on all files**
+
+```bash
+pre-commit run --all-files
+```
+
+Expected: all hooks pass.
+
+- [ ] **Step 5: Verify the console script works**
+
+```bash
+query-eval --help
+```
+
+Expected: argparse help text listing the four subcommands.
+
+- [ ] **Step 6: Verify `query-eval schema-discovery` fails gracefully without `.env`**
+
+```bash
+query-eval schema-discovery 2>&1 | tail -5
+```
+
+Expected: a clear "missing environment variable" error (since no `.env` is present in this development workspace). Returns exit 1, doesn't crash.
+
+End of Phase 2.
+
+---
+
+# Phase 3 — Acceptance and PR
+
+## Task 27: Spec acceptance criteria check
+
+Walk through the seven acceptance criteria from `docs/superpowers/specs/2026-04-27-query-index-evaluation-design.md` (the "Acceptance criteria" section) and confirm each one in turn.
+
+- [ ] **Step 1: AC1 — `bootstrap.sh && make test` ≥ 90 % coverage on both packages**
+
+```bash
+./bootstrap.sh
+source .venv/bin/activate
+make test-cov
+```
+
+Expected: both packages report coverage ≥ 90 %, with `query_index_eval/metrics.py` at 100 %.
+
+- [ ] **Step 2: AC2 — `make lint` zero errors**
+
+```bash
+make lint
+```
+
+Expected: clean.
+
+- [ ] **Step 3: AC3 — `archive/query_index_v0.py` byte-for-byte unchanged from original**
+
+```bash
+git log --follow --oneline archive/query_index_v0.py
+git show HEAD:query_index.py 2>/dev/null || git log --all --diff-filter=D --pretty=format:'%H %s' -- query_index.py
+```
+
+The file's content prior to the rename should be identical. Use `git log -p` on the rename commit to inspect.
+
+- [ ] **Step 4: AC4 — `query-eval curate` refuses to run without an interactive TTY**
+
+```bash
+echo "" | query-eval curate 2>&1 | head -3
+echo "exit=$?"
+```
+
+Expected: error message about TTY, exit code 1.
+
+- [ ] **Step 5: AC5 — `query-eval eval` produces a JSON report (skip — requires real Azure)**
+
+This AC is verified by the user in their separate cloned workspace; we cannot exercise it here without Azure credentials. Note the deferral.
+
+- [ ] **Step 6: AC6 — boundary rule enforced by pre-commit hook**
+
+```bash
+mkdir -p features/query-index-eval/src/x
+echo 'import azure.search.documents' > features/query-index-eval/src/x/violator.py
+git add features/query-index-eval/src/x/violator.py
+pre-commit run --files features/query-index-eval/src/x/violator.py 2>&1 | tail -5
+echo "boundary check exit=$?"
+git rm -f features/query-index-eval/src/x/violator.py
+rmdir features/query-index-eval/src/x 2>/dev/null || true
+```
+
+Expected: pre-commit fails the boundary hook (exit non-zero), prints the violation. After cleanup, working tree is back to clean.
+
+- [ ] **Step 7: AC7 — README content present and accurate**
+
+```bash
+test -f README.md
+test -f features/query-index/README.md
+test -f features/query-index-eval/README.md
+grep -q "workspace separation" README.md
+grep -q "Public API" features/query-index/README.md
+grep -q "Public API" features/query-index-eval/README.md
+echo "README check: ALL PRESENT"
+```
+
+Expected: prints `README check: ALL PRESENT`.
+
+- [ ] **Step 8: No commit needed if all checks pass.** If any check produced an inadvertent change, revert it.
+
+---
+
+## Task 28: Final README polish
+
+If the cross-package usage examples in the top-level `README.md` are stale (likely — many implementation details only crystallised during Phase 2), update them.
+
+- [ ] **Step 1: Re-read `README.md`** and confirm:
+  - The "Production workflow" section's step ordering matches what the implementation supports (`bootstrap.sh`, then `make schema`, then `make curate`, then `make eval`).
+  - The console script name `query-eval` is consistent everywhere.
+  - The Documents section's links are valid.
+
+- [ ] **Step 2: If updates needed, edit and commit.** If no updates needed, skip.
+
+```bash
+# Only if needed:
+git add README.md
+git commit -m "docs: refresh top-level README for query-index-eval workflow"
+```
+
+---
+
+## Task 29: Open the PR
+
+The PR is the single delivery artifact agreed with the user. Per user instruction, no PR is opened until the system is end-to-end functional, which it now is (modulo the deferred AC5 that requires real Azure).
+
+- [ ] **Step 1: Push the branch**
+
+```bash
+git push -u origin feat/query-index-evaluation
+```
+
+Note: if `origin` is not configured, this will fail. In that case, ask the user how they want to publish (skip the push, leave as a local branch, or set up a remote first). Do NOT add a remote autonomously.
+
+- [ ] **Step 2: Open the PR**
+
+```bash
+gh pr create --base main --head feat/query-index-evaluation \
+  --title "feat: query-index search library + retrieval-quality evaluation pipeline" \
+  --body "$(cat <<'EOF'
+## Summary
+
+Implements the design at `docs/superpowers/specs/2026-04-27-query-index-evaluation-design.md`. Two-package monorepo:
+
+- `features/query-index/` — Azure AI Search hybrid-query library; the only package allowed to import `azure.*` / `openai`. Public API: `Chunk`, `SearchHit`, `Config`, `hybrid_search`, `get_chunk`, `sample_chunks`, `get_embedding`. Helpers: `print_index_schema`, `populate_index`.
+- `features/query-index-eval/` — retrieval-quality evaluation pipeline. Public API: dataclasses (`EvalExample`, `MetricsReport`, ...), pure metrics (`recall_at_k`, `mrr`, `map`, ...), `run_eval`, `load_dataset`. CLI: `query-eval {curate, eval, report, schema-discovery}`.
+
+The existing prototype `query_index.py` is preserved unchanged at `archive/query_index_v0.py`.
+
+## Architecture highlights
+
+- Pre-commit boundary hook enforces that only `features/query-index/` imports `azure.*` / `openai`; catches indented and `if TYPE_CHECKING:`-guarded imports too.
+- `golden_v1.jsonl` is gitignored and append-only with one-way deprecation; `datasets.py` enforces this in process.
+- Reports include embedding deployment + version + API version + index name; `query-eval report --compare` warns when these differ between runs.
+- `query-eval curate` refuses to run without an interactive TTY and warns on long substring overlap between user query and chunk text (accidental copy-paste detector).
+- Hybrid `cfg` convention across public functions: optional `cfg=None` defaults to `Config.from_env()`.
+
+## Test plan
+
+- [x] Unit tests pass (`make test`) — both packages
+- [x] Coverage ≥ 90 % on both packages, 100 % on `metrics.py`
+- [x] Lint clean (`make lint`) — ruff + mypy
+- [x] Pre-commit clean (`pre-commit run --all-files`)
+- [x] Boundary hook catches a planted violation (verified in Task 27)
+- [x] `query-eval --help` lists subcommands
+- [x] `query-eval curate` exits 1 without TTY
+- [ ] **End-to-end against a real Azure index — verified by user in their separate cloned workspace** (deferred, per spec)
+
+## What's NOT in this PR
+
+- Synthetic test-set generation (deferred to a future iteration; the dataset schema reserves `query_id` prefix `s####` for it).
+- CI / GitHub Actions (deferred until a forcing function exists).
+- Production-grade ingestion pipeline (`ingest.py` is intentionally minimal).
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+- [ ] **Step 3: Print the PR URL**
+
+The `gh pr create` output ends with the URL. Capture it and report back to the user.
+
+- [ ] **Step 4: No commit for Task 29 itself** — the PR is a delivery action, not a code change.
+
+---
+
+## End of plan
+
+After Task 29, this plan is fully executed. Outstanding work after merge:
+
+- The user verifies the system end-to-end in their separate cloned workspace (real `data/`, real `.env`).
+- If the user finds Phase-2 implementation issues that only surface against real Azure (field name mismatches, encoding, auth quirks), open a follow-up PR with sanitised reproductions.
+- Future work tracked in the spec's "Out of scope" section: synthetic generation, CI, production ingestion, end-to-end answer quality.
