@@ -70,3 +70,65 @@ def test_populate_index_raises_when_source_missing(
         with pytest.raises(FileNotFoundError):
             populate_index(missing, cfg)
         mock_get_search.assert_not_called()
+
+
+def test_populate_index_uses_config_from_env_when_none(
+    env_vars: dict[str, str], tmp_path: Path
+) -> None:
+    """Covers the `cfg = Config.from_env()` branch when cfg is not passed."""
+    from query_index.ingest import populate_index
+
+    (tmp_path / "doc1.txt").write_text("some content")
+
+    mock_search_client = MagicMock()
+    with (
+        patch("query_index.ingest.get_search_client", return_value=mock_search_client),
+        patch("query_index.ingest.get_embedding", return_value=[0.0] * 3072),
+    ):
+        populate_index(tmp_path)  # cfg=None — triggers Config.from_env()
+
+    mock_search_client.upload_documents.assert_called_once()
+
+
+def test_populate_index_skips_subdirectories(env_vars: dict[str, str], tmp_path: Path) -> None:
+    """Covers the `continue` branch when a path entry is not a file."""
+    from query_index.config import Config
+    from query_index.ingest import populate_index
+
+    (tmp_path / "doc1.txt").write_text("content")
+    (tmp_path / "subdir").mkdir()  # non-file entry that should be skipped
+
+    mock_search_client = MagicMock()
+    cfg = Config.from_env()
+    with (
+        patch("query_index.ingest.get_search_client", return_value=mock_search_client),
+        patch("query_index.ingest.get_embedding", return_value=[0.0] * 3072),
+    ):
+        populate_index(tmp_path, cfg)
+
+    uploaded = (
+        mock_search_client.upload_documents.call_args.kwargs.get("documents")
+        or mock_search_client.upload_documents.call_args.args[0]
+    )
+    assert len(uploaded) == 1
+    assert uploaded[0]["chunk_id"] == "doc1"
+
+
+def test_populate_index_empty_directory_does_not_upload(
+    env_vars: dict[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Covers the early-return branch when no source files are found."""
+    from query_index.config import Config
+    from query_index.ingest import populate_index
+
+    mock_search_client = MagicMock()
+    cfg = Config.from_env()
+    with (
+        patch("query_index.ingest.get_search_client", return_value=mock_search_client),
+        patch("query_index.ingest.get_embedding", return_value=[0.0] * 3072),
+    ):
+        populate_index(tmp_path, cfg)
+
+    mock_search_client.upload_documents.assert_not_called()
+    out = capsys.readouterr().out
+    assert "No source files found" in out
