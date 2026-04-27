@@ -20,6 +20,7 @@ def test_cli_dispatches_eval_with_default_top_k() -> None:
     with (
         patch("query_index_eval.cli.run_eval") as mock_run,
         patch("query_index_eval.cli._write_report"),
+        patch("query_index_eval.cli._print_summary"),
         patch("query_index_eval.cli.Config") as mock_cfg,
     ):
         mock_cfg.from_env.return_value = mock_cfg
@@ -35,6 +36,7 @@ def test_cli_dispatches_eval_passes_top_argument() -> None:
     with (
         patch("query_index_eval.cli.run_eval") as mock_run,
         patch("query_index_eval.cli._write_report"),
+        patch("query_index_eval.cli._print_summary"),
         patch("query_index_eval.cli.Config") as mock_cfg,
     ):
         mock_cfg.from_env.return_value = mock_cfg

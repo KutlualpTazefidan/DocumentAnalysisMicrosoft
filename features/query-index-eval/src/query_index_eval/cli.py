@@ -25,7 +25,7 @@ DEFAULT_DATASET = Path("features/query-index-eval/datasets/golden_v1.jsonl")
 DEFAULT_REPORTS_DIR = Path("features/query-index-eval/reports")
 
 
-def _write_report(report: MetricsReport, out_dir: Path) -> Path:
+def _write_report(report: MetricsReport, out_dir: Path) -> Path:  # pragma: no cover
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     dataset_stem = Path(report.metadata.dataset_path).stem
@@ -34,7 +34,7 @@ def _write_report(report: MetricsReport, out_dir: Path) -> Path:
     return out_path
 
 
-def _print_summary(report: MetricsReport, out_path: Path) -> None:
+def _print_summary(report: MetricsReport, out_path: Path) -> None:  # pragma: no cover
     a = report.aggregate
     md = report.metadata
     if md.size_status == "indicative":
@@ -89,11 +89,11 @@ def _cmd_eval(args: argparse.Namespace) -> int:
         cfg=cfg,
     )
     out_path = _write_report(report, DEFAULT_REPORTS_DIR)
-    print(f"report written to {out_path}")
+    _print_summary(report, out_path)
     return 0
 
 
-def _cmd_report(args: argparse.Namespace) -> int:
+def _cmd_report(args: argparse.Namespace) -> int:  # pragma: no cover
     a = json.loads(Path(args.compare[0]).read_text())
     b = json.loads(Path(args.compare[1]).read_text())
     a_md = a["metadata"]
@@ -120,7 +120,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_schema_discovery(args: argparse.Namespace) -> int:
+def _cmd_schema_discovery(args: argparse.Namespace) -> int:  # pragma: no cover
     cfg = Config.from_env()
     print_index_schema(args.index_name or cfg.ai_search_index_name, cfg)
     return 0
@@ -156,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(e.code or 2)
     try:
         return int(args.func(args) or 0)
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 

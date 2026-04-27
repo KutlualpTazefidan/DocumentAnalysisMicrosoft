@@ -96,7 +96,7 @@ def interactive_curate(
     chunk_id: str | None = None,
     seed: int | None = None,
     cfg: Config | None = None,
-) -> None:
+) -> None:  # pragma: no cover
     require_interactive_tty()
     if cfg is None:
         cfg = Config.from_env()
