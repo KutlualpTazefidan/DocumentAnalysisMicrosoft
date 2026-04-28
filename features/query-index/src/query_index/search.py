@@ -1,4 +1,8 @@
-"""Hybrid (text + vector) search over the configured Azure AI Search index."""
+"""Hybrid (text + vector) search over the configured Azure AI Search index.
+
+Reads the canonical notebook schema: `id`, `chunk`, `title`, `chunkVector`,
+optional `section_heading`, optional `source_file`.
+"""
 
 from __future__ import annotations
 
@@ -16,20 +20,13 @@ def hybrid_search(
     filter: str | None = None,
     cfg: Config | None = None,
 ) -> list[SearchHit]:
-    """Run a hybrid (text + vector) search.
-
-    Returns up to `top` SearchHits ranked by Azure's hybrid scoring. The
-    `filter` argument, if given, is passed through as an OData filter
-    expression. The chunk text is included in each SearchHit but is
-    repr-suppressed (see types.py).
-    """
     if cfg is None:
         cfg = Config.from_env()
     vector = get_embedding(query, cfg)
     vector_query = VectorizedQuery(
         vector=vector,
         k_nearest_neighbors=top,
-        fields="text_vector",
+        fields="chunkVector",
     )
     search_client = get_search_client(cfg)
     results = search_client.search(
@@ -43,10 +40,12 @@ def hybrid_search(
     for r in results:
         hits.append(
             SearchHit(
-                chunk_id=r["chunk_id"],
+                chunk_id=r["id"],
                 title=r["title"],
                 chunk=r["chunk"],
                 score=float(r.get("@search.score", 0.0)),
+                section_heading=r.get("section_heading"),
+                source_file=r.get("source_file"),
             )
         )
     return hits

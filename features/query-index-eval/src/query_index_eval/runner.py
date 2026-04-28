@@ -7,12 +7,13 @@ a MetricsReport ready for serialization.
 
 from __future__ import annotations
 
+import hashlib
 import statistics
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from query_index import Config, hybrid_search
+from query_index import Config, get_chunk, hybrid_search
 
 from query_index_eval.datasets import load_dataset
 from query_index_eval.metrics import (
@@ -75,6 +76,36 @@ def _p95(latencies: list[float]) -> float:
     return sorted_l[idx]
 
 
+def _normalize(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _hash_chunk(text: str) -> str:
+    return "sha256:" + hashlib.sha256(_normalize(text).encode("utf-8")).hexdigest()
+
+
+def _check_drift(
+    examples: list[EvalExample],
+    cfg: Config,
+) -> list[str]:
+    """Return query_ids whose expected chunks no longer match recorded hashes."""
+    drifted: list[str] = []
+    for example in examples:
+        if not example.chunk_hashes:
+            continue
+        for chunk_id, expected_hash in example.chunk_hashes.items():
+            try:
+                actual = get_chunk(chunk_id, cfg)
+            except Exception:  # chunk not in index is also drift
+                drifted.append(example.query_id)
+                break
+            actual_hash = _hash_chunk(actual.chunk)
+            if actual_hash != expected_hash:
+                drifted.append(example.query_id)
+                break
+    return drifted
+
+
 def run_eval(
     dataset_path: Path,
     top_k_max: int = 20,
@@ -87,6 +118,9 @@ def run_eval(
     all_examples = load_dataset(dataset_path)
     deprecated_count = sum(1 for e in all_examples if e.deprecated)
     active: list[EvalExample] = [e for e in all_examples if not e.deprecated]
+
+    drifted_ids = _check_drift(active, cfg)
+    drift_warning = len(drifted_ids) > max(1, len(active) // 10)
 
     per_query: list[QueryRecord] = []
     latencies: list[float] = []
@@ -154,6 +188,8 @@ def run_eval(
         search_index_name=cfg.ai_search_index_name,
         run_timestamp_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         size_status=_size_status(len(active)),
+        drifted_query_ids=drifted_ids,
+        drift_warning=drift_warning,
     )
 
     return MetricsReport(

@@ -8,11 +8,24 @@ EvalExample objects, and a sample MetricsReport.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def _patch_get_chunk():
+    """Prevent any test from calling the real get_chunk (which hits Azure).
+
+    Tests that need specific get_chunk behaviour override this by adding their
+    own ``patch("query_index_eval.runner.get_chunk", ...)`` context manager,
+    which takes precedence over this autouse patch.
+    """
+    with patch("query_index_eval.runner.get_chunk", return_value=MagicMock(chunk="")):
+        yield
 
 
 @pytest.fixture

@@ -1,9 +1,7 @@
 """Chunk-fetching helpers used by curation and synthesis flows.
 
-`get_chunk(chunk_id, cfg)` fetches a single document by key.
-`sample_chunks(n, seed, cfg)` returns N pseudo-random chunks; determinism is
-provided by a local random.Random(seed) so the same seed yields the same
-selection given the same upstream document set.
+Reads the canonical notebook schema: `id`, `chunk`, `title`, optional
+`section_heading`, optional `source_file`.
 """
 
 from __future__ import annotations
@@ -30,9 +28,11 @@ def get_chunk(chunk_id: str, cfg: Config | None = None) -> Chunk:
     client = get_search_client(cfg)
     doc = client.get_document(key=chunk_id)
     return Chunk(
-        chunk_id=doc["chunk_id"],
+        chunk_id=doc["id"],
         title=doc["title"],
         chunk=doc["chunk"],
+        section_heading=doc.get("section_heading"),
+        source_file=doc.get("source_file"),
     )
 
 
@@ -47,4 +47,13 @@ def sample_chunks(n: int, seed: int, cfg: Config | None = None) -> list[Chunk]:
     rng = random.Random(seed)
     rng.shuffle(raw)
     selected = raw[:n]
-    return [Chunk(chunk_id=d["chunk_id"], title=d["title"], chunk=d["chunk"]) for d in selected]
+    return [
+        Chunk(
+            chunk_id=d["id"],
+            title=d["title"],
+            chunk=d["chunk"],
+            section_heading=d.get("section_heading"),
+            source_file=d.get("source_file"),
+        )
+        for d in selected
+    ]
