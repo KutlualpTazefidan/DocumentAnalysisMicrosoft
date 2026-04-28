@@ -102,7 +102,7 @@ def interactive_curate(
         cfg = Config.from_env()
 
     print(
-        "REMINDER: never paste chunk text into Claude or any other shared chat. "
+        "REMINDER: never paste chunk text into any AI or shared chat. "
         "Reference chunks only by chunk_id.\n"
     )
 
@@ -162,6 +162,6 @@ def interactive_curate(
     append_example(dataset_path, example)
     print(f"Saved {example.query_id} to {dataset_path}")
     print(
-        "\nREMINDER: never paste chunk text into Claude or any other shared chat. "
+        "\nREMINDER: never paste chunk text into any AI or shared chat. "
         "Reference chunks only by chunk_id."
     )
