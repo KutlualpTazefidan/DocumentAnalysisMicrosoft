@@ -25,11 +25,14 @@ DEFAULT_DATASET = Path("features/query-index-eval/datasets/golden_v1.jsonl")
 DEFAULT_REPORTS_DIR = Path("features/query-index-eval/reports")
 
 
-def _write_report(report: MetricsReport, out_dir: Path) -> Path:  # pragma: no cover
+def _write_report(
+    report: MetricsReport,
+    out_dir: Path,
+    strategy: str = "unspecified",
+) -> Path:  # pragma: no cover
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    dataset_stem = Path(report.metadata.dataset_path).stem
-    out_path = out_dir / f"{timestamp}-{dataset_stem}.json"
+    out_path = out_dir / f"{timestamp}-{strategy}.json"
     out_path.write_text(json.dumps(asdict(report), indent=2, ensure_ascii=False))
     return out_path
 
@@ -73,6 +76,8 @@ def _load_env() -> None:
 
 
 def _cmd_curate(args: argparse.Namespace) -> int:
+    if args.doc is not None and args.dataset == str(DEFAULT_DATASET):
+        args.dataset = f"outputs/{args.doc}/datasets/golden_v1.jsonl"
     interactive_curate(
         dataset_path=Path(args.dataset),
         chunk_id=args.chunk_id,
@@ -82,13 +87,16 @@ def _cmd_curate(args: argparse.Namespace) -> int:
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
+    if args.doc is not None and args.dataset == str(DEFAULT_DATASET):
+        args.dataset = f"outputs/{args.doc}/datasets/golden_v1.jsonl"
+    out_dir = Path(f"outputs/{args.doc}/reports") if args.doc is not None else DEFAULT_REPORTS_DIR
     cfg = Config.from_env()
     report = run_eval(
         dataset_path=Path(args.dataset),
         top_k_max=args.top,
         cfg=cfg,
     )
-    out_path = _write_report(report, DEFAULT_REPORTS_DIR)
+    out_path = _write_report(report, out_dir, strategy=args.strategy)
     _print_summary(report, out_path)
     return 0
 
@@ -135,11 +143,26 @@ def main(argv: list[str] | None = None) -> int:
     p_curate.add_argument("--dataset", default=str(DEFAULT_DATASET))
     p_curate.add_argument("--chunk-id", default=None)
     p_curate.add_argument("--seed", type=int, default=None)
+    p_curate.add_argument(
+        "--doc",
+        default=None,
+        help="Per-doc slug; if given, defaults --dataset to outputs/<slug>/datasets/golden_v1.jsonl",  # noqa: E501
+    )
     p_curate.set_defaults(func=_cmd_curate)
 
     p_eval = sub.add_parser("eval", help="Run evaluation, write report")
     p_eval.add_argument("--dataset", default=str(DEFAULT_DATASET))
     p_eval.add_argument("--top", type=int, default=20)
+    p_eval.add_argument(
+        "--doc",
+        default=None,
+        help="Per-doc slug; if given, defaults --dataset and --out under outputs/<slug>/",
+    )
+    p_eval.add_argument(
+        "--strategy",
+        default="unspecified",
+        help="Chunker strategy name; used in the report filename",
+    )
     p_eval.set_defaults(func=_cmd_eval)
 
     p_report = sub.add_parser("report", help="Compare two metric reports")
