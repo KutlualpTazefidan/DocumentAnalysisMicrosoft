@@ -25,7 +25,7 @@ fi
 violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.search|azure\.identity|openai)([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
-    | grep -v '^features/query-index/' \
+    | grep -v '^features/pipelines/microsoft/retrieval/' \
     || true)"
 
 if [ -n "$violations_search" ]; then
@@ -38,7 +38,7 @@ fi
 violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai\.documentintelligence([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
-    | grep -v -E '^features/(query-index|ingestion)/' \
+    | grep -v -E '^features/(pipelines/microsoft/retrieval|ingestion)/' \
     || true)"
 
 if [ -n "$violations_docintel" ]; then
