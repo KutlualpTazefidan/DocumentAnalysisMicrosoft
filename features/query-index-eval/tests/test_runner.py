@@ -257,3 +257,89 @@ def test_run_eval_passes_filter_per_example_when_set(
         run_eval(tmp_dataset_path, top_k_max=20)
 
     assert captured["filter"] == "category eq 'manual'"
+
+
+def test_run_eval_detects_hash_drift_when_chunk_content_changed(
+    tmp_dataset_path: Path,
+    env_vars: dict,
+) -> None:
+    """If an expected chunk's hash no longer matches what is in the index,
+    runner records the example's query_id in drifted_query_ids."""
+    from query_index_eval.runner import run_eval
+
+    rows = [
+        {
+            "query_id": "g0001",
+            "query": "Q?",
+            "expected_chunk_ids": ["c1"],
+            "source": "curated",
+            "chunk_hashes": {"c1": "sha256:expected-hash-from-curation-time"},
+            "filter": None,
+            "deprecated": False,
+            "created_at": "2026-04-27T10:00:00Z",
+            "notes": None,
+        }
+    ]
+    tmp_dataset_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    def fake_get_chunk(chunk_id, cfg=None):
+        from query_index.types import Chunk
+
+        return Chunk(chunk_id="c1", title="T", chunk="DIFFERENT CONTENT NOW")
+
+    with (
+        patch("query_index_eval.runner.hybrid_search", side_effect=fake_search),
+        patch("query_index_eval.runner.get_chunk", side_effect=fake_get_chunk),
+    ):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert "g0001" in report.metadata.drifted_query_ids
+
+
+def test_run_eval_no_drift_when_hash_matches(
+    tmp_dataset_path: Path,
+    env_vars: dict,
+) -> None:
+    """If the chunk's hash matches, drifted_query_ids stays empty."""
+    import hashlib
+
+    from query_index_eval.runner import run_eval
+
+    chunk_text = "exact same content"
+    expected_hash = (
+        "sha256:" + hashlib.sha256(" ".join(chunk_text.split()).encode("utf-8")).hexdigest()
+    )
+
+    rows = [
+        {
+            "query_id": "g0001",
+            "query": "Q?",
+            "expected_chunk_ids": ["c1"],
+            "source": "curated",
+            "chunk_hashes": {"c1": expected_hash},
+            "filter": None,
+            "deprecated": False,
+            "created_at": "2026-04-27T10:00:00Z",
+            "notes": None,
+        }
+    ]
+    tmp_dataset_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def fake_search(query, top, filter=None, cfg=None):
+        return [_hit("c1")]
+
+    def fake_get_chunk(chunk_id, cfg=None):
+        from query_index.types import Chunk
+
+        return Chunk(chunk_id="c1", title="T", chunk=chunk_text)
+
+    with (
+        patch("query_index_eval.runner.hybrid_search", side_effect=fake_search),
+        patch("query_index_eval.runner.get_chunk", side_effect=fake_get_chunk),
+    ):
+        report = run_eval(tmp_dataset_path, top_k_max=20)
+
+    assert report.metadata.drifted_query_ids == []
