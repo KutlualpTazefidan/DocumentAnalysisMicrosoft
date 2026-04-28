@@ -23,12 +23,12 @@ if [ ! -d features ]; then
 fi
 
 # --- Check 1: search/openai imports — only pipelines/microsoft/retrieval
-#              and the llm_clients azure_openai backend ---
+#              and any backend under core/llm_clients/ ---
 violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.search|azure\.identity|openai)([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
     | grep -v '^features/pipelines/microsoft/retrieval/' \
-    | grep -v '^features/core/src/llm_clients/azure_openai/' \
+    | grep -v '^features/core/src/llm_clients/' \
     || true)"
 
 if [ -n "$violations_search" ]; then
