@@ -1,4 +1,13 @@
 repos:
+  - repo: local
+    hooks:
+      - id: import-boundary-check
+        name: Restrict azure/openai imports to features/query-index/
+        entry: bash scripts/check_import_boundary.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.12
     hooks:
@@ -13,12 +22,3 @@ repos:
         additional_dependencies: []
         args: [--config-file=pyproject.toml]
         exclude: ^(archive/|features/.*/tests/)
-
-  - repo: local
-    hooks:
-      - id: import-boundary-check
-        name: Restrict azure/openai imports to features/query-index/
-        entry: bash scripts/check_import_boundary.sh
-        language: system
-        pass_filenames: false
-        always_run: true

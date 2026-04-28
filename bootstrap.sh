@@ -18,6 +18,9 @@ fi
 if [ -f features/query-index-eval/pyproject.toml ]; then
     pip install -e features/query-index-eval
 fi
+if [ -f features/ingestion/pyproject.toml ]; then
+    pip install -e features/ingestion
+fi
 
 pre-commit install
 

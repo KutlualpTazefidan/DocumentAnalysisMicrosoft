@@ -21,14 +21,17 @@ The following are gitignored so each cloned workspace has its own copy:
 
 ```
 features/
-  query-index/          # Azure AI Search wrapper (only package importing azure.*)
+  query-index/          # Azure AI Search wrapper (only package importing azure.search/openai)
   query-index-eval/     # retrieval-quality evaluation pipeline
+  ingestion/            # PDF -> JSON -> chunks -> embeddings -> Azure index
 archive/
   query_index_v0.py     # original prototype, preserved unchanged
+  semantic_chunking.ipynb
+  llm_query_index.ipynb
 docs/
   superpowers/
-    specs/              # design specs
-    plans/              # implementation plans
+    specs/
+    plans/
   evaluation/
     metrics-rationale.md
 ```
@@ -55,15 +58,24 @@ make clean      # remove caches and venv
 ## Production workflow (user's separate clone)
 
 ```bash
+# Set up a fresh production workspace:
 git clone <this repo> ~/code/DocumentAnalysisMicrosoft-real
 cd ~/code/DocumentAnalysisMicrosoft-real
 cp .env.example .env  # and fill in real keys
 mkdir data && cp <real PDFs> data/
 ./bootstrap.sh
 source .venv/bin/activate
-make schema     # confirm index field names
-make curate     # build hand-curated golden set
-make eval       # produce metric report
+
+# Ingest a PDF and immediately measure retrieval quality:
+make ingest-and-eval DOC=gnb-b-147-2001-rev-1 STRATEGY=section PDF="data/GNB B 147_2001 Rev. 1.pdf"
+
+# Or stage by stage:
+ingest analyze --in data/foo.pdf                                      # PDF -> outputs/foo/analyze/<ts>.json
+ingest chunk --in outputs/foo/analyze/<ts>.json --strategy section    # -> outputs/foo/chunk/<ts>-section.jsonl
+ingest embed --in outputs/foo/chunk/<ts>-section.jsonl                # -> outputs/foo/embed/<ts>-section.jsonl
+ingest upload --in outputs/foo/embed/<ts>-section.jsonl               # -> Azure AI Search index
+query-eval curate --doc foo                                            # build outputs/foo/datasets/golden_v1.jsonl
+query-eval eval --doc foo --strategy section                           # -> outputs/foo/reports/<ts>-section.json
 ```
 
 ## Documents
