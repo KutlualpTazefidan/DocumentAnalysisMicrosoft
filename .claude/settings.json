@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source .venv/bin/activate)",
+      "Bash(pytest *)",
+      "Bash(make test)",
+      "Bash(make test-cov)",
+      "Bash(make lint)",
+      "Bash(pre-commit run --all-files)",
+      "Bash(bash scripts/check_import_boundary.sh)",
+      "Bash(pip show *)"
+    ]
+  }
+}
