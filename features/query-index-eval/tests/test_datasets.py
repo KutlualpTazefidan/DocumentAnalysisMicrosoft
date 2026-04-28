@@ -57,6 +57,26 @@ def test_append_example_creates_file_if_missing(tmp_dataset_path: Path) -> None:
     assert loaded[0].query_id == "g0001"
 
 
+def test_append_example_creates_parent_directories_if_missing(tmp_path: Path) -> None:
+    """Auto-creates intermediate directories so callers (e.g. the curate CLI)
+    can pass a path like outputs/<slug>/datasets/golden_v1.jsonl without
+    having to mkdir the chain themselves."""
+    from query_index_eval.datasets import append_example, load_dataset
+    from query_index_eval.schema import EvalExample
+
+    nested_path = tmp_path / "outputs" / "my-doc" / "datasets" / "golden_v1.jsonl"
+    assert not nested_path.parent.exists()  # precondition
+
+    e = EvalExample(**_example("g0001"))
+    append_example(nested_path, e)
+
+    assert nested_path.exists()
+    assert nested_path.parent.exists()
+    loaded = load_dataset(nested_path)
+    assert len(loaded) == 1
+    assert loaded[0].query_id == "g0001"
+
+
 def test_append_example_appends_subsequent_rows(tmp_dataset_path: Path) -> None:
     from query_index_eval.datasets import append_example, load_dataset
     from query_index_eval.schema import EvalExample

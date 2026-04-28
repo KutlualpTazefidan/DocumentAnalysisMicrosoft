@@ -48,6 +48,7 @@ def append_example(path: Path, example: EvalExample) -> None:
             f"query_id {example.query_id!r} already exists in {path}; "
             f"deprecate-and-append-new instead of editing in place"
         )
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(example), ensure_ascii=False) + "\n")
 
