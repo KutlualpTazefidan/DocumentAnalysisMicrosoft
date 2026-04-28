@@ -22,7 +22,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src/llm_clients --cov-fail-under=85 --cov-branch --cov-report=term-missing"
+addopts = "--cov=llm_clients --cov-fail-under=85 --cov-branch --cov-report=term-missing"
 
 [tool.coverage.report]
 exclude_lines = [
