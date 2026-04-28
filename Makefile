@@ -1,4 +1,4 @@
-.PHONY: bootstrap test test-cov lint fmt clean curate eval schema ingest-and-eval help
+.PHONY: bootstrap test test-cov lint fmt clean eval schema ingest-and-eval help
 
 help:
 	@echo "Targets:"
@@ -8,7 +8,6 @@ help:
 	@echo "  lint             Run ruff and mypy"
 	@echo "  fmt              Auto-fix ruff issues and format"
 	@echo "  clean            Remove .venv and caches"
-	@echo "  curate           Run query-eval curate (interactive)"
 	@echo "  eval             Run query-eval eval"
 	@echo "  schema           Run query-eval schema-discovery"
 	@echo "  ingest-and-eval  Run analyze->chunk->embed->upload->eval for one doc"
@@ -34,9 +33,6 @@ clean:
 	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 	find . -type d -name '*.egg-info' -prune -exec rm -rf {} +
-
-curate:
-	query-eval curate
 
 eval:
 	query-eval eval
