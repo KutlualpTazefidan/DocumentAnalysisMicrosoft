@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Enforce per-package import boundaries:
 #  1. Search & OpenAI imports (azure.search.*, azure.identity.*, openai.*)
-#     — only features/query-index/.
+#     — only features/pipelines/microsoft/retrieval/.
 #  2. Document Intelligence imports (azure.ai.documentintelligence.*)
-#     — only features/query-index/ OR features/ingestion/.
+#     — only features/pipelines/microsoft/retrieval/ OR
+#       features/pipelines/microsoft/ingestion/.
 #
 # Note: azure.core.credentials.AzureKeyCredential is treated as a generic
 # credential primitive and is allowed everywhere within features/.
@@ -21,7 +22,7 @@ if [ ! -d features ]; then
     exit 0
 fi
 
-# --- Check 1: search/openai imports — only query-index ---
+# --- Check 1: search/openai imports — only pipelines/microsoft/retrieval ---
 violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.search|azure\.identity|openai)([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
@@ -29,12 +30,12 @@ violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.sea
     || true)"
 
 if [ -n "$violations_search" ]; then
-    echo "BOUNDARY VIOLATION: azure.search.*, azure.identity.*, and openai.* imports are only allowed inside features/query-index/"
+    echo "BOUNDARY VIOLATION: azure.search.*, azure.identity.*, and openai.* imports are only allowed inside features/pipelines/microsoft/retrieval/"
     echo "$violations_search"
     exit 1
 fi
 
-# --- Check 2: documentintelligence imports — only query-index OR ingestion ---
+# --- Check 2: documentintelligence imports — only pipelines/microsoft/{retrieval,ingestion} ---
 violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai\.documentintelligence([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
@@ -42,7 +43,7 @@ violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai
     || true)"
 
 if [ -n "$violations_docintel" ]; then
-    echo "BOUNDARY VIOLATION: azure.ai.documentintelligence imports are only allowed inside features/query-index/ or features/ingestion/"
+    echo "BOUNDARY VIOLATION: azure.ai.documentintelligence imports are only allowed inside features/pipelines/microsoft/retrieval/ or features/pipelines/microsoft/ingestion/"
     echo "$violations_docintel"
     exit 1
 fi
