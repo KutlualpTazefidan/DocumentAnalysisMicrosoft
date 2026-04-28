@@ -38,7 +38,7 @@ fi
 violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai\.documentintelligence([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
-    | grep -v -E '^features/(pipelines/microsoft/retrieval|ingestion)/' \
+    | grep -v -E '^features/pipelines/microsoft/(retrieval|ingestion)/' \
     || true)"
 
 if [ -n "$violations_docintel" ]; then
