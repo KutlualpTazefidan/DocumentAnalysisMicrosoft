@@ -18,12 +18,12 @@ from query_index import (
 
 ## Environment
 
-See [`.env.example`](.env.example). Variables are loaded once at the entry point of any consuming CLI; this package itself does not call `load_dotenv()`.
+See [`.env.example`](../../../../.env.example). Variables are loaded once at the entry point of any consuming CLI; this package itself does not call `load_dotenv()`.
 
 ## Tests
 
 ```bash
-pytest features/query-index/
+pytest features/pipelines/microsoft/retrieval/
 ```
 
 All tests are mocked — they do not call Azure. Live verification is done by the user in their separate cloned workspace.
