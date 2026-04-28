@@ -23,7 +23,7 @@ All artefacts live under `outputs/{slug}/<stage>/{ts}-{strategy}.{ext}`. The slu
 ## Tests
 
 ```bash
-pytest features/ingestion/
+pytest features/pipelines/microsoft/ingestion/
 ```
 
 All tests are mocked — they do not call Azure. Live verification is done by the user in their separate cloned workspace.

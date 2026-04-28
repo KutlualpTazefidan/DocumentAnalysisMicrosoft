@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 from query_index import Config
 from query_index.schema_discovery import print_index_schema
 
-from query_index_eval.curate import interactive_curate
 from query_index_eval.runner import run_eval
 
 if TYPE_CHECKING:
@@ -75,17 +74,6 @@ def _load_env() -> None:
     load_dotenv()  # fallback to default search
 
 
-def _cmd_curate(args: argparse.Namespace) -> int:
-    if args.doc is not None and args.dataset == str(DEFAULT_DATASET):
-        args.dataset = f"outputs/{args.doc}/datasets/golden_v1.jsonl"
-    interactive_curate(
-        dataset_path=Path(args.dataset),
-        chunk_id=args.chunk_id,
-        seed=args.seed,
-    )
-    return 0
-
-
 def _cmd_eval(args: argparse.Namespace) -> int:
     if args.doc is not None and args.dataset == str(DEFAULT_DATASET):
         args.dataset = f"outputs/{args.doc}/datasets/golden_v1.jsonl"
@@ -138,17 +126,6 @@ def main(argv: list[str] | None = None) -> int:
     _load_env()
     parser = argparse.ArgumentParser(prog="query-eval")
     sub = parser.add_subparsers(dest="cmd", required=True)
-
-    p_curate = sub.add_parser("curate", help="Interactive curation (TTY required)")
-    p_curate.add_argument("--dataset", default=str(DEFAULT_DATASET))
-    p_curate.add_argument("--chunk-id", default=None)
-    p_curate.add_argument("--seed", type=int, default=None)
-    p_curate.add_argument(
-        "--doc",
-        default=None,
-        help="Per-doc slug; if given, defaults --dataset to outputs/<slug>/datasets/golden_v1.jsonl",  # noqa: E501
-    )
-    p_curate.set_defaults(func=_cmd_curate)
 
     p_eval = sub.add_parser("eval", help="Run evaluation, write report")
     p_eval.add_argument("--dataset", default=str(DEFAULT_DATASET))

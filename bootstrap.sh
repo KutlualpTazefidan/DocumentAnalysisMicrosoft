@@ -12,14 +12,14 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements-dev.txt
 
-if [ -f features/query-index/pyproject.toml ]; then
-    pip install -e features/query-index
+if [ -f features/pipelines/microsoft/retrieval/pyproject.toml ]; then
+    pip install -e features/pipelines/microsoft/retrieval
 fi
-if [ -f features/query-index-eval/pyproject.toml ]; then
-    pip install -e features/query-index-eval
+if [ -f features/evaluators/chunk_match/pyproject.toml ]; then
+    pip install -e features/evaluators/chunk_match
 fi
-if [ -f features/ingestion/pyproject.toml ]; then
-    pip install -e features/ingestion
+if [ -f features/pipelines/microsoft/ingestion/pyproject.toml ]; then
+    pip install -e features/pipelines/microsoft/ingestion
 fi
 
 pre-commit install

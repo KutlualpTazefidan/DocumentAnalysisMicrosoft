@@ -5,15 +5,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 
-def test_cli_dispatches_curate() -> None:
-    from query_index_eval.cli import main
-
-    with patch("query_index_eval.cli.interactive_curate") as mock_curate:
-        rc = main(["curate", "--dataset", "ds.jsonl"])
-    assert rc == 0
-    mock_curate.assert_called_once()
-
-
 def test_cli_dispatches_eval_with_default_top_k() -> None:
     from query_index_eval.cli import main
 

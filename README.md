@@ -21,9 +21,12 @@ The following are gitignored so each cloned workspace has its own copy:
 
 ```
 features/
-  query-index/          # Azure AI Search wrapper (only package importing azure.search/openai)
-  query-index-eval/     # retrieval-quality evaluation pipeline
-  ingestion/            # PDF -> JSON -> chunks -> embeddings -> Azure index
+  pipelines/
+    microsoft/
+      ingestion/        # PDF -> JSON -> chunks -> embeddings -> Azure index
+      retrieval/        # Azure AI Search wrapper (only package importing azure.search/openai)
+  evaluators/
+    chunk_match/        # retrieval-quality evaluation pipeline
 archive/
   query_index_v0.py     # original prototype, preserved unchanged
   semantic_chunking.ipynb
@@ -44,7 +47,7 @@ source .venv/bin/activate
 make test
 ```
 
-`bootstrap.sh` creates a single root venv, installs all feature packages in editable mode, and installs the pre-commit hooks (including the boundary check that confines `azure.*` and `openai` imports to `features/query-index/`).
+`bootstrap.sh` creates a single root venv, installs all feature packages in editable mode, and installs the pre-commit hooks (including the boundary check that confines `azure.*` and `openai` imports to `features/pipelines/microsoft/retrieval/`).
 
 ## Development workflow
 
@@ -74,7 +77,6 @@ ingest analyze --in data/foo.pdf                                      # PDF -> o
 ingest chunk --in outputs/foo/analyze/<ts>.json --strategy section    # -> outputs/foo/chunk/<ts>-section.jsonl
 ingest embed --in outputs/foo/chunk/<ts>-section.jsonl                # -> outputs/foo/embed/<ts>-section.jsonl
 ingest upload --in outputs/foo/embed/<ts>-section.jsonl               # -> Azure AI Search index
-query-eval curate --doc foo                                            # build outputs/foo/datasets/golden_v1.jsonl
 query-eval eval --doc foo --strategy section                           # -> outputs/foo/reports/<ts>-section.json
 ```
 
