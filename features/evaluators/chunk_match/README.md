@@ -21,10 +21,13 @@ from query_index_eval import (
 )
 
 # Goldens are loaded from the event-sourced store:
+from pathlib import Path
+
 from goldens import iter_active_retrieval_entries
 
-entries = iter_active_retrieval_entries(Path("outputs/<doc>/datasets/golden_events_v1.jsonl"))
-report = run_eval(entries=entries, dataset_path=str(path))
+dataset = Path("outputs/<doc>/datasets/golden_events_v1.jsonl")
+entries = iter_active_retrieval_entries(dataset)
+report = run_eval(entries=entries, dataset_path=str(dataset))
 ```
 
 ## CLI
