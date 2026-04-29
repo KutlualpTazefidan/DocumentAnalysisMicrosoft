@@ -16,6 +16,10 @@ if [ -f features/core/pyproject.toml ]; then
     pip install -e features/core
 fi
 
+if [ -f features/goldens/pyproject.toml ]; then
+    pip install -e features/goldens
+fi
+
 if [ -f features/pipelines/microsoft/retrieval/pyproject.toml ]; then
     pip install -e features/pipelines/microsoft/retrieval
 fi
