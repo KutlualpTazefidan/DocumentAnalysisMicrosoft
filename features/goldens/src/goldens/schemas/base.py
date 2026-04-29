@@ -75,6 +75,10 @@ class LLMActor:
 Actor = HumanActor | LLMActor
 
 
+CreateAction = Literal["created_from_scratch", "synthesised", "imported_from_faq"]
+ReviewAction = Literal["accepted_unchanged", "approved", "rejected"]
+
+
 def actor_from_dict(d: dict) -> Actor:
     """Dispatch on the 'kind' discriminator."""
     kind = d.get("kind")
