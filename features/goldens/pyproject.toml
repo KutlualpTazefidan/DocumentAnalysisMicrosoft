@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov"]
+test = ["pytest", "pytest-cov", "respx>=0.21"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
