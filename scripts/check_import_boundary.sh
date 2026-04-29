@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Enforce per-package import boundaries:
 #  1. Search & OpenAI imports (azure.search.*, azure.identity.*, openai.*)
-#     — only features/pipelines/microsoft/retrieval/.
+#     — only features/pipelines/microsoft/retrieval/ OR
+#       any backend under features/core/src/llm_clients/.
 #  2. Document Intelligence imports (azure.ai.documentintelligence.*)
 #     — only features/pipelines/microsoft/retrieval/ OR
 #       features/pipelines/microsoft/ingestion/.
+#  3. Anthropic imports (anthropic.*)
+#     — only features/core/src/llm_clients/anthropic/.
 #
 # Note: azure.core.credentials.AzureKeyCredential is treated as a generic
 # credential primitive and is allowed everywhere within features/.
@@ -22,11 +25,13 @@ if [ ! -d features ]; then
     exit 0
 fi
 
-# --- Check 1: search/openai imports — only pipelines/microsoft/retrieval ---
+# --- Check 1: search/openai imports — only pipelines/microsoft/retrieval
+#              and any backend under core/llm_clients/ ---
 violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.search|azure\.identity|openai)([.[:space:]]|$)' \
     --include='*.py' \
     features/ \
     | grep -v '^features/pipelines/microsoft/retrieval/' \
+    | grep -v '^features/core/src/llm_clients/' \
     || true)"
 
 if [ -n "$violations_search" ]; then
@@ -45,6 +50,19 @@ violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai
 if [ -n "$violations_docintel" ]; then
     echo "BOUNDARY VIOLATION: azure.ai.documentintelligence imports are only allowed inside features/pipelines/microsoft/retrieval/ or features/pipelines/microsoft/ingestion/"
     echo "$violations_docintel"
+    exit 1
+fi
+
+# --- Check 3: anthropic imports — only core/llm_clients/anthropic ---
+violations_anthropic="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+anthropic([.[:space:]]|$)' \
+    --include='*.py' \
+    features/ \
+    | grep -v '^features/core/src/llm_clients/anthropic/' \
+    || true)"
+
+if [ -n "$violations_anthropic" ]; then
+    echo "BOUNDARY VIOLATION: anthropic.* imports are only allowed inside features/core/src/llm_clients/anthropic/"
+    echo "$violations_anthropic"
     exit 1
 fi
 
