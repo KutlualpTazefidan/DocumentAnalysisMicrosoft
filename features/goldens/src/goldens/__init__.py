@@ -2,11 +2,13 @@
 
 from goldens.schemas import (
     Actor,
+    ElementType,
     Event,
     HumanActor,
     LLMActor,
     RetrievalEntry,
     Review,
+    SourceElement,
     actor_from_dict,
 )
 from goldens.storage import (
@@ -23,11 +25,13 @@ from goldens.storage import (
 __all__ = [
     "GOLDEN_EVENTS_V1_FILENAME",
     "Actor",
+    "ElementType",
     "Event",
     "HumanActor",
     "LLMActor",
     "RetrievalEntry",
     "Review",
+    "SourceElement",
     "active_entries",
     "actor_from_dict",
     "append_event",
