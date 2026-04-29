@@ -220,3 +220,35 @@ def test_non_retrieval_created_events_are_ignored():
 
 def test_build_state_handles_empty_iterable():
     assert build_state([]) == {}
+
+
+# --- iter_active_retrieval_entries (canonical evaluator read path) -----
+
+
+def test_iter_active_retrieval_entries_returns_only_active_entries(tmp_path):
+    """Round-trip: write 1 active + 1 deprecated entry via append_event,
+    materialize the iterator, expect just the active entry."""
+    from goldens.storage.log import append_event
+    from goldens.storage.projection import iter_active_retrieval_entries
+
+    p = tmp_path / "events.jsonl"
+    append_event(p, _created(event_id="e1", entry_id="r-active", ts="2026-04-29T10:00:00Z"))
+    append_event(p, _created(event_id="e2", entry_id="r-old", ts="2026-04-29T10:00:01Z"))
+    append_event(p, _deprecated(event_id="e3", entry_id="r-old", ts="2026-04-29T10:00:02Z"))
+
+    entries = list(iter_active_retrieval_entries(p))
+    assert {e.entry_id for e in entries} == {"r-active"}
+    assert entries[0].query == "What is X?"
+
+
+def test_iter_active_retrieval_entries_returns_empty_when_file_missing(tmp_path):
+    """Tolerant: missing file → empty iterator (read_events returns [])."""
+    from goldens.storage.projection import iter_active_retrieval_entries
+
+    p = tmp_path / "absent.jsonl"
+    assert list(iter_active_retrieval_entries(p)) == []
+
+
+def test_iter_active_retrieval_entries_re_exported_from_goldens_top_level():
+    """Catch the most common refactor bug — symbol silently dropped from __init__."""
+    from goldens import iter_active_retrieval_entries  # noqa: F401
