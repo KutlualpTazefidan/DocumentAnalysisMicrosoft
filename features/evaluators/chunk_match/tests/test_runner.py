@@ -312,4 +312,7 @@ def test_run_eval_accepts_iterator_input_and_materializes_internally(
             dataset_path="test",
         )
 
+    # dataset_size_active forces a len() on `entries`; would TypeError on a
+    # bare iterator if run_eval did not materialize via list(entries).
+    assert report.metadata.dataset_size_active == 2
     assert len(report.per_query) == 2
