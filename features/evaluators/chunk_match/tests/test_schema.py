@@ -69,7 +69,7 @@ def test_query_record_holds_per_query_data() -> None:
     from query_index_eval.schema import QueryRecord
 
     r = QueryRecord(
-        query_id="g0001",
+        entry_id="g0001",
         expected_chunk_ids=["c42"],
         retrieved_chunk_ids=["c10", "c42", "c7"],
         ranks=[2],
@@ -78,6 +78,7 @@ def test_query_record_holds_per_query_data() -> None:
     )
     assert r.ranks == [2]
     assert r.hits == [True]
+    assert r.entry_id == "g0001"
 
 
 def test_run_metadata_includes_embedding_and_size_status() -> None:

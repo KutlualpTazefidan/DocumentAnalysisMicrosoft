@@ -140,7 +140,7 @@ def run_eval(
             ranks, hit_flags = _ranks_and_hits(example.expected_chunk_ids, retrieved_ids)
             per_query.append(
                 QueryRecord(
-                    query_id=example.query_id,
+                    entry_id=example.query_id,
                     expected_chunk_ids=list(example.expected_chunk_ids),
                     retrieved_chunk_ids=retrieved_ids,
                     ranks=ranks,

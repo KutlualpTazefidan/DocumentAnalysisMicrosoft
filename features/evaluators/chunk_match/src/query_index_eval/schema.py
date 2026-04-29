@@ -60,7 +60,7 @@ class RunMetadata:
 
 @dataclass(frozen=True)
 class QueryRecord:
-    query_id: str
+    entry_id: str
     expected_chunk_ids: list[str]
     retrieved_chunk_ids: list[str]
     ranks: list[int]

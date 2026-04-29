@@ -75,7 +75,7 @@ def test_run_eval_skips_deprecated_examples(tmp_dataset_path: Path, env_vars: di
         report = run_eval(tmp_dataset_path, top_k_max=20)
 
     assert len(report.per_query) == 1
-    assert report.per_query[0].query_id == "g0001"
+    assert report.per_query[0].entry_id == "g0001"
     assert report.metadata.dataset_size_active == 1
     assert report.metadata.dataset_size_deprecated == 1
 
