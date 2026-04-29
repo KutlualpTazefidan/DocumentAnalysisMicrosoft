@@ -1,4 +1,4 @@
-"""Core schema dataclasses: Event, Review, HumanActor, LLMActor.
+"""Core schema dataclasses: Event, Review, HumanActor, LLMActor, SourceElement.
 
 All dataclasses are `frozen=True`. `__post_init__` does light
 sanity-check validation only — no external resource access. The
@@ -21,6 +21,59 @@ def _validate_iso_utc(value: str) -> None:
         datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as e:
         raise ValueError(f"timestamp_utc not ISO-8601: {value!r}") from e
+
+
+ElementType = Literal["paragraph", "heading", "table", "figure", "list_item"]
+_ELEMENT_TYPES: tuple[str, ...] = (
+    "paragraph",
+    "heading",
+    "table",
+    "figure",
+    "list_item",
+)
+
+
+@dataclass(frozen=True)
+class SourceElement:
+    """A pipeline-independent reference to a structural element in a source document.
+
+    Element-IDs come from a structured-document parser (e.g., Document
+    Intelligence) and are stable across pipelines: different pipelines may
+    chunk these elements differently into their indexed chunks, but the
+    element-ID itself is a property of the source document.
+
+    This is the canonical ground-truth anchor for a goldset entry —
+    pipeline-specific chunk-IDs are derived from it on demand for fast
+    in-pipeline evaluation; cross-pipeline evaluation works directly on
+    SourceElement IDs.
+    """
+
+    document_id: str
+    page_number: int
+    element_id: str
+    element_type: ElementType
+
+    def __post_init__(self) -> None:
+        if not self.document_id:
+            raise ValueError("document_id must be non-empty")
+        if not self.element_id:
+            raise ValueError("element_id must be non-empty")
+        if self.page_number < 1:
+            raise ValueError("page_number must be >= 1")
+        if self.element_type not in _ELEMENT_TYPES:
+            raise ValueError(f"unknown element_type: {self.element_type!r}")
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> SourceElement:
+        return cls(
+            document_id=d["document_id"],
+            page_number=d["page_number"],
+            element_id=d["element_id"],
+            element_type=d["element_type"],
+        )
 
 
 @dataclass(frozen=True)

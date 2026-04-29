@@ -11,6 +11,7 @@ from goldens.schemas.base import (
     HumanActor,
     LLMActor,
     Review,
+    SourceElement,
     actor_from_dict,
 )
 
@@ -289,3 +290,77 @@ def test_event_from_dict_ignores_unknown_keys():
     }
     e = Event.from_dict(d)
     assert e.event_id == "e1"
+
+
+# --- SourceElement -----------------------------------------------
+
+
+def test_source_element_holds_all_fields():
+    el = SourceElement(
+        document_id="tragkorb-b-147-2001-rev-1",
+        page_number=47,
+        element_id="p4",
+        element_type="paragraph",
+    )
+    assert el.document_id == "tragkorb-b-147-2001-rev-1"
+    assert el.page_number == 47
+    assert el.element_id == "p4"
+    assert el.element_type == "paragraph"
+
+
+def test_source_element_is_frozen():
+    el = SourceElement(document_id="d1", page_number=1, element_id="p1", element_type="paragraph")
+    with pytest.raises(FrozenInstanceError):
+        el.page_number = 2  # type: ignore[misc]
+
+
+def test_source_element_rejects_empty_document_id():
+    with pytest.raises(ValueError, match="document_id"):
+        SourceElement(document_id="", page_number=1, element_id="p1", element_type="paragraph")
+
+
+def test_source_element_rejects_empty_element_id():
+    with pytest.raises(ValueError, match="element_id"):
+        SourceElement(document_id="d1", page_number=1, element_id="", element_type="paragraph")
+
+
+def test_source_element_rejects_zero_page_number():
+    with pytest.raises(ValueError, match="page_number"):
+        SourceElement(document_id="d1", page_number=0, element_id="p1", element_type="paragraph")
+
+
+def test_source_element_rejects_negative_page_number():
+    with pytest.raises(ValueError, match="page_number"):
+        SourceElement(document_id="d1", page_number=-1, element_id="p1", element_type="paragraph")
+
+
+def test_source_element_rejects_unknown_element_type():
+    with pytest.raises(ValueError, match="unknown element_type"):
+        SourceElement(
+            document_id="d1",
+            page_number=1,
+            element_id="x1",
+            element_type="banana",  # type: ignore[arg-type]
+        )
+
+
+def test_source_element_accepts_all_documented_types():
+    for kind in ("paragraph", "heading", "table", "figure", "list_item"):
+        el = SourceElement(
+            document_id="d1",
+            page_number=1,
+            element_id=f"x-{kind}",
+            element_type=kind,  # type: ignore[arg-type]
+        )
+        assert el.element_type == kind
+
+
+def test_source_element_round_trip():
+    original = SourceElement(
+        document_id="tragkorb-b-147-2001-rev-1",
+        page_number=47,
+        element_id="t1",
+        element_type="table",
+    )
+    restored = SourceElement.from_dict(original.to_dict())
+    assert restored == original

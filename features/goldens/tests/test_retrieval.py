@@ -4,7 +4,7 @@ serialization, and the level derivation."""
 from __future__ import annotations
 
 import pytest
-from goldens.schemas.base import HumanActor, LLMActor, Review
+from goldens.schemas.base import HumanActor, LLMActor, Review, SourceElement
 from goldens.schemas.retrieval import RetrievalEntry
 
 
@@ -175,3 +175,82 @@ def test_to_dict_returns_lists_for_tuples():
     d = e.to_dict()
     assert isinstance(d["expected_chunk_ids"], list)
     assert isinstance(d["review_chain"], list)
+
+
+# --- source_element field (Phase A.3.1 additive extension) -------
+
+
+def test_default_source_element_is_none():
+    """Backward-compat: entries can be created without source_element."""
+    e = _entry()
+    assert e.source_element is None
+
+
+def test_to_dict_emits_null_when_source_element_unset():
+    e = _entry()
+    d = e.to_dict()
+    assert d["source_element"] is None
+
+
+def test_to_dict_emits_dict_when_source_element_set():
+    e = RetrievalEntry(
+        entry_id="r1",
+        query="What is X?",
+        expected_chunk_ids=("c1",),
+        chunk_hashes={"c1": "sha256:aaa"},
+        review_chain=(),
+        deprecated=False,
+        source_element=SourceElement(
+            document_id="tragkorb-b-147-2001-rev-1",
+            page_number=47,
+            element_id="p4",
+            element_type="paragraph",
+        ),
+    )
+    d = e.to_dict()
+    assert d["source_element"] == {
+        "document_id": "tragkorb-b-147-2001-rev-1",
+        "page_number": 47,
+        "element_id": "p4",
+        "element_type": "paragraph",
+    }
+
+
+def test_round_trip_with_source_element():
+    e = RetrievalEntry(
+        entry_id="r1",
+        query="Wo steht die maximale Zugkraft für M6?",
+        expected_chunk_ids=("c1",),
+        chunk_hashes={"c1": "sha256:aaa"},
+        review_chain=(),
+        deprecated=False,
+        source_element=SourceElement(
+            document_id="tragkorb-b-147-2001-rev-1",
+            page_number=47,
+            element_id="p4",
+            element_type="paragraph",
+        ),
+    )
+    restored = RetrievalEntry.from_dict(e.to_dict())
+    assert restored == e
+    assert restored.source_element is not None
+    assert restored.source_element.element_id == "p4"
+
+
+def test_from_dict_back_compat_when_source_element_missing():
+    """Pre-A.3.1 entries serialised without source_element key still load
+    correctly — source_element defaults to None."""
+    e_old = _entry()
+    d = e_old.to_dict()
+    del d["source_element"]  # simulate pre-A.3.1 serialised data
+    restored = RetrievalEntry.from_dict(d)
+    assert restored.source_element is None
+
+
+def test_from_dict_back_compat_when_source_element_null():
+    """Explicit null in serialised data is also accepted (defaults to None)."""
+    e_old = _entry()
+    d = e_old.to_dict()
+    d["source_element"] = None  # explicit null
+    restored = RetrievalEntry.from_dict(d)
+    assert restored.source_element is None
