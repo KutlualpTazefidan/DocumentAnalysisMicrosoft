@@ -2,40 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
-import pytest
-
-
-def test_eval_example_holds_all_fields(sample_example_dict: dict) -> None:
-    from query_index_eval.schema import EvalExample
-
-    e = EvalExample(**sample_example_dict)
-    assert e.query_id == "g0001"
-    assert e.expected_chunk_ids == ["c42"]
-    assert e.source == "curated"
-    assert e.deprecated is False
-
-
-def test_eval_example_round_trip_via_asdict(sample_example_dict: dict) -> None:
-    from query_index_eval.schema import EvalExample
-
-    e = EvalExample(**sample_example_dict)
-    out = asdict(e)
-    assert out["query_id"] == "g0001"
-    e2 = EvalExample(**out)
-    assert e2 == e
-
-
-def test_eval_example_is_frozen(sample_example_dict: dict) -> None:
-    from dataclasses import FrozenInstanceError
-
-    from query_index_eval.schema import EvalExample
-
-    e = EvalExample(**sample_example_dict)
-    with pytest.raises(FrozenInstanceError):
-        e.query_id = "g0002"  # type: ignore[misc]
-
 
 def test_aggregate_metrics_holds_all_metric_fields() -> None:
     from query_index_eval.schema import AggregateMetrics
@@ -85,7 +51,7 @@ def test_run_metadata_includes_embedding_and_size_status() -> None:
     from query_index_eval.schema import RunMetadata
 
     md = RunMetadata(
-        dataset_path="features/query-index-eval/datasets/golden_v1.jsonl",
+        dataset_path="outputs/test/datasets/golden_events_v1.jsonl",
         dataset_size_active=42,
         dataset_size_deprecated=3,
         embedding_deployment_name="text-embedding-3-large",
@@ -96,6 +62,7 @@ def test_run_metadata_includes_embedding_and_size_status() -> None:
         size_status="preliminary",
     )
     assert md.size_status == "preliminary"
+    assert md.drifted_entry_ids == []
 
 
 def test_metrics_report_composes_all_subobjects() -> None:
@@ -110,7 +77,7 @@ def test_metrics_report_composes_all_subobjects() -> None:
     aggregate = AggregateMetrics(0.7, 0.85, 0.95, 0.65, 0.8, 0.72)
     operational = OperationalMetrics(120.0, 350.0, 42, 42, 1)
     metadata = RunMetadata(
-        "features/query-index-eval/datasets/golden_v1.jsonl",
+        "outputs/test/datasets/golden_events_v1.jsonl",
         42,
         3,
         "text-embedding-3-large",

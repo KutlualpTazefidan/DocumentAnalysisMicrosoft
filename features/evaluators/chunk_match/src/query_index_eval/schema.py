@@ -1,27 +1,13 @@
 """Frozen dataclasses for the eval pipeline.
 
 Designed so that `dataclasses.asdict` produces a JSON-serialisable structure.
-EvalExample mirrors the JSONL row schema documented in the design spec; the
-metric/report dataclasses compose into a single MetricsReport that the CLI
+The metric/report dataclasses compose into a single MetricsReport that the CLI
 serialises to disk.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-
-@dataclass(frozen=True)
-class EvalExample:
-    query_id: str
-    query: str
-    expected_chunk_ids: list[str]
-    source: str
-    chunk_hashes: dict[str, str]
-    filter: str | None
-    deprecated: bool
-    created_at: str
-    notes: str | None
 
 
 @dataclass(frozen=True)
