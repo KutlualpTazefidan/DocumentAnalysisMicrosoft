@@ -1,8 +1,9 @@
 """Evaluation orchestration.
 
-Loads a dataset, runs each non-deprecated example through query_index's
-hybrid search, computes per-query records and aggregate metrics, and returns
-a MetricsReport ready for serialization.
+Consumes an iterable of RetrievalEntry (active, non-deprecated entries
+as projected by goldens.iter_active_retrieval_entries), runs each
+through query_index's hybrid search, computes per-query records and
+aggregate metrics, and returns a MetricsReport ready for serialization.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from query_index import Config, get_chunk, hybrid_search
 
-from query_index_eval.datasets import load_dataset
 from query_index_eval.metrics import (
     hit_rate_at_k,
     mean_average_precision,
@@ -24,7 +24,6 @@ from query_index_eval.metrics import (
 )
 from query_index_eval.schema import (
     AggregateMetrics,
-    EvalExample,
     MetricsReport,
     OperationalMetrics,
     QueryRecord,
@@ -33,7 +32,8 @@ from query_index_eval.schema import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-    from pathlib import Path
+
+    from goldens import RetrievalEntry
 
 
 SIZE_THRESHOLD_INDICATIVE = 30
@@ -85,29 +85,31 @@ def _hash_chunk(text: str) -> str:
 
 
 def _check_drift(
-    examples: list[EvalExample],
+    entries: list[RetrievalEntry],
     cfg: Config,
 ) -> list[str]:
     """Return entry_ids whose expected chunks no longer match recorded hashes."""
     drifted: list[str] = []
-    for example in examples:
-        if not example.chunk_hashes:
+    for entry in entries:
+        if not entry.chunk_hashes:
             continue
-        for chunk_id, expected_hash in example.chunk_hashes.items():
+        for chunk_id, expected_hash in entry.chunk_hashes.items():
             try:
                 actual = get_chunk(chunk_id, cfg)
             except Exception:  # chunk not in index is also drift
-                drifted.append(example.query_id)
+                drifted.append(entry.entry_id)
                 break
             actual_hash = _hash_chunk(actual.chunk)
             if actual_hash != expected_hash:
-                drifted.append(example.query_id)
+                drifted.append(entry.entry_id)
                 break
     return drifted
 
 
 def run_eval(
-    dataset_path: Path,
+    entries: Iterable[RetrievalEntry],
+    *,
+    dataset_path: str,
     top_k_max: int = 20,
     filter_default: str | None = None,
     cfg: Config | None = None,
@@ -115,33 +117,31 @@ def run_eval(
     if cfg is None:
         cfg = Config.from_env()
 
-    all_examples = load_dataset(dataset_path)
-    deprecated_count = sum(1 for e in all_examples if e.deprecated)
-    active: list[EvalExample] = [e for e in all_examples if not e.deprecated]
+    entries = list(entries)  # materialize: support iterator inputs, multi-pass logic
 
-    drifted_ids = _check_drift(active, cfg)
-    drift_warning = len(drifted_ids) > max(1, len(active) // 10)
+    drifted_ids = _check_drift(entries, cfg)
+    drift_warning = len(drifted_ids) > max(1, len(entries) // 10)
 
     per_query: list[QueryRecord] = []
     latencies: list[float] = []
     failures = 0
 
-    for example in active:
+    for entry in entries:
         try:
             t0 = time.perf_counter()
             hits = hybrid_search(
-                example.query,
+                entry.query,
                 top=top_k_max,
-                filter=example.filter or filter_default,
+                filter=filter_default,
                 cfg=cfg,
             )
             latency_ms = (time.perf_counter() - t0) * 1000.0
             retrieved_ids = [h.chunk_id for h in hits]
-            ranks, hit_flags = _ranks_and_hits(example.expected_chunk_ids, retrieved_ids)
+            ranks, hit_flags = _ranks_and_hits(list(entry.expected_chunk_ids), retrieved_ids)
             per_query.append(
                 QueryRecord(
-                    entry_id=example.query_id,
-                    expected_chunk_ids=list(example.expected_chunk_ids),
+                    entry_id=entry.entry_id,
+                    expected_chunk_ids=list(entry.expected_chunk_ids),
                     retrieved_chunk_ids=retrieved_ids,
                     ranks=ranks,
                     hits=hit_flags,
@@ -179,15 +179,19 @@ def run_eval(
     )
 
     metadata = RunMetadata(
-        dataset_path=str(dataset_path),
-        dataset_size_active=len(active),
-        dataset_size_deprecated=deprecated_count,
+        dataset_path=dataset_path,
+        dataset_size_active=len(entries),
+        # Boundary-filtered upstream (iter_active_retrieval_entries); the
+        # runner sees only active entries and cannot count deprecateds.
+        # Eval reports record what was *evaluated*; total/deprecated counts
+        # belong to a future `goldens info <path>` summary tool.
+        dataset_size_deprecated=0,
         embedding_deployment_name=cfg.embedding_deployment_name,
         embedding_model_version=cfg.embedding_model_version,
         azure_openai_api_version=cfg.azure_openai_api_version,
         search_index_name=cfg.ai_search_index_name,
         run_timestamp_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        size_status=_size_status(len(active)),
+        size_status=_size_status(len(entries)),
         drifted_entry_ids=drifted_ids,
         drift_warning=drift_warning,
     )
