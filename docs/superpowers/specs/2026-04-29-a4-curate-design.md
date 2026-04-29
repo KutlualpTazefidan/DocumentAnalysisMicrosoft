@@ -107,8 +107,8 @@ so consumers do not need to know it lives there.
 `core/`, `pipelines/`, or `evaluators/`. The two new edges this
 phase touches outside `creation/`:
 
-- `features/evaluators/chunk_match/src/.../cli.py` — register the
-  `curate` subcommand (one new import + one parser block).
+- `features/evaluators/chunk_match/src/query_index_eval/cli.py` —
+  register the `curate` subcommand (one new import + one parser block).
 - `goldens/storage/projection.py` — extend `_apply_created` to
   thread `source_element` from `entry_data` into `RetrievalEntry`
   (D18, §5.4). One block + one new import of `SourceElement`.
@@ -261,11 +261,12 @@ defaults are wrong here. (D15.)
 1. Print a one-paragraph note: "Wir speichern ein **Pseudonym**, keinen
    Klarnamen. Niveau-Selbsteinschätzung dient nur dem Gewichten der
    Reviews."
-2. Prompt for `pseudonym` (non-empty after `.strip()`; re-prompt once
-   on empty).
+2. Prompt for `pseudonym`. Empty input (after `.strip()`) re-prompts
+   **once**; a second empty attempt → `sys.exit(2)` with the message
+   "leeres Pseudonym zweimal eingegeben — Abbruch".
 3. Prompt for `level`. Invalid input re-prompts **once**; second
-   invalid attempt → `sys.exit(2)` with a clear message ("ungültiges
-   Level zweimal eingegeben — Abbruch").
+   invalid attempt → `sys.exit(2)` with the message "ungültiges
+   Level zweimal eingegeben — Abbruch".
 4. Atomically write the file (`tmp + os.replace`) to
    `${XDG_CONFIG_HOME or ~/.config}/goldens/identity.toml`.
 
@@ -382,9 +383,12 @@ Per-element-type rendering:
 - `paragraph` / `heading` / `list_item`: print element type, page, id,
   then the content body with a wrap.
 - `table`: header line ("Tabelle, p47, 5×3"), compact stub. The user
-  pressing `t` re-renders the same element with the full cell grid.
-  The toggle is one-shot per render — typing anything after the full
-  view counts as a question.
+  pressing `t` re-renders the same element with the full cell grid
+  and re-prompts; the input state machine in §5.2 then applies
+  unchanged (`q` quits, ENTER advances, non-empty text becomes a
+  question). The toggle is one-shot per render — a second `t` after
+  the full view is treated as plain text and routed through the
+  question save sub-flow.
 - `figure`: header line, the caption verbatim, then a fixed line
   "(Bild kann im Terminal nicht angezeigt werden — siehe PDF Seite N)".
 
@@ -547,9 +551,8 @@ fast, and free.
 `cmd_curate` is registered as the `curate` subcommand of
 `query-eval`. The wiring change is one new import + one new
 `add_subparser` block in
-`features/evaluators/chunk_match/src/.../cli.py` (or whichever module
-hosts the `query-eval` argparser; the existing `eval` subcommand
-neighbour is the reference).
+`features/evaluators/chunk_match/src/query_index_eval/cli.py`,
+mirroring the existing `eval` subcommand.
 
 ```python
 from goldens.creation import cmd_curate
@@ -576,7 +579,7 @@ def _build_curate_parser(sub: argparse._SubParsersAction) -> None:
 | `creation/positions.py` | 100 % | XDG monkeypatch; tolerance + atomicity |
 | `creation/curate.py` (helpers) | 70+ % | Helpers tested; outer `input()/print()` loop is `# pragma: no cover` |
 | `storage/projection.py` (edit) | 95+ % | New test threads `source_element` through `_apply_created` |
-| `evaluators/.../cli.py` (curate edge) | covered | One-line extension to existing `test_cli.py` |
+| `evaluators/chunk_match/.../cli.py` (curate edge) | covered | One-line extension to existing `test_cli.py` |
 
 Project-wide `--cov-fail-under=100` for `goldens` stays. The
 per-module floor for `creation/` is the documented 70 % from
@@ -616,8 +619,10 @@ all decision-bearing helpers (`resolve_slug`, `resolve_start`,
 - `load_raises_on_missing_schema_version`
 - `xdg_config_home_respected` (env set vs. unset)
 - `prompt_and_save_writes_atomically`
+- `prompt_empty_pseudonym_re_prompts_once`
+- `prompt_double_empty_pseudonym_exits_with_code_2`
 - `prompt_invalid_level_re_prompts_once`
-- `prompt_double_invalid_exits_with_code_2`
+- `prompt_double_invalid_level_exits_with_code_2`
 
 No tests for pseudonym escaping, sonderzeichen, normalisation,
 length limits, or unicode classes (D17).
