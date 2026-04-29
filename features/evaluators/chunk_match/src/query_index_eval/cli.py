@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
+from goldens import GOLDEN_EVENTS_V1_FILENAME, iter_active_retrieval_entries
 from query_index import Config
 from query_index.schema_discovery import print_index_schema
 
@@ -20,8 +21,8 @@ if TYPE_CHECKING:
     from query_index_eval.schema import MetricsReport
 
 
-DEFAULT_DATASET = Path("features/query-index-eval/datasets/golden_v1.jsonl")
-DEFAULT_REPORTS_DIR = Path("features/query-index-eval/reports")
+DEFAULT_DATASET = Path("outputs") / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+DEFAULT_REPORTS_DIR = Path("outputs") / "reports"
 
 
 def _write_report(
@@ -75,12 +76,22 @@ def _load_env() -> None:
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
-    if args.doc is not None and args.dataset == str(DEFAULT_DATASET):
-        args.dataset = f"outputs/{args.doc}/datasets/golden_v1.jsonl"
-    out_dir = Path(f"outputs/{args.doc}/reports") if args.doc is not None else DEFAULT_REPORTS_DIR
+    if args.doc is not None:
+        dataset_path = Path("outputs") / args.doc / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+        out_dir = Path("outputs") / args.doc / "reports"
+    else:
+        dataset_path = Path(args.dataset)
+        out_dir = DEFAULT_REPORTS_DIR
+
+    if not dataset_path.exists():
+        print(f"ERROR: events log not found at {dataset_path}", file=sys.stderr)
+        return 2
+
     cfg = Config.from_env()
+    entries = iter_active_retrieval_entries(dataset_path)
     report = run_eval(
-        dataset_path=Path(args.dataset),
+        entries=entries,
+        dataset_path=str(dataset_path),
         top_k_max=args.top,
         cfg=cfg,
     )
