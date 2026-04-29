@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       - id: import-boundary-check
-        name: Restrict azure/openai imports to features/pipelines/microsoft/{retrieval,ingestion}
+        name: Restrict azure/openai/anthropic imports per per-package boundary
         entry: bash scripts/check_import_boundary.sh
         language: system
         pass_filenames: false
