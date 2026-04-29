@@ -264,7 +264,7 @@ def test_run_eval_detects_hash_drift_when_chunk_content_changed(
     env_vars: dict,
 ) -> None:
     """If an expected chunk's hash no longer matches what is in the index,
-    runner records the example's query_id in drifted_query_ids."""
+    runner records the example's entry_id in drifted_entry_ids."""
     from query_index_eval.runner import run_eval
 
     rows = [
@@ -296,14 +296,14 @@ def test_run_eval_detects_hash_drift_when_chunk_content_changed(
     ):
         report = run_eval(tmp_dataset_path, top_k_max=20)
 
-    assert "g0001" in report.metadata.drifted_query_ids
+    assert "g0001" in report.metadata.drifted_entry_ids
 
 
 def test_run_eval_no_drift_when_hash_matches(
     tmp_dataset_path: Path,
     env_vars: dict,
 ) -> None:
-    """If the chunk's hash matches, drifted_query_ids stays empty."""
+    """If the chunk's hash matches, drifted_entry_ids stays empty."""
     import hashlib
 
     from query_index_eval.runner import run_eval
@@ -342,4 +342,4 @@ def test_run_eval_no_drift_when_hash_matches(
     ):
         report = run_eval(tmp_dataset_path, top_k_max=20)
 
-    assert report.metadata.drifted_query_ids == []
+    assert report.metadata.drifted_entry_ids == []

@@ -88,7 +88,7 @@ def _check_drift(
     examples: list[EvalExample],
     cfg: Config,
 ) -> list[str]:
-    """Return query_ids whose expected chunks no longer match recorded hashes."""
+    """Return entry_ids whose expected chunks no longer match recorded hashes."""
     drifted: list[str] = []
     for example in examples:
         if not example.chunk_hashes:
@@ -188,7 +188,7 @@ def run_eval(
         search_index_name=cfg.ai_search_index_name,
         run_timestamp_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         size_status=_size_status(len(active)),
-        drifted_query_ids=drifted_ids,
+        drifted_entry_ids=drifted_ids,
         drift_warning=drift_warning,
     )
 

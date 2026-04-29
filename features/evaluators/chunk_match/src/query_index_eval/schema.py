@@ -54,7 +54,7 @@ class RunMetadata:
     search_index_name: str
     run_timestamp_utc: str
     size_status: str
-    drifted_query_ids: list[str] = field(default_factory=list)
+    drifted_entry_ids: list[str] = field(default_factory=list)
     drift_warning: bool = False
 
 
