@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING
 
 from goldens.schemas.base import Event, Review, actor_from_dict
 from goldens.schemas.retrieval import RetrievalEntry
+from goldens.storage.log import read_events
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
+    from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
@@ -119,3 +121,13 @@ def _apply_deprecated(state: dict[str, RetrievalEntry], ev: Event) -> None:
         review_chain=(*entry.review_chain, review),
         deprecated=True,
     )
+
+
+def iter_active_retrieval_entries(path: Path) -> Iterator[RetrievalEntry]:
+    """Canonical read path for evaluators: read events from `path`,
+    project to state, yield active (non-deprecated) entries.
+
+    Drop to read_events / build_state / active_entries if you need
+    deprecated entries, the full state dict, or non-retrieval task types.
+    """
+    return active_entries(build_state(read_events(path)))
