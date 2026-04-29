@@ -2,7 +2,7 @@
 
 The `query_index` package is patched at module level so that no test in this
 suite ever touches Azure. Fixtures expose: a temporary JSONL path, sample
-EvalExample objects, and a sample MetricsReport.
+EvalExample objects, a sample MetricsReport, and a make_entry factory.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from goldens import RetrievalEntry, new_entry_id
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,3 +47,27 @@ def sample_example_dict() -> dict:
         "created_at": "2026-04-27T10:00:00Z",
         "notes": None,
     }
+
+
+@pytest.fixture
+def make_entry():
+    """Factory for RetrievalEntry test instances. review_chain=() yields
+    level='synthetic' (legal — see schemas.retrieval._highest_level)."""
+
+    def _make(
+        entry_id: str | None = None,
+        query: str = "Q?",
+        expected: tuple[str, ...] = ("c1",),
+        chunk_hashes: dict[str, str] | None = None,
+        deprecated: bool = False,
+    ) -> RetrievalEntry:
+        return RetrievalEntry(
+            entry_id=entry_id or new_entry_id(),
+            query=query,
+            expected_chunk_ids=expected,
+            chunk_hashes=chunk_hashes or {c: f"sha256:{c}" for c in expected},
+            review_chain=(),
+            deprecated=deprecated,
+        )
+
+    return _make
