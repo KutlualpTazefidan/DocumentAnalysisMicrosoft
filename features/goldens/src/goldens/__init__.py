@@ -9,6 +9,14 @@ from goldens.schemas import (
     Review,
     actor_from_dict,
 )
+from goldens.storage import (
+    active_entries,
+    append_event,
+    build_state,
+    new_entry_id,
+    new_event_id,
+    read_events,
+)
 
 __all__ = [
     "Actor",
@@ -17,5 +25,11 @@ __all__ = [
     "LLMActor",
     "RetrievalEntry",
     "Review",
+    "active_entries",
     "actor_from_dict",
+    "append_event",
+    "build_state",
+    "new_entry_id",
+    "new_event_id",
+    "read_events",
 ]
