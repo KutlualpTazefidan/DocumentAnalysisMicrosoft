@@ -73,6 +73,62 @@ def read_events(path: Path) -> list[Event]:
     return out
 
 
+def append_events(path: Path, events: list[Event]) -> None:
+    """Append `events` atomically to the JSONL log at `path`.
+
+    Atomic w.r.t. concurrent writers: a single fcntl.LOCK_EX covers
+    the entire batch. Readers see all events from the batch or none.
+
+    Idempotent per event: events whose event_id already exists in the
+    log are silently skipped; the rest are written. Duplicates within
+    `events` are also handled — the first occurrence wins, later ones
+    with the same event_id are skipped.
+
+    Empty list is a silent no-op (no lock acquired, no disk touch).
+    fsync is called once at the end if anything was written.
+    """
+    if not events:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            seen = _existing_event_ids(path)
+            wrote_any = False
+            for event in events:
+                if event.event_id in seen:
+                    continue
+                f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+                seen.add(event.event_id)
+                wrote_any = True
+            if wrote_any:
+                f.flush()
+                os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def _existing_event_ids(path: Path) -> set[str]:
+    """Set of all event_ids currently in the log. Caller must hold the lock."""
+    if not path.exists():
+        return set()
+    ids: set[str] = set()
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                d = json.loads(stripped)
+            except ValueError:
+                # Malformed line; read_events will warn separately on read.
+                continue
+            eid = d.get("event_id")
+            if eid:
+                ids.add(eid)
+    return ids
+
+
 def _event_id_already_present(path: Path, event_id: str) -> bool:
     """Linear scan over the JSONL to check if event_id is recorded.
     Caller must hold the lock on `path`."""
