@@ -404,7 +404,13 @@ Event(
             "source_element": SourceElement(
                 document_id=loader.slug,
                 page_number=element.page_number,
-                element_id=element.element_id,
+                # Strip the "p{page}-" prefix so the persisted element_id is
+                # the bare 8-char content hash. Matches A.4's
+                # loader.to_source_element() mapping (a4-curate spec §5.3) so
+                # consumers joining/deduping on source_element.element_id see
+                # one format regardless of whether the entry came from curate
+                # or synthesise.
+                element_id=element.element_id.split("-", 1)[1],
                 element_type=element.element_type,
             ).to_dict(),
         },
@@ -650,7 +656,7 @@ review (the human level filter rejects redundant questions and
 | `test_creation_synthetic_respx::respects_max_questions_cap`          | LLM returns 30 questions, cap=5 → 5 events written, dropped count reported                              |
 | `test_creation_synthetic_respx::dry_run_writes_no_events`            | `dry_run=True` → 0 LLM calls (assert via respx route counts), 0 events written, token estimate populated |
 | `test_creation_synthetic_respx::resume_skips_already_processed_elements` | Pre-seed 1 active synthesised event for element X → second pass skips X, processes Y                |
-| `test_creation_synthetic_respx::source_element_present_on_event`     | Event payload has `entry_data.source_element` with `document_id=loader.slug` and the element's id/page/type |
+| `test_creation_synthetic_respx::source_element_present_on_event`     | Event payload has `entry_data.source_element` with `document_id=loader.slug`, `page_number`/`element_type` from the loader element, and `element_id` equal to the **bare hash** (page prefix stripped, matching A.4's `build_event_source_element_id_strips_page_prefix`) |
 | `test_creation_synthetic_respx::actor_is_llm_with_correct_metadata`  | Event's actor is `LLMActor` with `model`, `model_version`, `prompt_template_version="v1"`, `temperature=0.0` |
 | `test_creation_cli::synthesise_subparser_wires_correctly`            | `query-eval synthesise --doc X --dry-run` returns 0; cmd_synthesise is invoked                          |
 
