@@ -10,6 +10,7 @@ from goldens.schemas import (
     actor_from_dict,
 )
 from goldens.storage import (
+    GOLDEN_EVENTS_V1_FILENAME,
     active_entries,
     append_event,
     build_state,
@@ -20,6 +21,7 @@ from goldens.storage import (
 )
 
 __all__ = [
+    "GOLDEN_EVENTS_V1_FILENAME",
     "Actor",
     "Event",
     "HumanActor",

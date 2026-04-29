@@ -8,7 +8,10 @@ from goldens.storage.projection import (
     iter_active_retrieval_entries,
 )
 
+GOLDEN_EVENTS_V1_FILENAME = "golden_events_v1.jsonl"
+
 __all__ = [
+    "GOLDEN_EVENTS_V1_FILENAME",
     "active_entries",
     "append_event",
     "append_events",

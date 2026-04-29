@@ -252,3 +252,18 @@ def test_iter_active_retrieval_entries_returns_empty_when_file_missing(tmp_path)
 def test_iter_active_retrieval_entries_re_exported_from_goldens_top_level():
     """Catch the most common refactor bug — symbol silently dropped from __init__."""
     from goldens import iter_active_retrieval_entries  # noqa: F401
+
+
+def test_golden_events_v1_filename_is_storage_contract():
+    """The filename ties the events log to its schema version (v1).
+    A future _v2 schema would introduce GOLDEN_EVENTS_V2_FILENAME."""
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
+
+    assert GOLDEN_EVENTS_V1_FILENAME == "golden_events_v1.jsonl"
+
+
+def test_golden_events_v1_filename_re_exported_from_goldens_top_level():
+    from goldens import GOLDEN_EVENTS_V1_FILENAME as TOP_LEVEL
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME as STORAGE_LEVEL
+
+    assert TOP_LEVEL == STORAGE_LEVEL
