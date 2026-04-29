@@ -116,7 +116,7 @@ features/goldens/
     ├── synthetic_dedup.py                        ← QuestionDedup helper
     ├── elements/                                 ← OWNED BY A.4 (do not author here)
     └── prompts/
-        ├── __init__.py                           ← load_prompt(version, element_type)
+        ├── __init__.py                           ← load_prompt(element_type, version="v1")
         ├── paragraph_v1.json
         ├── table_row_v1.json
         └── list_item_v1.json
@@ -242,8 +242,11 @@ def generate_questions_for_element(
        (re-issue the same call). Second failure → log a warning,
        return [].
     5. Validate the parsed shape: `[{sub_unit, question}, ...]`.
-       Any element of the list missing either field is dropped with
-       a warning; the rest are kept.
+       Any element of the list missing either field, or with an empty
+       `question` string after `.strip()`, is dropped with a warning;
+       the rest are kept. This guarantees the strings reaching
+       `build_synthesised_event` (and therefore the persisted event)
+       are non-empty.
     """
 ```
 
@@ -357,12 +360,16 @@ Internal flow (matches the brief's "LLM-Loop" section):
      a. If resume and element.element_id in existing_keys → skip.
      b. sub_units = decompose_to_sub_units(element)
         if not sub_units: skip (element_type is heading/figure or content empty)
-     c. existing_questions = [e.query for e in active entries with same source_element]
-     d. generated = generate_questions_for_element(element, sub_units, ...)
-        if dry_run: record token estimate, continue
-     e. kept = QuestionDedup.filter(generated, existing_questions, source_key=element.element_id)
-     f. truncate kept to max_questions_per_element with WARNING if exceeded
-     g. for q in kept:
+     c. if dry_run:
+            estimate prompt_tokens via tokenizer.encode(rendered_prompt) and
+            accumulate into the SynthesiseResult; do NOT call the LLM
+            (neither completion nor embedding) and do NOT load existing
+            questions. Continue to the next element.
+     d. existing_questions = [e.query for e in active entries with same source_element]
+     e. generated = generate_questions_for_element(element, sub_units, ...)
+     f. kept = QuestionDedup.filter(generated, existing_questions, source_key=element.element_id)
+     g. truncate kept to max_questions_per_element with WARNING if exceeded
+     h. for q in kept:
             event = build_synthesised_event(element, q, actor=LLMActor(...))
             append_event(events_path, event)
 4. Return SynthesiseResult(events_written=N, elements_skipped=M, ...)
@@ -562,7 +569,7 @@ The hand-off is a single PR after A.4 merges:
 
 ## 7. Validation strategy
 
-Three places where validation happens:
+Four places where validation happens:
 
 1. **Prompt loader (§4.1)** — `PromptSchemaError` on filename↔fields
    mismatch, missing required JSON keys, or unknown placeholders.
@@ -571,11 +578,24 @@ Three places where validation happens:
 
 2. **LLM JSON parsing (§4.3)** — `JSONDecodeError` is caught,
    retried once, then suppressed-with-warn. The element is skipped,
-   the next element proceeds. **No event corruption is possible** —
-   `Event.__post_init__` would re-raise on bad data, and `append_event`
-   only sees fully-validated `Event` instances.
+   the next element proceeds. Additionally, individual generated
+   items missing `sub_unit`/`question` or with an empty `question`
+   string are dropped with a warning (§4.3 step 5), so the only
+   strings that reach `build_synthesised_event` are non-empty
+   `q.question` values.
 
-3. **Storage** — `goldens.storage.append_event` is the boundary.
+3. **Event construction** — `build_synthesised_event` instantiates
+   `LLMActor(...)` and `SourceElement(...)` before assembling the
+   payload. Both dataclasses raise in `__post_init__` on empty
+   required fields (see `schemas/base.py:LLMActor.__post_init__` and
+   `schemas/base.py:SourceElement.__post_init__`). The outer `Event`
+   then validates `event_id`, `entry_id`, `event_type`, `schema_version`,
+   and `timestamp_utc` in its own `__post_init__`. Note: `Event` does
+   **not** validate the payload contents — those validations are
+   provided by the actor / source-element dataclasses above, and by
+   the §4.3 step-5 question-string filter.
+
+4. **Storage** — `goldens.storage.append_event` is the boundary.
    Synthetic does not call `append_events`; one event at a time is
    atomic enough for the per-question semantics (no two events
    describe the same logical action — contrast `refine` in A.6).
