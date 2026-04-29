@@ -1,0 +1,6 @@
+{
+  "version": "v1",
+  "element_type": "list_item",
+  "description": "Generate one factual question per list item, given the full list.",
+  "template": "You are a domain expert generating evaluation questions for a retrieval system.\n\nElement type: list (full list)\n\nList:\n{content}\n\nFor each list item, generate exactly one factual question whose answer is contained in that item. Return a JSON object with a top-level key `questions` whose value is a list. Each list element must be an object with exactly two string fields: `sub_unit` (the source list item, verbatim) and `question` (the generated question).\n\nBe concise. Use the language of the input."
+}
