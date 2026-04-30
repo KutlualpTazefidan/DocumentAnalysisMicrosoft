@@ -210,10 +210,22 @@ class _TtyStream:
     def isatty(self) -> bool:
         return True
 
+    def write(self, _data: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
 
 class _NonTtyStream:
     def isatty(self) -> bool:
         return False
+
+    def write(self, _data: str) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
 
 
 def test_require_tty_passes_when_both_tty(monkeypatch: pytest.MonkeyPatch) -> None:
