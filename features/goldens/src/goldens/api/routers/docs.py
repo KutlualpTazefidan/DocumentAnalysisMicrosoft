@@ -13,14 +13,21 @@ from collections import defaultdict
 from pathlib import Path  # noqa: TC003
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict
 
-from goldens.api.schemas import DocSummary, ElementWithCounts
+from goldens.api.schemas import (
+    CreateEntryRequest,
+    CreateEntryResponse,
+    DocSummary,
+    ElementWithCounts,
+)
+from goldens.creation.curate import build_created_event
 from goldens.creation.elements.adapter import DocumentElement  # noqa: TC001
 from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
 from goldens.schemas import ElementType  # noqa: F401
 from goldens.schemas.retrieval import RetrievalEntry  # noqa: TC001
-from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
+from goldens.storage import GOLDEN_EVENTS_V1_FILENAME, append_event
 from goldens.storage.projection import iter_active_retrieval_entries
 
 
@@ -115,3 +122,39 @@ async def get_element(
                 entries.append(entry)
 
     return ElementDetailResponse(element=matching, entries=entries)
+
+
+@router.post(
+    "/api/docs/{slug}/elements/{element_id}/entries",
+    response_model=CreateEntryResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def create_entry(
+    slug: str,
+    element_id: str,
+    body: CreateEntryRequest,
+    request: Request,
+) -> CreateEntryResponse:
+    data_root: Path = request.app.state.config.data_root
+    identity = request.app.state.identity
+
+    loader = AnalyzeJsonLoader(slug, outputs_root=data_root)
+    elements = loader.elements()
+    matching = next((el for el in elements if el.element_id == element_id), None)
+    if matching is None:
+        raise HTTPException(status_code=404, detail=f"element {element_id} not found in {slug}")
+
+    event = build_created_event(
+        question=body.query,
+        element=matching,
+        loader=loader,
+        identity=identity,
+    )
+    log = data_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    log.parent.mkdir(parents=True, exist_ok=True)
+    append_event(log, event)
+
+    return CreateEntryResponse(
+        entry_id=event.entry_id,
+        event_id=event.event_id,
+    )

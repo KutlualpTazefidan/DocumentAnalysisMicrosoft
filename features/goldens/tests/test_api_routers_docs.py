@@ -131,3 +131,37 @@ def test_get_element_unknown_element_404(make_client) -> None:
     resp = client.get("/api/docs/doc-a/elements/p99-deadbeef")
     assert resp.status_code == 404
     assert "p99-deadbeef" in resp.json()["detail"]
+
+
+def test_create_entry_writes_event(make_client) -> None:
+    client, outputs = make_client()
+    _seed_doc(outputs, "doc-a")
+    elements = client.get("/api/docs/doc-a/elements").json()
+    el_id = elements[0]["element"]["element_id"]
+
+    resp = client.post(
+        f"/api/docs/doc-a/elements/{el_id}/entries",
+        json={"query": "Was steht hier?"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["entry_id"]
+    assert body["event_id"]
+
+    # And the count goes up.
+    after = client.get("/api/docs/doc-a/elements").json()
+    matching = next(e for e in after if e["element"]["element_id"] == el_id)
+    assert matching["count_active_entries"] >= 1
+
+
+def test_create_entry_rejects_empty_query(make_client) -> None:
+    client, outputs = make_client()
+    _seed_doc(outputs, "doc-a")
+    elements = client.get("/api/docs/doc-a/elements").json()
+    el_id = elements[0]["element"]["element_id"]
+
+    resp = client.post(
+        f"/api/docs/doc-a/elements/{el_id}/entries",
+        json={"query": ""},
+    )
+    assert resp.status_code == 422
