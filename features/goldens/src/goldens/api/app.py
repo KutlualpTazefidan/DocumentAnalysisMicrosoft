@@ -8,8 +8,11 @@ routers.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from goldens.api.auth import install_auth_middleware
 from goldens.api.config import ApiConfig
@@ -70,5 +73,13 @@ def create_app() -> FastAPI:
 
     app.include_router(docs_router)
     app.include_router(entries_router)
+
+    # ─── Static SPA mount ────────────────────────────────────────────────
+    # Mount frontend/dist/ at "/" when present. In dev mode (no `npm run
+    # build` yet), the directory won't exist and we skip — only the API
+    # routes plus /docs (Swagger) remain reachable.
+    _dist = Path(__file__).resolve().parents[5] / "frontend" / "dist"
+    if _dist.is_dir():
+        app.mount("/", StaticFiles(directory=str(_dist), html=True), name="frontend")
 
     return app
