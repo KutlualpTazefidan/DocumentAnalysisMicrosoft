@@ -52,7 +52,9 @@ features/
 | A.5 | `goldens/creation/synthetic.py` | ✅ merged | [#13](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/13) | [a5-synthetic-design.md](superpowers/specs/2026-04-29-a5-synthetic-design.md), [plan](superpowers/plans/2026-04-29-a5-synthetic.md) |
 | A.6 | `goldens/operations/` | ✅ merged | [#10](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/10) | (Spec/Plan im Branch committed) |
 | A.7 | `evaluators/chunk_match/` Rewire | ✅ merged | [#11](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/11) | [a7-chunk-match-rewire-design.md](superpowers/specs/2026-04-29-a7-chunk-match-rewire-design.md) |
-| A-Plus | `goldens/api/` + Frontend | 📅 später | — | (in Restructure-Spec §7 skizziert) |
+| A.8 | Pydantic v2 core migration (prerequisite for A-Plus) | ✅ merged | [#22](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/22) | [pydantic-core-migration-design.md](superpowers/specs/2026-04-30-pydantic-core-migration-design.md), [plan](superpowers/plans/2026-04-30-pydantic-core-migration.md) |
+| A-Plus.1 | `goldens/api/` (FastAPI backend) | 📅 spec geschrieben, plan steht aus | — | [a-plus-1-backend-design.md](superpowers/specs/2026-04-30-a-plus-1-backend-design.md) |
+| A-Plus.2 | `frontend/` (React SPA) | 🚧 in Arbeit (Teammate aplus-2-frontend) | — | [a-plus-2-frontend-design.md](superpowers/specs/2026-04-30-a-plus-2-frontend-design.md), [plan](superpowers/plans/2026-04-30-a-plus-2-frontend.md) |
 | B | Answer-Quality + LLM-Judge | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | C | Klassifikation + Multi-Agent | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | D | User-Signale auf Chunks und Test-Fragen | 💭 Idee, Brainstorming offen | — | (Skizze unten) |
