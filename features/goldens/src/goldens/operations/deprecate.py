@@ -45,7 +45,7 @@ def deprecate(
         event_type="deprecated",
         entry_id=entry_id,
         schema_version=1,
-        payload={"actor": actor.to_dict(), "reason": reason},
+        payload={"actor": actor.model_dump(mode="json"), "reason": reason},
     )
     append_event(path, event)
     return eid

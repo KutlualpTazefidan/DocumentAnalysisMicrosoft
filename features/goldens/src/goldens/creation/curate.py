@@ -121,14 +121,14 @@ def build_created_event(
     source_element = loader.to_source_element(element)
     payload = {
         "task_type": "retrieval",
-        "actor": identity_to_human_actor(identity).to_dict(),
+        "actor": identity_to_human_actor(identity).model_dump(mode="json"),
         "action": "created_from_scratch",
         "notes": None,
         "entry_data": {
             "query": question,
             "expected_chunk_ids": [],
             "chunk_hashes": {},
-            "source_element": source_element.to_dict(),
+            "source_element": source_element.model_dump(mode="json"),
         },
     }
     return Event(
