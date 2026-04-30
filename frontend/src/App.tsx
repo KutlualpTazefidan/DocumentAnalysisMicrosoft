@@ -1,6 +1,7 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { Login } from "./routes/login";
+import { DocsIndex } from "./routes/docs-index";
 
 function RequireAuth() {
   const { token } = useAuth();
@@ -18,7 +19,7 @@ export function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<RequireAuth />}>
           <Route path="/" element={<Navigate to="/docs" replace />} />
-          <Route path="/docs" element={<DocsIndexPlaceholder />} />
+          <Route path="/docs" element={<DocsIndex />} />
           <Route
             path="/docs/:slug/elements"
             element={<DocElementsPlaceholder />}
@@ -38,9 +39,6 @@ export function App() {
   );
 }
 
-function DocsIndexPlaceholder() {
-  return <div className="p-8">Docs Index (Task 11)</div>;
-}
 function DocElementsPlaceholder() {
   return <div className="p-8">Doc Elements (Task 23)</div>;
 }
