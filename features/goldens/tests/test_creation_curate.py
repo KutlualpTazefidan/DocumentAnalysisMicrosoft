@@ -381,7 +381,7 @@ def test_cmd_curate_writes_event_then_quits(
     monkeypatch.setattr("sys.stdin", _TtyStream())
     monkeypatch.setattr("sys.stdout", _TtyStream())
 
-    answers = iter(["Wozu dient der Tragkorb?", "J", "q"])
+    answers = iter(["Wozu dient der Tragkorb?", "q"])
     monkeypatch.setattr(builtins, "input", lambda _prompt="": next(answers))
 
     args = argparse.Namespace(doc=None, start_from=None)
@@ -394,6 +394,91 @@ def test_cmd_curate_writes_event_then_quits(
     assert ev.event_type == "created"
     assert ev.payload["entry_data"]["query"] == "Wozu dient der Tragkorb?"
     assert ev.payload["entry_data"]["source_element"]["document_id"] == "doc-a"
+
+
+def test_cmd_curate_writes_multiple_events_for_one_element(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D19: typed questions auto-save and stay on the same element until
+    an empty ENTER advances. Three questions on element #1 → three
+    events, all referencing the same source element."""
+    import argparse
+    import builtins
+    import shutil
+
+    from goldens.creation.curate import cmd_curate
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME, read_events
+
+    outputs = tmp_path / "outputs"
+    fixtures = Path(__file__).parent / "fixtures"
+    analyze_dir = outputs / "doc-a" / "analyze"
+    analyze_dir.mkdir(parents=True)
+    shutil.copy(fixtures / "analyze_minimal.json", analyze_dir / "ts.json")
+
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    _identity_file(xdg)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+
+    answers = iter(["Wozu dient das Bauteil?", "Welche Norm gilt?", "Wer prüft?", "q"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(answers))
+
+    args = argparse.Namespace(doc=None, start_from=None)
+    rc = cmd_curate(args)
+    assert rc == 0
+
+    events_path = outputs / "doc-a" / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    events = list(read_events(events_path))
+    assert len(events) == 3
+    queries = [ev.payload["entry_data"]["query"] for ev in events]
+    assert queries == ["Wozu dient das Bauteil?", "Welche Norm gilt?", "Wer prüft?"]
+    element_ids = {ev.payload["entry_data"]["source_element"]["element_id"] for ev in events}
+    assert len(element_ids) == 1, "all three events must reference the same source element"
+
+
+def test_cmd_curate_empty_enter_advances_without_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D19: empty ENTER is unconditional 'Weiter'. Save one question on
+    element #1, then empty ENTER → element #2, then quit. Only one
+    event written."""
+    import argparse
+    import builtins
+    import shutil
+
+    from goldens.creation.curate import cmd_curate
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME, read_events
+
+    outputs = tmp_path / "outputs"
+    fixtures = Path(__file__).parent / "fixtures"
+    analyze_dir = outputs / "doc-a" / "analyze"
+    analyze_dir.mkdir(parents=True)
+    shutil.copy(fixtures / "analyze_minimal.json", analyze_dir / "ts.json")
+
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    _identity_file(xdg)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+
+    answers = iter(["Wozu dient das Bauteil?", "", "q"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(answers))
+
+    args = argparse.Namespace(doc=None, start_from=None)
+    rc = cmd_curate(args)
+    assert rc == 0
+
+    events_path = outputs / "doc-a" / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    events = list(read_events(events_path))
+    assert len(events) == 1
+    assert events[0].payload["entry_data"]["query"] == "Wozu dient das Bauteil?"
 
 
 def test_cmd_curate_returns_2_when_no_doc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

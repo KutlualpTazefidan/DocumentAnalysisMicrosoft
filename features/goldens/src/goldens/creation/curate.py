@@ -230,49 +230,41 @@ def cmd_curate(args: argparse.Namespace) -> int:  # pragma: no cover
         el = elements[idx]
         print("\n" + "—" * 60)
         print(render_element_block(el))
-        question = input(_PROMPT)
+        table_expanded = False
 
-        if question == "q":
-            write_position(slug, el.element_id)
-            return 0
-
-        if question == "":
-            write_position(slug, el.element_id)
-            continue
-
-        if question == "t" and el.element_type == "table":
-            print("\n" + render_table_full(el))
+        while True:
             question = input(_PROMPT)
+
             if question == "q":
                 write_position(slug, el.element_id)
                 return 0
+
             if question == "":
                 write_position(slug, el.element_id)
+                break
+
+            if question == "t" and el.element_type == "table" and not table_expanded:
+                print("\n" + render_table_full(el))
+                table_expanded = True
                 continue
 
-        if query_substring_overlap(question, el.content, threshold=_OVERLAP_THRESHOLD):
-            keep = (
-                input("WARNUNG: Frage scheint aus dem Element kopiert. Trotzdem speichern? [j/N] ")
-                .strip()
-                .lower()
-            )
-            if keep != "j":
-                if input("Weiter? [j/N] ").strip().lower() == "j":
-                    write_position(slug, el.element_id)
-                continue
+            if query_substring_overlap(question, el.content, threshold=_OVERLAP_THRESHOLD):
+                keep = (
+                    input(
+                        "WARNUNG: Frage scheint aus dem Element kopiert. Trotzdem speichern? [j/N] "
+                    )
+                    .strip()
+                    .lower()
+                )
+                if keep != "j":
+                    continue
 
-        save = input("Speichern? [J/n] ").strip().lower()
-        if save in ("", "j"):
             event = build_created_event(
                 question=question, element=el, loader=loader, identity=identity
             )
             append_event(events_path, event)
             write_position(slug, el.element_id)
             print("✓ gespeichert")
-            continue
-
-        if input("Weiter? [j/N] ").strip().lower() == "j":
-            write_position(slug, el.element_id)
 
     print(f"\nDu hast alle Elemente von {slug} durchgesehen.")
     return 0

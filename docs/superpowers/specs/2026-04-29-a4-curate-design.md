@@ -328,10 +328,12 @@ print intro banner
         ▼
 loop over elements[start:]:
     render element block
-    read user input
-    apply input state machine (§5.2)
-    on save / weiter:  write_position(slug, current.element_id) → next
-    on quit:           write_position(slug, current.element_id), clean exit
+    inner question-loop (§5.2):
+        read user input
+        empty / 'q' / 't' → handled per state machine
+        non-empty text → save event, stay on element, re-prompt
+    on weiter:    write_position(slug, current.element_id) → next
+    on quit:      write_position(slug, current.element_id), clean exit
     on end-of-list:    print "Du hast alle Elemente von <slug> durchgesehen."
 ```
 
@@ -349,14 +351,21 @@ Frage zu diesem Absatz (oder ENTER für 'Weiter', 'q' zum Beenden, 't' für voll
 > 
 ```
 
-Input state machine:
+Each element runs an inner question-loop: the user can type as many
+questions as the element warrants (a 4×3 screw table easily yields
+3-5 questions; a single sentence may yield none) before signalling
+"Weiter" with an empty ENTER. Every typed question is saved
+immediately — the legacy `Speichern? [J/n]` confirmation is gone
+(D19 supersedes Q6c/D7).
+
+Input state machine (single iteration of the inner loop):
 
 | Input | Action |
 |---|---|
-| `q` | Quit. Write position, clean exit. |
-| empty (just ENTER) | "Weiter" without confirmation prompt. Advance. |
-| `t` (only on a `table` element) | Re-render with the **full** cell grid, then re-prompt. |
-| any non-empty other text | Treat as a typed question. Run the save sub-flow. |
+| `q` | Quit. Write position for current element, clean exit. |
+| empty (just ENTER) | "Weiter". Write position, advance to next element. |
+| `t` (only on a `table` element) | Re-render with the **full** cell grid, then re-prompt on the same element. One-shot per element — a second `t` after expansion becomes a regular question. |
+| any non-empty other text | Treat as a typed question. Run the save sub-flow, then re-prompt **on the same element**. |
 
 Save sub-flow on a typed question:
 
@@ -364,19 +373,16 @@ Save sub-flow on a typed question:
 1. anti-paste check:
        overlap = query_substring_overlap(question, element.content, threshold=30)
        overlap is True  → warn, prompt "Trotzdem speichern? [j/N]"
-                              n / empty → discard, ask "Weiter? [j/N]"  (Q6 confirm-if-typed)
-                                              j      → next, no save
-                                              else   → re-prompt question
-                              j         → continue to step 2
-       overlap is False → continue to step 2
-2. prompt "Speichern? [J/n]"
-       J / empty → save event (§5.3), write_position, advance
-       n         → discard. Prompt "Weiter? [j/N]" as above.
+                              j         → save event (§5.3), re-prompt on same element
+                              n / empty → discard this question, re-prompt on same element
+       overlap is False → save event (§5.3), re-prompt on same element
 ```
 
-The `Weiter? [j/N]` confirm exists only when the user has already
-typed something. Pressing ENTER on a clean prompt advances directly
-without confirmation (D7 / Q6).
+Saving never advances. Advancing is exclusively the empty-ENTER
+"Weiter" signal. Mistakes (typos, unclear wording) are corrected
+out-of-band via `query-eval refine` / `deprecate` against the
+event log — the curate loop optimises for capture velocity, not
+edit-time correctness (D19 rationale).
 
 Per-element-type rendering:
 
@@ -697,7 +703,7 @@ Co-located under `features/goldens/tests/fixtures/`:
 | D4 | Position cache | Separate file `~/.config/goldens/positions.toml`, tolerant reads (Q3b) |
 | D5 | Table display | Compact stub, `t` toggle for full content (Q4b) |
 | D6 | Figure display | Caption + page reference, no image rendering (Q5b) |
-| D7 | "Weiter" confirmation | Confirm only if user already typed something (Q6c) |
+| D7 | "Weiter" confirmation | ~~Confirm only if user already typed something (Q6c)~~ — **superseded by D19**: empty ENTER is "Weiter" unconditionally; typed text is auto-saved without confirmation. |
 | D8 | Anti-paste | Reuse legacy `query_substring_overlap`, threshold 30 (Q7a) |
 | D9 | TTY guard | Verbatim legacy guard, no `--no-tty` opt-out (Q8a) |
 | D10 | LLM validation | None — A.4 stays LLM-free (Q9b) |
@@ -709,6 +715,7 @@ Co-located under `features/goldens/tests/fixtures/`:
 | D16 | A.5 sub-unit decomposition | A.5 owns its own helper; loader stays slim |
 | D17 | Pseudonym schema | v1-provisional; format may change after IT/DSGVO review. Validation minimal. |
 | D18 | Projection thread-through | A.4 extends `_apply_created` to surface `source_element` in `RetrievalEntry`. Without it, D13 ("source_element is the truth") would not hold end-to-end. |
+| D19 | Multi-question per element + auto-save | Each element runs an inner loop. Typed text auto-saves; empty ENTER is "Weiter". `Speichern? [J/n]` and discard-`Weiter? [j/N]` removed. **Why**: smoke-test against the Tragkorb screw table showed dense elements warrant 3-5 questions, and the confirm prompt was friction without value (mistakes are fixable via `refine`/`deprecate` post-hoc). Supersedes D7 + Q6c. |
 
 ## 11. Known Follow-ups
 
