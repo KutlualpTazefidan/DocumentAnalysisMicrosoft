@@ -1,32 +1,43 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { useAuth } from "./hooks/useAuth";
 import { Login } from "./routes/login";
+
+function RequireAuth() {
+  const { token } = useAuth();
+  const location = useLocation();
+  if (!token) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  return <Outlet />;
+}
 
 export function App() {
   return (
     <div className="min-h-screen">
       <Routes>
-        <Route path="/" element={<Navigate to="/docs" replace />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/docs" element={<DocsIndexPlaceholder />} />
-        <Route
-          path="/docs/:slug/elements"
-          element={<DocElementsPlaceholder />}
-        />
-        <Route
-          path="/docs/:slug/elements/:elementId"
-          element={<DocElementsPlaceholder />}
-        />
-        <Route
-          path="/docs/:slug/synthesise"
-          element={<SynthesisePlaceholder />}
-        />
+        <Route element={<RequireAuth />}>
+          <Route path="/" element={<Navigate to="/docs" replace />} />
+          <Route path="/docs" element={<DocsIndexPlaceholder />} />
+          <Route
+            path="/docs/:slug/elements"
+            element={<DocElementsPlaceholder />}
+          />
+          <Route
+            path="/docs/:slug/elements/:elementId"
+            element={<DocElementsPlaceholder />}
+          />
+          <Route
+            path="/docs/:slug/synthesise"
+            element={<SynthesisePlaceholder />}
+          />
+        </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>
   );
 }
 
-// Placeholders — replaced in subsequent tasks.
 function DocsIndexPlaceholder() {
   return <div className="p-8">Docs Index (Task 11)</div>;
 }
