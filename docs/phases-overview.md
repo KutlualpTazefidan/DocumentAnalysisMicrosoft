@@ -53,7 +53,7 @@ features/
 | A.6 | `goldens/operations/` | ✅ merged | [#10](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/10) | (Spec/Plan im Branch committed) |
 | A.7 | `evaluators/chunk_match/` Rewire | ✅ merged | [#11](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/11) | [a7-chunk-match-rewire-design.md](superpowers/specs/2026-04-29-a7-chunk-match-rewire-design.md) |
 | A.8 | Pydantic v2 core migration (prerequisite for A-Plus) | ✅ merged | [#22](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/22) | [pydantic-core-migration-design.md](superpowers/specs/2026-04-30-pydantic-core-migration-design.md), [plan](superpowers/plans/2026-04-30-pydantic-core-migration.md) |
-| A-Plus.1 | `goldens/api/` (FastAPI backend) | 📅 spec geschrieben, plan steht aus | — | [a-plus-1-backend-design.md](superpowers/specs/2026-04-30-a-plus-1-backend-design.md) |
+| A-Plus.1 | `goldens/api/` (FastAPI backend) | 🚧 in Arbeit (Teammate aplus-1-backend) | — | [a-plus-1-backend-design.md](superpowers/specs/2026-04-30-a-plus-1-backend-design.md), [plan](superpowers/plans/2026-04-30-a-plus-1-backend.md) |
 | A-Plus.2 | `frontend/` (React SPA) | 🚧 in Arbeit (Teammate aplus-2-frontend) | — | [a-plus-2-frontend-design.md](superpowers/specs/2026-04-30-a-plus-2-frontend-design.md), [plan](superpowers/plans/2026-04-30-a-plus-2-frontend.md) |
 | B | Answer-Quality + LLM-Judge | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | C | Klassifikation + Multi-Agent | 📅 später | — | (in Restructure-Spec §7 skizziert) |
