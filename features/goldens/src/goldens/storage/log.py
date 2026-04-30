@@ -38,7 +38,7 @@ def append_event(path: Path, event: Event) -> None:
         try:
             if _event_id_already_present(path, event.event_id):
                 return
-            line = json.dumps(event.to_dict(), ensure_ascii=False) + "\n"
+            line = json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n"
             f.write(line)
             f.flush()
             os.fsync(f.fileno())
@@ -61,7 +61,7 @@ def read_events(path: Path) -> list[Event]:
                 continue
             try:
                 d = json.loads(line)
-                out.append(Event.from_dict(d))
+                out.append(Event.model_validate(d))
             except (ValueError, KeyError) as e:
                 _log.warning(
                     "skipping malformed event log line %d in %s: %s",
@@ -98,7 +98,7 @@ def append_events(path: Path, events: list[Event]) -> None:
             for event in events:
                 if event.event_id in seen:
                     continue
-                f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+                f.write(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n")
                 seen.add(event.event_id)
                 wrote_any = True
             if wrote_any:

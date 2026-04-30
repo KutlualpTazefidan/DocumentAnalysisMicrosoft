@@ -3,8 +3,6 @@ validators, and serialization round-trips."""
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
-
 import pytest
 from goldens.schemas.base import (
     Event,
@@ -14,6 +12,7 @@ from goldens.schemas.base import (
     SourceElement,
     actor_from_dict,
 )
+from pydantic import ValidationError
 
 # --- HumanActor ---------------------------------------------------
 
@@ -25,7 +24,7 @@ def test_human_actor_defaults_kind():
 
 def test_human_actor_is_frozen():
     a = HumanActor(pseudonym="alice", level="phd")
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(ValidationError):
         a.pseudonym = "bob"  # type: ignore[misc]
 
 
@@ -36,11 +35,11 @@ def test_human_actor_rejects_empty_pseudonym():
 
 def test_human_actor_round_trip():
     a = HumanActor(pseudonym="alice", level="expert")
-    assert HumanActor.from_dict(a.to_dict()) == a
+    assert HumanActor.model_validate(a.model_dump(mode="json")) == a
 
 
 def test_human_actor_from_dict_defaults_kind():
-    a = HumanActor.from_dict({"pseudonym": "alice", "level": "phd"})
+    a = HumanActor.model_validate({"pseudonym": "alice", "level": "phd"})
     assert a.kind == "human"
 
 
@@ -58,7 +57,7 @@ def test_llm_actor_defaults_kind():
 
 
 def test_llm_actor_rejects_empty_model():
-    with pytest.raises(ValueError, match="model must be"):
+    with pytest.raises(ValidationError, match="model"):
         LLMActor(
             model="",
             model_version="v1",
@@ -94,7 +93,7 @@ def test_llm_actor_round_trip():
         prompt_template_version="synth-v1",
         temperature=0.3,
     )
-    assert LLMActor.from_dict(a.to_dict()) == a
+    assert LLMActor.model_validate(a.model_dump(mode="json")) == a
 
 
 # --- actor_from_dict ---------------------------------------------
@@ -133,7 +132,7 @@ def test_review_round_trip_with_human_actor():
         actor=HumanActor(pseudonym="alice", level="expert"),
         notes="LGTM",
     )
-    restored = Review.from_dict(r.to_dict())
+    restored = Review.model_validate(r.model_dump(mode="json"))
     assert restored == r
     assert isinstance(restored.actor, HumanActor)
 
@@ -150,13 +149,13 @@ def test_review_round_trip_with_llm_actor():
         ),
         notes=None,
     )
-    restored = Review.from_dict(r.to_dict())
+    restored = Review.model_validate(r.model_dump(mode="json"))
     assert restored == r
     assert isinstance(restored.actor, LLMActor)
 
 
 def test_review_rejects_unknown_action():
-    with pytest.raises(ValueError, match="unknown review action"):
+    with pytest.raises(ValidationError, match="action"):
         Review(
             timestamp_utc="2026-04-28T10:00:00Z",
             action="weird",  # type: ignore[arg-type]
@@ -205,7 +204,7 @@ def test_event_round_trip_minimal():
         entry_id="r1",
         schema_version=1,
     )
-    restored = Event.from_dict(e.to_dict())
+    restored = Event.model_validate(e.model_dump(mode="json"))
     assert restored == e
 
 
@@ -218,7 +217,7 @@ def test_event_round_trip_with_payload():
         schema_version=1,
         payload={"action": "approved", "actor_pseudonym": "alice"},
     )
-    restored = Event.from_dict(e.to_dict())
+    restored = Event.model_validate(e.model_dump(mode="json"))
     assert restored == e
     assert restored.payload["actor_pseudonym"] == "alice"
 
@@ -268,7 +267,7 @@ def test_event_rejects_schema_version_zero():
 
 
 def test_event_rejects_unknown_event_type():
-    with pytest.raises(ValueError, match="unknown event_type"):
+    with pytest.raises(ValidationError, match="event_type"):
         Event(
             event_id="e1",
             timestamp_utc="2026-04-28T10:00:00Z",
@@ -288,7 +287,7 @@ def test_event_from_dict_ignores_unknown_keys():
         "payload": {},
         "future_field": "ignored silently",
     }
-    e = Event.from_dict(d)
+    e = Event.model_validate(d)
     assert e.event_id == "e1"
 
 
@@ -310,7 +309,7 @@ def test_source_element_holds_all_fields():
 
 def test_source_element_is_frozen():
     el = SourceElement(document_id="d1", page_number=1, element_id="p1", element_type="paragraph")
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(ValidationError):
         el.page_number = 2  # type: ignore[misc]
 
 
@@ -335,7 +334,7 @@ def test_source_element_rejects_negative_page_number():
 
 
 def test_source_element_rejects_unknown_element_type():
-    with pytest.raises(ValueError, match="unknown element_type"):
+    with pytest.raises(ValidationError, match="element_type"):
         SourceElement(
             document_id="d1",
             page_number=1,
@@ -362,5 +361,5 @@ def test_source_element_round_trip():
         element_id="t1",
         element_type="table",
     )
-    restored = SourceElement.from_dict(original.to_dict())
+    restored = SourceElement.model_validate(original.model_dump(mode="json"))
     assert restored == original

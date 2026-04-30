@@ -222,7 +222,7 @@ def _build_event(
         schema_version=1,
         payload={
             "task_type": "retrieval",
-            "actor": actor.to_dict(),
+            "actor": actor.model_dump(mode="json"),
             "action": "synthesised",
             "notes": None,
             "entry_data": {
@@ -230,7 +230,7 @@ def _build_event(
                 "expected_chunk_ids": [],
                 "chunk_hashes": {},
                 "refines": None,
-                "source_element": src.to_dict(),
+                "source_element": src.model_dump(mode="json"),
             },
         },
     )

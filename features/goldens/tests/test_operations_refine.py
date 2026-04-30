@@ -31,7 +31,7 @@ def _seed_created(path: Path, entry_id: str = "r-old") -> None:
             schema_version=1,
             payload={
                 "task_type": "retrieval",
-                "actor": _human().to_dict(),
+                "actor": _human().model_dump(mode="json"),
                 "action": "created_from_scratch",
                 "notes": None,
                 "entry_data": {
@@ -54,7 +54,7 @@ def _seed_deprecate(path: Path, entry_id: str = "r-old") -> None:
             event_type="deprecated",
             entry_id=entry_id,
             schema_version=1,
-            payload={"actor": _human().to_dict(), "reason": None},
+            payload={"actor": _human().model_dump(mode="json"), "reason": None},
         ),
     )
 

@@ -3,8 +3,9 @@ event-sourced model."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from goldens.schemas.base import HumanActor, Review, SourceElement
 
@@ -32,8 +33,9 @@ def _highest_level(
     raise ValueError(f"no recognised level in {human_levels}")  # pragma: no cover
 
 
-@dataclass(frozen=True)
-class RetrievalEntry:
+class RetrievalEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     entry_id: str
     query: str
     expected_chunk_ids: tuple[str, ...]
@@ -44,51 +46,19 @@ class RetrievalEntry:
     task_type: Literal["retrieval"] = "retrieval"
     # Pipeline-independent ground truth: the source-document element from which
     # this entry's question was curated (Document Intelligence ID, stable across
-    # pipelines). Optional for backward-compatibility with pre-A.3.1 entries; new
-    # entries created by Phase A.4 (curate) and A.5 (synthetic) will set it.
+    # pipelines). Optional for backward-compatibility with pre-A.3.1 entries.
     source_element: SourceElement | None = None
 
-    def __post_init__(self) -> None:
-        if not self.entry_id:
-            raise ValueError("entry_id must be non-empty")
-        if not self.query:
-            raise ValueError("query must be non-empty")
+    @field_validator("entry_id", "query", mode="after")
+    @classmethod
+    def _non_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError("must be non-empty")
+        return v
 
     @property
     def level(
         self,
     ) -> Literal["expert", "phd", "masters", "bachelors", "other", "synthetic"]:
+        """Highest reviewer level in the chain. NOT serialized — derived state."""
         return _highest_level(self.review_chain)
-
-    def to_dict(self) -> dict:
-        return {
-            "entry_id": self.entry_id,
-            "query": self.query,
-            "expected_chunk_ids": list(self.expected_chunk_ids),
-            "chunk_hashes": dict(self.chunk_hashes),
-            "review_chain": [r.to_dict() for r in self.review_chain],
-            "deprecated": self.deprecated,
-            "refines": self.refines,
-            "task_type": self.task_type,
-            "source_element": (
-                self.source_element.to_dict() if self.source_element is not None else None
-            ),
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> RetrievalEntry:
-        source_element_raw = d.get("source_element")
-        source_element = (
-            SourceElement.from_dict(source_element_raw) if source_element_raw is not None else None
-        )
-        return cls(
-            entry_id=d["entry_id"],
-            query=d["query"],
-            expected_chunk_ids=tuple(d["expected_chunk_ids"]),
-            chunk_hashes=dict(d["chunk_hashes"]),
-            review_chain=tuple(Review.from_dict(r) for r in d["review_chain"]),
-            deprecated=d["deprecated"],
-            refines=d.get("refines"),
-            task_type=d.get("task_type", "retrieval"),
-            source_element=source_element,
-        )

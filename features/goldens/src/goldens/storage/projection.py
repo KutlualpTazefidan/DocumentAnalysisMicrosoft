@@ -20,7 +20,6 @@ identical timestamps (Python's sort is stable).
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from goldens.schemas.base import Event, Review, SourceElement, actor_from_dict
@@ -73,7 +72,7 @@ def _apply_created(state: dict[str, RetrievalEntry], ev: Event) -> None:
         notes=ev.payload.get("notes"),
     )
     src_raw = entry_data.get("source_element")
-    source_element = SourceElement.from_dict(src_raw) if src_raw is not None else None
+    source_element = SourceElement.model_validate(src_raw) if src_raw is not None else None
     state[ev.entry_id] = RetrievalEntry(
         entry_id=ev.entry_id,
         query=entry_data["query"],
@@ -101,7 +100,7 @@ def _apply_reviewed(state: dict[str, RetrievalEntry], ev: Event) -> None:
         actor=actor_from_dict(ev.payload["actor"]),
         notes=ev.payload.get("notes"),
     )
-    state[ev.entry_id] = replace(entry, review_chain=(*entry.review_chain, review))
+    state[ev.entry_id] = entry.model_copy(update={"review_chain": (*entry.review_chain, review)})
 
 
 def _apply_deprecated(state: dict[str, RetrievalEntry], ev: Event) -> None:
@@ -119,10 +118,11 @@ def _apply_deprecated(state: dict[str, RetrievalEntry], ev: Event) -> None:
         actor=actor_from_dict(ev.payload["actor"]),
         notes=ev.payload.get("reason"),
     )
-    state[ev.entry_id] = replace(
-        entry,
-        review_chain=(*entry.review_chain, review),
-        deprecated=True,
+    state[ev.entry_id] = entry.model_copy(
+        update={
+            "review_chain": (*entry.review_chain, review),
+            "deprecated": True,
+        }
     )
 
 

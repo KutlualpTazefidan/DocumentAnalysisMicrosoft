@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Event-sourced golden-set storage for evaluation."
 requires-python = ">=3.11"
 dependencies = [
+    "pydantic>=2.5,<3",
     "pysbd>=0.3,<0.4",
     "pytest-cov>=7.1.0",
     "tiktoken>=0.7",
