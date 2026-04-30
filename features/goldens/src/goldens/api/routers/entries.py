@@ -18,10 +18,13 @@ if TYPE_CHECKING:
     from goldens.schemas import HumanActor
 
 from goldens.api.schemas import (
+    DeprecateRequest,
+    DeprecateResponse,
     RefineRequest,
     RefineResponse,
 )
 from goldens.creation.identity import Identity, identity_to_human_actor
+from goldens.operations.deprecate import deprecate as deprecate_op
 from goldens.operations.errors import EntryNotFoundError
 from goldens.operations.refine import refine as refine_op
 from goldens.schemas.retrieval import RetrievalEntry
@@ -117,3 +120,30 @@ async def refine_entry(
         deprecate_reason=body.deprecate_reason,
     )
     return RefineResponse(new_entry_id=new_id)
+
+
+@router.post("/api/entries/{entry_id}/deprecate", response_model=DeprecateResponse)
+async def deprecate_entry(
+    entry_id: str,
+    body: DeprecateRequest,
+    request: Request,
+) -> DeprecateResponse:
+    data_root: Path = request.app.state.config.data_root
+    identity = request.app.state.identity
+
+    target_log: Path | None = None
+    for log in _walk_event_logs(data_root):
+        state = build_state(read_events(log))
+        if entry_id in state:
+            target_log = log
+            break
+    if target_log is None:
+        raise EntryNotFoundError(entry_id)
+
+    event_id = deprecate_op(
+        target_log,
+        entry_id,
+        actor=_human_actor_from_identity(identity),
+        reason=body.reason,
+    )
+    return DeprecateResponse(event_id=event_id)
