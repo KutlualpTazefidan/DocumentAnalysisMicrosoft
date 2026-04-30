@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { setupServer } from "msw/node";
-import { http, HttpResponse } from "msw";
+import { http } from "msw";
 import { useSynthesise } from "../../src/hooks/useSynthesise";
 
 const server = setupServer();

@@ -3,6 +3,7 @@ import { useAuth } from "./hooks/useAuth";
 import { Login } from "./routes/login";
 import { DocsIndex } from "./routes/docs-index";
 import { DocElements } from "./routes/doc-elements";
+import { DocSynthesise } from "./routes/doc-synthesise";
 
 function RequireAuth() {
   const { token } = useAuth();
@@ -31,7 +32,7 @@ export function App() {
           />
           <Route
             path="/docs/:slug/synthesise"
-            element={<SynthesisePlaceholder />}
+            element={<DocSynthesise />}
           />
         </Route>
         <Route path="*" element={<NotFound />} />
@@ -40,9 +41,6 @@ export function App() {
   );
 }
 
-function SynthesisePlaceholder() {
-  return <div className="p-8">Synthesise (Task 26)</div>;
-}
 function NotFound() {
   return <div className="p-8">Page not found.</div>;
 }
