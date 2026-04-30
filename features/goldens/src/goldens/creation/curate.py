@@ -9,10 +9,17 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from goldens.creation._time import now_utc_iso
+from goldens.creation.identity import identity_to_human_actor
+from goldens.schemas import Event
+from goldens.storage import new_entry_id, new_event_id
+
 if TYPE_CHECKING:
     from pathlib import Path
 
     from goldens.creation.elements.adapter import DocumentElement
+    from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
+    from goldens.creation.identity import Identity
 
 _WS_RE = re.compile(r"\s+")
 
@@ -86,3 +93,38 @@ def query_substring_overlap(query: str, source: str, *, threshold: int) -> bool:
     if len(q) < threshold:
         return False
     return any(q[start : start + threshold] in s for start in range(0, len(q) - threshold + 1))
+
+
+def build_created_event(
+    *,
+    question: str,
+    element: DocumentElement,
+    loader: AnalyzeJsonLoader,
+    identity: Identity,
+) -> Event:
+    """Assemble a `created` Event from one curator-typed question.
+
+    `expected_chunk_ids` is intentionally empty (D13); `source_element`
+    is the ground truth and the chunk-id translation lives in a
+    dedicated match-type classifier (next phase)."""
+    source_element = loader.to_source_element(element)
+    payload = {
+        "task_type": "retrieval",
+        "actor": identity_to_human_actor(identity).to_dict(),
+        "action": "created_from_scratch",
+        "notes": None,
+        "entry_data": {
+            "query": question,
+            "expected_chunk_ids": [],
+            "chunk_hashes": {},
+            "source_element": source_element.to_dict(),
+        },
+    }
+    return Event(
+        event_id=new_event_id(),
+        timestamp_utc=now_utc_iso(),
+        event_type="created",
+        entry_id=new_entry_id(),
+        schema_version=1,
+        payload=payload,
+    )

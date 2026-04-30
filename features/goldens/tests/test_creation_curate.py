@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path  # noqa: TC003
+from pathlib import Path
 
 import pytest
 from goldens.creation.curate import (
     SlugResolutionError,
     StartResolutionError,
+    build_created_event,
     query_substring_overlap,
     resolve_slug,
     resolve_start_position,
 )
 from goldens.creation.elements.adapter import DocumentElement
+from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
+from goldens.creation.identity import Identity
+from goldens.schemas import Event
 
 
 def _make_doc(root: Path, slug: str) -> None:
@@ -128,3 +132,75 @@ def test_resolve_start_falls_back_to_zero_when_cache_absent() -> None:
     elements = _els(("p1-aaaaaaaa", 1), ("p2-bbbbbbbb", 2))
     idx = resolve_start_position(elements, explicit=None, cached=None)
     assert idx == 0
+
+
+def _identity() -> Identity:
+    return Identity(
+        schema_version=1,
+        pseudonym="alice",
+        level="phd",
+        created_at_utc="2026-04-29T14:32:00Z",
+    )
+
+
+def _loader_with_one_paragraph(tmp_path: Path) -> AnalyzeJsonLoader:
+    import shutil
+
+    fixtures = Path(__file__).parent / "fixtures"
+    analyze_dir = tmp_path / "doc-a" / "analyze"
+    analyze_dir.mkdir(parents=True)
+    shutil.copy(fixtures / "analyze_minimal.json", analyze_dir / "ts.json")
+    return AnalyzeJsonLoader("doc-a", outputs_root=tmp_path)
+
+
+def test_build_event_shape(tmp_path: Path) -> None:
+    loader = _loader_with_one_paragraph(tmp_path)
+    element = next(el for el in loader.elements() if el.element_type == "paragraph")
+    event = build_created_event(
+        question="Wie wird der Tragkorb montiert?",
+        element=element,
+        loader=loader,
+        identity=_identity(),
+    )
+    assert isinstance(event, Event)
+    assert event.event_type == "created"
+    assert event.schema_version == 1
+    payload = event.payload
+    assert payload["task_type"] == "retrieval"
+    assert payload["action"] == "created_from_scratch"
+    assert payload["notes"] is None
+    assert payload["actor"] == {"kind": "human", "pseudonym": "alice", "level": "phd"}
+    entry_data = payload["entry_data"]
+    assert entry_data["query"] == "Wie wird der Tragkorb montiert?"
+    assert entry_data["expected_chunk_ids"] == []
+    assert entry_data["chunk_hashes"] == {}
+    src = entry_data["source_element"]
+    assert src["document_id"] == "doc-a"
+    assert src["page_number"] == element.page_number
+    assert src["element_type"] == "paragraph"
+
+
+def test_build_event_source_element_id_strips_page_prefix(tmp_path: Path) -> None:
+    loader = _loader_with_one_paragraph(tmp_path)
+    element = next(el for el in loader.elements() if el.element_type == "paragraph")
+    event = build_created_event(question="x", element=element, loader=loader, identity=_identity())
+    src = event.payload["entry_data"]["source_element"]
+    assert src["element_id"] == element.element_id.split("-", 1)[1]
+    assert "-" not in src["element_id"]
+
+
+def test_build_event_uses_now_utc_iso(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("goldens.creation.curate.now_utc_iso", lambda: "2026-04-29T20:00:00Z")
+    loader = _loader_with_one_paragraph(tmp_path)
+    element = next(el for el in loader.elements() if el.element_type == "paragraph")
+    event = build_created_event(question="x", element=element, loader=loader, identity=_identity())
+    assert event.timestamp_utc == "2026-04-29T20:00:00Z"
+
+
+def test_build_event_ids_are_unique_per_call(tmp_path: Path) -> None:
+    loader = _loader_with_one_paragraph(tmp_path)
+    element = next(el for el in loader.elements() if el.element_type == "paragraph")
+    a = build_created_event(question="x", element=element, loader=loader, identity=_identity())
+    b = build_created_event(question="y", element=element, loader=loader, identity=_identity())
+    assert a.event_id != b.event_id
+    assert a.entry_id != b.entry_id
