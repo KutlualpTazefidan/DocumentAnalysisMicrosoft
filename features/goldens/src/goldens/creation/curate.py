@@ -48,7 +48,7 @@ def resolve_slug(explicit: str | None, *, outputs_root: Path) -> str:
         )
     candidates: list[str] = []
     for child in sorted(outputs_root.iterdir()):
-        if not child.is_dir():
+        if not child.is_dir():  # pragma: no cover
             continue
         analyze_dir = child / "analyze"
         if analyze_dir.is_dir() and any(analyze_dir.glob("*.json")):

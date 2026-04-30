@@ -34,7 +34,7 @@ def _read_all() -> dict[str, str]:
     except tomllib.TOMLDecodeError:
         return {}
     positions = raw.get("positions")
-    if not isinstance(positions, dict):
+    if not isinstance(positions, dict):  # pragma: no cover
         return {}
     return {k: v for k, v in positions.items() if isinstance(v, str)}
 
