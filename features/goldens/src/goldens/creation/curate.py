@@ -7,8 +7,41 @@ worth testing is extracted into a helper that has its own unit test."""
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _WS_RE = re.compile(r"\s+")
+
+
+class SlugResolutionError(Exception):
+    """Raised when --doc cannot be auto-resolved (zero or multiple candidates)."""
+
+
+def resolve_slug(explicit: str | None, *, outputs_root: Path) -> str:
+    if explicit is not None:
+        return explicit
+    if not outputs_root.is_dir():
+        raise SlugResolutionError(
+            f"no candidate documents under {outputs_root} (directory does not exist)"
+        )
+    candidates: list[str] = []
+    for child in sorted(outputs_root.iterdir()):
+        if not child.is_dir():
+            continue
+        analyze_dir = child / "analyze"
+        if analyze_dir.is_dir() and any(analyze_dir.glob("*.json")):
+            candidates.append(child.name)
+    if not candidates:
+        raise SlugResolutionError(f"no candidate documents under {outputs_root}")
+    if len(candidates) > 1:
+        listed = ", ".join(candidates)
+        raise SlugResolutionError(
+            f"multiple candidate documents under {outputs_root} ({listed}); "
+            "pass --doc <slug> to disambiguate"
+        )
+    return candidates[0]
 
 
 def _normalise(text: str) -> str:

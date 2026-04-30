@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from goldens.creation.curate import query_substring_overlap
+from pathlib import Path  # noqa: TC003
+
+import pytest
+from goldens.creation.curate import (
+    SlugResolutionError,
+    query_substring_overlap,
+    resolve_slug,
+)
+
+
+def _make_doc(root: Path, slug: str) -> None:
+    analyze_dir = root / slug / "analyze"
+    analyze_dir.mkdir(parents=True)
+    (analyze_dir / "2026-04-29T10-00-00Z.json").write_text("{}", encoding="utf-8")
 
 
 def test_overlap_true_for_paste_above_threshold() -> None:
@@ -31,3 +44,39 @@ def test_overlap_normalises_whitespace_and_case() -> None:
 
 def test_overlap_zero_threshold_short_circuits_true() -> None:
     assert query_substring_overlap("anything", "anything else", threshold=0) is True
+
+
+def test_resolve_slug_auto_picks_when_one_doc(tmp_path: Path) -> None:
+    _make_doc(tmp_path, "doc-a")
+    assert resolve_slug(None, outputs_root=tmp_path) == "doc-a"
+
+
+def test_resolve_slug_uses_explicit_when_set(tmp_path: Path) -> None:
+    _make_doc(tmp_path, "doc-a")
+    _make_doc(tmp_path, "doc-b")
+    assert resolve_slug("doc-b", outputs_root=tmp_path) == "doc-b"
+
+
+def test_resolve_slug_errors_when_zero_docs(tmp_path: Path) -> None:
+    with pytest.raises(SlugResolutionError, match="no candidate"):
+        resolve_slug(None, outputs_root=tmp_path)
+
+
+def test_resolve_slug_errors_when_multiple_docs(tmp_path: Path) -> None:
+    _make_doc(tmp_path, "doc-a")
+    _make_doc(tmp_path, "doc-b")
+    with pytest.raises(SlugResolutionError, match="doc-a") as excinfo:
+        resolve_slug(None, outputs_root=tmp_path)
+    assert "doc-b" in str(excinfo.value)
+
+
+def test_resolve_slug_errors_when_outputs_root_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "nope"
+    with pytest.raises(SlugResolutionError, match="does not exist"):
+        resolve_slug(None, outputs_root=missing)
+
+
+def test_resolve_slug_skips_dirs_without_analyze_json(tmp_path: Path) -> None:
+    _make_doc(tmp_path, "doc-real")
+    (tmp_path / "doc-noisy").mkdir()
+    assert resolve_slug(None, outputs_root=tmp_path) == "doc-real"
