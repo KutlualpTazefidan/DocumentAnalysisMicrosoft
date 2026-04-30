@@ -242,3 +242,93 @@ def test_require_tty_exits_when_stdout_not_tty(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(SystemExit) as excinfo:
         require_interactive_tty()
     assert excinfo.value.code == 2
+
+
+def test_render_paragraph_includes_type_page_id_content() -> None:
+    from goldens.creation.curate import render_element_block
+
+    el = DocumentElement(
+        element_id="p3-deadbeef",
+        page_number=3,
+        element_type="paragraph",
+        content="Hello world",
+    )
+    block = render_element_block(el)
+    assert "Absatz" in block
+    assert "p3-deadbeef" in block
+    assert "Seite 3" in block
+    assert "Hello world" in block
+
+
+def test_render_heading_uses_heading_label() -> None:
+    from goldens.creation.curate import render_element_block
+
+    el = DocumentElement(
+        element_id="p1-aaaaaaaa", page_number=1, element_type="heading", content="Statik"
+    )
+    block = render_element_block(el)
+    assert "Überschrift" in block
+    assert "Statik" in block
+
+
+def test_render_table_compact_shows_dims_and_stub() -> None:
+    from goldens.creation.curate import render_element_block
+
+    el = DocumentElement(
+        element_id="p1-cccccccc",
+        page_number=1,
+        element_type="table",
+        content="Pos. | Material | Menge\n1 | Stahl | 12",
+        table_dims=(2, 3),
+    )
+    block = render_element_block(el)
+    assert "Tabelle" in block
+    assert f"2{chr(0x00D7)}3" in block
+    assert "Pos." in block
+    assert "Drücke 't'" in block
+
+
+def test_render_table_full_shows_full_grid() -> None:
+    from goldens.creation.curate import render_table_full
+
+    el = DocumentElement(
+        element_id="p1-cccccccc",
+        page_number=1,
+        element_type="table",
+        content="Pos. | Material | Menge\n1 | Stahl | 12",
+        table_dims=(2, 3),
+    )
+    block = render_table_full(el)
+    assert "Pos." in block
+    assert "Stahl" in block
+    assert "Drücke 't'" not in block
+
+
+def test_render_figure_includes_caption_and_terminal_note() -> None:
+    from goldens.creation.curate import render_element_block
+
+    el = DocumentElement(
+        element_id="p7-ffffffff",
+        page_number=7,
+        element_type="figure",
+        content="",
+        caption="Abbildung 1 — Schnitt durch den Tragkorb",
+    )
+    block = render_element_block(el)
+    assert "Abbildung 1 — Schnitt durch den Tragkorb" in block
+    assert "siehe PDF Seite 7" in block
+
+
+def test_render_list_item_has_listpunkt_label() -> None:
+    from goldens.creation.curate import render_element_block
+
+    el = DocumentElement(
+        element_id="p2-bbbbbbbb",
+        page_number=2,
+        element_type="list_item",
+        content="erstens",
+    )
+    block = render_element_block(el)
+    assert "Listpunkt" in block
+    assert "erstens" in block
+    assert "p2-bbbbbbbb" in block

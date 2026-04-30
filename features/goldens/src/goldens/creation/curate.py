@@ -140,3 +140,35 @@ def require_interactive_tty() -> None:
     if not sys.stdout.isatty():
         print("ERROR: curate requires an interactive stdout (TTY)", file=sys.stderr)
         raise SystemExit(2)
+
+
+def _header(label: str, el: DocumentElement) -> str:
+    return f"[{label}, Seite {el.page_number}, id={el.element_id}]"
+
+
+def render_element_block(el: DocumentElement) -> str:
+    """Compact textual rendering used per iteration. Tables get a stub +
+    a hint that 't' expands the full grid."""
+    if el.element_type == "table":
+        rows, cols = el.table_dims or (0, 0)
+        cross = chr(0x00D7)  # MULTIPLICATION SIGN
+        header = f"[Tabelle, Seite {el.page_number}, {rows}{cross}{cols}, id={el.element_id}]"
+        return f"{header}\n{el.content}\n(Drücke 't' für die volle Tabelle.)"
+    if el.element_type == "figure":
+        header = _header("Abbildung", el)
+        caption = el.caption or ""
+        return (
+            f"{header}\n{caption}\n"
+            f"(Bild kann im Terminal nicht angezeigt werden — siehe PDF Seite {el.page_number}.)"
+        )
+    label = {"heading": "Überschrift", "list_item": "Listpunkt"}.get(el.element_type, "Absatz")
+    header = _header(label, el)
+    return f"{header}\n{el.content}"
+
+
+def render_table_full(el: DocumentElement) -> str:
+    """Full grid view triggered by the 't' toggle."""
+    rows, cols = el.table_dims or (0, 0)
+    cross = chr(0x00D7)
+    header = f"[Tabelle (voll), Seite {el.page_number}, {rows}{cross}{cols}, id={el.element_id}]"
+    return f"{header}\n{el.content}"
