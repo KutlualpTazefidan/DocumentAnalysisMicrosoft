@@ -3,19 +3,14 @@ since PR #22) and are exposed by the routers directly via response_model=."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from goldens.schemas import ElementType  # noqa: F401 (used in DocumentElement type)
-
-if TYPE_CHECKING:
-    from goldens.creation.elements.adapter import DocumentElement
-
-# Import at runtime for Pydantic validation (ElementWithCounts field type resolution)
-from goldens.creation.elements.adapter import (  # noqa: TC001
-    DocumentElement as DocumentElement,
-)
+# DocumentElement and its ElementType field need runtime resolvability so
+# Pydantic can build ElementWithCounts (see model_rebuild at module bottom).
+from goldens.creation.elements.adapter import DocumentElement  # noqa: TC001
+from goldens.schemas import ElementType  # noqa: F401
 
 # ─── Request bodies ─────────────────────────────────────────────────────
 
@@ -131,6 +126,4 @@ SynthLine = Annotated[
     Field(discriminator="type"),
 ]
 
-# Rebuild models to resolve forward references (needed because DocumentElement
-# uses ElementType which is imported under TYPE_CHECKING in adapter.py).
 ElementWithCounts.model_rebuild()
