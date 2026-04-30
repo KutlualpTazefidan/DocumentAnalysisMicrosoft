@@ -49,7 +49,7 @@ def refine(
 
     ts = timestamp_utc or now_utc_iso()
     new_id: str = new_entry_id()
-    actor_dict = actor.to_dict()
+    actor_dict = actor.model_dump(mode="json")
 
     create_ev = Event(
         event_id=new_event_id(),

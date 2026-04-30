@@ -403,7 +403,7 @@ def test_resume_skips_already_processed_elements(tmp_path: Path, llm_client: Ope
                 model_version="gpt-4o-2024-08-06",
                 prompt_template_version="v1",
                 temperature=0.0,
-            ).to_dict(),
+            ).model_dump(mode="json"),
             "action": "synthesised",
             "notes": None,
             "entry_data": {

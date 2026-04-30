@@ -8,13 +8,17 @@ version = "0.1.0"
 description = "Event-sourced golden-set storage for evaluation."
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.110,<1.0",
+    "pydantic>=2.5,<3",
+    "pydantic-settings>=2.0,<3",
     "pysbd>=0.3,<0.4",
     "pytest-cov>=7.1.0",
     "tiktoken>=0.7",
+    "uvicorn[standard]>=0.27,<1.0",
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "respx>=0.21"]
+test = ["pytest", "pytest-cov", "respx>=0.21", "httpx>=0.25"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -31,7 +31,7 @@ def _seed_created(path: Path, entry_id: str = "r1") -> None:
             schema_version=1,
             payload={
                 "task_type": "retrieval",
-                "actor": _human().to_dict(),
+                "actor": _human().model_dump(mode="json"),
                 "action": "created_from_scratch",
                 "notes": None,
                 "entry_data": {
@@ -71,7 +71,7 @@ def test_deprecate_appends_event_and_flips_state(tmp_path: Path):
     assert last_ev.event_type == "deprecated"
     assert last_ev.entry_id == "r1"
     assert last_ev.payload["reason"] == "obsolete chunk hashes"
-    assert last_ev.payload["actor"] == _human().to_dict()
+    assert last_ev.payload["actor"] == _human().model_dump(mode="json")
 
 
 def test_deprecate_respects_explicit_timestamp(tmp_path: Path):

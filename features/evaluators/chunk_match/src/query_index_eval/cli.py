@@ -134,6 +134,39 @@ def _cmd_schema_discovery(args: argparse.Namespace) -> int:  # pragma: no cover
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:  # pragma: no cover
+    """Boot the goldens HTTP API via uvicorn. Reads config from env."""
+    import os
+    import sys
+
+    if not os.environ.get("GOLDENS_API_TOKEN"):
+        print(
+            "ERROR: GOLDENS_API_TOKEN env var is required. "
+            "Set it before running, e.g.:\n"
+            "    export GOLDENS_API_TOKEN=$(uuidgen)\n"
+            "    query-eval serve",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        import uvicorn
+        from goldens.api.app import create_app
+    except ImportError as e:
+        print(f"ERROR: {e}. Did you install features/goldens with the api extra?", file=sys.stderr)
+        return 2
+
+    app = create_app()
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _load_env()
     parser = argparse.ArgumentParser(prog="query-eval")
@@ -190,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
     p_synth.add_argument("--resume", action="store_true")
     p_synth.add_argument("--language", default="de")
     p_synth.set_defaults(func=cmd_synthesise)
+
+    p_serve = sub.add_parser("serve", help="Run the goldens HTTP API on 127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--reload", action="store_true", help="auto-reload on code changes (dev)")
+    p_serve.set_defaults(func=cmd_serve)
 
     try:
         args = parser.parse_args(argv)

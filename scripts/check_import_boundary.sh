@@ -29,6 +29,7 @@ fi
 #              and any backend under core/llm_clients/ ---
 violations_search="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+(azure\.search|azure\.identity|openai)([.[:space:]]|$)' \
     --include='*.py' \
+    --exclude-dir='.venv' \
     features/ \
     | grep -v '^features/pipelines/microsoft/retrieval/' \
     | grep -v '^features/core/src/llm_clients/' \
@@ -43,6 +44,7 @@ fi
 # --- Check 2: documentintelligence imports — only pipelines/microsoft/{retrieval,ingestion} ---
 violations_docintel="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+azure\.ai\.documentintelligence([.[:space:]]|$)' \
     --include='*.py' \
+    --exclude-dir='.venv' \
     features/ \
     | grep -v -E '^features/pipelines/microsoft/(retrieval|ingestion)/' \
     || true)"
@@ -56,6 +58,7 @@ fi
 # --- Check 3: anthropic imports — only core/llm_clients/anthropic ---
 violations_anthropic="$(grep -rEn '[[:space:]]*(import|from)[[:space:]]+anthropic([.[:space:]]|$)' \
     --include='*.py' \
+    --exclude-dir='.venv' \
     features/ \
     | grep -v '^features/core/src/llm_clients/anthropic/' \
     || true)"

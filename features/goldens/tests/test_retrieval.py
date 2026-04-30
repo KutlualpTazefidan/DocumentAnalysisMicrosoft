@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from goldens.schemas.base import HumanActor, LLMActor, Review, SourceElement
 from goldens.schemas.retrieval import RetrievalEntry
+from pydantic import ValidationError
 
 
 def _human_review(level: str, ts: str = "2026-04-28T10:00:00Z") -> Review:
@@ -63,7 +64,7 @@ def test_default_refines_is_none():
 
 
 def test_rejects_empty_entry_id():
-    with pytest.raises(ValueError, match="entry_id"):
+    with pytest.raises(ValidationError, match="entry_id"):
         RetrievalEntry(
             entry_id="",
             query="q",
@@ -75,7 +76,7 @@ def test_rejects_empty_entry_id():
 
 
 def test_rejects_empty_query():
-    with pytest.raises(ValueError, match="query"):
+    with pytest.raises(ValidationError, match="query"):
         RetrievalEntry(
             entry_id="r1",
             query="",
@@ -146,7 +147,7 @@ def test_level_humans_outrank_llm_in_chain():
 
 def test_round_trip_minimal():
     e = _entry()
-    assert RetrievalEntry.from_dict(e.to_dict()) == e
+    assert RetrievalEntry.model_validate(e.model_dump(mode="json")) == e
 
 
 def test_round_trip_with_review_chain():
@@ -155,7 +156,7 @@ def test_round_trip_with_review_chain():
         deprecated=True,
         refines="r0",
     )
-    restored = RetrievalEntry.from_dict(e.to_dict())
+    restored = RetrievalEntry.model_validate(e.model_dump(mode="json"))
     assert restored == e
     assert isinstance(restored.review_chain[0].actor, HumanActor)
     assert restored.review_chain[0].actor.level == "expert"
@@ -163,16 +164,16 @@ def test_round_trip_with_review_chain():
 
 def test_from_dict_ignores_unknown_keys():
     e = _entry()
-    d = e.to_dict()
+    d = e.model_dump(mode="json")
     d["future_field"] = "ignored"
-    restored = RetrievalEntry.from_dict(d)
+    restored = RetrievalEntry.model_validate(d)
     assert restored == e
 
 
 def test_to_dict_returns_lists_for_tuples():
     """Serialised form must use plain JSON types — tuples become lists."""
     e = _entry()
-    d = e.to_dict()
+    d = e.model_dump(mode="json")
     assert isinstance(d["expected_chunk_ids"], list)
     assert isinstance(d["review_chain"], list)
 
@@ -188,7 +189,7 @@ def test_default_source_element_is_none():
 
 def test_to_dict_emits_null_when_source_element_unset():
     e = _entry()
-    d = e.to_dict()
+    d = e.model_dump(mode="json")
     assert d["source_element"] is None
 
 
@@ -207,7 +208,7 @@ def test_to_dict_emits_dict_when_source_element_set():
             element_type="paragraph",
         ),
     )
-    d = e.to_dict()
+    d = e.model_dump(mode="json")
     assert d["source_element"] == {
         "document_id": "tragkorb-b-147-2001-rev-1",
         "page_number": 47,
@@ -231,7 +232,7 @@ def test_round_trip_with_source_element():
             element_type="paragraph",
         ),
     )
-    restored = RetrievalEntry.from_dict(e.to_dict())
+    restored = RetrievalEntry.model_validate(e.model_dump(mode="json"))
     assert restored == e
     assert restored.source_element is not None
     assert restored.source_element.element_id == "p4"
@@ -241,16 +242,16 @@ def test_from_dict_back_compat_when_source_element_missing():
     """Pre-A.3.1 entries serialised without source_element key still load
     correctly — source_element defaults to None."""
     e_old = _entry()
-    d = e_old.to_dict()
+    d = e_old.model_dump(mode="json")
     del d["source_element"]  # simulate pre-A.3.1 serialised data
-    restored = RetrievalEntry.from_dict(d)
+    restored = RetrievalEntry.model_validate(d)
     assert restored.source_element is None
 
 
 def test_from_dict_back_compat_when_source_element_null():
     """Explicit null in serialised data is also accepted (defaults to None)."""
     e_old = _entry()
-    d = e_old.to_dict()
+    d = e_old.model_dump(mode="json")
     d["source_element"] = None  # explicit null
-    restored = RetrievalEntry.from_dict(d)
+    restored = RetrievalEntry.model_validate(d)
     assert restored.source_element is None
