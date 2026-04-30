@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from goldens.creation.elements.adapter import DocumentElement
+
 _WS_RE = re.compile(r"\s+")
 
 
@@ -42,6 +44,31 @@ def resolve_slug(explicit: str | None, *, outputs_root: Path) -> str:
             "pass --doc <slug> to disambiguate"
         )
     return candidates[0]
+
+
+class StartResolutionError(Exception):
+    """Raised when --start-from matches no element."""
+
+
+def resolve_start_position(
+    elements: list[DocumentElement],
+    *,
+    explicit: str | None,
+    cached: str | None,
+) -> int:
+    if explicit is not None:
+        for i, el in enumerate(elements):
+            if el.element_id == explicit:
+                return i
+        for i, el in enumerate(elements):
+            if el.element_id.startswith(explicit):
+                return i
+        raise StartResolutionError(f"--start-from {explicit!r} matches nothing in this document")
+    if cached is not None:
+        for i, el in enumerate(elements):
+            if el.element_id == cached:
+                return i
+    return 0
 
 
 def _normalise(text: str) -> str:

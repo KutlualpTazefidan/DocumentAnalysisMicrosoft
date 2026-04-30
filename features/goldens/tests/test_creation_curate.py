@@ -7,9 +7,12 @@ from pathlib import Path  # noqa: TC003
 import pytest
 from goldens.creation.curate import (
     SlugResolutionError,
+    StartResolutionError,
     query_substring_overlap,
     resolve_slug,
+    resolve_start_position,
 )
+from goldens.creation.elements.adapter import DocumentElement
 
 
 def _make_doc(root: Path, slug: str) -> None:
@@ -80,3 +83,48 @@ def test_resolve_slug_skips_dirs_without_analyze_json(tmp_path: Path) -> None:
     _make_doc(tmp_path, "doc-real")
     (tmp_path / "doc-noisy").mkdir()
     assert resolve_slug(None, outputs_root=tmp_path) == "doc-real"
+
+
+def _els(*ids_and_pages: tuple[str, int]) -> list[DocumentElement]:
+    return [
+        DocumentElement(
+            element_id=id_, page_number=page, element_type="paragraph", content=f"c-{id_}"
+        )
+        for id_, page in ids_and_pages
+    ]
+
+
+def test_resolve_start_exact_id_wins() -> None:
+    elements = _els(("p1-aaaaaaaa", 1), ("p1-bbbbbbbb", 1), ("p2-aaaaaaaa", 2))
+    idx = resolve_start_position(elements, explicit="p1-bbbbbbbb", cached=None)
+    assert idx == 1
+
+
+def test_resolve_start_prefix_match_when_no_exact() -> None:
+    elements = _els(("p1-aaaaaaaa", 1), ("p1-bbbbbbbb", 1))
+    idx = resolve_start_position(elements, explicit="p1-bb", cached=None)
+    assert idx == 1
+
+
+def test_resolve_start_unknown_id_errors() -> None:
+    elements = _els(("p1-aaaaaaaa", 1))
+    with pytest.raises(StartResolutionError, match="nothing"):
+        resolve_start_position(elements, explicit="p9-zzzzzzzz", cached=None)
+
+
+def test_resolve_start_falls_back_to_position_cache() -> None:
+    elements = _els(("p1-aaaaaaaa", 1), ("p2-bbbbbbbb", 2), ("p3-cccccccc", 3))
+    idx = resolve_start_position(elements, explicit=None, cached="p2-bbbbbbbb")
+    assert idx == 1
+
+
+def test_resolve_start_falls_back_to_zero_when_cache_misses() -> None:
+    elements = _els(("p1-aaaaaaaa", 1), ("p2-bbbbbbbb", 2))
+    idx = resolve_start_position(elements, explicit=None, cached="p9-zzzzzzzz")
+    assert idx == 0
+
+
+def test_resolve_start_falls_back_to_zero_when_cache_absent() -> None:
+    elements = _els(("p1-aaaaaaaa", 1), ("p2-bbbbbbbb", 2))
+    idx = resolve_start_position(elements, explicit=None, cached=None)
+    assert idx == 0
