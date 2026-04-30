@@ -26,16 +26,19 @@ from goldens.storage.log import append_event, read_events
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Iterator
 
     from llm_clients.base import LLMClient
 
     from goldens.creation.elements import DocumentElement, ElementsLoader
 
 __all__ = [
+    "ElementResult",
     "GeneratedQuestion",
     "SynthesiseResult",
     "cmd_synthesise",
     "synthesise",
+    "synthesise_iter",
 ]
 
 _log = logging.getLogger(__name__)
@@ -64,6 +67,15 @@ class SynthesiseResult:
     events_written: int
     prompt_tokens_estimated: int
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class ElementResult:
+    """Per-element outcome from one iteration of synthesise_iter()."""
+
+    kept: int
+    skipped_reason: str | None = None
+    tokens_estimated: int = 0
 
 
 # ---------- Internals -----------------------------------------------
@@ -276,6 +288,131 @@ def _resolve_template_for(element: DocumentElement, version: str) -> str | None:
 
 
 # ---------- Driver --------------------------------------------------
+
+
+def synthesise_iter(
+    *,
+    slug: str,
+    loader: ElementsLoader,
+    client: LLMClient | None,
+    embed_client: LLMClient | None,
+    model: str,
+    embedding_model: str | None,
+    prompt_template_version: str = "v1",
+    temperature: float = 0.0,
+    max_questions_per_element: int = 20,
+    max_prompt_tokens: int = 8000,
+    start_from: str | None = None,
+    limit: int | None = None,
+    dry_run: bool = False,
+    resume: bool = False,
+    events_path: Path | None = None,
+) -> Iterator[tuple[DocumentElement, ElementResult]]:
+    """Streaming version of synthesise(). Yields per-element results so a
+    streaming HTTP endpoint can emit progress as work happens. Events are
+    appended to the log inside the loop, not buffered — a cancellation
+    mid-iteration leaves the log consistent.
+
+    See synthesise() for the wrapper that aggregates totals into a
+    SynthesiseResult.
+    """
+    events_path = events_path or (Path("outputs") / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME)
+
+    existing_keys: set[str] = set()
+    if resume and events_path.exists():
+        for ev in read_events(events_path):
+            if ev.event_type != "created":
+                continue
+            entry_data = ev.payload.get("entry_data") or {}
+            src = entry_data.get("source_element")
+            if isinstance(src, dict):
+                eid = src.get("element_id")
+                if isinstance(eid, str):
+                    existing_keys.add(eid)
+
+    tokenizer = tiktoken.get_encoding("cl100k_base")
+    dedup = QuestionDedup(
+        client=embed_client,
+        model=embedding_model or "",
+        threshold=0.95,
+    )
+
+    started = start_from is None
+    yielded = 0
+
+    for element in loader.elements():
+        if not started:
+            if element.element_id == start_from:
+                started = True
+            else:
+                continue
+        if limit is not None and yielded >= limit:
+            break
+        yielded += 1
+
+        bare_id = element.element_id.split("-", 1)[1]
+        if resume and bare_id in existing_keys:
+            yield element, ElementResult(kept=0, skipped_reason="resume_skip")
+            continue
+
+        sub_units = decompose_to_sub_units(element)
+        if not sub_units:
+            yield element, ElementResult(kept=0, skipped_reason="no_sub_units")
+            continue
+
+        template = _resolve_template_for(element, prompt_template_version)
+        if template is None:
+            yield element, ElementResult(kept=0, skipped_reason="no_template")
+            continue
+
+        if dry_run:
+            rendered = _render_prompt(template, sub_units)
+            tokens = len(tokenizer.encode(rendered))
+            yield element, ElementResult(kept=0, tokens_estimated=tokens, skipped_reason="dry_run")
+            continue
+
+        existing_questions = _existing_questions_for(events_path, bare_id)
+
+        if client is None:
+            raise ValueError("synthesise_iter() requires `client` when dry_run=False")
+
+        generated, model_version, tokens = _generate_question_batches(
+            element,
+            sub_units,
+            client=client,
+            model=model,
+            template=template,
+            temperature=temperature,
+            max_prompt_tokens=max_prompt_tokens,
+            tokenizer=tokenizer,
+        )
+
+        kept_questions = dedup.filter(
+            [g.question for g in generated],
+            against=existing_questions,
+            source_key=bare_id,
+        )[:max_questions_per_element]
+
+        kept_count = 0
+        ts = now_utc_iso()
+        actor = LLMActor(
+            model=model,
+            model_version=model_version or model,
+            prompt_template_version=prompt_template_version,
+            temperature=temperature,
+        )
+        for q in kept_questions:
+            ev = _build_event(
+                slug=slug,
+                element=element,
+                question=q,
+                actor=actor,
+                timestamp_utc=ts,
+            )
+            append_event(events_path, ev)
+            kept_count += 1
+
+        yield element, ElementResult(kept=kept_count, tokens_estimated=tokens)
 
 
 def synthesise(
