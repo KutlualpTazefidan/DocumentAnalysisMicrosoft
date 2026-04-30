@@ -12,12 +12,32 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path  # noqa: TC003
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict
 
 from goldens.api.schemas import DocSummary, ElementWithCounts
+from goldens.creation.elements.adapter import DocumentElement  # noqa: TC001
 from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
+from goldens.schemas import ElementType  # noqa: F401
+from goldens.schemas.retrieval import RetrievalEntry  # noqa: TC001
 from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
 from goldens.storage.projection import iter_active_retrieval_entries
+
+
+class ElementDetailResponse(BaseModel):
+    """Used as response_model for GET /api/docs/{slug}/elements/{element_id}.
+
+    Lives next to the route because it's purely an aggregate view of one
+    element + its active entries.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    element: DocumentElement
+    entries: list[RetrievalEntry]
+
+
+ElementDetailResponse.model_rebuild()
 
 router = APIRouter()
 
@@ -65,3 +85,33 @@ async def list_elements(slug: str, request: Request) -> list[ElementWithCounts]:
         )
         for el in elements
     ]
+
+
+@router.get(
+    "/api/docs/{slug}/elements/{element_id}",
+    response_model=ElementDetailResponse,
+)
+async def get_element(
+    slug: str,
+    element_id: str,
+    request: Request,
+) -> ElementDetailResponse:
+    data_root: Path = request.app.state.config.data_root
+    loader = AnalyzeJsonLoader(slug, outputs_root=data_root)
+    elements = loader.elements()
+    matching = next(
+        (el for el in elements if el.element_id == element_id),
+        None,
+    )
+    if matching is None:
+        raise HTTPException(status_code=404, detail=f"element {element_id} not found in {slug}")
+
+    log = data_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    bare = element_id.split("-", 1)[1] if "-" in element_id else element_id
+    entries: list[RetrievalEntry] = []
+    if log.exists():
+        for entry in iter_active_retrieval_entries(log):
+            if entry.source_element is not None and entry.source_element.element_id == bare:
+                entries.append(entry)
+
+    return ElementDetailResponse(element=matching, entries=entries)

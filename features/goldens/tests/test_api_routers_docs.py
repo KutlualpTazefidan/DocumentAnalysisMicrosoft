@@ -102,3 +102,32 @@ def test_list_elements_unknown_slug_404(make_client) -> None:
     client, _ = make_client()
     resp = client.get("/api/docs/nonexistent/elements")
     assert resp.status_code == 404
+
+
+def test_get_element_returns_element_and_entries(make_client) -> None:
+    client, outputs = make_client()
+    _seed_doc(outputs, "doc-a")
+    # First fetch the element list to learn an ID we can hit:
+    elements = client.get("/api/docs/doc-a/elements").json()
+    assert elements
+    el_id = elements[0]["element"]["element_id"]
+    resp = client.get(f"/api/docs/doc-a/elements/{el_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "element" in body and "entries" in body
+    assert body["element"]["element_id"] == el_id
+    assert isinstance(body["entries"], list)
+
+
+def test_get_element_unknown_slug_404(make_client) -> None:
+    client, _ = make_client()
+    resp = client.get("/api/docs/nope/elements/p1-aaaaaaaa")
+    assert resp.status_code == 404
+
+
+def test_get_element_unknown_element_404(make_client) -> None:
+    client, outputs = make_client()
+    _seed_doc(outputs, "doc-a")
+    resp = client.get("/api/docs/doc-a/elements/p99-deadbeef")
+    assert resp.status_code == 404
+    assert "p99-deadbeef" in resp.json()["detail"]
