@@ -316,6 +316,47 @@ def test_render_table_full_shows_full_grid() -> None:
     assert "Drücke 't'" not in block
 
 
+def test_render_table_full_uses_table_full_content_when_set() -> None:
+    """When table_full_content is set, render_table_full must use it
+    instead of the (potentially truncated) stub in `content`."""
+    from goldens.creation.curate import render_table_full
+
+    el = DocumentElement(
+        element_id="p2-deadbeef",
+        page_number=2,
+        element_type="table",
+        content="M6 | 12 Nm\nM8 | 28 Nm\n...",  # truncated stub
+        table_dims=(4, 3),
+        table_full_content=(
+            "Schraubentyp | Anzugsdrehmoment | Norm\n"
+            "M6 | 12 Nm | DIN 912\n"
+            "M8 | 28 Nm | DIN 912\n"
+            "M10 | 55 Nm | DIN 912"
+        ),
+    )
+    block = render_table_full(el)
+    assert "M10" in block
+    assert "55 Nm" in block
+    assert "..." not in block
+
+
+def test_render_table_full_falls_back_to_content_when_full_missing() -> None:
+    """Legacy / synthetic elements without table_full_content still render."""
+    from goldens.creation.curate import render_table_full
+
+    el = DocumentElement(
+        element_id="p1-cccccccc",
+        page_number=1,
+        element_type="table",
+        content="header | row\n1 | a",
+        table_dims=(2, 2),
+        table_full_content=None,
+    )
+    block = render_table_full(el)
+    assert "header" in block
+    assert "row" in block
+
+
 def test_render_figure_includes_caption_and_terminal_note() -> None:
     from goldens.creation.curate import render_element_block
 

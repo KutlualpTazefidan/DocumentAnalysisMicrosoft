@@ -86,6 +86,53 @@ def test_table_element_has_dims(tmp_path: Path) -> None:
     assert table.table_dims == (2, 3)
 
 
+def test_table_full_content_preserves_every_cell(tmp_path: Path) -> None:
+    """The 2x3 fixture table has 6 cells; full content must list all of them."""
+    root = _make_outputs(tmp_path, "doc-a", "analyze_minimal.json", "2026-04-29T10-00-00Z")
+    table = next(
+        el
+        for el in AnalyzeJsonLoader("doc-a", outputs_root=root).elements()
+        if el.element_type == "table"
+    )
+    assert table.table_full_content is not None
+    for cell in ("Pos.", "Material", "Menge", "1", "Stahl S235", "12"):
+        assert cell in table.table_full_content
+
+
+def test_table_full_content_keeps_rows_beyond_stub_threshold() -> None:
+    """The compact stub truncates after 3 rows; the full content must keep them all.
+
+    Reproduces the smoke-test miss where the 4x3 Tragkorb screw table dropped
+    its M10 row in both compact and full views (PR #16 follow-up).
+    """
+    from goldens.creation.elements.analyze_json import _table_full, _table_stub
+
+    cells = [
+        {"rowIndex": 0, "columnIndex": 0, "content": "Schraubentyp"},
+        {"rowIndex": 0, "columnIndex": 1, "content": "Anzugsdrehmoment"},
+        {"rowIndex": 0, "columnIndex": 2, "content": "Norm"},
+        {"rowIndex": 1, "columnIndex": 0, "content": "M6"},
+        {"rowIndex": 1, "columnIndex": 1, "content": "12 Nm"},
+        {"rowIndex": 1, "columnIndex": 2, "content": "DIN 912"},
+        {"rowIndex": 2, "columnIndex": 0, "content": "M8"},
+        {"rowIndex": 2, "columnIndex": 1, "content": "28 Nm"},
+        {"rowIndex": 2, "columnIndex": 2, "content": "DIN 912"},
+        {"rowIndex": 3, "columnIndex": 0, "content": "M10"},
+        {"rowIndex": 3, "columnIndex": 1, "content": "55 Nm"},
+        {"rowIndex": 3, "columnIndex": 2, "content": "DIN 912"},
+    ]
+    stub = _table_stub(rows=4, cols=3, cells=cells)
+    full = _table_full(rows=4, cols=3, cells=cells)
+
+    # Stub: M10 row is truncated to ellipsis
+    assert "M10" not in stub
+    assert stub.endswith("...")
+    # Full: every M-row is present, no ellipsis
+    assert "M6" in full and "M8" in full and "M10" in full
+    assert "55 Nm" in full
+    assert "..." not in full
+
+
 def test_figure_caption_extracted(tmp_path: Path) -> None:
     root = _make_outputs(tmp_path, "doc-a", "analyze_minimal.json", "2026-04-29T10-00-00Z")
     fig = next(

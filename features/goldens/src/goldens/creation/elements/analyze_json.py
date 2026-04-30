@@ -65,22 +65,42 @@ def _bounding_region(raw: dict[str, Any]) -> tuple[int, float] | None:
     return (int(page), float(polygon[1]))
 
 
-def _table_stub(rows: int, cols: int, cells: Iterable[dict[str, Any]]) -> str:
-    """Compact preview: up to 3 rows x 5 cols, '|' separated, '...' truncated."""
+def _build_grid(cells: Iterable[dict[str, Any]]) -> dict[tuple[int, int], str]:
     grid: dict[tuple[int, int], str] = {}
     for c in cells:
         r = int(c.get("rowIndex", 0))
         col = int(c.get("columnIndex", 0))
         grid[(r, col)] = (c.get("content") or "").strip()
+    return grid
+
+
+def _table_stub(rows: int, cols: int, cells: Iterable[dict[str, Any]]) -> str:
+    """Compact preview: up to 3 rows x 5 cols, '|' separated, '...' truncated.
+
+    Used as `DocumentElement.content` for tables — kept truncated so the
+    content-stable element_id stays compact and stable. The complete grid
+    is preserved separately via `_table_full()`.
+    """
+    grid = _build_grid(cells)
     preview_rows = []
     for r in range(min(rows, 3)):
         cells_text = [grid.get((r, col), "") for col in range(min(cols, 5))]
         if cols > 5:  # pragma: no cover
             cells_text.append("...")
         preview_rows.append(" | ".join(cells_text))
-    if rows > 3:  # pragma: no cover
+    if rows > 3:
         preview_rows.append("...")
     return "\n".join(preview_rows)
+
+
+def _table_full(rows: int, cols: int, cells: Iterable[dict[str, Any]]) -> str:
+    """Complete grid: every row, every column, '|' separated. No truncation.
+
+    Surfaced via `DocumentElement.table_full_content` for the curate `t`
+    toggle and any downstream consumer that needs the unabridged table.
+    """
+    grid = _build_grid(cells)
+    return "\n".join(" | ".join(grid.get((r, col), "") for col in range(cols)) for r in range(rows))
 
 
 class AnalyzeJsonLoader:
@@ -162,6 +182,7 @@ class AnalyzeJsonLoader:
             stub = _table_stub(rows, cols, cells)
             if not stub.strip():  # pragma: no cover
                 continue
+            full = _table_full(rows, cols, cells)
             yield _Positioned(
                 page=page,
                 top_y=top_y,
@@ -171,6 +192,7 @@ class AnalyzeJsonLoader:
                     element_type="table",
                     content=stub,
                     table_dims=(rows, cols),
+                    table_full_content=full,
                 ),
             )
 
