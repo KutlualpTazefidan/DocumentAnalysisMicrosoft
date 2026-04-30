@@ -2,5 +2,6 @@
 generation (A.5)."""
 
 from goldens.creation.elements.adapter import DocumentElement, ElementsLoader
+from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
 
-__all__ = ["DocumentElement", "ElementsLoader"]
+__all__ = ["AnalyzeJsonLoader", "DocumentElement", "ElementsLoader"]
