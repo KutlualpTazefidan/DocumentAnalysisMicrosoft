@@ -332,3 +332,102 @@ def test_render_list_item_has_listpunkt_label() -> None:
     assert "Listpunkt" in block
     assert "erstens" in block
     assert "p2-bbbbbbbb" in block
+
+
+def _identity_file(xdg: Path) -> None:
+    cfg = xdg / "goldens"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "identity.toml").write_text(
+        'schema_version = 1\npseudonym = "alice"\nlevel = "masters"\n'
+        'created_at_utc = "2026-04-29T14:32:00Z"\n',
+        encoding="utf-8",
+    )
+
+
+def test_cmd_curate_writes_event_then_quits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+    import builtins
+    import shutil
+
+    from goldens.creation.curate import cmd_curate
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME, read_events
+
+    outputs = tmp_path / "outputs"
+    fixtures = Path(__file__).parent / "fixtures"
+    analyze_dir = outputs / "doc-a" / "analyze"
+    analyze_dir.mkdir(parents=True)
+    shutil.copy(fixtures / "analyze_minimal.json", analyze_dir / "ts.json")
+
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    _identity_file(xdg)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+
+    answers = iter(["Wozu dient der Tragkorb?", "J", "q"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(answers))
+
+    args = argparse.Namespace(doc=None, start_from=None)
+    rc = cmd_curate(args)
+    assert rc == 0
+    events_path = outputs / "doc-a" / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    events = list(read_events(events_path))
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.event_type == "created"
+    assert ev.payload["entry_data"]["query"] == "Wozu dient der Tragkorb?"
+    assert ev.payload["entry_data"]["source_element"]["document_id"] == "doc-a"
+
+
+def test_cmd_curate_returns_2_when_no_doc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+
+    from goldens.creation.curate import cmd_curate
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "outputs").mkdir()
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+    args = argparse.Namespace(doc=None, start_from=None)
+    rc = cmd_curate(args)
+    assert rc == 2
+
+
+def test_cmd_curate_first_run_configures_identity_and_returns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+    import builtins
+    import shutil
+
+    from goldens.creation.curate import cmd_curate
+    from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
+
+    outputs = tmp_path / "outputs"
+    fixtures = Path(__file__).parent / "fixtures"
+    analyze_dir = outputs / "doc-a" / "analyze"
+    analyze_dir.mkdir(parents=True)
+    shutil.copy(fixtures / "analyze_minimal.json", analyze_dir / "ts.json")
+
+    xdg = tmp_path / "xdg"
+    xdg.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+    monkeypatch.setattr("goldens.creation.identity.now_utc_iso", lambda: "2026-04-29T14:32:00Z")
+
+    answers = iter(["alice", "masters"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(answers))
+
+    args = argparse.Namespace(doc=None, start_from=None)
+    rc = cmd_curate(args)
+    assert rc == 0
+    assert (xdg / "goldens" / "identity.toml").exists()
+    events_path = outputs / "doc-a" / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    assert not events_path.exists()

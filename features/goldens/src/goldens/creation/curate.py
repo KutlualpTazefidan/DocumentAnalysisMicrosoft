@@ -6,20 +6,30 @@ worth testing is extracted into a helper that has its own unit test."""
 
 from __future__ import annotations
 
+import argparse  # noqa: TC003
 import re
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from goldens.creation._time import now_utc_iso
-from goldens.creation.identity import identity_to_human_actor
+from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
+from goldens.creation.identity import (
+    identity_to_human_actor,
+    load_identity,
+    prompt_and_save_identity,
+)
+from goldens.creation.positions import read_position, write_position
 from goldens.schemas import Event
-from goldens.storage import new_entry_id, new_event_id
+from goldens.storage import (
+    GOLDEN_EVENTS_V1_FILENAME,
+    append_event,
+    new_entry_id,
+    new_event_id,
+)
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from goldens.creation.elements.adapter import DocumentElement
-    from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
     from goldens.creation.identity import Identity
 
 _WS_RE = re.compile(r"\s+")
@@ -172,3 +182,97 @@ def render_table_full(el: DocumentElement) -> str:
     cross = chr(0x00D7)
     header = f"[Tabelle (voll), Seite {el.page_number}, {rows}{cross}{cols}, id={el.element_id}]"
     return f"{header}\n{el.content}"
+
+
+_OVERLAP_THRESHOLD = 30
+_PROMPT = (
+    "Frage zu diesem Element (oder ENTER für 'Weiter', 'q' zum Beenden, 't' für volle Tabelle):\n> "
+)
+
+
+def cmd_curate(args: argparse.Namespace) -> int:  # pragma: no cover
+    """Interactive curate session. The body is `# pragma: no cover`."""
+    require_interactive_tty()
+
+    outputs_root = Path("outputs")
+    try:
+        slug = resolve_slug(args.doc, outputs_root=outputs_root)
+    except SlugResolutionError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    identity = load_identity()
+    if identity is None:
+        prompt_and_save_identity()
+        return 0
+
+    loader = AnalyzeJsonLoader(slug, outputs_root=outputs_root)
+    elements = loader.elements()
+    try:
+        start = resolve_start_position(
+            elements,
+            explicit=args.start_from,
+            cached=read_position(slug),
+        )
+    except StartResolutionError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+    events_path = outputs_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    print(
+        f"\n=== curate: {slug} — {len(elements)} Elemente, "
+        f"starte bei #{start + 1} ===\n"
+        "Bitte keine Texte aus dem Dokument kopieren — formuliere die Frage "
+        "in eigenen Worten.\n"
+    )
+
+    for idx in range(start, len(elements)):
+        el = elements[idx]
+        print("\n" + "—" * 60)
+        print(render_element_block(el))
+        question = input(_PROMPT)
+
+        if question == "q":
+            write_position(slug, el.element_id)
+            return 0
+
+        if question == "":
+            write_position(slug, el.element_id)
+            continue
+
+        if question == "t" and el.element_type == "table":
+            print("\n" + render_table_full(el))
+            question = input(_PROMPT)
+            if question == "q":
+                write_position(slug, el.element_id)
+                return 0
+            if question == "":
+                write_position(slug, el.element_id)
+                continue
+
+        if query_substring_overlap(question, el.content, threshold=_OVERLAP_THRESHOLD):
+            keep = (
+                input("WARNUNG: Frage scheint aus dem Element kopiert. Trotzdem speichern? [j/N] ")
+                .strip()
+                .lower()
+            )
+            if keep != "j":
+                if input("Weiter? [j/N] ").strip().lower() == "j":
+                    write_position(slug, el.element_id)
+                continue
+
+        save = input("Speichern? [J/n] ").strip().lower()
+        if save in ("", "j"):
+            event = build_created_event(
+                question=question, element=el, loader=loader, identity=identity
+            )
+            append_event(events_path, event)
+            write_position(slug, el.element_id)
+            print("✓ gespeichert")
+            continue
+
+        if input("Weiter? [j/N] ").strip().lower() == "j":
+            write_position(slug, el.element_id)
+
+    print(f"\nDu hast alle Elemente von {slug} durchgesehen.")
+    return 0
