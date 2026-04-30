@@ -282,7 +282,7 @@ def synthesise(
     *,
     slug: str,
     loader: ElementsLoader,
-    client: LLMClient,
+    client: LLMClient | None,
     embed_client: LLMClient | None,
     model: str,
     embedding_model: str | None,
@@ -365,6 +365,9 @@ def synthesise(
             continue
 
         existing_questions = _existing_questions_for(events_path, bare_id)
+
+        if client is None:
+            raise ValueError("synthesise() requires `client` when dry_run=False")
 
         generated, model_version, tokens = _generate_question_batches(
             element,
@@ -457,7 +460,7 @@ def cmd_synthesise(args: argparse.Namespace) -> int:  # pragma: no cover
     from llm_clients.openai_direct import OpenAIDirectClient, OpenAIDirectConfig
 
     api_key = os.environ.get("LLM_API_KEY")
-    if not api_key:
+    if not api_key and not args.dry_run:
         print("ERROR: LLM_API_KEY env var is required", flush=True)
         return 2
 
@@ -467,20 +470,25 @@ def cmd_synthesise(args: argparse.Namespace) -> int:  # pragma: no cover
         print("ERROR: --llm-model or LLM_MODEL env var is required", flush=True)
         return 2
 
-    completion_client = OpenAIDirectClient(OpenAIDirectConfig(api_key=api_key, base_url=base_url))
+    completion_client: OpenAIDirectClient | None = None
+    if api_key:
+        completion_client = OpenAIDirectClient(
+            OpenAIDirectConfig(api_key=api_key, base_url=base_url)
+        )
 
     embed_client: OpenAIDirectClient | None = None
     embedding_model = args.embedding_model or os.environ.get("LLM_EMBEDDING_MODEL")
     openai_key = os.environ.get("OPENAI_API_KEY")
-    if embedding_model and openai_key:
-        embed_client = OpenAIDirectClient(
-            OpenAIDirectConfig(api_key=openai_key, base_url="https://api.openai.com/v1")
-        )
-    elif openai_key and not embedding_model:
-        embedding_model = "text-embedding-3-large"
-        embed_client = OpenAIDirectClient(
-            OpenAIDirectConfig(api_key=openai_key, base_url="https://api.openai.com/v1")
-        )
+    if not args.dry_run:
+        if embedding_model and openai_key:
+            embed_client = OpenAIDirectClient(
+                OpenAIDirectConfig(api_key=openai_key, base_url="https://api.openai.com/v1")
+            )
+        elif openai_key and not embedding_model:
+            embedding_model = "text-embedding-3-large"
+            embed_client = OpenAIDirectClient(
+                OpenAIDirectConfig(api_key=openai_key, base_url="https://api.openai.com/v1")
+            )
 
     # Loader resolution depends on A.4 — until that lands the CLI
     # handler cannot construct AnalyzeJsonLoader. The synthesise()
