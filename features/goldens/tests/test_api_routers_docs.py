@@ -81,3 +81,24 @@ def test_list_docs_requires_auth(make_client) -> None:
     client.headers.pop("X-Auth-Token")
     resp = client.get("/api/docs")
     assert resp.status_code == 401
+
+
+def test_list_elements_returns_element_with_counts(make_client) -> None:
+    client, outputs = make_client()
+    _seed_doc(outputs, "doc-a")
+    resp = client.get("/api/docs/doc-a/elements")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert len(body) >= 1
+    item = body[0]
+    assert "element" in item
+    assert "count_active_entries" in item
+    assert item["element"]["element_id"]
+    assert item["element"]["page_number"] >= 1
+
+
+def test_list_elements_unknown_slug_404(make_client) -> None:
+    client, _ = make_client()
+    resp = client.get("/api/docs/nonexistent/elements")
+    assert resp.status_code == 404

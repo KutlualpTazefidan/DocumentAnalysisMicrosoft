@@ -9,12 +9,15 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path  # noqa: TC003
 
 from fastapi import APIRouter, Request
 
-from goldens.api.schemas import DocSummary
+from goldens.api.schemas import DocSummary, ElementWithCounts
 from goldens.creation.elements.analyze_json import AnalyzeJsonLoader
+from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
+from goldens.storage.projection import iter_active_retrieval_entries
 
 router = APIRouter()
 
@@ -35,3 +38,30 @@ async def list_docs(request: Request) -> list[DocSummary]:
         elements = loader.elements()
         summaries.append(DocSummary(slug=child.name, element_count=len(elements)))
     return summaries
+
+
+def _count_entries_per_element(data_root: Path, slug: str) -> dict[str, int]:
+    """Bare-element-id → number of active retrieval entries projected from the log."""
+    log = data_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+    if not log.exists():
+        return {}
+    counts: dict[str, int] = defaultdict(int)
+    for entry in iter_active_retrieval_entries(log):
+        if entry.source_element is not None:
+            counts[entry.source_element.element_id] += 1
+    return counts
+
+
+@router.get("/api/docs/{slug}/elements", response_model=list[ElementWithCounts])
+async def list_elements(slug: str, request: Request) -> list[ElementWithCounts]:
+    data_root: Path = request.app.state.config.data_root
+    loader = AnalyzeJsonLoader(slug, outputs_root=data_root)
+    elements = loader.elements()  # raises FileNotFoundError → 404 via app handler
+    counts = _count_entries_per_element(data_root, slug)
+    return [
+        ElementWithCounts(
+            element=el,
+            count_active_entries=counts.get(el.element_id.split("-", 1)[1], 0),
+        )
+        for el in elements
+    ]
