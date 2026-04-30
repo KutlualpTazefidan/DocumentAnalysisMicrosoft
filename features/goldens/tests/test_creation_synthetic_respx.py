@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import respx
-from goldens.creation._elements_stub import DocumentElement
+from goldens.creation.elements import DocumentElement
 from goldens.creation.synthetic import SynthesiseResult, synthesise
 from goldens.storage.log import read_events
 from goldens.storage.projection import build_state

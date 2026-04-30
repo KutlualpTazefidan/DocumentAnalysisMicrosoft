@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 import pysbd
 
 if TYPE_CHECKING:
-    from goldens.creation._elements_stub import DocumentElement
+    from goldens.creation.elements import DocumentElement
 
 __all__ = ["decompose_to_sub_units"]
 

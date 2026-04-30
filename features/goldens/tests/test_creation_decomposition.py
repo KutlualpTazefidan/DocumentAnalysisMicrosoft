@@ -5,7 +5,7 @@ Spec: docs/superpowers/specs/2026-04-29-a5-synthetic-design.md §4.2, §9.
 
 from __future__ import annotations
 
-from goldens.creation._elements_stub import DocumentElement
+from goldens.creation.elements import DocumentElement
 from goldens.creation.synthetic_decomposition import decompose_to_sub_units
 
 

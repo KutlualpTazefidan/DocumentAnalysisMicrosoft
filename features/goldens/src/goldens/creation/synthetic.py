@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
     from llm_clients.base import LLMClient
 
-    from goldens.creation._elements_stub import DocumentElement, ElementsLoader
+    from goldens.creation.elements import DocumentElement, ElementsLoader
 
 __all__ = [
     "GeneratedQuestion",
