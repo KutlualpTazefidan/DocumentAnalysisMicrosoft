@@ -208,3 +208,22 @@ def test_cli_eval_only_passes_active_entries_to_run_eval(
 
     assert len(captured_entries) == 1
     assert captured_entries[0].query == "active query"
+
+
+def test_curate_subparser_is_registered() -> None:
+    import contextlib
+    import io
+
+    from query_index_eval.cli import main as _main
+
+    buf = io.StringIO()
+    with (
+        contextlib.redirect_stdout(buf),
+        contextlib.redirect_stderr(buf),
+        contextlib.suppress(SystemExit),
+    ):
+        _main(["curate", "--help"])
+    text = buf.getvalue()
+    assert "curate" in text
+    assert "--doc" in text
+    assert "--start-from" in text

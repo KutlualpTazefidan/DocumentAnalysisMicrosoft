@@ -23,7 +23,7 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from goldens.schemas.base import Event, Review, actor_from_dict
+from goldens.schemas.base import Event, Review, SourceElement, actor_from_dict
 from goldens.schemas.retrieval import RetrievalEntry
 from goldens.storage.log import read_events
 
@@ -72,6 +72,8 @@ def _apply_created(state: dict[str, RetrievalEntry], ev: Event) -> None:
         actor=actor_from_dict(ev.payload["actor"]),
         notes=ev.payload.get("notes"),
     )
+    src_raw = entry_data.get("source_element")
+    source_element = SourceElement.from_dict(src_raw) if src_raw is not None else None
     state[ev.entry_id] = RetrievalEntry(
         entry_id=ev.entry_id,
         query=entry_data["query"],
@@ -80,6 +82,7 @@ def _apply_created(state: dict[str, RetrievalEntry], ev: Event) -> None:
         review_chain=(review,),
         deprecated=False,
         refines=entry_data.get("refines"),
+        source_element=source_element,
     )
 
 

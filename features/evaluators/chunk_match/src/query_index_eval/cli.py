@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
-from goldens import GOLDEN_EVENTS_V1_FILENAME, iter_active_retrieval_entries
+from goldens import GOLDEN_EVENTS_V1_FILENAME, cmd_curate, iter_active_retrieval_entries
 from query_index import Config
 from query_index.schema_discovery import print_index_schema
 
@@ -160,6 +160,19 @@ def main(argv: list[str] | None = None) -> int:
     p_schema = sub.add_parser("schema-discovery", help="Print the configured index schema")
     p_schema.add_argument("--index-name", default=None)
     p_schema.set_defaults(func=_cmd_schema_discovery)
+
+    p_curate = sub.add_parser("curate", help="Interactive goldset curation")
+    p_curate.add_argument(
+        "--doc",
+        default=None,
+        help="Document slug; auto-pick if exactly one exists under outputs/",
+    )
+    p_curate.add_argument(
+        "--start-from",
+        default=None,
+        help="Element id (or prefix) to resume from",
+    )
+    p_curate.set_defaults(func=cmd_curate)
 
     try:
         args = parser.parse_args(argv)

@@ -1,0 +1,62 @@
+{
+  "paragraphs": [
+    {
+      "role": "pageHeader",
+      "content": "Top-of-page noise — should be dropped",
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 0.3, 7.0, 0.3, 7.0, 0.5, 0.5, 0.5]}
+      ]
+    },
+    {
+      "role": "title",
+      "content": "Tragkorb-Spezifikation",
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 1.0, 7.0, 1.0, 7.0, 1.4, 0.5, 1.4]}
+      ]
+    },
+    {
+      "content": "Der Tragkorb wird in zwei Hälften gefertigt und vor Ort verschraubt.",
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 1.6, 7.0, 1.6, 7.0, 2.1, 0.5, 2.1]}
+      ]
+    },
+    {
+      "role": "footnote",
+      "content": "Quelle: DIN 18800",
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 9.5, 7.0, 9.5, 7.0, 9.7, 0.5, 9.7]}
+      ]
+    },
+    {
+      "content": "   ",
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 8.0, 7.0, 8.0, 7.0, 8.2, 0.5, 8.2]}
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "rowCount": 2,
+      "columnCount": 3,
+      "cells": [
+        {"rowIndex": 0, "columnIndex": 0, "content": "Pos."},
+        {"rowIndex": 0, "columnIndex": 1, "content": "Material"},
+        {"rowIndex": 0, "columnIndex": 2, "content": "Menge"},
+        {"rowIndex": 1, "columnIndex": 0, "content": "1"},
+        {"rowIndex": 1, "columnIndex": 1, "content": "Stahl S235"},
+        {"rowIndex": 1, "columnIndex": 2, "content": "12"}
+      ],
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 3.0, 7.0, 3.0, 7.0, 4.5, 0.5, 4.5]}
+      ]
+    }
+  ],
+  "figures": [
+    {
+      "caption": {"content": "Abbildung 1 — Schnitt durch den Tragkorb"},
+      "boundingRegions": [
+        {"pageNumber": 1, "polygon": [0.5, 5.0, 7.0, 5.0, 7.0, 7.5, 0.5, 7.5]}
+      ]
+    }
+  ]
+}

@@ -7,7 +7,9 @@ name = "goldens"
 version = "0.1.0"
 description = "Event-sourced golden-set storage for evaluation."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pytest-cov>=7.1.0",
+]
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-cov"]
