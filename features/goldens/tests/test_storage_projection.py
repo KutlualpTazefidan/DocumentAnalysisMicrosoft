@@ -3,7 +3,7 @@ out-of-order tolerance, refinement, orphan-event handling."""
 
 from __future__ import annotations
 
-from goldens.schemas.base import Event, HumanActor, LLMActor
+from goldens.schemas.base import Event, HumanActor, LLMActor, SourceElement
 from goldens.storage.projection import active_entries, build_state
 
 # --- helpers ------------------------------------------------------
@@ -267,3 +267,52 @@ def test_golden_events_v1_filename_re_exported_from_goldens_top_level():
     from goldens.storage import GOLDEN_EVENTS_V1_FILENAME as STORAGE_LEVEL
 
     assert TOP_LEVEL == STORAGE_LEVEL
+
+
+def _created_with_source(
+    *,
+    event_id: str = "ev-with-src",
+    entry_id: str = "r-src",
+    src: dict | None = None,
+) -> Event:
+    return Event(
+        event_id=event_id,
+        timestamp_utc="2026-04-29T10:00:00Z",
+        event_type="created",
+        entry_id=entry_id,
+        schema_version=1,
+        payload={
+            "task_type": "retrieval",
+            "actor": _human_actor_dict(),
+            "action": "created_from_scratch",
+            "notes": None,
+            "entry_data": {
+                "query": "What does Statik mean?",
+                "expected_chunk_ids": [],
+                "chunk_hashes": {},
+                "source_element": src
+                or {
+                    "document_id": "doc-a",
+                    "page_number": 3,
+                    "element_id": "deadbeef",
+                    "element_type": "paragraph",
+                },
+            },
+        },
+    )
+
+
+def test_projection_threads_source_element_through_created() -> None:
+    state = build_state([_created_with_source()])
+    entry = state["r-src"]
+    assert entry.source_element == SourceElement(
+        document_id="doc-a",
+        page_number=3,
+        element_id="deadbeef",
+        element_type="paragraph",
+    )
+
+
+def test_projection_source_element_absent_yields_none() -> None:
+    state = build_state([_created(event_id="ev-legacy", entry_id="r-legacy")])
+    assert state["r-legacy"].source_element is None
