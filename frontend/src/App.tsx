@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { Login } from "./routes/login";
 import { DocsIndex } from "./routes/docs-index";
+import { DocElements } from "./routes/doc-elements";
 
 function RequireAuth() {
   const { token } = useAuth();
@@ -22,11 +23,11 @@ export function App() {
           <Route path="/docs" element={<DocsIndex />} />
           <Route
             path="/docs/:slug/elements"
-            element={<DocElementsPlaceholder />}
+            element={<DocElements />}
           />
           <Route
             path="/docs/:slug/elements/:elementId"
-            element={<DocElementsPlaceholder />}
+            element={<DocElements />}
           />
           <Route
             path="/docs/:slug/synthesise"
@@ -39,9 +40,6 @@ export function App() {
   );
 }
 
-function DocElementsPlaceholder() {
-  return <div className="p-8">Doc Elements (Task 23)</div>;
-}
 function SynthesisePlaceholder() {
   return <div className="p-8">Synthesise (Task 26)</div>;
 }
