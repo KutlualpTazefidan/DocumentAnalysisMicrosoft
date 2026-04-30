@@ -106,3 +106,18 @@ def test_extract_unknown_slug_404(app_with_segments) -> None:
     client, _, _ = app_with_segments
     resp = client.post("/api/docs/missing/extract", headers={"X-Auth-Token": "tok"})
     assert resp.status_code == 404
+
+
+def test_export_writes_sourceelements_and_marks_done(app_with_segments) -> None:
+    client, root, slug = app_with_segments
+    with client.stream(
+        "POST", f"/api/docs/{slug}/extract", headers={"X-Auth-Token": "tok"}
+    ) as resp:
+        list(resp.iter_lines())
+    resp = client.post(f"/api/docs/{slug}/export", headers={"X-Auth-Token": "tok"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source_pipeline"] == "local-pdf"
+    assert (root / slug / "sourceelements.json").exists()
+    meta = client.get(f"/api/docs/{slug}", headers={"X-Auth-Token": "tok"}).json()
+    assert meta["status"] == "done"

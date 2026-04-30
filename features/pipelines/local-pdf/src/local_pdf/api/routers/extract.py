@@ -17,6 +17,7 @@ from local_pdf.api.schemas import (
     ExtractStartLine,
     HtmlPayload,
 )
+from local_pdf.convert.source_elements import build_source_elements_payload
 from local_pdf.storage.sidecar import (
     doc_dir,
     read_html,
@@ -25,6 +26,7 @@ from local_pdf.storage.sidecar import (
     write_html,
     write_meta,
     write_mineru,
+    write_source_elements,
 )
 from local_pdf.workers.mineru import run_mineru, run_mineru_region
 
@@ -116,3 +118,24 @@ async def put_html(slug: str, body: HtmlPayload, request: Request) -> dict:
     if meta is not None:
         write_meta(cfg.data_root, slug, meta.model_copy(update={"last_touched_utc": _now_iso()}))
     return {"ok": True}
+
+
+@router.post("/api/docs/{slug}/export")
+async def run_export(slug: str, request: Request) -> dict:
+    cfg = request.app.state.config
+    seg = read_segments(cfg.data_root, slug)
+    if seg is None:
+        raise HTTPException(status_code=400, detail="run /segment first")
+    html = read_html(cfg.data_root, slug)
+    if html is None:
+        raise HTTPException(status_code=400, detail="run /extract first")
+    payload = build_source_elements_payload(slug=slug, segments=seg, html=html)
+    write_source_elements(cfg.data_root, slug, payload)
+    meta = read_meta(cfg.data_root, slug)
+    if meta is not None:
+        write_meta(
+            cfg.data_root,
+            slug,
+            meta.model_copy(update={"status": DocStatus.done, "last_touched_utc": _now_iso()}),
+        )
+    return payload
