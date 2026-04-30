@@ -1,11 +1,12 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { Login } from "./routes/login";
 
 export function App() {
   return (
     <div className="min-h-screen">
       <Routes>
         <Route path="/" element={<Navigate to="/docs" replace />} />
-        <Route path="/login" element={<LoginPlaceholder />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/docs" element={<DocsIndexPlaceholder />} />
         <Route
           path="/docs/:slug/elements"
@@ -26,9 +27,6 @@ export function App() {
 }
 
 // Placeholders — replaced in subsequent tasks.
-function LoginPlaceholder() {
-  return <div className="p-8">Login (Task 9)</div>;
-}
 function DocsIndexPlaceholder() {
   return <div className="p-8">Docs Index (Task 11)</div>;
 }
