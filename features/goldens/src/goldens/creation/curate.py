@@ -177,11 +177,16 @@ def render_element_block(el: DocumentElement) -> str:
 
 
 def render_table_full(el: DocumentElement) -> str:
-    """Full grid view triggered by the 't' toggle."""
+    """Full grid view triggered by the 't' toggle.
+
+    Reads `table_full_content` (set by AnalyzeJsonLoader); falls back to
+    `el.content` for synthetic / legacy elements that predate the field.
+    """
     rows, cols = el.table_dims or (0, 0)
     cross = chr(0x00D7)
     header = f"[Tabelle (voll), Seite {el.page_number}, {rows}{cross}{cols}, id={el.element_id}]"
-    return f"{header}\n{el.content}"
+    body = el.table_full_content if el.table_full_content is not None else el.content
+    return f"{header}\n{body}"
 
 
 _OVERLAP_THRESHOLD = 30

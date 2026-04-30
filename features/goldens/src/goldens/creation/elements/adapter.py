@@ -24,6 +24,7 @@ class DocumentElement:
     content: str
     table_dims: tuple[int, int] | None = None
     caption: str | None = None
+    table_full_content: str | None = None
 
 
 @runtime_checkable
