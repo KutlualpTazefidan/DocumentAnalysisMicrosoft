@@ -30,4 +30,4 @@ class DocumentElement:
 class ElementsLoader(Protocol):
     """Anything that can produce an ordered list of DocumentElements."""
 
-    def elements(self) -> list[DocumentElement]: ...
+    def elements(self) -> list[DocumentElement]: ...  # pragma: no cover
