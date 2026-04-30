@@ -108,3 +108,122 @@ def test_segment_unknown_slug_404(app_with_doc) -> None:
     client, _, _ = app_with_doc
     resp = client.post("/api/docs/missing/segment", headers={"X-Auth-Token": "tok"})
     assert resp.status_code == 404
+
+
+def _ensure_segmented(client, slug):
+    with client.stream(
+        "POST", f"/api/docs/{slug}/segment", headers={"X-Auth-Token": "tok"}
+    ) as resp:
+        list(resp.iter_lines())
+
+
+def test_put_box_updates_kind_and_persists(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.put(
+        f"/api/docs/{slug}/segments/p1-b0",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "list_item"},
+    )
+    assert resp.status_code == 200
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    target = next(b for b in body["boxes"] if b["box_id"] == "p1-b0")
+    assert target["kind"] == "list_item"
+
+
+def test_put_box_updates_bbox(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.put(
+        f"/api/docs/{slug}/segments/p1-b0",
+        headers={"X-Auth-Token": "tok"},
+        json={"bbox": [11, 22, 99, 199]},
+    )
+    assert resp.status_code == 200
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    target = next(b for b in body["boxes"] if b["box_id"] == "p1-b0")
+    assert target["bbox"] == [11.0, 22.0, 99.0, 199.0]
+
+
+def test_put_unknown_box_returns_404(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.put(
+        f"/api/docs/{slug}/segments/p9-b9",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "heading"},
+    )
+    assert resp.status_code == 404
+
+
+def test_delete_box_assigns_discard_kind(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.delete(f"/api/docs/{slug}/segments/p1-b1", headers={"X-Auth-Token": "tok"})
+    assert resp.status_code == 200
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    target = next(b for b in body["boxes"] if b["box_id"] == "p1-b1")
+    assert target["kind"] == "discard"
+
+
+def test_merge_boxes_creates_one_with_union_bbox(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.post(
+        f"/api/docs/{slug}/segments/merge",
+        headers={"X-Auth-Token": "tok"},
+        json={"box_ids": ["p1-b0", "p1-b1"]},
+    )
+    assert resp.status_code == 200
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    page1 = [b for b in body["boxes"] if b["page"] == 1]
+    assert len(page1) == 1
+    merged = page1[0]
+    # Union of (10,20,100,50) and (10,60,100,200) is (10,20,100,200).
+    assert merged["bbox"] == [10.0, 20.0, 100.0, 200.0]
+
+
+def test_merge_rejects_cross_page(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.post(
+        f"/api/docs/{slug}/segments/merge",
+        headers={"X-Auth-Token": "tok"},
+        json={"box_ids": ["p1-b0", "p2-b0"]},
+    )
+    assert resp.status_code == 400
+
+
+def test_split_box_at_y(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    # p1-b1 has bbox (10, 60, 100, 200). Split at y=130.
+    resp = client.post(
+        f"/api/docs/{slug}/segments/split",
+        headers={"X-Auth-Token": "tok"},
+        json={"box_id": "p1-b1", "split_y": 130},
+    )
+    assert resp.status_code == 200
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    page1 = [b for b in body["boxes"] if b["page"] == 1]
+    # Original p1-b1 disappears, replaced by 2 new boxes.
+    assert "p1-b1" not in {b["box_id"] for b in page1}
+    new = [b for b in page1 if b["box_id"] != "p1-b0"]
+    assert len(new) == 2
+    ys = sorted([(b["bbox"][1], b["bbox"][3]) for b in new])
+    assert ys == [(60.0, 130.0), (130.0, 200.0)]
+
+
+def test_create_box(app_with_doc) -> None:
+    client, _, slug = app_with_doc
+    _ensure_segmented(client, slug)
+    resp = client.post(
+        f"/api/docs/{slug}/segments",
+        headers={"X-Auth-Token": "tok"},
+        json={"page": 1, "bbox": [200, 300, 400, 500], "kind": "heading"},
+    )
+    assert resp.status_code == 201
+    body = client.get(f"/api/docs/{slug}/segments", headers={"X-Auth-Token": "tok"}).json()
+    new_boxes = [b for b in body["boxes"] if b["bbox"] == [200.0, 300.0, 400.0, 500.0]]
+    assert len(new_boxes) == 1
+    assert new_boxes[0]["kind"] == "heading"
