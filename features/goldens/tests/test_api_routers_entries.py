@@ -84,3 +84,39 @@ def test_get_entry_unknown_404(client_with_one_entry) -> None:
     client, _ = client_with_one_entry
     resp = client.get("/api/entries/e_does_not_exist")
     assert resp.status_code == 404
+
+
+def test_refine_creates_new_entry_and_deprecates_old(client_with_one_entry) -> None:
+    client, old_entry_id = client_with_one_entry
+    resp = client.post(
+        f"/api/entries/{old_entry_id}/refine",
+        json={"query": "Verbesserte Frage"},
+    )
+    assert resp.status_code == 200
+    new_id = resp.json()["new_entry_id"]
+    assert new_id != old_entry_id
+
+    # Old is now deprecated; new is active.
+    new_get = client.get(f"/api/entries/{new_id}")
+    assert new_get.status_code == 200
+    assert new_get.json()["query"] == "Verbesserte Frage"
+
+    # Old is no longer in active list.
+    active_ids = {e["entry_id"] for e in client.get("/api/entries").json()}
+    assert old_entry_id not in active_ids
+
+
+def test_refine_unknown_entry_404(client_with_one_entry) -> None:
+    client, _ = client_with_one_entry
+    resp = client.post("/api/entries/e_missing/refine", json={"query": "x"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.skip("deprecate endpoint added in Task 16")
+def test_refine_already_deprecated_entry_409(client_with_one_entry) -> None:
+    client, entry_id = client_with_one_entry
+    # Deprecate first.
+    client.post(f"/api/entries/{entry_id}/deprecate", json={"reason": "test"})
+    # Then try to refine.
+    resp = client.post(f"/api/entries/{entry_id}/refine", json={"query": "x"})
+    assert resp.status_code == 409

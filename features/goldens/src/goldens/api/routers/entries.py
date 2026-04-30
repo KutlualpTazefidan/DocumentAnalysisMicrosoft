@@ -15,12 +15,25 @@ from fastapi import APIRouter, HTTPException, Query, Request
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from goldens.schemas import HumanActor
+
+from goldens.api.schemas import (
+    RefineRequest,
+    RefineResponse,
+)
+from goldens.creation.identity import Identity, identity_to_human_actor
+from goldens.operations.errors import EntryNotFoundError
+from goldens.operations.refine import refine as refine_op
 from goldens.schemas.retrieval import RetrievalEntry
 from goldens.storage import GOLDEN_EVENTS_V1_FILENAME
 from goldens.storage.log import read_events
 from goldens.storage.projection import build_state, iter_active_retrieval_entries
 
 router = APIRouter()
+
+
+def _human_actor_from_identity(identity: Identity) -> HumanActor:
+    return identity_to_human_actor(identity)
 
 
 def _walk_event_logs(data_root: Path) -> list[Path]:
@@ -71,3 +84,36 @@ async def get_entry(entry_id: str, request: Request) -> RetrievalEntry:
         if entry_id in state:
             return state[entry_id]
     raise HTTPException(status_code=404, detail=f"entry {entry_id} not found")
+
+
+@router.post("/api/entries/{entry_id}/refine", response_model=RefineResponse)
+async def refine_entry(
+    entry_id: str,
+    body: RefineRequest,
+    request: Request,
+) -> RefineResponse:
+    data_root: Path = request.app.state.config.data_root
+    identity = request.app.state.identity
+
+    # The refine() operation needs the path to the specific log. Since entries
+    # live under one slug, we walk all logs and find which one contains this id.
+    target_log: Path | None = None
+    for log in _walk_event_logs(data_root):
+        state = build_state(read_events(log))
+        if entry_id in state:
+            target_log = log
+            break
+    if target_log is None:
+        raise EntryNotFoundError(entry_id)
+
+    new_id = refine_op(
+        target_log,
+        entry_id,
+        query=body.query,
+        expected_chunk_ids=tuple(body.expected_chunk_ids),
+        chunk_hashes=dict(body.chunk_hashes),
+        actor=_human_actor_from_identity(identity),
+        notes=body.notes,
+        deprecate_reason=body.deprecate_reason,
+    )
+    return RefineResponse(new_entry_id=new_id)

@@ -64,7 +64,6 @@ def test_unknown_path_returns_404(make_app) -> None:
     assert resp.status_code == 404
 
 
-@pytest.mark.skip("router implemented in Task 15")
 def test_entry_not_found_error_maps_to_404(make_app) -> None:
     """Verify the exception handler chain for goldens domain errors."""
     from fastapi.testclient import TestClient
