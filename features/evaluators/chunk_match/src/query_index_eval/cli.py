@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 from goldens import GOLDEN_EVENTS_V1_FILENAME, cmd_curate, iter_active_retrieval_entries
+from goldens.creation.synthetic import cmd_synthesise
 from query_index import Config
 from query_index.schema_discovery import print_index_schema
 
@@ -173,6 +174,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Element id (or prefix) to resume from",
     )
     p_curate.set_defaults(func=cmd_curate)
+
+    p_synth = sub.add_parser("synthesise", help="Generate synthetic golden entries via LLM")
+    p_synth.add_argument("--doc", required=True)
+    p_synth.add_argument("--start-from", default=None)
+    p_synth.add_argument("--limit", type=int, default=None)
+    p_synth.add_argument("--llm-base-url", default=None)
+    p_synth.add_argument("--llm-model", default=None)
+    p_synth.add_argument("--embedding-model", default=None)
+    p_synth.add_argument("--prompt-template-version", default="v1")
+    p_synth.add_argument("--max-questions-per-element", type=int, default=20)
+    p_synth.add_argument("--temperature", type=float, default=0.0)
+    p_synth.add_argument("--max-prompt-tokens", type=int, default=8000)
+    p_synth.add_argument("--dry-run", action="store_true")
+    p_synth.add_argument("--resume", action="store_true")
+    p_synth.add_argument("--language", default="de")
+    p_synth.set_defaults(func=cmd_synthesise)
 
     try:
         args = parser.parse_args(argv)

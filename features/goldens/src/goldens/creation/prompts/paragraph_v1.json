@@ -1,0 +1,6 @@
+{
+  "version": "v1",
+  "element_type": "paragraph",
+  "description": "Generate one factual question per sentence in a paragraph. Output JSON: a list of {sub_unit, question} objects, where sub_unit is the source sentence and question is the generated question.",
+  "template": "You are a domain expert generating evaluation questions for a retrieval system.\n\nElement type: paragraph\n\nText:\n{content}\n\nFor each sentence in the text above, generate exactly one factual question whose answer is contained in that sentence. Return a JSON object with a top-level key `questions` whose value is a list. Each list element must be an object with exactly two string fields: `sub_unit` (the source sentence, verbatim) and `question` (the generated question).\n\nBe concise. Use the language of the input text. Do not invent facts not present in the source."
+}
