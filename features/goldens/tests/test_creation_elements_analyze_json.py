@@ -127,3 +127,16 @@ def test_slug_attribute_is_public(tmp_path: Path) -> None:
     root = _make_outputs(tmp_path, "doc-a", "analyze_minimal.json", "2026-04-29T10-00-00Z")
     loader = AnalyzeJsonLoader("doc-a", outputs_root=root)
     assert loader.slug == "doc-a"
+
+
+def test_to_source_element_maps_correctly(tmp_path: Path) -> None:
+    root = _make_outputs(tmp_path, "doc-a", "analyze_minimal.json", "2026-04-29T10-00-00Z")
+    loader = AnalyzeJsonLoader("doc-a", outputs_root=root)
+    for el in loader.elements():
+        src = loader.to_source_element(el)
+        assert src.document_id == "doc-a"
+        assert src.page_number == el.page_number
+        assert src.element_type == el.element_type
+        # element_id is the hash portion only, no `p{page}-` prefix.
+        assert src.element_id == el.element_id.split("-", 1)[1]
+        assert "-" not in src.element_id
