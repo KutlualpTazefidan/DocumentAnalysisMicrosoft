@@ -204,3 +204,41 @@ def test_build_event_ids_are_unique_per_call(tmp_path: Path) -> None:
     b = build_created_event(question="y", element=element, loader=loader, identity=_identity())
     assert a.event_id != b.event_id
     assert a.entry_id != b.entry_id
+
+
+class _TtyStream:
+    def isatty(self) -> bool:
+        return True
+
+
+class _NonTtyStream:
+    def isatty(self) -> bool:
+        return False
+
+
+def test_require_tty_passes_when_both_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from goldens.creation.curate import require_interactive_tty
+
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+    require_interactive_tty()
+
+
+def test_require_tty_exits_when_stdin_not_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from goldens.creation.curate import require_interactive_tty
+
+    monkeypatch.setattr("sys.stdin", _NonTtyStream())
+    monkeypatch.setattr("sys.stdout", _TtyStream())
+    with pytest.raises(SystemExit) as excinfo:
+        require_interactive_tty()
+    assert excinfo.value.code == 2
+
+
+def test_require_tty_exits_when_stdout_not_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from goldens.creation.curate import require_interactive_tty
+
+    monkeypatch.setattr("sys.stdin", _TtyStream())
+    monkeypatch.setattr("sys.stdout", _NonTtyStream())
+    with pytest.raises(SystemExit) as excinfo:
+        require_interactive_tty()
+    assert excinfo.value.code == 2

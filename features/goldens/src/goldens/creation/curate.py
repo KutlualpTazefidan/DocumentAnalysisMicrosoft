@@ -7,6 +7,7 @@ worth testing is extracted into a helper that has its own unit test."""
 from __future__ import annotations
 
 import re
+import sys
 from typing import TYPE_CHECKING
 
 from goldens.creation._time import now_utc_iso
@@ -128,3 +129,14 @@ def build_created_event(
         schema_version=1,
         payload=payload,
     )
+
+
+def require_interactive_tty() -> None:
+    """Hard-exit when stdin or stdout is not a TTY. Verbatim from the legacy
+    curate writer (D9). No `--no-tty` opt-out."""
+    if not sys.stdin.isatty():
+        print("ERROR: curate requires an interactive stdin (TTY)", file=sys.stderr)
+        raise SystemExit(2)
+    if not sys.stdout.isatty():
+        print("ERROR: curate requires an interactive stdout (TTY)", file=sys.stderr)
+        raise SystemExit(2)
