@@ -16,6 +16,15 @@ features/*/logs/
 
 # Local Claude settings (per-machine)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/settings.json.bak-*
+
+# Brainstorming session artifacts (visual companion mockups, etc.)
+.superpowers/
+
+# Scratch notebooks at repo root (use a tracked subdir like analysis/ if you want notebooks committed)
+/*.ipynb
+*.bak
 
 # Python
 __pycache__/
