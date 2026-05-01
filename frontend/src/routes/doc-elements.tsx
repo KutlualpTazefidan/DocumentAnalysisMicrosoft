@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { TopBar } from "../components/TopBar";
 import { ElementSidebar } from "../components/ElementSidebar";
 import { ElementDetail } from "../components/ElementDetail";
 import { HelpModal } from "../components/HelpModal";
@@ -56,7 +55,6 @@ export function DocElements() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar />
       <div className="flex flex-1 overflow-hidden">
         <ElementSidebar
           slug={slug}
