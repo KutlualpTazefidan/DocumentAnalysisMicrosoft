@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,11 +10,9 @@ from fastapi.responses import StreamingResponse
 from local_pdf.api.schemas import (
     BoxKind,
     DocStatus,
-    ExtractCompleteLine,
-    ExtractElementLine,
     ExtractRegionRequest,
-    ExtractStartLine,
     HtmlPayload,
+    WorkFailedEvent,
 )
 from local_pdf.convert.source_elements import build_source_elements_payload
 from local_pdf.storage.sidecar import (
@@ -28,6 +25,7 @@ from local_pdf.storage.sidecar import (
     write_mineru,
     write_source_elements,
 )
+from local_pdf.workers.base import now_ms
 from local_pdf.workers.mineru import MineruWorker
 
 router = APIRouter()
@@ -67,20 +65,28 @@ async def run_extract(slug: str, request: Request) -> StreamingResponse:
     targets = [b for b in seg.boxes if b.kind != BoxKind.discard]
 
     def stream():
-        yield json.dumps(ExtractStartLine(total_boxes=len(targets)).model_dump(mode="json")) + "\n"
-        elements: list[dict] = []
-        with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
-            list(worker.run(pdf, targets))  # consume lifecycle events; results stored on worker
-            for r in worker.results:
-                line = ExtractElementLine(box_id=r.box_id, html_snippet=r.html)
-                elements.append(line.model_dump(mode="json"))
-                yield json.dumps(line.model_dump(mode="json")) + "\n"
-        write_mineru(cfg.data_root, slug, {"elements": elements})
-        write_html(cfg.data_root, slug, _wrap_html(elements))
-        yield (
-            json.dumps(ExtractCompleteLine(boxes_extracted=len(elements)).model_dump(mode="json"))
-            + "\n"
-        )
+        try:
+            with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
+                for ev in worker.run(pdf, targets):
+                    # Persist after each yielded WorkProgressEvent's box result.
+                    yield ev.model_dump_json() + "\n"
+                # Build elements list from worker.results.
+                elements = [{"box_id": r.box_id, "html_snippet": r.html} for r in worker.results]
+                write_mineru(cfg.data_root, slug, {"elements": elements})
+                write_html(cfg.data_root, slug, _wrap_html(elements))
+                for ev in worker.unload():
+                    yield ev.model_dump_json() + "\n"
+        except Exception as exc:
+            failure = WorkFailedEvent(
+                model=MineruWorker.name,
+                timestamp_ms=now_ms(),
+                stage="run",
+                reason=str(exc),
+                recoverable=False,
+                hint=None,
+            )
+            yield failure.model_dump_json() + "\n"
+            raise
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 

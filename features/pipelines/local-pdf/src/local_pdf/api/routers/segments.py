@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
+import os
 import secrets
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -16,12 +17,10 @@ from local_pdf.api.schemas import (
     DocStatus,
     MergeBoxesRequest,
     SegmentBox,
-    SegmentCompleteLine,
-    SegmentPageLine,
     SegmentsFile,
-    SegmentStartLine,
     SplitBoxRequest,
     UpdateBoxRequest,
+    WorkFailedEvent,
 )
 from local_pdf.storage.sidecar import (
     doc_dir,
@@ -31,6 +30,7 @@ from local_pdf.storage.sidecar import (
     write_segments,
     write_yolo,
 )
+from local_pdf.workers.base import now_ms
 from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
@@ -51,6 +51,10 @@ def _bump_meta(data_root, slug: str, status: DocStatus) -> None:
     write_meta(data_root, slug, meta)
 
 
+def _yolo_weights_path() -> Path:
+    return Path(os.environ.get("LOCAL_PDF_YOLO_WEIGHTS", "doclayout-yolo.pt"))
+
+
 @router.post("/api/docs/{slug}/segment")
 async def run_segment(slug: str, request: Request) -> StreamingResponse:
     cfg = request.app.state.config
@@ -60,29 +64,43 @@ async def run_segment(slug: str, request: Request) -> StreamingResponse:
     _bump_meta(cfg.data_root, slug, DocStatus.segmenting)
 
     def stream():
-        weights = cfg.yolo_weights or pdf  # fallback keeps existing behaviour in tests
-        with YoloWorker(weights, predict_fn=_YOLO_PREDICT_FN) as worker:
-            list(worker.run(pdf))
-            list(worker.unload())
-            boxes = worker.boxes
-        pages = sorted({b.page for b in boxes})
-        yield json.dumps(SegmentStartLine(total_pages=len(pages)).model_dump(mode="json")) + "\n"
-        for p in pages:
-            count = sum(1 for b in boxes if b.page == p)
-            yield (
-                json.dumps(SegmentPageLine(page=p, boxes_found=count).model_dump(mode="json"))
-                + "\n"
+        try:
+            with YoloWorker(_yolo_weights_path(), predict_fn=_YOLO_PREDICT_FN) as worker:
+                for ev in worker.run(pdf):
+                    yield ev.model_dump_json() + "\n"
+                # Persist results before unload events.
+                boxes = worker.boxes
+                write_yolo(
+                    cfg.data_root,
+                    slug,
+                    {"boxes": [b.model_dump(mode="json") for b in boxes]},
+                )
+                write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=boxes))
+                meta = read_meta(cfg.data_root, slug)
+                if meta is not None:
+                    write_meta(
+                        cfg.data_root,
+                        slug,
+                        meta.model_copy(
+                            update={
+                                "box_count": len(boxes),
+                                "last_touched_utc": _now_iso(),
+                            }
+                        ),
+                    )
+                for ev in worker.unload():
+                    yield ev.model_dump_json() + "\n"
+        except Exception as exc:
+            failure = WorkFailedEvent(
+                model=YoloWorker.name,
+                timestamp_ms=now_ms(),
+                stage="run",
+                reason=str(exc),
+                recoverable=False,
+                hint=None,
             )
-        write_yolo(cfg.data_root, slug, {"boxes": [b.model_dump(mode="json") for b in boxes]})
-        write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=boxes))
-        meta = read_meta(cfg.data_root, slug)
-        if meta is not None:
-            write_meta(
-                cfg.data_root,
-                slug,
-                meta.model_copy(update={"box_count": len(boxes), "last_touched_utc": _now_iso()}),
-            )
-        yield json.dumps(SegmentCompleteLine(boxes_total=len(boxes)).model_dump(mode="json")) + "\n"
+            yield failure.model_dump_json() + "\n"
+            raise
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
