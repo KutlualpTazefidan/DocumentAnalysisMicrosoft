@@ -1,7 +1,5 @@
 import type { DocMeta, DocumentElement } from "../../shared/types/domain";
 import { apiFetch as adminApiFetch } from "../../admin/api/adminClient";
-import { streamNdjson } from "./ndjson";
-import type { SynthLine, SynthesiseRequest } from "../../shared/types/domain";
 
 const TOKEN_KEY = "goldens.api_token";
 
@@ -184,18 +182,9 @@ export async function deprecateQuestion(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Synthesise streaming (from legacy docs.ts, kept for useSynthesise hook)
-// ---------------------------------------------------------------------------
-
-export async function streamSynthesise(
-  slug: string,
-  body: SynthesiseRequest,
-  signal?: AbortSignal,
-): Promise<AsyncIterable<SynthLine>> {
-  const response = await rawFetch(
-    `/api/docs/${encodeURIComponent(slug)}/synthesise`,
-    { method: "POST", body, signal },
-  );
-  return streamNdjson<SynthLine>(response);
-}
+// Synthesise is an admin-side operation (admin runs synth on a doc, then
+// publishes for curation). Curator does not initiate synthesise — they
+// review what admin has produced. The old A-Plus.2 streamSynthesise
+// (calling /api/docs/<slug>/synthesise) was removed; if curator-side
+// synth-review surfaces in the future, it should call /api/curate/...
+// endpoints, not the bare /api/docs/* namespace.
