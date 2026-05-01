@@ -61,35 +61,6 @@ def test_doc_meta_round_trip() -> None:
     assert DocMeta.model_validate(j) == m
 
 
-def test_extract_event_discriminator() -> None:
-    from local_pdf.api.schemas import (
-        ExtractCompleteLine,
-        ExtractElementLine,
-        ExtractErrorLine,
-        ExtractLine,
-        ExtractStartLine,
-    )
-    from pydantic import TypeAdapter
-
-    adapter: TypeAdapter[
-        ExtractStartLine | ExtractElementLine | ExtractCompleteLine | ExtractErrorLine
-    ] = TypeAdapter(ExtractLine)
-    assert isinstance(
-        adapter.validate_python({"type": "start", "total_boxes": 12}), ExtractStartLine
-    )
-    assert isinstance(
-        adapter.validate_python({"type": "element", "box_id": "b-1", "html_snippet": "<p>x</p>"}),
-        ExtractElementLine,
-    )
-    assert isinstance(
-        adapter.validate_python({"type": "complete", "boxes_extracted": 12}), ExtractCompleteLine
-    )
-    assert isinstance(
-        adapter.validate_python({"type": "error", "box_id": "b-1", "reason": "vlm-timeout"}),
-        ExtractErrorLine,
-    )
-
-
 def test_update_box_request_kind_must_be_in_enum() -> None:
     from local_pdf.api.schemas import UpdateBoxRequest
 
@@ -97,3 +68,74 @@ def test_update_box_request_kind_must_be_in_enum() -> None:
     assert ok.kind == "heading"
     with pytest.raises(ValidationError):
         UpdateBoxRequest(kind="banana", bbox=(10, 20, 100, 200))
+
+
+def test_worker_event_union_reexported_from_schemas() -> None:
+    """schemas.WorkerEventUnion is the same TypeAdapter target as base."""
+    from local_pdf.api.schemas import WorkerEventUnion
+    from local_pdf.workers.base import (
+        ModelLoadingEvent,
+        WorkCompleteEvent,
+        WorkFailedEvent,
+    )
+    from pydantic import TypeAdapter
+
+    adapter: TypeAdapter[WorkerEventUnion] = TypeAdapter(WorkerEventUnion)
+    assert isinstance(
+        adapter.validate_python(
+            {
+                "type": "model-loading",
+                "model": "Y",
+                "timestamp_ms": 1,
+                "source": "/w",
+                "vram_estimate_mb": 700,
+            }
+        ),
+        ModelLoadingEvent,
+    )
+    assert isinstance(
+        adapter.validate_python(
+            {
+                "type": "work-complete",
+                "model": "Y",
+                "timestamp_ms": 9,
+                "total_seconds": 1.0,
+                "items_processed": 0,
+                "output_summary": {},
+            }
+        ),
+        WorkCompleteEvent,
+    )
+    assert isinstance(
+        adapter.validate_python(
+            {
+                "type": "work-failed",
+                "model": "Y",
+                "timestamp_ms": 9,
+                "stage": "load",
+                "reason": "OOM",
+                "recoverable": False,
+                "hint": None,
+            }
+        ),
+        WorkFailedEvent,
+    )
+
+
+def test_old_segment_extract_line_types_are_gone() -> None:
+    """The pre-A.0-followup line types must no longer be importable."""
+    import local_pdf.api.schemas as schemas
+
+    for name in (
+        "SegmentStartLine",
+        "SegmentPageLine",
+        "SegmentCompleteLine",
+        "SegmentErrorLine",
+        "ExtractStartLine",
+        "ExtractElementLine",
+        "ExtractCompleteLine",
+        "ExtractErrorLine",
+        "SegmentLine",
+        "ExtractLine",
+    ):
+        assert not hasattr(schemas, name), f"{name} should be removed"
