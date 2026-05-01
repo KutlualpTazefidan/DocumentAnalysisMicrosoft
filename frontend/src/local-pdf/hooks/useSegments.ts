@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createBox, deleteBox, getSegments, mergeBoxes, splitBox, updateBox } from "../api/docs";
-import type { BoxKind } from "../types/domain";
+import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
 
 export function useSegments(slug: string, token: string) {
   return useQuery({ queryKey: ["segments", slug], queryFn: () => getSegments(slug, token) });
@@ -11,7 +11,12 @@ export function useUpdateBox(slug: string, token: string) {
   return useMutation({
     mutationFn: ({ boxId, patch }: { boxId: string; patch: { kind?: BoxKind; bbox?: [number, number, number, number] } }) =>
       updateBox(slug, boxId, patch, token),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+    onSuccess: (updated: SegmentBox) => {
+      qc.setQueryData<SegmentsFile>(["segments", slug], (prev) => {
+        if (!prev) return prev;
+        return { ...prev, boxes: prev.boxes.map((b) => (b.box_id === updated.box_id ? updated : b)) };
+      });
+    },
   });
 }
 
