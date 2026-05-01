@@ -1,4 +1,4 @@
-import type { DocMeta } from "../../shared/types/domain";
+import type { DocMeta, DocumentElement } from "../../shared/types/domain";
 import { apiFetch as adminApiFetch } from "../../admin/api/adminClient";
 
 const TOKEN_KEY = "goldens.api_token";
@@ -97,5 +97,27 @@ export async function rawFetch(
 
 export async function listAssignedDocs(token: string): Promise<DocMeta[]> {
   const r = await adminApiFetch("/api/curate/docs", token);
+  return r.json();
+}
+
+export async function listCurateElements(slug: string, token: string): Promise<DocumentElement[]> {
+  const r = await adminApiFetch(`/api/curate/docs/${encodeURIComponent(slug)}/elements`, token);
+  return r.json();
+}
+
+export interface PostQuestionBody { element_id: string; query: string; }
+export interface PostedQuestion {
+  question_id: string; element_id: string; curator_id: string;
+  query: string; created_at: string;
+}
+
+export async function postQuestion(
+  slug: string, body: PostQuestionBody, token: string,
+): Promise<PostedQuestion> {
+  const r = await adminApiFetch(`/api/curate/docs/${encodeURIComponent(slug)}/questions`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   return r.json();
 }
