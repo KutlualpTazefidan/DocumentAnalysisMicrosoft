@@ -1,4 +1,6 @@
-const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8001") as string;
+// Relative URL → calls go through the Vite dev-server proxy in dev (which
+// forwards /api/* to the backend) and same-origin in prod (static-mount).
+const BASE = (import.meta.env.VITE_API_BASE ?? "") as string;
 
 export interface CheckTokenResponse { role: "admin" | "curator"; name: string; }
 

@@ -2,7 +2,7 @@
 # scripts/dev-local-pdf.sh — one-shot dev launcher for the local-pdf pipeline.
 #
 # Reads .env.local-pdf-test (gitignored) for project-specific env, sources the
-# venv, then runs the backend on 127.0.0.1:8000. Frontend you start separately
+# venv, then runs the backend on 127.0.0.1:8001. Frontend you start separately
 # with `cd frontend && npm run dev` (uses the Vite proxy automatically).
 #
 # Usage:
@@ -49,10 +49,10 @@ if [ ! -f "$LOCAL_PDF_YOLO_WEIGHTS" ]; then
   exit 3
 fi
 
-echo "==> launching backend on 127.0.0.1:8000"
+echo "==> launching backend on 127.0.0.1:8001"
 echo "    GOLDENS_API_TOKEN     = ${GOLDENS_API_TOKEN}"
 echo "    LOCAL_PDF_DATA_ROOT   = ${LOCAL_PDF_DATA_ROOT}"
 echo "    LOCAL_PDF_YOLO_WEIGHTS= ${LOCAL_PDF_YOLO_WEIGHTS}"
 echo
 
-exec query-eval segment serve --port 8000 --host 127.0.0.1
+exec query-eval segment serve --port 8001 --host 127.0.0.1
