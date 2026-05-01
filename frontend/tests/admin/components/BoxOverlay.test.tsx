@@ -20,18 +20,18 @@ describe("BoxOverlay", () => {
     expect(screen.getByText(/0\.92/)).toBeInTheDocument();
   });
 
-  it("calls onSelect when clicked", () => {
+  it("calls onSelect with boxId when clicked", () => {
     const onSelect = vi.fn();
     render(<BoxOverlay box={box} selected={false} onSelect={onSelect} onChange={() => {}} scale={1} />);
     fireEvent.click(screen.getByTestId("box-p1-b0"));
-    expect(onSelect).toHaveBeenCalledWith("p1-b0", false);
+    expect(onSelect).toHaveBeenCalledWith("p1-b0");
   });
 
-  it("emits shift-click via onSelect with multi=true", () => {
+  it("calls onSelect with boxId on shift-click (single-select)", () => {
     const onSelect = vi.fn();
     render(<BoxOverlay box={box} selected={false} onSelect={onSelect} onChange={() => {}} scale={1} />);
     fireEvent.click(screen.getByTestId("box-p1-b0"), { shiftKey: true });
-    expect(onSelect).toHaveBeenCalledWith("p1-b0", true);
+    expect(onSelect).toHaveBeenCalledWith("p1-b0");
   });
 
   it("renders 4 corner handles when selected", () => {

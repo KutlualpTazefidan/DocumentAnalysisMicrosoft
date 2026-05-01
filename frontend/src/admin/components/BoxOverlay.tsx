@@ -7,7 +7,7 @@ interface Props {
   box: SegmentBox;
   selected: boolean;
   deactivated?: boolean;
-  onSelect: (boxId: string, multi: boolean) => void;
+  onSelect: (boxId: string) => void;
   onChange: (boxId: string, bbox: [number, number, number, number]) => void;
   scale: number;
 }
@@ -64,7 +64,7 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       data-deactivated={deactivated ? "true" : undefined}
       className={cls.join(" ")}
       style={style}
-      onClick={(e) => onSelect(box.box_id, e.shiftKey)}
+      onClick={() => onSelect(box.box_id)}
       onMouseDown={(e) => selected && startDrag("center", e)}
     >
       <span className="box-label">

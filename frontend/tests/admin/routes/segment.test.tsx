@@ -97,11 +97,11 @@ describe("SegmentRoute", () => {
     expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
   });
 
-  it("show-deactivated checkbox (in sidebar) reveals low-confidence box with data-deactivated attribute", async () => {
+  it("show-deactivated checkbox (in top bar) reveals low-confidence box with data-deactivated attribute", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // Checkbox is now in the sidebar
+    // Checkbox is in the top bar
     const checkbox = screen.getByLabelText("Show deactivated");
     fireEvent.click(checkbox);
 
@@ -111,10 +111,10 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("box-p1-b0")).not.toHaveAttribute("data-deactivated");
   });
 
-  it("confidence threshold slider is in the sidebar", async () => {
+  it("confidence threshold slider is in the top bar", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Slider is now in the sidebar — still found by aria-label
+    // Slider is in the top bar — still found by aria-label
     const slider = screen.getByLabelText("Confidence threshold") as HTMLInputElement;
     expect(slider).toBeInTheDocument();
     expect(slider.value).toBe("0.7");
@@ -138,7 +138,7 @@ describe("SegmentRoute", () => {
     expect(calls[0]).toBe("");
   });
 
-  it("run extraction (this page) button is in the sidebar and sends ?page=1", async () => {
+  it("run extraction (this page) button is in the top bar and sends ?page=1", async () => {
     const calls: string[] = [];
     server.use(
       http.post("*/api/admin/docs/rep/extract", ({ request }) => {
@@ -150,7 +150,7 @@ describe("SegmentRoute", () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // "Nur diese Seite extrahieren" is in the sidebar — sends page=1
+    // "Nur diese Seite extrahieren" is in the top bar — sends page=1
     fireEvent.click(screen.getByLabelText("Nur diese Seite extrahieren"));
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     expect(calls[0]).toContain("page=1");

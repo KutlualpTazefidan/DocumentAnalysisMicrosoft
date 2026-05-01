@@ -5,10 +5,10 @@ import type { BoxKind } from "../types/domain";
 export interface BoxHotkeyHandlers {
   enabled: boolean;
   setKind: (k: BoxKind) => void;
-  merge: () => void;
   split: () => void;
   newBox: () => void;
   del: () => void;
+  deactivate: () => void;
 }
 
 const KIND_KEYS: Record<string, BoxKind> = {
@@ -19,7 +19,6 @@ const KIND_KEYS: Record<string, BoxKind> = {
   c: "caption",
   q: "formula",
   l: "list_item",
-  x: "discard",
 };
 
 export function useBoxHotkeys(h: BoxHotkeyHandlers): void {
@@ -34,9 +33,9 @@ export function useBoxHotkeys(h: BoxHotkeyHandlers): void {
         h.setKind(k);
         return;
       }
-      if (e.key === "m") {
+      if (e.key === "x") {
         e.preventDefault();
-        h.merge();
+        h.deactivate();
       } else if (e.key === "n") {
         e.preventDefault();
         h.newBox();
@@ -50,5 +49,5 @@ export function useBoxHotkeys(h: BoxHotkeyHandlers): void {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [h.enabled, h.setKind, h.merge, h.split, h.newBox, h.del]);
+  }, [h.enabled, h.setKind, h.split, h.newBox, h.del, h.deactivate]);
 }

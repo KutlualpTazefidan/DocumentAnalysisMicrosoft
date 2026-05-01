@@ -6,13 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 import { useBoxHotkeys } from "../../../src/admin/hooks/useBoxHotkeys";
 
 describe("useBoxHotkeys", () => {
-  it("invokes setKind for h/p/t/f/c/q/l/x", () => {
+  it("invokes setKind for h/p/t/f/c/q/l", () => {
     const setKind = vi.fn();
-    const merge = vi.fn();
+    const deactivate = vi.fn();
     const split = vi.fn();
     const newBox = vi.fn();
     const del = vi.fn();
-    renderHook(() => useBoxHotkeys({ enabled: true, setKind, merge, split, newBox, del }));
+    renderHook(() => useBoxHotkeys({ enabled: true, setKind, deactivate, split, newBox, del }));
     for (const [key, kind] of [
       ["h", "heading"],
       ["p", "paragraph"],
@@ -21,22 +21,31 @@ describe("useBoxHotkeys", () => {
       ["c", "caption"],
       ["q", "formula"],
       ["l", "list_item"],
-      ["x", "discard"],
     ] as const) {
       fireEvent.keyDown(window, { key });
       expect(setKind).toHaveBeenLastCalledWith(kind);
     }
   });
 
-  it("m/n//// + Backspace map to merge / newBox / split / delete", () => {
+  it("x maps to deactivate", () => {
     const setKind = vi.fn();
-    const merge = vi.fn();
+    const deactivate = vi.fn();
     const split = vi.fn();
     const newBox = vi.fn();
     const del = vi.fn();
-    renderHook(() => useBoxHotkeys({ enabled: true, setKind, merge, split, newBox, del }));
-    fireEvent.keyDown(window, { key: "m" });
-    expect(merge).toHaveBeenCalled();
+    renderHook(() => useBoxHotkeys({ enabled: true, setKind, deactivate, split, newBox, del }));
+    fireEvent.keyDown(window, { key: "x" });
+    expect(deactivate).toHaveBeenCalled();
+    expect(setKind).not.toHaveBeenCalled();
+  });
+
+  it("n//// + Backspace map to newBox / split / delete", () => {
+    const setKind = vi.fn();
+    const deactivate = vi.fn();
+    const split = vi.fn();
+    const newBox = vi.fn();
+    const del = vi.fn();
+    renderHook(() => useBoxHotkeys({ enabled: true, setKind, deactivate, split, newBox, del }));
     fireEvent.keyDown(window, { key: "n" });
     expect(newBox).toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "/" });
@@ -47,14 +56,14 @@ describe("useBoxHotkeys", () => {
 
   it("ignores keystrokes when enabled is false", () => {
     const setKind = vi.fn();
-    renderHook(() => useBoxHotkeys({ enabled: false, setKind, merge: vi.fn(), split: vi.fn(), newBox: vi.fn(), del: vi.fn() }));
+    renderHook(() => useBoxHotkeys({ enabled: false, setKind, deactivate: vi.fn(), split: vi.fn(), newBox: vi.fn(), del: vi.fn() }));
     fireEvent.keyDown(window, { key: "h" });
     expect(setKind).not.toHaveBeenCalled();
   });
 
   it("ignores keystrokes when target is an input", () => {
     const setKind = vi.fn();
-    renderHook(() => useBoxHotkeys({ enabled: true, setKind, merge: vi.fn(), split: vi.fn(), newBox: vi.fn(), del: vi.fn() }));
+    renderHook(() => useBoxHotkeys({ enabled: true, setKind, deactivate: vi.fn(), split: vi.fn(), newBox: vi.fn(), del: vi.fn() }));
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();

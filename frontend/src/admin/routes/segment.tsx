@@ -44,16 +44,17 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const rasterDpi = segments.data?.raster_dpi ?? 144;
   const boxScale = (scale * 72) / rasterDpi;
   const update = useUpdateBox(slug ?? "", token);
-  const merge = useMergeBoxes(slug ?? "", token);
+  // useMergeBoxes kept for future use; not wired to UI
+  useMergeBoxes(slug ?? "", token);
   const split = useSplitBox(slug ?? "", token);
   const newBox = useCreateBox(slug ?? "", token);
   const del = useDeleteBox(slug ?? "", token);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
   const { success, error } = useToast();
 
-  // Filter state (moved to sidebar)
+  // Filter state
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [showDeactivated, setShowDeactivated] = useState(false);
 
@@ -93,14 +94,12 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   );
 
   const focused = useMemo(
-    () => (segments.data?.boxes ?? []).find((b) => b.box_id === selected[0]) ?? null,
+    () => (segments.data?.boxes ?? []).find((b) => b.box_id === selected) ?? null,
     [segments.data, selected],
   );
 
-  function handleSelect(boxId: string, multi: boolean) {
-    setSelected((prev) =>
-      multi ? (prev.includes(boxId) ? prev.filter((p) => p !== boxId) : [...prev, boxId]) : [boxId],
-    );
+  function handleSelect(boxId: string) {
+    setSelected((prev) => (prev === boxId ? null : boxId));
   }
 
   async function runSegment() {
@@ -152,10 +151,10 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   useBoxHotkeys({
     enabled: !!focused,
     setKind: (k: BoxKind) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } }),
-    merge: () => selected.length >= 2 && merge.mutate(selected),
     split: () => focused && split.mutate({ boxId: focused.box_id, splitY: (focused.bbox[1] + focused.bbox[3]) / 2 }),
     newBox: () => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" }),
     del: () => focused && del.mutate(focused.box_id),
+    deactivate: handleDeactivate,
   });
 
   if (!segments.data) {
@@ -176,16 +175,33 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     <div className="flex flex-col h-screen">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
-        {/* LEFT: empty spacer (same flex-1 as right to keep pagination centered) */}
-        <div className="flex-1" />
+        {/* LEFT: Deactivate */}
+        <div className="flex-1 flex justify-start">
+          <button
+            aria-label="Deactivate"
+            className="text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
+            disabled={!focused}
+            onClick={handleDeactivate}
+          >
+            Deactivate
+          </button>
+        </div>
 
         {/* CENTER: pagination */}
         <div className="flex-1 flex justify-center">
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
 
-        {/* RIGHT: all-pages extract */}
-        <div className="flex-1 flex justify-end">
+        {/* RIGHT: extract buttons + confidence slider + show-deactivated */}
+        <div className="flex-1 flex justify-end items-center gap-3">
+          <button
+            aria-label="Nur diese Seite extrahieren"
+            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
+            disabled={!extractEnabled || running}
+            onClick={onRunExtractThisPage}
+          >
+            {running ? "Running…" : "Nur diese Seite extrahieren"}
+          </button>
           <button
             aria-label="Alle Seiten extrahieren"
             className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
@@ -194,6 +210,36 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           >
             {running ? "Running…" : "Alle Seiten extrahieren"}
           </button>
+
+          {/* Confidence slider */}
+          <div className="flex items-center gap-1">
+            <label htmlFor="conf-slider" className="text-xs text-gray-300 whitespace-nowrap">
+              Conf ≥ {confidenceThreshold.toFixed(2)}
+            </label>
+            <input
+              id="conf-slider"
+              aria-label="Confidence threshold"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={confidenceThreshold}
+              onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
+              className="w-24 accent-blue-400"
+            />
+          </div>
+
+          {/* Show deactivated checkbox */}
+          <label className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+            <input
+              aria-label="Show deactivated"
+              type="checkbox"
+              checked={showDeactivated}
+              onChange={(e) => setShowDeactivated(e.target.checked)}
+              className="accent-blue-400"
+            />
+            Show deactivated
+          </label>
         </div>
       </div>
 
@@ -207,7 +253,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
                 <BoxOverlay
                   key={b.box_id}
                   box={b}
-                  selected={selected.includes(b.box_id)}
+                  selected={selected === b.box_id}
                   deactivated={!activeBoxIds.has(b.box_id)}
                   onSelect={handleSelect}
                   onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
@@ -223,15 +269,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           selected={focused}
           pageBoxCount={boxesOnPage.length}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
-          onMerge={() => selected.length >= 2 && merge.mutate(selected)}
-          onDeactivate={handleDeactivate}
-          confidenceThreshold={confidenceThreshold}
-          onConfidenceChange={setConfidenceThreshold}
-          showDeactivated={showDeactivated}
-          onShowDeactivatedChange={setShowDeactivated}
-          onExtractThisPage={onRunExtractThisPage}
-          extractRunning={running}
-          extractEnabled={extractEnabled}
+          onSplit={() => focused && split.mutate({ boxId: focused.box_id, splitY: (focused.bbox[1] + focused.bbox[3]) / 2 })}
+          onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
         />
       </div>
 
