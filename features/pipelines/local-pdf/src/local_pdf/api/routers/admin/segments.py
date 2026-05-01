@@ -250,3 +250,59 @@ async def create_box(slug: str, body: CreateBoxRequest, request: Request) -> dic
     boxes.append(new)
     _replace_segments(cfg.data_root, slug, boxes)
     return dict(new.model_dump(mode="json"))
+
+
+def _load_yolo_or_404(data_root, slug: str) -> dict:
+    from local_pdf.storage.sidecar import read_yolo
+
+    yolo = read_yolo(data_root, slug)
+    if yolo is None:
+        raise HTTPException(status_code=404, detail="no yolo output to reset from")
+    return yolo
+
+
+def _yolo_boxes_for_page(yolo: dict, page: int) -> list[SegmentBox]:
+    return [SegmentBox.model_validate(b) for b in yolo.get("boxes", []) if b.get("page") == page]
+
+
+@router.post("/api/admin/docs/{slug}/segments/reset")
+async def reset_page(slug: str, page: int, request: Request) -> dict[str, Any]:
+    """Replace all boxes on page N with the original YOLO-detected boxes."""
+    cfg = request.app.state.config
+    yolo = _load_yolo_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    yolo_page_boxes = _yolo_boxes_for_page(yolo, page)
+    # Keep boxes for other pages, replace this page with yolo originals
+    other_pages = [b for b in boxes if b.page != page]
+    new_boxes = other_pages + yolo_page_boxes
+    new_boxes.sort(key=lambda b: (b.page, b.reading_order))
+    _replace_segments(cfg.data_root, slug, new_boxes)
+    seg = SegmentsFile(slug=slug, boxes=new_boxes)
+    return dict(seg.model_dump(mode="json"))
+
+
+@router.post("/api/admin/docs/{slug}/segments/{box_id}/reset")
+async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+    """Restore a single box's bbox + kind + confidence from yolo.json."""
+    cfg = request.app.state.config
+    yolo = _load_yolo_or_404(cfg.data_root, slug)
+    yolo_by_id = {b["box_id"]: b for b in yolo.get("boxes", [])}
+    if box_id not in yolo_by_id:
+        raise HTTPException(
+            status_code=409,
+            detail="no original to reset to (this box wasn't YOLO-detected)",
+        )
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    for i, b in enumerate(boxes):
+        if b.box_id == box_id:
+            orig = yolo_by_id[box_id]
+            boxes[i] = b.model_copy(
+                update={
+                    "bbox": tuple(orig["bbox"]),
+                    "kind": BoxKind(orig["kind"]),
+                    "confidence": orig["confidence"],
+                }
+            )
+            _replace_segments(cfg.data_root, slug, boxes)
+            return dict(boxes[i].model_dump(mode="json"))
+    raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
