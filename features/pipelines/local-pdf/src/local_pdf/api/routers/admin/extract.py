@@ -43,7 +43,7 @@ def _wrap_html(elements: list[dict]) -> str:
     return f"<!DOCTYPE html>\n<html><body>\n{body}\n</body></html>\n"
 
 
-@router.post("/api/docs/{slug}/extract")
+@router.post("/api/admin/docs/{slug}/extract")
 async def run_extract(slug: str, request: Request) -> StreamingResponse:
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
@@ -91,7 +91,7 @@ async def run_extract(slug: str, request: Request) -> StreamingResponse:
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
-@router.post("/api/docs/{slug}/extract/region")
+@router.post("/api/admin/docs/{slug}/extract/region")
 async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Request) -> dict:
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
@@ -108,7 +108,7 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     return {"box_id": result.box_id, "html": result.html}
 
 
-@router.get("/api/docs/{slug}/html")
+@router.get("/api/admin/docs/{slug}/html")
 async def get_html(slug: str, request: Request) -> dict:
     cfg = request.app.state.config
     html = read_html(cfg.data_root, slug)
@@ -117,7 +117,7 @@ async def get_html(slug: str, request: Request) -> dict:
     return {"html": html}
 
 
-@router.put("/api/docs/{slug}/html")
+@router.put("/api/admin/docs/{slug}/html")
 async def put_html(slug: str, body: HtmlPayload, request: Request) -> dict:
     cfg = request.app.state.config
     if not (doc_dir(cfg.data_root, slug)).exists():
@@ -129,7 +129,7 @@ async def put_html(slug: str, body: HtmlPayload, request: Request) -> dict:
     return {"ok": True}
 
 
-@router.post("/api/docs/{slug}/export")
+@router.post("/api/admin/docs/{slug}/export")
 async def run_export(slug: str, request: Request) -> dict:
     cfg = request.app.state.config
     seg = read_segments(cfg.data_root, slug)

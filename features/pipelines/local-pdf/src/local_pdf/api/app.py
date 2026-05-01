@@ -37,8 +37,8 @@ def create_app() -> FastAPI:
 
     from local_pdf.api.routers._gone import router as gone_router
     from local_pdf.api.routers.admin.docs import router as admin_docs_router
+    from local_pdf.api.routers.admin.extract import router as extract_router
     from local_pdf.api.routers.admin.segments import router as segments_router
-    from local_pdf.api.routers.extract import router as extract_router
 
     app.include_router(gone_router)
     app.include_router(admin_docs_router)
