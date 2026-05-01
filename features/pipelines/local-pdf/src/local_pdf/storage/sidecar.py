@@ -20,7 +20,7 @@ import json
 import os
 from pathlib import Path  # noqa: TC003
 
-from local_pdf.api.schemas import CuratorQuestionsFile, DocMeta, SegmentsFile
+from local_pdf.api.schemas import CuratorQuestion, CuratorQuestionsFile, DocMeta, SegmentsFile
 
 
 def doc_dir(data_root: Path, slug: str) -> Path:
@@ -152,3 +152,29 @@ def read_curator_questions(data_root: Path, slug: str) -> CuratorQuestionsFile |
     if raw is None:
         return None
     return CuratorQuestionsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+
+
+def update_question(
+    data_root: Path, slug: str, question_id: str, patch: dict
+) -> CuratorQuestionsFile | None:
+    """Atomically apply *patch* to the question matching *question_id*.
+
+    Returns the updated CuratorQuestionsFile, or None if the question was not
+    found.  Uses the same LOCK_EX pattern as write_curator_questions.
+    """
+    existing = read_curator_questions(data_root, slug) or CuratorQuestionsFile(
+        slug=slug, questions=[]
+    )
+    updated: list[CuratorQuestion] = []
+    found = False
+    for q in existing.questions:
+        if q.question_id == question_id:
+            found = True
+            updated.append(q.model_copy(update=patch))
+        else:
+            updated.append(q)
+    if not found:
+        return None
+    new_file: CuratorQuestionsFile = existing.model_copy(update={"questions": updated})
+    write_curator_questions(data_root, slug, new_file)
+    return new_file

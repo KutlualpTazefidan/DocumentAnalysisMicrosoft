@@ -1,6 +1,5 @@
 import { useCallback, useReducer, useRef } from "react";
-import { streamSynthesise } from "../api/docs";
-import { ApiError } from "../api/curatorClient";
+import { streamSynthesise, ApiError } from "../api/curatorClient";
 import type { SynthLine, SynthesiseRequest } from "../../shared/types/domain";
 
 export type SynthStatus = "idle" | "submitting" | "streaming" | "complete" | "error" | "cancelled";

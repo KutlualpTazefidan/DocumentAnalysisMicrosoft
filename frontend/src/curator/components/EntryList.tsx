@@ -1,10 +1,10 @@
-import type { RetrievalEntry } from "../../shared/types/domain";
+import type { CuratorQuestion } from "../api/curatorClient";
 import { EntryItem } from "./EntryItem";
 
 interface Props {
-  entries: RetrievalEntry[];
-  onRefine: (entry: RetrievalEntry) => void;
-  onDeprecate: (entry: RetrievalEntry) => void;
+  entries: CuratorQuestion[];
+  onRefine: (entry: CuratorQuestion) => void;
+  onDeprecate: (entry: CuratorQuestion) => void;
 }
 
 export function EntryList({ entries, onRefine, onDeprecate }: Props) {
@@ -19,7 +19,7 @@ export function EntryList({ entries, onRefine, onDeprecate }: Props) {
     <ul className="space-y-2">
       {entries.map((e) => (
         <EntryItem
-          key={e.entry_id}
+          key={e.question_id}
           entry={e}
           onRefine={onRefine}
           onDeprecate={onDeprecate}

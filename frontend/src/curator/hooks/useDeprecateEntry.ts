@@ -1,21 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { deprecateEntry } from "../api/entries";
-import type { DeprecateRequest, DeprecateResponse } from "../../shared/types/domain";
+import { deprecateQuestion } from "../api/curatorClient";
+import type { CuratorQuestion, DeprecateQuestionBody } from "../api/curatorClient";
 
 interface Args {
-  entryId: string;
-  body: DeprecateRequest;
   slug: string;
+  questionId: string;
   elementId: string;
+  body: DeprecateQuestionBody;
 }
 
 export function useDeprecateEntry() {
   const qc = useQueryClient();
-  return useMutation<DeprecateResponse, Error, Args>({
-    mutationFn: ({ entryId, body }) => deprecateEntry(entryId, body),
+  return useMutation<CuratorQuestion, Error, Args>({
+    mutationFn: ({ slug, questionId, body }) => deprecateQuestion(slug, questionId, body),
     onSuccess: (_data, { slug, elementId }) => {
-      qc.invalidateQueries({ queryKey: ["element", slug, elementId] });
-      qc.invalidateQueries({ queryKey: ["doc-elements", slug] });
+      qc.invalidateQueries({ queryKey: ["curate", "element", slug, elementId] });
+      qc.invalidateQueries({ queryKey: ["curate", "doc-elements", slug] });
     },
   });
 }

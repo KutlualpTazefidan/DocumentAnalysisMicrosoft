@@ -6,7 +6,7 @@ import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { EntryRefineModal } from "../../../src/curator/components/EntryRefineModal";
-import type { RetrievalEntry } from "../../../src/shared/types/domain";
+import type { CuratorQuestion } from "../../../src/curator/api/curatorClient";
 
 const server = setupServer();
 beforeEach(() => {
@@ -19,16 +19,15 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-const entry: RetrievalEntry = {
-  entry_id: "e_001",
+const entry: CuratorQuestion = {
+  question_id: "q-001",
+  element_id: "p1-aaa",
+  curator_id: "c-alice",
   query: "Original frage",
-  expected_chunk_ids: [],
-  chunk_hashes: {},
-  review_chain: [],
+  refined_query: null,
   deprecated: false,
-  refines: null,
-  task_type: "retrieval",
-  source_element: null,
+  deprecated_reason: null,
+  created_at: "2026-04-30T07:00:00Z",
 };
 
 function renderModal(props: { onClose?: () => void; slug?: string; elementId?: string }) {
@@ -55,8 +54,17 @@ describe("EntryRefineModal", () => {
 
   it("submits refine and closes on success", async () => {
     server.use(
-      http.post("http://localhost/api/entries/e_001/refine", () =>
-        HttpResponse.json({ new_entry_id: "e_002" }),
+      http.post("*/api/curate/docs/doc-x/questions/q-001/refine", () =>
+        HttpResponse.json({
+          question_id: "q-001",
+          element_id: "p1-aaa",
+          curator_id: "c-alice",
+          query: "Original frage",
+          refined_query: "Verbesserte frage",
+          deprecated: false,
+          deprecated_reason: null,
+          created_at: "2026-04-30T07:00:00Z",
+        }),
       ),
     );
     const onClose = vi.fn();

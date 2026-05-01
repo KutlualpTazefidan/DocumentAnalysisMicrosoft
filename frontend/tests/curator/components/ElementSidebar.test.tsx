@@ -34,28 +34,22 @@ function renderSidebar(props: { slug: string; activeElementId?: string; onSelect
 }
 
 describe("ElementSidebar", () => {
-  it("renders one row per element with type, page, count", async () => {
+  it("renders one row per element with type and page", async () => {
     server.use(
-      http.get("http://localhost/api/docs/foo/elements", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements", () =>
         HttpResponse.json([
           {
-            element: {
-              element_id: "p1-aaa",
-              page_number: 1,
-              element_type: "heading",
-              content: "Title",
-            },
-            count_active_entries: 0,
+            element_id: "p1-aaa",
+            page_number: 1,
+            element_type: "heading",
+            content: "Title",
           },
           {
-            element: {
-              element_id: "p2-bbb",
-              page_number: 2,
-              element_type: "table",
-              content: "x | y",
-              table_dims: [4, 3],
-            },
-            count_active_entries: 3,
+            element_id: "p2-bbb",
+            page_number: 2,
+            element_type: "table",
+            content: "x | y",
+            table_dims: [4, 3],
           },
         ]),
       ),
@@ -65,21 +59,17 @@ describe("ElementSidebar", () => {
     expect(screen.getByText("x | y")).toBeInTheDocument();
     expect(screen.getByText(/p\.1/)).toBeInTheDocument();
     expect(screen.getByText(/p\.2/)).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("highlights the active element", async () => {
     server.use(
-      http.get("http://localhost/api/docs/foo/elements", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements", () =>
         HttpResponse.json([
           {
-            element: {
-              element_id: "p1-aaa",
-              page_number: 1,
-              element_type: "heading",
-              content: "Active",
-            },
-            count_active_entries: 0,
+            element_id: "p1-aaa",
+            page_number: 1,
+            element_type: "heading",
+            content: "Active",
           },
         ]),
       ),
@@ -92,16 +82,13 @@ describe("ElementSidebar", () => {
   it("calls onSelect with element_id on click", async () => {
     const events: string[] = [];
     server.use(
-      http.get("http://localhost/api/docs/foo/elements", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements", () =>
         HttpResponse.json([
           {
-            element: {
-              element_id: "p3-ccc",
-              page_number: 3,
-              element_type: "paragraph",
-              content: "Some text",
-            },
-            count_active_entries: 0,
+            element_id: "p3-ccc",
+            page_number: 3,
+            element_type: "paragraph",
+            content: "Some text",
           },
         ]),
       ),

@@ -1,5 +1,7 @@
 import type { DocMeta, DocumentElement } from "../../shared/types/domain";
 import { apiFetch as adminApiFetch } from "../../admin/api/adminClient";
+import { streamNdjson } from "./ndjson";
+import type { SynthLine, SynthesiseRequest } from "../../shared/types/domain";
 
 const TOKEN_KEY = "goldens.api_token";
 
@@ -120,4 +122,80 @@ export async function postQuestion(
     body: JSON.stringify(body),
   });
   return r.json();
+}
+
+// ---------------------------------------------------------------------------
+// New curate endpoints — no explicit token; apiFetch reads from sessionStorage
+// ---------------------------------------------------------------------------
+
+export interface CuratorQuestion {
+  question_id: string;
+  element_id: string;
+  curator_id: string;
+  query: string;
+  refined_query: string | null;
+  deprecated: boolean;
+  deprecated_reason: string | null;
+  created_at: string;
+}
+
+export async function getCurateElement(
+  slug: string,
+  elementId: string,
+): Promise<DocumentElement> {
+  return apiFetch<DocumentElement>(
+    `/api/curate/docs/${encodeURIComponent(slug)}/elements/${encodeURIComponent(elementId)}`,
+  );
+}
+
+export async function listQuestions(
+  slug: string,
+  elementId?: string,
+): Promise<CuratorQuestion[]> {
+  const qs = elementId ? `?element_id=${encodeURIComponent(elementId)}` : "";
+  return apiFetch<CuratorQuestion[]>(
+    `/api/curate/docs/${encodeURIComponent(slug)}/questions${qs}`,
+  );
+}
+
+export interface RefineQuestionBody { query: string; }
+
+export async function refineQuestion(
+  slug: string,
+  questionId: string,
+  body: RefineQuestionBody,
+): Promise<CuratorQuestion> {
+  return apiFetch<CuratorQuestion>(
+    `/api/curate/docs/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/refine`,
+    { method: "POST", body },
+  );
+}
+
+export interface DeprecateQuestionBody { reason?: string | null; }
+
+export async function deprecateQuestion(
+  slug: string,
+  questionId: string,
+  body: DeprecateQuestionBody,
+): Promise<CuratorQuestion> {
+  return apiFetch<CuratorQuestion>(
+    `/api/curate/docs/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/deprecate`,
+    { method: "POST", body },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Synthesise streaming (from legacy docs.ts, kept for useSynthesise hook)
+// ---------------------------------------------------------------------------
+
+export async function streamSynthesise(
+  slug: string,
+  body: SynthesiseRequest,
+  signal?: AbortSignal,
+): Promise<AsyncIterable<SynthLine>> {
+  const response = await rawFetch(
+    `/api/docs/${encodeURIComponent(slug)}/synthesise`,
+    { method: "POST", body, signal },
+  );
+  return streamNdjson<SynthLine>(response);
 }

@@ -1,21 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { refineEntry } from "../api/entries";
-import type { RefineRequest, RefineResponse } from "../../shared/types/domain";
+import { refineQuestion } from "../api/curatorClient";
+import type { CuratorQuestion, RefineQuestionBody } from "../api/curatorClient";
 
 interface Args {
-  entryId: string;
-  body: RefineRequest;
   slug: string;
+  questionId: string;
   elementId: string;
+  body: RefineQuestionBody;
 }
 
 export function useRefineEntry() {
   const qc = useQueryClient();
-  return useMutation<RefineResponse, Error, Args>({
-    mutationFn: ({ entryId, body }) => refineEntry(entryId, body),
+  return useMutation<CuratorQuestion, Error, Args>({
+    mutationFn: ({ slug, questionId, body }) => refineQuestion(slug, questionId, body),
     onSuccess: (_data, { slug, elementId }) => {
-      qc.invalidateQueries({ queryKey: ["element", slug, elementId] });
-      qc.invalidateQueries({ queryKey: ["doc-elements", slug] });
+      qc.invalidateQueries({ queryKey: ["curate", "element", slug, elementId] });
+      qc.invalidateQueries({ queryKey: ["curate", "doc-elements", slug] });
     },
   });
 }

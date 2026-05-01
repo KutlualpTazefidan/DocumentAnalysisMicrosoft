@@ -1,35 +1,23 @@
-import type { RetrievalEntry, Actor } from "../../shared/types/domain";
+import type { CuratorQuestion } from "../api/curatorClient";
 
 interface Props {
-  entry: RetrievalEntry;
-  onRefine: (entry: RetrievalEntry) => void;
-  onDeprecate: (entry: RetrievalEntry) => void;
-}
-
-function actorLabel(actor: Actor): string {
-  if (actor.kind === "human") {
-    return `${actor.pseudonym} (${actor.level})`;
-  }
-  return `LLM ${actor.model}`;
+  entry: CuratorQuestion;
+  onRefine: (entry: CuratorQuestion) => void;
+  onDeprecate: (entry: CuratorQuestion) => void;
 }
 
 export function EntryItem({ entry, onRefine, onDeprecate }: Props) {
-  const creator = entry.review_chain[0]?.actor;
   return (
     <li className="bg-white border border-slate-200 rounded p-4">
       <p className="text-base text-slate-900 mb-2">{entry.query}</p>
       <div className="flex items-center gap-2 text-xs text-slate-500">
-        <span className="font-mono">{entry.entry_id}</span>
-        {creator ? (
+        <span className="font-mono">{entry.question_id}</span>
+        <span>·</span>
+        <span>{entry.curator_id}</span>
+        {entry.refined_query ? (
           <>
             <span>·</span>
-            <span>{actorLabel(creator)}</span>
-          </>
-        ) : null}
-        {entry.refines ? (
-          <>
-            <span>·</span>
-            <span>verfeinert von {entry.refines}</span>
+            <span>verfeinert</span>
           </>
         ) : null}
       </div>

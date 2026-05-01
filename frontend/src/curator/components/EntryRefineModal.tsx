@@ -4,18 +4,17 @@ import { X } from "lucide-react";
 import { useToast } from "../../shared/components/useToast";
 import { useRefineEntry } from "../hooks/useRefineEntry";
 import { ApiError } from "../api/curatorClient";
-import type { RetrievalEntry } from "../../shared/types/domain";
+import type { CuratorQuestion } from "../api/curatorClient";
 
 interface Props {
-  entry: RetrievalEntry;
+  entry: CuratorQuestion;
   slug: string;
   elementId: string;
   onClose: () => void;
 }
 
 export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
-  const [query, setQuery] = useState(entry.query);
-  const [notes, setNotes] = useState("");
+  const [query, setQuery] = useState(entry.refined_query ?? entry.query);
   const refine = useRefineEntry();
   const { success, error } = useToast();
 
@@ -24,15 +23,10 @@ export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
     if (!query.trim()) return;
     refine.mutate(
       {
-        entryId: entry.entry_id,
         slug,
+        questionId: entry.question_id,
         elementId,
-        body: {
-          query: query.trim(),
-          expected_chunk_ids: entry.expected_chunk_ids,
-          chunk_hashes: entry.chunk_hashes,
-          notes: notes.trim() || null,
-        },
+        body: { query: query.trim() },
       },
       {
         onSuccess: () => {
@@ -40,9 +34,7 @@ export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
           onClose();
         },
         onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            error("Eintrag bereits zurückgezogen.");
-          } else if (err instanceof ApiError && err.status === 404) {
+          if (err instanceof ApiError && err.status === 404) {
             error("Eintrag nicht gefunden.");
           } else {
             error("Verfeinern fehlgeschlagen.");
@@ -80,14 +72,6 @@ export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
                 onChange={(e) => setQuery(e.target.value)}
                 autoFocus
                 aria-label="Neue Frage"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Notiz (optional)</span>
-              <input
-                className="input mt-1"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
               />
             </label>
             <div className="flex items-center justify-end gap-2 pt-2">

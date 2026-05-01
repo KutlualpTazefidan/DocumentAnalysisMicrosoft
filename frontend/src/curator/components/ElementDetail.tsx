@@ -6,7 +6,7 @@ import { NewEntryForm } from "./NewEntryForm";
 import { EntryRefineModal } from "./EntryRefineModal";
 import { EntryDeprecateModal } from "./EntryDeprecateModal";
 import { Spinner } from "../../shared/components/Spinner";
-import type { RetrievalEntry } from "../../shared/types/domain";
+import type { CuratorQuestion } from "../api/curatorClient";
 
 interface Props {
   slug: string;
@@ -16,8 +16,8 @@ interface Props {
 
 export function ElementDetail({ slug, elementId, onWeiter }: Props) {
   const { data, isLoading, error } = useElement(slug, elementId);
-  const [refineEntry, setRefineEntry] = useState<RetrievalEntry | null>(null);
-  const [deprecateEntry, setDeprecateEntry] = useState<RetrievalEntry | null>(null);
+  const [refineEntry, setRefineEntry] = useState<CuratorQuestion | null>(null);
+  const [deprecateEntry, setDeprecateEntry] = useState<CuratorQuestion | null>(null);
 
   if (isLoading) return <Spinner label="Lade Element…" />;
   if (error)

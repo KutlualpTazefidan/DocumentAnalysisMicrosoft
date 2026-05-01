@@ -2,33 +2,24 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EntryItem } from "../../../src/curator/components/EntryItem";
-import type { RetrievalEntry } from "../../../src/shared/types/domain";
+import type { CuratorQuestion } from "../../../src/curator/api/curatorClient";
 
-const baseEntry: RetrievalEntry = {
-  entry_id: "e_001",
+const baseEntry: CuratorQuestion = {
+  question_id: "q-001",
+  element_id: "p1-aaa",
+  curator_id: "c-alice",
   query: "Welche Norm gilt für M6?",
-  expected_chunk_ids: [],
-  chunk_hashes: {},
-  review_chain: [
-    {
-      timestamp_utc: "2026-04-30T07:00:00Z",
-      action: "created_from_scratch",
-      actor: { kind: "human", pseudonym: "alice", level: "phd" },
-      notes: null,
-    },
-  ],
+  refined_query: null,
   deprecated: false,
-  refines: null,
-  task_type: "retrieval",
-  source_element: null,
+  deprecated_reason: null,
+  created_at: "2026-04-30T07:00:00Z",
 };
 
 describe("EntryItem", () => {
-  it("renders the query and the actor pseudonym", () => {
+  it("renders the query and the curator_id", () => {
     render(<EntryItem entry={baseEntry} onRefine={() => {}} onDeprecate={() => {}} />);
     expect(screen.getByText(/welche norm/i)).toBeInTheDocument();
-    expect(screen.getByText(/alice/)).toBeInTheDocument();
-    expect(screen.getByText(/phd/)).toBeInTheDocument();
+    expect(screen.getByText(/c-alice/)).toBeInTheDocument();
   });
 
   it("calls onRefine when Verfeinern button is clicked", async () => {
@@ -47,14 +38,14 @@ describe("EntryItem", () => {
     expect(onDeprecate).toHaveBeenCalledWith(baseEntry);
   });
 
-  it("shows refine-chain depth when entry was refined", () => {
+  it("shows 'verfeinert' badge when refined_query is set", () => {
     render(
       <EntryItem
-        entry={{ ...baseEntry, refines: "e_old" }}
+        entry={{ ...baseEntry, refined_query: "Verfeinerte Frage?" }}
         onRefine={() => {}}
         onDeprecate={() => {}}
       />,
     );
-    expect(screen.getByText(/verfeinert von/i)).toBeInTheDocument();
+    expect(screen.getByText(/verfeinert/i)).toBeInTheDocument();
   });
 });

@@ -38,35 +38,27 @@ function renderDetail(props: { slug: string; elementId: string; onWeiter?: () =>
 describe("ElementDetail", () => {
   it("renders element body, entries list, new-entry-form, weiter button", async () => {
     server.use(
-      http.get("http://localhost/api/docs/foo/elements/p1-aaa", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements/p1-aaa", () =>
         HttpResponse.json({
-          element: {
-            element_id: "p1-aaa",
-            page_number: 1,
-            element_type: "paragraph",
-            content: "Body text.",
-          },
-          entries: [
-            {
-              entry_id: "e_001",
-              query: "Was steht hier?",
-              expected_chunk_ids: [],
-              chunk_hashes: {},
-              review_chain: [
-                {
-                  timestamp_utc: "2026-04-30T07:00Z",
-                  action: "created_from_scratch",
-                  actor: { kind: "human", pseudonym: "alice", level: "phd" },
-                  notes: null,
-                },
-              ],
-              deprecated: false,
-              refines: null,
-              task_type: "retrieval",
-              source_element: null,
-            },
-          ],
+          element_id: "p1-aaa",
+          page_number: 1,
+          element_type: "paragraph",
+          content: "Body text.",
         }),
+      ),
+      http.get("http://localhost/api/curate/docs/foo/questions", () =>
+        HttpResponse.json([
+          {
+            question_id: "q-001",
+            element_id: "p1-aaa",
+            curator_id: "c-alice",
+            query: "Was steht hier?",
+            refined_query: null,
+            deprecated: false,
+            deprecated_reason: null,
+            created_at: "2026-04-30T07:00Z",
+          },
+        ]),
       ),
     );
     renderDetail({ slug: "foo", elementId: "p1-aaa" });

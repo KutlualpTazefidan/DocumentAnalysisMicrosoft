@@ -90,3 +90,131 @@ def test_post_question_unknown_element(env) -> None:
         json={"element_id": "nope", "query": "?"},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _create_question(client, raw: str, query: str = "Was bedeutet Foo?") -> str:
+    r = client.post(
+        "/api/curate/docs/d1/questions",
+        headers={"X-Auth-Token": raw},
+        json={"element_id": "p1-x", "query": query},
+    )
+    assert r.status_code == 201
+    return r.json()["question_id"]
+
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+
+def test_list_questions_empty(env) -> None:
+    client, raw = env
+    r = client.get("/api/curate/docs/d1/questions", headers={"X-Auth-Token": raw})
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_questions_returns_created(env) -> None:
+    client, raw = env
+    qid = _create_question(client, raw)
+    r = client.get("/api/curate/docs/d1/questions", headers={"X-Auth-Token": raw})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["question_id"] == qid
+    assert body[0]["query"] == "Was bedeutet Foo?"
+
+
+def test_list_questions_filter_element_id(env) -> None:
+    client, raw = env
+    _create_question(client, raw, "Frage A")
+    r = client.get(
+        "/api/curate/docs/d1/questions?element_id=p1-x",
+        headers={"X-Auth-Token": raw},
+    )
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+
+    r2 = client.get(
+        "/api/curate/docs/d1/questions?element_id=nope",
+        headers={"X-Auth-Token": raw},
+    )
+    assert r2.status_code == 200
+    assert r2.json() == []
+
+
+# ---------------------------------------------------------------------------
+# refine
+# ---------------------------------------------------------------------------
+
+
+def test_refine_question(env) -> None:
+    client, raw = env
+    qid = _create_question(client, raw)
+    r = client.post(
+        f"/api/curate/docs/d1/questions/{qid}/refine",
+        headers={"X-Auth-Token": raw},
+        json={"query": "Verfeinerte Frage?"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["question_id"] == qid
+    assert body["refined_query"] == "Verfeinerte Frage?"
+
+
+def test_refine_question_not_found(env) -> None:
+    client, raw = env
+    r = client.post(
+        "/api/curate/docs/d1/questions/q-notexist/refine",
+        headers={"X-Auth-Token": raw},
+        json={"query": "irgendetwas"},
+    )
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# deprecate
+# ---------------------------------------------------------------------------
+
+
+def test_deprecate_question(env) -> None:
+    client, raw = env
+    qid = _create_question(client, raw)
+    r = client.post(
+        f"/api/curate/docs/d1/questions/{qid}/deprecate",
+        headers={"X-Auth-Token": raw},
+        json={"reason": "Duplikat"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deprecated"] is True
+    assert body["deprecated_reason"] == "Duplikat"
+
+
+def test_deprecate_question_no_reason(env) -> None:
+    client, raw = env
+    qid = _create_question(client, raw)
+    r = client.post(
+        f"/api/curate/docs/d1/questions/{qid}/deprecate",
+        headers={"X-Auth-Token": raw},
+        json={},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deprecated"] is True
+    assert body["deprecated_reason"] is None
+
+
+def test_deprecate_question_not_found(env) -> None:
+    client, raw = env
+    r = client.post(
+        "/api/curate/docs/d1/questions/q-notexist/deprecate",
+        headers={"X-Auth-Token": raw},
+        json={},
+    )
+    assert r.status_code == 404

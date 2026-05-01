@@ -4,10 +4,10 @@ import { X } from "lucide-react";
 import { useToast } from "../../shared/components/useToast";
 import { useDeprecateEntry } from "../hooks/useDeprecateEntry";
 import { ApiError } from "../api/curatorClient";
-import type { RetrievalEntry } from "../../shared/types/domain";
+import type { CuratorQuestion } from "../api/curatorClient";
 
 interface Props {
-  entry: RetrievalEntry;
+  entry: CuratorQuestion;
   slug: string;
   elementId: string;
   onClose: () => void;
@@ -21,16 +21,19 @@ export function EntryDeprecateModal({ entry, slug, elementId, onClose }: Props) 
   function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
     deprecate.mutate(
-      { entryId: entry.entry_id, slug, elementId, body: { reason: reason.trim() || null } },
+      {
+        slug,
+        questionId: entry.question_id,
+        elementId,
+        body: { reason: reason.trim() || null },
+      },
       {
         onSuccess: () => {
           success("Eintrag zurückgezogen.");
           onClose();
         },
         onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            error("Bereits zurückgezogen.");
-          } else if (err instanceof ApiError && err.status === 404) {
+          if (err instanceof ApiError && err.status === 404) {
             error("Eintrag nicht gefunden.");
           } else {
             error("Zurückziehen fehlgeschlagen.");

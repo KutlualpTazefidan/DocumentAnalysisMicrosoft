@@ -37,12 +37,19 @@ describe("NewEntryForm", () => {
   it("submits the typed query and clears textarea on success", async () => {
     server.use(
       http.post(
-        "http://localhost/api/docs/doc-x/elements/p1-aaa/entries",
+        "http://localhost/api/curate/docs/doc-x/questions",
         async ({ request }) => {
-          const body = (await request.json()) as { query: string };
+          const body = (await request.json()) as { element_id: string; query: string };
           expect(body.query).toBe("Welche Norm gilt?");
+          expect(body.element_id).toBe("p1-aaa");
           return HttpResponse.json(
-            { entry_id: "e_abc", event_id: "ev_xyz" },
+            {
+              question_id: "q-abc",
+              element_id: "p1-aaa",
+              curator_id: "c-1",
+              query: "Welche Norm gilt?",
+              created_at: "t",
+            },
             { status: 201 },
           );
         },
@@ -70,8 +77,17 @@ describe("NewEntryForm", () => {
   it("submits on Ctrl+Enter when textarea has content", async () => {
     server.use(
       http.post(
-        "http://localhost/api/docs/doc-x/elements/p1-aaa/entries",
-        () => HttpResponse.json({ entry_id: "e", event_id: "ev" }, { status: 201 }),
+        "http://localhost/api/curate/docs/doc-x/questions",
+        () => HttpResponse.json(
+          {
+            question_id: "q-abc",
+            element_id: "p1-aaa",
+            curator_id: "c-1",
+            query: "Frage",
+            created_at: "t",
+          },
+          { status: 201 },
+        ),
       ),
     );
     const user = userEvent.setup();

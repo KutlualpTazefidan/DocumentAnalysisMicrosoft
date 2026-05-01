@@ -204,6 +204,9 @@ class CuratorQuestion(BaseModel):
     element_id: str
     curator_id: str
     query: str
+    refined_query: str | None = None
+    deprecated: bool = False
+    deprecated_reason: str | None = None
     created_at: str
 
 
@@ -211,3 +214,13 @@ class CuratorQuestionsFile(BaseModel):
     model_config = ConfigDict(frozen=True)
     slug: str
     questions: list[CuratorQuestion] = Field(default_factory=list)
+
+
+class RefineQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    query: str = Field(min_length=1)
+
+
+class DeprecateQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    reason: str | None = None

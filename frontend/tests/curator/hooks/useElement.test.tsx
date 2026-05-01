@@ -28,16 +28,13 @@ function makeWrapper() {
 describe("useElements", () => {
   it("returns ElementWithCounts array for a slug", async () => {
     server.use(
-      http.get("http://localhost/api/docs/foo/elements", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements", () =>
         HttpResponse.json([
           {
-            element: {
-              element_id: "p1-aaa",
-              page_number: 1,
-              element_type: "heading",
-              content: "Title",
-            },
-            count_active_entries: 0,
+            element_id: "p1-aaa",
+            page_number: 1,
+            element_type: "heading",
+            content: "Title",
           },
         ]),
       ),
@@ -45,27 +42,30 @@ describe("useElements", () => {
     const { result } = renderHook(() => useElements("foo"), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toHaveLength(1);
+    expect(result.current.data![0].element.element_id).toBe("p1-aaa");
+    expect(result.current.data![0].count_active_entries).toBe(0);
   });
 });
 
 describe("useElement", () => {
-  it("returns element + entries for a slug + element_id", async () => {
+  it("returns element + questions for a slug + element_id", async () => {
     server.use(
-      http.get("http://localhost/api/docs/foo/elements/p1-aaa", () =>
+      http.get("http://localhost/api/curate/docs/foo/elements/p1-aaa", () =>
         HttpResponse.json({
-          element: {
-            element_id: "p1-aaa",
-            page_number: 1,
-            element_type: "heading",
-            content: "Title",
-          },
-          entries: [],
+          element_id: "p1-aaa",
+          page_number: 1,
+          element_type: "heading",
+          content: "Title",
         }),
+      ),
+      http.get("http://localhost/api/curate/docs/foo/questions", () =>
+        HttpResponse.json([]),
       ),
     );
     const { result } = renderHook(() => useElement("foo", "p1-aaa"), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.element.element_id).toBe("p1-aaa");
+    expect(result.current.data?.entries).toHaveLength(0);
   });
 
   it("does not fetch when elementId is undefined", () => {
