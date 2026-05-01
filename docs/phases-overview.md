@@ -44,7 +44,7 @@ features/
 
 | Phase | Modul | Status | PR | Detail-Spec |
 |---|---|---|---|---|
-| A.0 | `pipelines/local-pdf/` (DocLayout-YOLO + MinerU 3 + visual review UI) | 📅 spec'd | — | [local-pdf-pipeline-design.md](superpowers/specs/2026-04-30-local-pdf-pipeline-design.md) |
+| A.0 | `pipelines/local-pdf/` (DocLayout-YOLO + MinerU 3 + visual review UI) | 🔍 PR offen (review) | branch `feat/a-0-local-pdf-pipeline` (29 commits ahead, push complete, PR awaits manual open) | [local-pdf-pipeline-design.md](superpowers/specs/2026-04-30-local-pdf-pipeline-design.md) |
 | A.1 | `core/llm_clients/` | ✅ merged | [#7](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/7) | [a1-llm-clients-design.md](superpowers/specs/2026-04-28-a1-llm-clients-design.md) |
 | A.2 | `goldens/schemas/` | ✅ merged | [#8](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/8) | [a2-goldens-schemas-design.md](superpowers/specs/2026-04-28-a2-goldens-schemas-design.md) |
 | A.3 | `goldens/storage/` | ✅ merged | [#9](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/9) | [a3-goldens-storage-design.md](superpowers/specs/2026-04-29-a3-goldens-storage-design.md) |
