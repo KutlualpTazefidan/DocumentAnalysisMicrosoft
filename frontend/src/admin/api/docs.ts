@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch } from "./adminClient";
 import type { DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {

@@ -1,6 +1,6 @@
 // frontend/src/local-pdf/components/PdfPage.tsx
 import { usePdfPage } from "../hooks/usePdfPage";
-import { apiBase } from "../api/client";
+import { apiBase } from "../api/adminClient";
 
 interface Props {
   slug: string;

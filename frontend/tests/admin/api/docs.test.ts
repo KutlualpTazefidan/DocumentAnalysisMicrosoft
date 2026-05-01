@@ -3,7 +3,7 @@ import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 
-import { listDocs, uploadDoc, getDoc, getSegments, updateBox } from "../../../src/local-pdf/api/docs";
+import { listDocs, uploadDoc, getDoc, getSegments, updateBox } from "../../../src/admin/api/docs";
 
 const server = setupServer(
   http.get("http://127.0.0.1:8001/api/admin/docs", () =>

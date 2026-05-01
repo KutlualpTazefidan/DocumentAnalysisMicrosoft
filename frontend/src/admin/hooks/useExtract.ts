@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { exportSourceElements, extractRegion, getHtml, putHtml } from "../api/docs";
-import { apiBase } from "../api/client";
+import { apiBase } from "../api/adminClient";
 import { readNdjsonLines } from "../api/ndjson";
 import type { WorkerEvent } from "../types/domain";
 

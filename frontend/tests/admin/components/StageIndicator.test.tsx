@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { StageIndicator } from "../../../src/local-pdf/components/StageIndicator";
-import { initialStreamState } from "../../../src/local-pdf/streamReducer";
+import { StageIndicator } from "../../../src/admin/components/StageIndicator";
+import { initialStreamState } from "../../../src/admin/streamReducer";
 
 describe("StageIndicator", () => {
   it("renders nothing when stage is idle and timeline is empty", () => {

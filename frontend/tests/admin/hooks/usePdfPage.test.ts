@@ -2,7 +2,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { usePdfPage } from "../../../src/local-pdf/hooks/usePdfPage";
+import { usePdfPage } from "../../../src/admin/hooks/usePdfPage";
 
 vi.mock("pdfjs-dist/build/pdf.mjs", () => ({
   getDocument: vi.fn(() => ({

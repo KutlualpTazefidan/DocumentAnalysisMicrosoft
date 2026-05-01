@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { StageTimeline } from "../../../src/local-pdf/components/StageTimeline";
-import type { WorkerEvent } from "../../../src/local-pdf/types/domain";
+import { StageTimeline } from "../../../src/admin/components/StageTimeline";
+import type { WorkerEvent } from "../../../src/admin/types/domain";
 
 describe("StageTimeline", () => {
   it("renders one entry per event with type and model", () => {

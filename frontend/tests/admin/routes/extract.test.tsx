@@ -6,14 +6,14 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ExtractRoute } from "../../../src/local-pdf/routes/extract";
+import { ExtractRoute } from "../../../src/admin/routes/extract";
 
-vi.mock("../../../src/local-pdf/hooks/usePdfPage", () => ({
+vi.mock("../../../src/admin/hooks/usePdfPage", () => ({
   usePdfPage: () => ({ numPages: 1, viewport: { width: 600, height: 800 }, canvasRef: { current: null }, loading: false, error: null }),
 }));
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/docs/rep/segments", () =>
+  http.get("http://127.0.0.1:8001/api/admin/docs/rep/segments", () =>
     HttpResponse.json({
       slug: "rep",
       boxes: [
@@ -21,11 +21,11 @@ const server = setupServer(
       ],
     }),
   ),
-  http.get("http://127.0.0.1:8001/api/docs/rep/html", () =>
+  http.get("http://127.0.0.1:8001/api/admin/docs/rep/html", () =>
     HttpResponse.json({ html: '<h1 data-source-box="p1-b0">Hi</h1>' }),
   ),
-  http.put("http://127.0.0.1:8001/api/docs/rep/html", () => HttpResponse.json({ ok: true })),
-  http.post("http://127.0.0.1:8001/api/docs/rep/export", () =>
+  http.put("http://127.0.0.1:8001/api/admin/docs/rep/html", () => HttpResponse.json({ ok: true })),
+  http.post("http://127.0.0.1:8001/api/admin/docs/rep/export", () =>
     HttpResponse.json({ doc_slug: "rep", source_pipeline: "local-pdf", elements: [] }),
   ),
 );

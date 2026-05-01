@@ -1,4 +1,4 @@
-const BASE = (import.meta.env.VITE_LOCAL_PDF_API_BASE ?? "http://127.0.0.1:8001") as string;
+const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8001") as string;
 
 export class ApiError extends Error {
   status: number;
@@ -28,5 +28,5 @@ export async function apiFetch(path: string, token: string, init: RequestInit = 
 }
 
 export function apiBase(): string {
-  return BASE;
+  return `${BASE}/api/admin`;
 }

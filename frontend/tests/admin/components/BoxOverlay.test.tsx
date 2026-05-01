@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { BoxOverlay } from "../../../src/local-pdf/components/BoxOverlay";
+import { BoxOverlay } from "../../../src/admin/components/BoxOverlay";
 
 const box = {
   box_id: "p1-b0",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readNdjsonLines } from "../../../src/local-pdf/api/ndjson";
+import { readNdjsonLines } from "../../../src/admin/api/ndjson";
 
 function bodyFrom(chunks: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();

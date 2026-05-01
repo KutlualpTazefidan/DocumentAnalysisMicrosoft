@@ -3,7 +3,7 @@ import { renderHook } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { useBoxHotkeys } from "../../../src/local-pdf/hooks/useBoxHotkeys";
+import { useBoxHotkeys } from "../../../src/admin/hooks/useBoxHotkeys";
 
 describe("useBoxHotkeys", () => {
   it("invokes setKind for h/p/t/f/c/q/l/x", () => {

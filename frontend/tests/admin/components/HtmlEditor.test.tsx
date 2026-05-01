@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { HtmlEditor } from "../../../src/local-pdf/components/HtmlEditor";
+import { HtmlEditor } from "../../../src/admin/components/HtmlEditor";
 
 describe("HtmlEditor", () => {
   it("renders WYSIWYG by default and toggles to raw HTML mode", () => {

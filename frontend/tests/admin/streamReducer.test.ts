@@ -3,7 +3,7 @@ import {
   applyEvent,
   initialStreamState,
   type StreamState,
-} from "../../src/local-pdf/streamReducer";
+} from "../../src/admin/streamReducer";
 import type {
   ModelLoadedEvent,
   ModelLoadingEvent,
@@ -12,7 +12,7 @@ import type {
   WorkCompleteEvent,
   WorkFailedEvent,
   WorkProgressEvent,
-} from "../../src/local-pdf/types/domain";
+} from "../../src/admin/types/domain";
 
 describe("streamReducer", () => {
   it("starts in idle stage with no model", () => {

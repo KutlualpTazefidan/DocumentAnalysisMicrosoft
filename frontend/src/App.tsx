@@ -5,9 +5,9 @@ import { Login } from "./routes/login";
 import { DocsIndex } from "./routes/docs-index";
 import { DocElements } from "./routes/doc-elements";
 import { DocSynthesise } from "./routes/doc-synthesise";
-import { ExtractRoute } from "./local-pdf/routes/extract";
-import { InboxRoute } from "./local-pdf/routes/inbox";
-import { SegmentRoute } from "./local-pdf/routes/segment";
+import { ExtractRoute } from "./admin/routes/extract";
+import { InboxRoute } from "./admin/routes/inbox";
+import { SegmentRoute } from "./admin/routes/segment";
 
 function RequireAuth() {
   const { token } = useAuth();

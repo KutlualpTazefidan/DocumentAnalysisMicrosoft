@@ -8,7 +8,7 @@ import type {
   WorkFailedEvent,
   WorkProgressEvent,
   WorkerEvent,
-} from "../../../src/local-pdf/types/domain";
+} from "../../../src/admin/types/domain";
 
 function narrow(ev: WorkerEvent): string {
   switch (ev.type) {
