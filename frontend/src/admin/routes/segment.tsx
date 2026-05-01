@@ -32,8 +32,6 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
   return applyEvent(state, ev);
 }
 
-type ExtractScope = "this-page" | "all-pages";
-
 export function SegmentRoute({ token }: Props): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const [page, setPage] = useState(1);
@@ -55,10 +53,9 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
   const { success, error } = useToast();
 
-  // Top-bar state
+  // Filter state (moved to sidebar)
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [showDeactivated, setShowDeactivated] = useState(false);
-  const [extractScope, setExtractScope] = useState<ExtractScope>("this-page");
 
   // Total page count from DocMeta (falls back to highest page seen in boxes)
   const docMeta = useQuery({
@@ -120,17 +117,35 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     }
   }
 
-  async function onRunExtract() {
+  async function onRunExtractAll() {
     setRunning(true);
     try {
-      const pageArg = extractScope === "this-page" ? page : undefined;
-      for await (const ev of streamExtract(slug!, token, pageArg)) {
+      for await (const ev of streamExtract(slug!, token, undefined)) {
         dispatch(ev);
         if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
         if (ev.type === "work-failed") error(ev.reason);
       }
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function onRunExtractThisPage() {
+    setRunning(true);
+    try {
+      for await (const ev of streamExtract(slug!, token, page)) {
+        dispatch(ev);
+        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
+        if (ev.type === "work-failed") error(ev.reason);
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function handleDeactivate() {
+    if (focused) {
+      update.mutate({ boxId: focused.box_id, patch: { kind: "discard" } });
     }
   }
 
@@ -160,82 +175,47 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   return (
     <div className="flex flex-col h-screen">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0 flex-wrap">
-        {/* Pagination */}
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+        {/* LEFT: empty spacer (same flex-1 as right to keep pagination centered) */}
+        <div className="flex-1" />
 
-        <div className="w-px h-5 bg-navy-600" />
-
-        {/* Confidence threshold */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-300 whitespace-nowrap">
-            Conf ≥ {confidenceThreshold.toFixed(2)}
-          </label>
-          <input
-            aria-label="Confidence threshold"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={confidenceThreshold}
-            onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
-            className="w-24 accent-blue-400"
-          />
+        {/* CENTER: pagination */}
+        <div className="flex-1 flex justify-center">
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
 
-        {/* Show deactivated */}
-        <label className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
-          <input
-            aria-label="Show deactivated"
-            type="checkbox"
-            checked={showDeactivated}
-            onChange={(e) => setShowDeactivated(e.target.checked)}
-            className="accent-blue-400"
-          />
-          Show deactivated
-        </label>
-
-        <div className="w-px h-5 bg-navy-600" />
-
-        {/* Extract scope + button */}
-        <div className="flex items-center gap-2">
-          <select
-            aria-label="Extract scope"
-            value={extractScope}
-            onChange={(e) => setExtractScope(e.target.value as ExtractScope)}
-            className="text-xs bg-navy-700 text-white border border-navy-600 rounded px-1 py-0.5"
-          >
-            <option value="this-page">Diese Seite</option>
-            <option value="all-pages">Alle Seiten</option>
-          </select>
+        {/* RIGHT: all-pages extract */}
+        <div className="flex-1 flex justify-end">
           <button
-            aria-label="Run extraction"
+            aria-label="Alle Seiten extrahieren"
             className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
             disabled={!extractEnabled || running}
-            onClick={onRunExtract}
+            onClick={onRunExtractAll}
           >
-            {running ? "Running…" : "Run extraction"}
+            {running ? "Running…" : "Alle Seiten extrahieren"}
           </button>
         </div>
       </div>
 
       {/* ── Content row ─────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
-        {/* Scrollable PDF canvas area */}
+        {/* Scrollable PDF canvas area — centered horizontally */}
         <div className="flex-1 overflow-auto p-4">
-          <PdfPage slug={slug!} token={token} page={page} scale={scale}>
-            {visibleBoxes.map((b) => (
-              <BoxOverlay
-                key={b.box_id}
-                box={b}
-                selected={selected.includes(b.box_id)}
-                deactivated={!activeBoxIds.has(b.box_id)}
-                onSelect={handleSelect}
-                onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
-                scale={boxScale}
-              />
-            ))}
-          </PdfPage>
+          <div className="flex justify-center">
+            <PdfPage slug={slug!} token={token} page={page} scale={scale}>
+              {visibleBoxes.map((b) => (
+                <BoxOverlay
+                  key={b.box_id}
+                  box={b}
+                  selected={selected.includes(b.box_id)}
+                  deactivated={!activeBoxIds.has(b.box_id)}
+                  onSelect={handleSelect}
+                  onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
+                  scale={boxScale}
+                />
+              ))}
+            </PdfPage>
+          </div>
         </div>
 
         {/* Sidebar */}
@@ -244,7 +224,14 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           pageBoxCount={boxesOnPage.length}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
           onMerge={() => selected.length >= 2 && merge.mutate(selected)}
-          onDelete={() => focused && del.mutate(focused.box_id)}
+          onDeactivate={handleDeactivate}
+          confidenceThreshold={confidenceThreshold}
+          onConfidenceChange={setConfidenceThreshold}
+          showDeactivated={showDeactivated}
+          onShowDeactivatedChange={setShowDeactivated}
+          onExtractThisPage={onRunExtractThisPage}
+          extractRunning={running}
+          extractEnabled={extractEnabled}
         />
       </div>
 

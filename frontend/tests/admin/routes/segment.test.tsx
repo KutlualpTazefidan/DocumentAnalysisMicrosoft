@@ -97,10 +97,11 @@ describe("SegmentRoute", () => {
     expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
   });
 
-  it("show-deactivated checkbox reveals low-confidence box with data-deactivated attribute", async () => {
+  it("show-deactivated checkbox (in sidebar) reveals low-confidence box with data-deactivated attribute", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
+    // Checkbox is now in the sidebar
     const checkbox = screen.getByLabelText("Show deactivated");
     fireEvent.click(checkbox);
 
@@ -110,21 +111,16 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("box-p1-b0")).not.toHaveAttribute("data-deactivated");
   });
 
-  it("extract scope selector toggles between this-page and all-pages", async () => {
+  it("confidence threshold slider is in the sidebar", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-
-    const scopeSelect = screen.getByLabelText("Extract scope") as HTMLSelectElement;
-    expect(scopeSelect.value).toBe("this-page");
-
-    fireEvent.change(scopeSelect, { target: { value: "all-pages" } });
-    expect(scopeSelect.value).toBe("all-pages");
-
-    fireEvent.change(scopeSelect, { target: { value: "this-page" } });
-    expect(scopeSelect.value).toBe("this-page");
+    // Slider is now in the sidebar — still found by aria-label
+    const slider = screen.getByLabelText("Confidence threshold") as HTMLInputElement;
+    expect(slider).toBeInTheDocument();
+    expect(slider.value).toBe("0.7");
   });
 
-  it("run extraction calls endpoint (this-page sends ?page=, all-pages does not)", async () => {
+  it("run extraction (all pages) button is on the top bar", async () => {
     const calls: string[] = [];
     server.use(
       http.post("*/api/admin/docs/rep/extract", ({ request }) => {
@@ -136,16 +132,28 @@ describe("SegmentRoute", () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // Default: "this-page" → ?page=1
-    fireEvent.click(screen.getByLabelText("Run extraction"));
+    // "Alle Seiten extrahieren" is on the top bar — no page param
+    fireEvent.click(screen.getByLabelText("Alle Seiten extrahieren"));
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    expect(calls[0]).toBe("");
+  });
+
+  it("run extraction (this page) button is in the sidebar and sends ?page=1", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/api/admin/docs/rep/extract", ({ request }) => {
+        calls.push(new URL(request.url).search);
+        return new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // "Nur diese Seite extrahieren" is in the sidebar — sends page=1
+    fireEvent.click(screen.getByLabelText("Nur diese Seite extrahieren"));
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     expect(calls[0]).toContain("page=1");
-
-    // Switch to all-pages → no page param
-    fireEvent.change(screen.getByLabelText("Extract scope"), { target: { value: "all-pages" } });
-    fireEvent.click(screen.getByLabelText("Run extraction"));
-    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
-    expect(calls[1]).toBe("");
   });
 
   it("pagination jump-to-page navigates correctly", async () => {
@@ -158,10 +166,11 @@ describe("SegmentRoute", () => {
     fireEvent.change(input, { target: { value: "3" } });
     fireEvent.click(goBtn);
 
-    // After jumping to page 3, the "page 3" button should be active (aria-current=page)
+    // After jumping to page 3, react-paginate marks the active link with
+    // aria-current="page" and aria-label="Page 3 is your current page".
     await waitFor(() => {
-      const btn = screen.getByRole("button", { name: "Page 3" });
-      expect(btn).toHaveAttribute("aria-current", "page");
+      const pageLink = screen.getByRole("button", { name: /Page 3/i });
+      expect(pageLink).toHaveAttribute("aria-current", "page");
     });
   });
 
