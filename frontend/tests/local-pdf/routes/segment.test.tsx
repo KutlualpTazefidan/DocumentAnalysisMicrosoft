@@ -33,7 +33,7 @@ const SEGMENT_NDJSON = [
   .join("\n");
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/docs/rep/segments", () =>
+  http.get("*/api/docs/rep/segments", () =>
     HttpResponse.json({
       slug: "rep",
       boxes: [
@@ -42,10 +42,10 @@ const server = setupServer(
       ],
     }),
   ),
-  http.put("http://127.0.0.1:8001/api/docs/rep/segments/p1-b0", () =>
+  http.put("*/api/docs/rep/segments/p1-b0", () =>
     HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "list_item", confidence: 0.95, reading_order: 0 }),
   ),
-  http.post("http://127.0.0.1:8001/api/docs/rep/segment", () =>
+  http.post("*/api/docs/rep/segment", () =>
     new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
 );
