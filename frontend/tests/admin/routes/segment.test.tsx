@@ -6,6 +6,7 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { SegmentRoute } from "../../../src/admin/routes/segment";
 
 vi.mock("../../../src/admin/hooks/usePdfPage", () => ({
@@ -58,11 +59,13 @@ function wrap() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/local-pdf/doc/rep/segment"]}>
-        <Routes>
-          <Route path="/local-pdf/doc/:slug/segment" element={<SegmentRoute token="tok" />} />
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/local-pdf/doc/rep/segment"]}>
+          <Routes>
+            <Route path="/local-pdf/doc/:slug/segment" element={<SegmentRoute token="tok" />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

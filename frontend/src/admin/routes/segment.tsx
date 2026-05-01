@@ -1,7 +1,7 @@
 // frontend/src/local-pdf/routes/segment.tsx
 import { useMemo, useReducer, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
 import { PdfPage } from "../components/PdfPage";
@@ -42,6 +42,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [selected, setSelected] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
+  const { success, error } = useToast();
 
   const boxesOnPage = useMemo(
     () => (segments.data?.boxes ?? []).filter((b) => b.page === page),
@@ -63,8 +64,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     try {
       for await (const ev of streamSegment(slug!, token)) {
         dispatch(ev);
-        if (ev.type === "work-complete") toast.success(`segmented ${ev.items_processed} boxes`);
-        if (ev.type === "work-failed") toast.error(ev.reason);
+        if (ev.type === "work-complete") success(`segmented ${ev.items_processed} boxes`);
+        if (ev.type === "work-failed") error(ev.reason);
       }
       await segments.refetch();
     } finally {

@@ -1,7 +1,7 @@
 // frontend/src/local-pdf/routes/inbox.tsx
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 
 import { useDocs, useUploadDoc } from "../hooks/useDocs";
 import { StatusBadge } from "../components/StatusBadge";
@@ -15,6 +15,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
   const upload = useUploadDoc(token);
   const fileRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
+  const { success, error } = useToast();
 
   function handlePickFile() {
     fileRef.current?.click();
@@ -24,8 +25,8 @@ export function InboxRoute({ token }: Props): JSX.Element {
     const f = e.target.files?.[0];
     if (!f) return;
     upload.mutate(f, {
-      onSuccess: (m) => toast.success(`uploaded ${m.slug}`),
-      onError: (err) => toast.error(`upload failed: ${(err as Error).message}`),
+      onSuccess: (m) => success(`uploaded ${m.slug}`),
+      onError: (err) => error(`upload failed: ${(err as Error).message}`),
     });
     e.target.value = "";
   }

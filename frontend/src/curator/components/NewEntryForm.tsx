@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 import { useCreateEntry } from "../hooks/useCreateEntry";
 import { ApiError } from "../api/curatorClient";
 
@@ -12,6 +12,7 @@ interface Props {
 export function NewEntryForm({ slug, elementId, onWeiter }: Props) {
   const [query, setQuery] = useState("");
   const create = useCreateEntry();
+  const { success, error } = useToast();
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter") {
@@ -35,14 +36,14 @@ export function NewEntryForm({ slug, elementId, onWeiter }: Props) {
       { slug, elementId, body: { query: trimmed } },
       {
         onSuccess: () => {
-          toast.success("✓ gespeichert");
+          success("✓ gespeichert");
           setQuery("");
         },
         onError: (err) => {
           if (err instanceof ApiError && err.status === 422) {
-            toast.error("Frage abgelehnt: " + JSON.stringify(err.detail));
+            error("Frage abgelehnt: " + JSON.stringify(err.detail));
           } else {
-            toast.error("Speichern fehlgeschlagen.");
+            error("Speichern fehlgeschlagen.");
           }
         },
       },

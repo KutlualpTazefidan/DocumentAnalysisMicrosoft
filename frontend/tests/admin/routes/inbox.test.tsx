@@ -6,6 +6,7 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { InboxRoute } from "../../../src/admin/routes/inbox";
 
 const server = setupServer(
@@ -25,11 +26,13 @@ function wrapped() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/local-pdf/inbox"]}>
-        <Routes>
-          <Route path="/local-pdf/inbox" element={<InboxRoute token="tok" />} />
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/local-pdf/inbox"]}>
+          <Routes>
+            <Route path="/local-pdf/inbox" element={<InboxRoute token="tok" />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

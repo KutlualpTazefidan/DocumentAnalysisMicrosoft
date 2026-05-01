@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
-import { Toaster } from "react-hot-toast";
+import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { NewEntryForm } from "../../../src/curator/components/NewEntryForm";
 
 const server = setupServer();
@@ -22,12 +22,13 @@ function renderForm(props: Partial<{ slug: string; elementId: string; onWeiter: 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <NewEntryForm
-        slug={props.slug ?? "doc-x"}
-        elementId={props.elementId ?? "p1-aaa"}
-        onWeiter={props.onWeiter ?? (() => {})}
-      />
-      <Toaster />
+      <ToastProvider>
+        <NewEntryForm
+          slug={props.slug ?? "doc-x"}
+          elementId={props.elementId ?? "p1-aaa"}
+          onWeiter={props.onWeiter ?? (() => {})}
+        />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

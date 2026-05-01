@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { ElementDetail } from "../../../src/curator/components/ElementDetail";
 
 const server = setupServer();
@@ -21,13 +22,15 @@ function renderDetail(props: { slug: string; elementId: string; onWeiter?: () =>
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <ElementDetail
-          slug={props.slug}
-          elementId={props.elementId}
-          onWeiter={props.onWeiter ?? (() => {})}
-        />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter>
+          <ElementDetail
+            slug={props.slug}
+            elementId={props.elementId}
+            onWeiter={props.onWeiter ?? (() => {})}
+          />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 import { useDeprecateEntry } from "../hooks/useDeprecateEntry";
 import { ApiError } from "../api/curatorClient";
 import type { RetrievalEntry } from "../../shared/types/domain";
@@ -16,6 +16,7 @@ interface Props {
 export function EntryDeprecateModal({ entry, slug, elementId, onClose }: Props) {
   const [reason, setReason] = useState("");
   const deprecate = useDeprecateEntry();
+  const { success, error } = useToast();
 
   function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
@@ -23,16 +24,16 @@ export function EntryDeprecateModal({ entry, slug, elementId, onClose }: Props) 
       { entryId: entry.entry_id, slug, elementId, body: { reason: reason.trim() || null } },
       {
         onSuccess: () => {
-          toast.success("Eintrag zurückgezogen.");
+          success("Eintrag zurückgezogen.");
           onClose();
         },
         onError: (err) => {
           if (err instanceof ApiError && err.status === 409) {
-            toast.error("Bereits zurückgezogen.");
+            error("Bereits zurückgezogen.");
           } else if (err instanceof ApiError && err.status === 404) {
-            toast.error("Eintrag nicht gefunden.");
+            error("Eintrag nicht gefunden.");
           } else {
-            toast.error("Zurückziehen fehlgeschlagen.");
+            error("Zurückziehen fehlgeschlagen.");
           }
         },
       },

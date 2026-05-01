@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
+import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { EntryRefineModal } from "../../../src/curator/components/EntryRefineModal";
 import type { RetrievalEntry } from "../../../src/shared/types/domain";
 
@@ -34,12 +35,14 @@ function renderModal(props: { onClose?: () => void; slug?: string; elementId?: s
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <EntryRefineModal
-        entry={entry}
-        slug={props.slug ?? "doc-x"}
-        elementId={props.elementId ?? "p1-aaa"}
-        onClose={props.onClose ?? (() => {})}
-      />
+      <ToastProvider>
+        <EntryRefineModal
+          entry={entry}
+          slug={props.slug ?? "doc-x"}
+          elementId={props.elementId ?? "p1-aaa"}
+          onClose={props.onClose ?? (() => {})}
+        />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

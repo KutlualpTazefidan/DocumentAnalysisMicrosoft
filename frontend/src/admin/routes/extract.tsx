@@ -1,7 +1,7 @@
 // frontend/src/local-pdf/routes/extract.tsx
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
 import { HtmlEditor } from "../components/HtmlEditor";
@@ -32,6 +32,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const [highlight, setHighlight] = useState<string | null>(null);
   const debounceRef = useRef<number | null>(null);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
+  const { success, error } = useToast();
 
   function handleHtmlChange(next: string) {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -49,8 +50,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     try {
       for await (const ev of streamExtract(slug!, token)) {
         dispatch(ev);
-        if (ev.type === "work-complete") toast.success(`extracted ${ev.items_processed} boxes`);
-        if (ev.type === "work-failed") toast.error(ev.reason);
+        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
+        if (ev.type === "work-failed") error(ev.reason);
       }
       await html.refetch();
     } finally {
@@ -60,8 +61,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   function handleExport() {
     exportSrc.mutate(undefined, {
-      onSuccess: () => toast.success("Exported sourceelements.json"),
-      onError: (err) => toast.error((err as Error).message),
+      onSuccess: () => success("Exported sourceelements.json"),
+      onError: (err) => error((err as Error).message),
     });
   }
 
@@ -73,8 +74,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   function handleRegion(boxId: string) {
     extractRegion.mutate(boxId, {
-      onSuccess: (r) => toast.success(`re-extracted ${r.box_id}`),
-      onError: (err) => toast.error((err as Error).message),
+      onSuccess: (r) => success(`re-extracted ${r.box_id}`),
+      onError: (err) => error((err as Error).message),
     });
   }
 

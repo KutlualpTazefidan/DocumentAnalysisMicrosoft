@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import toast from "react-hot-toast";
+import { useToast } from "../../shared/components/useToast";
 import { useRefineEntry } from "../hooks/useRefineEntry";
 import { ApiError } from "../api/curatorClient";
 import type { RetrievalEntry } from "../../shared/types/domain";
@@ -17,6 +17,7 @@ export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
   const [query, setQuery] = useState(entry.query);
   const [notes, setNotes] = useState("");
   const refine = useRefineEntry();
+  const { success, error } = useToast();
 
   function handleSubmit(e: KeyboardEvent | { preventDefault: () => void }) {
     e.preventDefault();
@@ -35,16 +36,16 @@ export function EntryRefineModal({ entry, slug, elementId, onClose }: Props) {
       },
       {
         onSuccess: () => {
-          toast.success("Eintrag verfeinert.");
+          success("Eintrag verfeinert.");
           onClose();
         },
         onError: (err) => {
           if (err instanceof ApiError && err.status === 409) {
-            toast.error("Eintrag bereits zurückgezogen.");
+            error("Eintrag bereits zurückgezogen.");
           } else if (err instanceof ApiError && err.status === 404) {
-            toast.error("Eintrag nicht gefunden.");
+            error("Eintrag nicht gefunden.");
           } else {
-            toast.error("Verfeinern fehlgeschlagen.");
+            error("Verfeinern fehlgeschlagen.");
           }
         },
       },
