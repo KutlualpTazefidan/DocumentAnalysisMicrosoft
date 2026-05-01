@@ -11,7 +11,7 @@ import { SegmentRoute } from "../../../src/admin/routes/segment";
 
 vi.mock("../../../src/admin/hooks/usePdfPage", () => ({
   usePdfPage: () => ({
-    numPages: 2,
+    numPages: 5,
     viewport: { width: 600, height: 800 },
     canvasRef: { current: null },
     loading: false,
@@ -33,21 +33,33 @@ const SEGMENT_NDJSON = [
   .map((l) => JSON.stringify(l))
   .join("\n");
 
+const EXTRACT_NDJSON = [
+  { type: "work-complete", model: "MinerU", timestamp_ms: 1, total_seconds: 0.5, items_processed: 1, output_summary: {} },
+]
+  .map((l) => JSON.stringify(l))
+  .join("\n");
+
+// Two boxes: one above threshold (0.95) and one below (0.6 < 0.7 default)
+const BOXES = [
+  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 },
+  { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1 },
+];
+
 const server = setupServer(
+  http.get("*/api/admin/docs/rep", () =>
+    HttpResponse.json({ slug: "rep", filename: "Rep.pdf", pages: 5, status: "raw", last_touched_utc: "2026-01-01T00:00:00Z", box_count: 2 }),
+  ),
   http.get("*/api/admin/docs/rep/segments", () =>
-    HttpResponse.json({
-      slug: "rep",
-      boxes: [
-        { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 },
-        { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1 },
-      ],
-    }),
+    HttpResponse.json({ slug: "rep", boxes: BOXES }),
   ),
   http.put("*/api/admin/docs/rep/segments/p1-b0", () =>
     HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "list_item", confidence: 0.95, reading_order: 0 }),
   ),
   http.post("*/api/admin/docs/rep/segment", () =>
     new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
+  ),
+  http.post("*/api/admin/docs/rep/extract", () =>
+    new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
 );
 
@@ -74,7 +86,83 @@ describe("SegmentRoute", () => {
   it("renders the page-1 boxes after segments load", async () => {
     render(wrap());
     await waitFor(() => expect(screen.getByTestId("box-p1-b0")).toBeInTheDocument());
-    expect(screen.getByTestId("box-p1-b1")).toBeInTheDocument();
+    // p1-b1 is below threshold (0.6 < 0.7); hidden by default
+    expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
+  });
+
+  it("boxes below threshold are hidden by default", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // Confidence 0.6 box must not render while showDeactivated is off
+    expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
+  });
+
+  it("show-deactivated checkbox reveals low-confidence box with data-deactivated attribute", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    const checkbox = screen.getByLabelText("Show deactivated");
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(screen.getByTestId("box-p1-b1")).toBeInTheDocument());
+    expect(screen.getByTestId("box-p1-b1")).toHaveAttribute("data-deactivated", "true");
+    // Active box must NOT have the attribute
+    expect(screen.getByTestId("box-p1-b0")).not.toHaveAttribute("data-deactivated");
+  });
+
+  it("extract scope selector toggles between this-page and all-pages", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    const scopeSelect = screen.getByLabelText("Extract scope") as HTMLSelectElement;
+    expect(scopeSelect.value).toBe("this-page");
+
+    fireEvent.change(scopeSelect, { target: { value: "all-pages" } });
+    expect(scopeSelect.value).toBe("all-pages");
+
+    fireEvent.change(scopeSelect, { target: { value: "this-page" } });
+    expect(scopeSelect.value).toBe("this-page");
+  });
+
+  it("run extraction calls endpoint (this-page sends ?page=, all-pages does not)", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/api/admin/docs/rep/extract", ({ request }) => {
+        calls.push(new URL(request.url).search);
+        return new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Default: "this-page" → ?page=1
+    fireEvent.click(screen.getByLabelText("Run extraction"));
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    expect(calls[0]).toContain("page=1");
+
+    // Switch to all-pages → no page param
+    fireEvent.change(screen.getByLabelText("Extract scope"), { target: { value: "all-pages" } });
+    fireEvent.click(screen.getByLabelText("Run extraction"));
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
+    expect(calls[1]).toBe("");
+  });
+
+  it("pagination jump-to-page navigates correctly", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    const input = screen.getByLabelText("Jump to page") as HTMLInputElement;
+    const goBtn = screen.getByRole("button", { name: "Go" });
+
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.click(goBtn);
+
+    // After jumping to page 3, the "page 3" button should be active (aria-current=page)
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: "Page 3" });
+      expect(btn).toHaveAttribute("aria-current", "page");
+    });
   });
 
   it("changes selected box kind via hotkey 'l'", async () => {
