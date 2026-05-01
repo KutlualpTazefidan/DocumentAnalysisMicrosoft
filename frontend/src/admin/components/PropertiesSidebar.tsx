@@ -92,12 +92,10 @@ export function PropertiesSidebar({
 
       {/* ── Page action buttons ────────────────────────────────────── */}
       <button
-        aria-label="Nur diese Seite extrahieren"
-        className="w-full py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        disabled={!extractEnabled || running}
-        onClick={onRunExtractThisPage}
+        className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+        onClick={onNewBox}
       >
-        {running ? "Running…" : "Nur diese Seite extrahieren"}
+        New box
       </button>
 
       <button
@@ -107,6 +105,15 @@ export function PropertiesSidebar({
         onClick={onResetPage}
       >
         Reset diese Seite
+      </button>
+
+      <button
+        aria-label="Nur diese Seite extrahieren"
+        className="w-full py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        disabled={!extractEnabled || running}
+        onClick={onRunExtractThisPage}
+      >
+        {running ? "Running…" : "Nur diese Seite extrahieren"}
       </button>
 
       <hr className="my-3 border-slate-200" />
@@ -155,14 +162,8 @@ export function PropertiesSidebar({
               </div>
             </div>
 
-            {/* Action row: New box (left) | Deactivate (right) */}
+            {/* Action row: Deactivate (left) | Reset (right) */}
             <div className="grid grid-cols-2 gap-2">
-              <button
-                className="px-2 py-1 border rounded text-slate-700 hover:bg-slate-50"
-                onClick={onNewBox}
-              >
-                New box
-              </button>
               <button
                 aria-label="Deactivate"
                 className="px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-white"
@@ -170,16 +171,14 @@ export function PropertiesSidebar({
               >
                 Deactivate
               </button>
+              <button
+                aria-label="Reset box"
+                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                onClick={onResetBox}
+              >
+                Reset
+              </button>
             </div>
-
-            {/* Reset selected box — full-width secondary */}
-            <button
-              aria-label="Reset box"
-              className="w-full py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
-              onClick={onResetBox}
-            >
-              Reset
-            </button>
           </>
         ) : (
           <p className="text-slate-400">Wähle eine Box aus</p>
