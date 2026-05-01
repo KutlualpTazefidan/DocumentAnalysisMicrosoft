@@ -44,7 +44,7 @@ def _wrap_html(elements: list[dict]) -> str:
 
 
 @router.post("/api/admin/docs/{slug}/extract")
-async def run_extract(slug: str, request: Request) -> StreamingResponse:
+async def run_extract(slug: str, request: Request, page: int | None = None) -> StreamingResponse:
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
     if not pdf.exists():
@@ -63,6 +63,8 @@ async def run_extract(slug: str, request: Request) -> StreamingResponse:
         )
 
     targets = [b for b in seg.boxes if b.kind != BoxKind.discard]
+    if page is not None:
+        targets = [b for b in targets if b.page == page]
 
     def stream():
         try:
