@@ -36,7 +36,17 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
 export function SegmentRoute({ token }: Props): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const [page, setPage] = useState(1);
-  const scale = 1.5;
+  // Zoom is persisted in localStorage so it survives page reloads + applies
+  // to every page in this and future docs (single global preference).
+  const [scale, setScale] = useState<number>(() => {
+    const stored = parseFloat(localStorage.getItem("admin.segment.scale") ?? "");
+    return Number.isFinite(stored) && stored >= 0.25 && stored <= 4 ? stored : 1.5;
+  });
+  function persistScale(s: number) {
+    const clamped = Math.min(4, Math.max(0.25, parseFloat(s.toFixed(2))));
+    setScale(clamped);
+    localStorage.setItem("admin.segment.scale", String(clamped));
+  }
   const segments = useSegments(slug ?? "", token);
   // Bbox coords are pixel-space at the rasterization DPI used for YOLO
   // inference. To overlay them on a PDF.js viewport rendered at `scale`
@@ -235,7 +245,34 @@ export function SegmentRoute({ token }: Props): JSX.Element {
       {/* ── Content row ─────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* Scrollable PDF canvas area — centered horizontally */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-4 relative">
+          {/* Floating zoom control, top-right of the PDF pane */}
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-1 bg-white/90 backdrop-blur border border-slate-300 rounded shadow-sm px-2 py-1">
+            <button
+              aria-label="Zoom out"
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              onClick={() => persistScale(scale - 0.1)}
+              disabled={scale <= 0.25}
+            >
+              −
+            </button>
+            <button
+              aria-label="Reset zoom"
+              className="px-1 text-xs text-slate-700 hover:text-slate-900 font-mono w-12 text-center"
+              onClick={() => persistScale(1.5)}
+              title="Reset to 150%"
+            >
+              {Math.round(scale * 100)}%
+            </button>
+            <button
+              aria-label="Zoom in"
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              onClick={() => persistScale(scale + 0.1)}
+              disabled={scale >= 4}
+            >
+              +
+            </button>
+          </div>
           <div className="flex justify-center">
             <PdfPage slug={slug!} token={token} page={page} scale={scale}>
               {visibleBoxes.map((b) => (
