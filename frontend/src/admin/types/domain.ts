@@ -46,6 +46,20 @@ export interface SourceElementsPayload {
   }>;
 }
 
+// ── Curator records ───────────────────────────────────────────────────────
+
+export interface CuratorRecord {
+  id: string;
+  name: string;
+  token_prefix: string;
+  created_utc: string;
+}
+
+/** Returned only at creation time (C16: full token shown once). */
+export interface CuratorCreated extends CuratorRecord {
+  token: string;
+}
+
 // ── Worker lifecycle events (mirrors local_pdf.workers.base) ──────────────
 
 interface _WorkerEventBase {

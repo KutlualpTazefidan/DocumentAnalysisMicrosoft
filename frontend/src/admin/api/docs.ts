@@ -1,5 +1,5 @@
 import { apiFetch } from "./adminClient";
-import type { DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
+import type { CuratorCreated, CuratorRecord, DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {
   const r = await apiFetch("/api/admin/docs", token);
@@ -99,4 +99,24 @@ export async function extractRegion(slug: string, boxId: string, token: string):
     body: JSON.stringify({ box_id: boxId }),
   });
   return r.json();
+}
+
+// ── Curator API ───────────────────────────────────────────────────────────
+
+export async function listCurators(token: string): Promise<CuratorRecord[]> {
+  const r = await apiFetch("/api/admin/curators", token);
+  return r.json();
+}
+
+export async function createCurator(name: string, token: string): Promise<CuratorCreated> {
+  const r = await apiFetch("/api/admin/curators", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  return r.json();
+}
+
+export async function revokeCurator(id: string, token: string): Promise<void> {
+  await apiFetch(`/api/admin/curators/${encodeURIComponent(id)}`, token, { method: "DELETE" });
 }
