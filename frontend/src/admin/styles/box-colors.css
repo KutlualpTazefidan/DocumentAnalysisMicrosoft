@@ -29,6 +29,8 @@
   border: 1px solid white;
 }
 
+/* Hidden by default so labels don't cover tiny boxes' PDF text.
+ * Revealed on hover or when the box is selected. */
 .box-label {
   position: absolute;
   top: -18px;
@@ -39,4 +41,12 @@
   color: white;
   border-radius: 2px;
   pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.box-outline:hover .box-label,
+.box-outline.selected .box-label {
+  opacity: 1;
 }

@@ -78,9 +78,15 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     [segments.data, page],
   );
 
-  // Active boxes pass the confidence threshold; deactivated ones don't.
+  // Active boxes pass the confidence threshold AND aren't manually marked
+  // discard. Deactivated ones (low-confidence OR kind=discard) are hidden
+  // unless `showDeactivated` is on.
   const activeBoxIds = useMemo(
-    () => new Set(allBoxesOnPage.filter((b) => b.confidence >= confidenceThreshold).map((b) => b.box_id)),
+    () => new Set(
+      allBoxesOnPage
+        .filter((b) => b.confidence >= confidenceThreshold && b.kind !== "discard")
+        .map((b) => b.box_id),
+    ),
     [allBoxesOnPage, confidenceThreshold],
   );
 
