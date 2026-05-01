@@ -1,4 +1,4 @@
-"""Doc-level routes: inbox listing, upload, metadata, source PDF serving."""
+"""Admin doc routes: inbox listing, upload, metadata, source PDF serving."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _count_pages(pdf_path) -> int:
         return 1
 
 
-@router.get("/api/docs")
+@router.get("/api/admin/docs")
 async def list_docs(request: Request) -> list[dict]:
     cfg = request.app.state.config
     out: list[dict] = []
@@ -43,7 +43,7 @@ async def list_docs(request: Request) -> list[dict]:
     return out
 
 
-@router.post("/api/docs", status_code=201)
+@router.post("/api/admin/docs", status_code=201)
 async def upload_doc(request: Request, file: UploadFile) -> JSONResponse:
     cfg = request.app.state.config
     filename = file.filename or "untitled.pdf"
@@ -70,7 +70,7 @@ async def upload_doc(request: Request, file: UploadFile) -> JSONResponse:
     return JSONResponse(status_code=201, content=meta.model_dump(mode="json"))
 
 
-@router.get("/api/docs/{slug}")
+@router.get("/api/admin/docs/{slug}")
 async def get_doc(slug: str, request: Request) -> dict[str, object]:
     cfg = request.app.state.config
     meta = read_meta(cfg.data_root, slug)
@@ -79,7 +79,7 @@ async def get_doc(slug: str, request: Request) -> dict[str, object]:
     return meta.model_dump(mode="json")  # type: ignore[no-any-return]
 
 
-@router.get("/api/docs/{slug}/source.pdf")
+@router.get("/api/admin/docs/{slug}/source.pdf")
 async def get_source_pdf(slug: str, request: Request) -> FileResponse:
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"

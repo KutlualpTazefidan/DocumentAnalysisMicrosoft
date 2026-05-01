@@ -1,8 +1,4 @@
-"""FastAPI app factory for local-pdf.
-
-create_app() loads ApiConfig, installs the X-Auth-Token middleware, mounts
-the docs/segments/extract routers, and registers exception handlers.
-"""
+"""FastAPI app factory for local-pdf."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="local-pdf-api",
-        version="0.1.0",
+        version="0.2.0",
         description="Local PDF pipeline API (DocLayout-YOLO + MinerU 3).",
     )
     app.state.config = cfg
@@ -39,11 +35,13 @@ def create_app() -> FastAPI:
     async def _health() -> HealthResponse:
         return HealthResponse(data_root=str(cfg.data_root))
 
-    from local_pdf.api.routers.docs import router as docs_router
+    from local_pdf.api.routers._gone import router as gone_router
+    from local_pdf.api.routers.admin.docs import router as admin_docs_router
     from local_pdf.api.routers.extract import router as extract_router
     from local_pdf.api.routers.segments import router as segments_router
 
-    app.include_router(docs_router)
+    app.include_router(gone_router)
+    app.include_router(admin_docs_router)
     app.include_router(segments_router)
     app.include_router(extract_router)
 
