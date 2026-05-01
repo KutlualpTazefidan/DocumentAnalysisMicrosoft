@@ -73,6 +73,24 @@ export async function createBox(slug: string, page: number, bbox: [number, numbe
   return r.json();
 }
 
+export async function resetPage(slug: string, page: number, token: string): Promise<SegmentsFile> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/reset?page=${page}`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
+export async function resetBox(slug: string, boxId: string, token: string): Promise<SegmentBox> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}/reset`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
 export async function getHtml(slug: string, token: string): Promise<string> {
   const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token);
   const j = (await r.json()) as { html: string };
