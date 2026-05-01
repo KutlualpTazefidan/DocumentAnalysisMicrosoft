@@ -8,11 +8,9 @@ interface Props {
   onChangeKind: (k: BoxKind) => void;
   onMerge: () => void;
   onDelete: () => void;
-  onRunExtract: () => void;
-  extractEnabled: boolean;
 }
 
-export function PropertiesSidebar({ selected, pageBoxCount, onChangeKind, onMerge, onDelete, onRunExtract, extractEnabled }: Props): JSX.Element {
+export function PropertiesSidebar({ selected, pageBoxCount, onChangeKind, onMerge, onDelete }: Props): JSX.Element {
   return (
     <aside className="w-1/4 border-l p-4 flex flex-col gap-3 text-sm">
       <h2 className="font-semibold">Properties</h2>
@@ -47,13 +45,7 @@ export function PropertiesSidebar({ selected, pageBoxCount, onChangeKind, onMerg
       <div className="border-t pt-3 mt-3">
         <p className="text-xs text-gray-500">{pageBoxCount} boxes on page</p>
       </div>
-      <button
-        className="mt-auto bg-blue-600 text-white py-2 rounded disabled:bg-gray-300"
-        disabled={!extractEnabled}
-        onClick={onRunExtract}
-      >
-        Run extraction →
-      </button>
+      <p className="mt-auto text-xs text-gray-400 text-center">Extract via top bar</p>
     </aside>
   );
 }

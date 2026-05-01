@@ -33,8 +33,9 @@ export async function* streamSegment(slug: string, token: string): AsyncGenerato
   yield* readNdjsonLines<WorkerEvent>(r.body);
 }
 
-export async function* streamExtract(slug: string, token: string): AsyncGenerator<WorkerEvent> {
-  const r = await fetch(`${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/extract`, {
+export async function* streamExtract(slug: string, token: string, page?: number): AsyncGenerator<WorkerEvent> {
+  const qs = page !== undefined ? `?page=${page}` : "";
+  const r = await fetch(`${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/extract${qs}`, {
     method: "POST",
     headers: { "X-Auth-Token": token },
   });

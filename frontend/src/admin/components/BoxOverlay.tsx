@@ -6,12 +6,13 @@ import "../styles/box-colors.css";
 interface Props {
   box: SegmentBox;
   selected: boolean;
+  deactivated?: boolean;
   onSelect: (boxId: string, multi: boolean) => void;
   onChange: (boxId: string, bbox: [number, number, number, number]) => void;
   scale: number;
 }
 
-export function BoxOverlay({ box, selected, onSelect, onChange, scale }: Props): JSX.Element {
+export function BoxOverlay({ box, selected, deactivated = false, onSelect, onChange, scale }: Props): JSX.Element {
   const [x0, y0, x1, y1] = box.bbox;
   const [drag, setDrag] = useState<{ corner: string; sx: number; sy: number; orig: [number, number, number, number] } | null>(null);
 
@@ -20,10 +21,12 @@ export function BoxOverlay({ box, selected, onSelect, onChange, scale }: Props):
     top: y0 * scale,
     width: (x1 - x0) * scale,
     height: (y1 - y0) * scale,
+    ...(deactivated ? { opacity: 0.35, borderStyle: "dashed" } : {}),
   };
   const cls = ["box-outline", `box-${box.kind}`];
   if (selected) cls.push("selected");
   if (box.confidence < 0.7) cls.push("low-confidence");
+  if (deactivated) cls.push("deactivated");
 
   useEffect(() => {
     if (!drag) return;
@@ -58,6 +61,7 @@ export function BoxOverlay({ box, selected, onSelect, onChange, scale }: Props):
   return (
     <div
       data-testid={`box-${box.box_id}`}
+      data-deactivated={deactivated ? "true" : undefined}
       className={cls.join(" ")}
       style={style}
       onClick={(e) => onSelect(box.box_id, e.shiftKey)}
