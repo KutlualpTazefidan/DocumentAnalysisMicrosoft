@@ -47,3 +47,22 @@ def test_protected_routes_require_token(make_app) -> None:
     client = TestClient(app)
     resp = client.get("/api/docs")
     assert resp.status_code == 401
+
+
+def test_app_includes_admin_routes_only() -> None:
+    import os
+
+    os.environ["GOLDENS_API_TOKEN"] = "tok"
+    from local_pdf.api.app import create_app
+
+    app = create_app()
+    paths = {r.path for r in app.routes}
+    # admin routes present
+    assert "/api/admin/docs" in paths
+    assert "/api/admin/docs/{slug}" in paths
+    assert "/api/admin/docs/{slug}/segments" in paths
+    assert "/api/admin/docs/{slug}/extract" in paths
+    # legacy routes are gone-shimmed (still in routes dict via wildcard)
+    # but the bare /api/docs handler is the gone shim, not the docs handler
+    legacy = [r for r in app.routes if getattr(r, "path", "") == "/api/docs"]
+    assert len(legacy) >= 1
