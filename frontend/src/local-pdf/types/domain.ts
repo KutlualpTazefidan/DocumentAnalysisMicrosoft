@@ -22,6 +22,11 @@ export interface SegmentBox {
 export interface SegmentsFile {
   slug: string;
   boxes: SegmentBox[];
+  /** DPI at which the PDF was rasterized for YOLO inference. bbox coordinates
+   * are pixel-space at this DPI. To project onto a PDF.js viewport, multiply
+   * bbox by (pdfjsScale * 72 / raster_dpi). Defaults to 144 if absent (legacy
+   * pre-2026-05 segment files lacked the field; rasterization was always 144). */
+  raster_dpi?: number;
 }
 
 export interface DocMeta {

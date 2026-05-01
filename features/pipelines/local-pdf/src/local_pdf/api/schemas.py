@@ -91,6 +91,11 @@ class SegmentsFile(BaseModel):
     model_config = ConfigDict(frozen=True)
     slug: str
     boxes: list[SegmentBox]
+    # DPI at which PDFs were rasterized for YOLO inference. bbox coordinates in
+    # `boxes` are pixel-space at this DPI. Frontend computes the on-screen
+    # placement as bbox * (pdfjs_viewport_scale * 72 / raster_dpi) so the
+    # 144-DPI default doesn't leak into client code.
+    raster_dpi: int = 144
 
 
 class DocMeta(BaseModel):
