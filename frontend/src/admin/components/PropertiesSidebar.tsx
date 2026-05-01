@@ -2,7 +2,7 @@ import type { BoxKind, SegmentBox } from "../types/domain";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Pagination } from "./Pagination";
 
-const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "discard"];
+const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "abandon", "discard"];
 
 interface Props {
   selected: SegmentBox | null;

@@ -9,6 +9,7 @@ const KINDS: { kind: string; color: string }[] = [
   { kind: "caption", color: "#9333ea" },
   { kind: "formula", color: "#db2777" },
   { kind: "list_item", color: "#4f46e5" },
+  { kind: "abandon", color: "#06b6d4" },
   { kind: "discard", color: "#6b7280" },
 ];
 
