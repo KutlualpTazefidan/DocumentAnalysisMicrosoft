@@ -2,24 +2,24 @@ import { apiFetch } from "./client";
 import type { DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {
-  const r = await apiFetch("/api/docs", token);
+  const r = await apiFetch("/api/admin/docs", token);
   return r.json();
 }
 
 export async function uploadDoc(file: File, token: string): Promise<DocMeta> {
   const fd = new FormData();
   fd.set("file", file);
-  const r = await apiFetch("/api/docs", token, { method: "POST", body: fd });
+  const r = await apiFetch("/api/admin/docs", token, { method: "POST", body: fd });
   return r.json();
 }
 
 export async function getDoc(slug: string, token: string): Promise<DocMeta> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}`, token);
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}`, token);
   return r.json();
 }
 
 export async function getSegments(slug: string, token: string): Promise<SegmentsFile> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/segments`, token);
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments`, token);
   return r.json();
 }
 
@@ -30,7 +30,7 @@ export async function updateBox(
   token: string,
 ): Promise<SegmentBox> {
   const r = await apiFetch(
-    `/api/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}`,
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}`,
     token,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) },
   );
@@ -39,7 +39,7 @@ export async function updateBox(
 
 export async function deleteBox(slug: string, boxId: string, token: string): Promise<SegmentBox> {
   const r = await apiFetch(
-    `/api/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}`,
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}`,
     token,
     { method: "DELETE" },
   );
@@ -47,7 +47,7 @@ export async function deleteBox(slug: string, boxId: string, token: string): Pro
 }
 
 export async function mergeBoxes(slug: string, boxIds: string[], token: string): Promise<SegmentBox> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/segments/merge`, token, {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments/merge`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ box_ids: boxIds }),
@@ -56,7 +56,7 @@ export async function mergeBoxes(slug: string, boxIds: string[], token: string):
 }
 
 export async function splitBox(slug: string, boxId: string, splitY: number, token: string): Promise<{ top: SegmentBox; bottom: SegmentBox }> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/segments/split`, token, {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments/split`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ box_id: boxId, split_y: splitY }),
@@ -65,7 +65,7 @@ export async function splitBox(slug: string, boxId: string, splitY: number, toke
 }
 
 export async function createBox(slug: string, page: number, bbox: [number, number, number, number], kind: BoxKind, token: string): Promise<SegmentBox> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/segments`, token, {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ page, bbox, kind }),
@@ -74,13 +74,13 @@ export async function createBox(slug: string, page: number, bbox: [number, numbe
 }
 
 export async function getHtml(slug: string, token: string): Promise<string> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/html`, token);
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token);
   const j = (await r.json()) as { html: string };
   return j.html;
 }
 
 export async function putHtml(slug: string, html: string, token: string): Promise<void> {
-  await apiFetch(`/api/docs/${encodeURIComponent(slug)}/html`, token, {
+  await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ html }),
@@ -88,12 +88,12 @@ export async function putHtml(slug: string, html: string, token: string): Promis
 }
 
 export async function exportSourceElements(slug: string, token: string): Promise<SourceElementsPayload> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/export`, token, { method: "POST" });
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/export`, token, { method: "POST" });
   return r.json();
 }
 
 export async function extractRegion(slug: string, boxId: string, token: string): Promise<{ box_id: string; html: string }> {
-  const r = await apiFetch(`/api/docs/${encodeURIComponent(slug)}/extract/region`, token, {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/extract/region`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ box_id: boxId }),

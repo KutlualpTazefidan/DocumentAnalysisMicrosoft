@@ -6,21 +6,21 @@ import { http, HttpResponse } from "msw";
 import { listDocs, uploadDoc, getDoc, getSegments, updateBox } from "../../../src/local-pdf/api/docs";
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/docs", () =>
+  http.get("http://127.0.0.1:8001/api/admin/docs", () =>
     HttpResponse.json([
       { slug: "rep", filename: "Rep.pdf", pages: 4, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 },
     ]),
   ),
-  http.get("http://127.0.0.1:8001/api/docs/rep", () =>
+  http.get("http://127.0.0.1:8001/api/admin/docs/rep", () =>
     HttpResponse.json({ slug: "rep", filename: "Rep.pdf", pages: 4, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 }),
   ),
-  http.get("http://127.0.0.1:8001/api/docs/rep/segments", () =>
+  http.get("http://127.0.0.1:8001/api/admin/docs/rep/segments", () =>
     HttpResponse.json({ slug: "rep", boxes: [{ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.9, reading_order: 0 }] }),
   ),
-  http.put("http://127.0.0.1:8001/api/docs/rep/segments/p1-b0", () =>
+  http.put("http://127.0.0.1:8001/api/admin/docs/rep/segments/p1-b0", () =>
     HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "paragraph", confidence: 0.9, reading_order: 0 }),
   ),
-  http.post("http://127.0.0.1:8001/api/docs", () =>
+  http.post("http://127.0.0.1:8001/api/admin/docs", () =>
     HttpResponse.json({ slug: "new", filename: "New.pdf", pages: 1, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 }, { status: 201 }),
   ),
 );
