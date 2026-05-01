@@ -21,7 +21,7 @@ export function HtmlEditor({ html, onChange, onClickElement }: Props): JSX.Eleme
     extensions: [StarterKit],
     content: html,
     editorProps: {
-      handleClick(view, _pos, evt) {
+      handleClick(_view, _pos, evt) {
         const t = evt.target as HTMLElement;
         const el = t.closest("[data-source-box]") as HTMLElement | null;
         if (el) {
@@ -38,7 +38,7 @@ export function HtmlEditor({ html, onChange, onClickElement }: Props): JSX.Eleme
 
   useEffect(() => {
     if (mode !== "raw" || !cmHostRef.current) return;
-    const view = new EditorView({
+    const cmView = new EditorView({
       state: EditorState.create({
         doc: html,
         extensions: [keymap.of(defaultKeymap), htmlLang(), EditorView.updateListener.of((v) => {
@@ -47,9 +47,9 @@ export function HtmlEditor({ html, onChange, onClickElement }: Props): JSX.Eleme
       }),
       parent: cmHostRef.current,
     });
-    cmRef.current = view;
+    cmRef.current = cmView;
     return () => {
-      view.destroy();
+      cmView.destroy();
       cmRef.current = null;
     };
   }, [mode, html, onChange]);

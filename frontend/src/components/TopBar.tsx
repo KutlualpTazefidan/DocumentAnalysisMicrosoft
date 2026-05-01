@@ -18,6 +18,9 @@ export function TopBar() {
           <Link to="/docs" className="font-semibold text-slate-900">
             Goldens
           </Link>
+          <Link to="/local-pdf/inbox" className="px-3 py-1 text-sm hover:underline">
+            Local PDF
+          </Link>
           {slug ? (
             <>
               <span className="text-slate-400">/</span>

@@ -1,5 +1,5 @@
 // frontend/src/local-pdf/components/BoxOverlay.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SegmentBox } from "../types/domain";
 import "../styles/box-colors.css";
 

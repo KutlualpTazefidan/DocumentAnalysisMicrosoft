@@ -4,6 +4,9 @@ import { Login } from "./routes/login";
 import { DocsIndex } from "./routes/docs-index";
 import { DocElements } from "./routes/doc-elements";
 import { DocSynthesise } from "./routes/doc-synthesise";
+import { ExtractRoute } from "./local-pdf/routes/extract";
+import { InboxRoute } from "./local-pdf/routes/inbox";
+import { SegmentRoute } from "./local-pdf/routes/segment";
 
 function RequireAuth() {
   const { token } = useAuth();
@@ -15,6 +18,8 @@ function RequireAuth() {
 }
 
 export function App() {
+  const { token } = useAuth();
+
   return (
     <div className="min-h-screen">
       <Routes>
@@ -34,6 +39,9 @@ export function App() {
             path="/docs/:slug/synthesise"
             element={<DocSynthesise />}
           />
+          <Route path="/local-pdf/inbox" element={<InboxRoute token={token!} />} />
+          <Route path="/local-pdf/doc/:slug/segment" element={<SegmentRoute token={token!} />} />
+          <Route path="/local-pdf/doc/:slug/extract" element={<ExtractRoute token={token!} />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

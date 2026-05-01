@@ -8,7 +8,7 @@ vi.mock("pdfjs-dist/build/pdf.mjs", () => ({
   getDocument: vi.fn(() => ({
     promise: Promise.resolve({
       numPages: 3,
-      getPage: vi.fn(async (n: number) => ({
+      getPage: vi.fn(async (_pageNumber: number) => ({
         getViewport: ({ scale }: { scale: number }) => ({ width: 100 * scale, height: 200 * scale }),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
       })),
