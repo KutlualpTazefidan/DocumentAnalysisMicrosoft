@@ -28,4 +28,18 @@ describe("AdminShell", () => {
     }));
     // Re-import to pick up mock; minimal smoke for redirect path
   });
+
+  it("wraps Outlet in motion element", () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={["/admin/inbox"]}>
+        <Routes>
+          <Route path="/admin/*" element={<AdminShell />}>
+            <Route path="inbox" element={<div>inbox content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+    const motion = container.querySelector("[data-shell-motion]");
+    expect(motion).not.toBeNull();
+  });
 });
