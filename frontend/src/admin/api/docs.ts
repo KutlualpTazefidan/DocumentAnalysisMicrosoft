@@ -120,3 +120,23 @@ export async function createCurator(name: string, token: string): Promise<Curato
 export async function revokeCurator(id: string, token: string): Promise<void> {
   await apiFetch(`/api/admin/curators/${encodeURIComponent(id)}`, token, { method: "DELETE" });
 }
+
+export async function listDocCurators(slug: string, token: string): Promise<CuratorRecord[]> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/curators`, token);
+  return r.json();
+}
+
+export async function assignCurator(slug: string, curatorId: string, token: string): Promise<CuratorRecord> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/curators`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ curator_id: curatorId }),
+  });
+  return r.json();
+}
+
+export async function unassignCurator(slug: string, curatorId: string, token: string): Promise<void> {
+  await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/curators/${encodeURIComponent(curatorId)}`, token, {
+    method: "DELETE",
+  });
+}
