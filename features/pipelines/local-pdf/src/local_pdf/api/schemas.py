@@ -3,9 +3,45 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Re-export the worker event surface — the NDJSON streaming endpoints emit
+# these directly. See `local_pdf.workers.base` for the source-of-truth.
+from local_pdf.workers.base import (
+    ModelLoadedEvent,
+    ModelLoadingEvent,
+    ModelUnloadedEvent,
+    ModelUnloadingEvent,
+    WorkCompleteEvent,
+    WorkerEventUnion,
+    WorkFailedEvent,
+    WorkProgressEvent,
+)
+
+__all__ = [
+    "BoxKind",
+    "CreateBoxRequest",
+    "DocMeta",
+    "DocStatus",
+    "ExtractRegionRequest",
+    "HealthResponse",
+    "HtmlPayload",
+    "MergeBoxesRequest",
+    "ModelLoadedEvent",
+    "ModelLoadingEvent",
+    "ModelUnloadedEvent",
+    "ModelUnloadingEvent",
+    "SegmentBox",
+    "SegmentsFile",
+    "SplitBoxRequest",
+    "UpdateBoxRequest",
+    "WorkCompleteEvent",
+    "WorkFailedEvent",
+    "WorkProgressEvent",
+    "WorkerEventUnion",
+]
 
 
 class BoxKind(StrEnum):
@@ -106,69 +142,3 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
     status: Literal["ok"] = "ok"
     data_root: str
-
-
-# ── Streaming NDJSON line types ────────────────────────────────────────
-
-
-class SegmentStartLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["start"] = "start"
-    total_pages: int
-
-
-class SegmentPageLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["page"] = "page"
-    page: int
-    boxes_found: int
-
-
-class SegmentCompleteLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["complete"] = "complete"
-    boxes_total: int
-
-
-class SegmentErrorLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["error"] = "error"
-    reason: str
-
-
-SegmentLine = Annotated[
-    SegmentStartLine | SegmentPageLine | SegmentCompleteLine | SegmentErrorLine,
-    Field(discriminator="type"),
-]
-
-
-class ExtractStartLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["start"] = "start"
-    total_boxes: int
-
-
-class ExtractElementLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["element"] = "element"
-    box_id: str
-    html_snippet: str
-
-
-class ExtractCompleteLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["complete"] = "complete"
-    boxes_extracted: int
-
-
-class ExtractErrorLine(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    type: Literal["error"] = "error"
-    box_id: str | None = None
-    reason: str
-
-
-ExtractLine = Annotated[
-    ExtractStartLine | ExtractElementLine | ExtractCompleteLine | ExtractErrorLine,
-    Field(discriminator="type"),
-]

@@ -18,6 +18,20 @@ vi.mock("../../../src/local-pdf/hooks/usePdfPage", () => ({
   }),
 }));
 
+const SEGMENT_NDJSON = [
+  { type: "model-loading", model: "DocLayout-YOLO", timestamp_ms: 1, source: "/w", vram_estimate_mb: 700 },
+  { type: "model-loaded", model: "DocLayout-YOLO", timestamp_ms: 2, vram_actual_mb: 612, load_seconds: 1.0 },
+  {
+    type: "work-progress", model: "DocLayout-YOLO", timestamp_ms: 3, stage: "page",
+    current: 1, total: 1, eta_seconds: null, throughput_per_sec: null, vram_current_mb: 612,
+  },
+  { type: "work-complete", model: "DocLayout-YOLO", timestamp_ms: 4, total_seconds: 1.0, items_processed: 2, output_summary: { pages: 1 } },
+  { type: "model-unloading", model: "DocLayout-YOLO", timestamp_ms: 5 },
+  { type: "model-unloaded", model: "DocLayout-YOLO", timestamp_ms: 6, vram_freed_mb: 612 },
+]
+  .map((l) => JSON.stringify(l))
+  .join("\n");
+
 const server = setupServer(
   http.get("http://127.0.0.1:8001/api/docs/rep/segments", () =>
     HttpResponse.json({
@@ -30,6 +44,9 @@ const server = setupServer(
   ),
   http.put("http://127.0.0.1:8001/api/docs/rep/segments/p1-b0", () =>
     HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "list_item", confidence: 0.95, reading_order: 0 }),
+  ),
+  http.post("http://127.0.0.1:8001/api/docs/rep/segment", () =>
+    new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
 );
 
@@ -63,9 +80,14 @@ describe("SegmentRoute", () => {
     fireEvent.click(screen.getByTestId("box-p1-b0"));
     fireEvent.keyDown(window, { key: "l" });
     await waitFor(() => {
-      // optimistic: properties sidebar shows updated kind once invalidate refetches
       const select = screen.getByDisplayValue("list_item") as HTMLSelectElement;
       expect(select).toBeInTheDocument();
     });
+  });
+
+  it("StageIndicator is not present until segmentation runs", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
   });
 });

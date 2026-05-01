@@ -33,18 +33,6 @@ export interface DocMeta {
   box_count: number;
 }
 
-export type ExtractLine =
-  | { type: "start"; total_boxes: number }
-  | { type: "element"; box_id: string; html_snippet: string }
-  | { type: "complete"; boxes_extracted: number }
-  | { type: "error"; box_id?: string; reason: string };
-
-export type SegmentLine =
-  | { type: "start"; total_pages: number }
-  | { type: "page"; page: number; boxes_found: number }
-  | { type: "complete"; boxes_total: number }
-  | { type: "error"; reason: string };
-
 export interface SourceElementsPayload {
   doc_slug: string;
   source_pipeline: "local-pdf";
@@ -57,3 +45,65 @@ export interface SourceElementsPayload {
     level?: number;
   }>;
 }
+
+// ── Worker lifecycle events (mirrors local_pdf.workers.base) ──────────────
+
+interface _WorkerEventBase {
+  model: string;
+  timestamp_ms: number;
+}
+
+export interface ModelLoadingEvent extends _WorkerEventBase {
+  type: "model-loading";
+  source: string;
+  vram_estimate_mb: number;
+}
+
+export interface ModelLoadedEvent extends _WorkerEventBase {
+  type: "model-loaded";
+  vram_actual_mb: number;
+  load_seconds: number;
+}
+
+export interface WorkProgressEvent extends _WorkerEventBase {
+  type: "work-progress";
+  stage: string;
+  current: number;
+  total: number;
+  eta_seconds: number | null;
+  throughput_per_sec: number | null;
+  vram_current_mb: number;
+}
+
+export interface ModelUnloadingEvent extends _WorkerEventBase {
+  type: "model-unloading";
+}
+
+export interface ModelUnloadedEvent extends _WorkerEventBase {
+  type: "model-unloaded";
+  vram_freed_mb: number;
+}
+
+export interface WorkCompleteEvent extends _WorkerEventBase {
+  type: "work-complete";
+  total_seconds: number;
+  items_processed: number;
+  output_summary: Record<string, unknown>;
+}
+
+export interface WorkFailedEvent extends _WorkerEventBase {
+  type: "work-failed";
+  stage: "load" | "run" | "unload";
+  reason: string;
+  recoverable: boolean;
+  hint: string | null;
+}
+
+export type WorkerEvent =
+  | ModelLoadingEvent
+  | ModelLoadedEvent
+  | WorkProgressEvent
+  | ModelUnloadingEvent
+  | ModelUnloadedEvent
+  | WorkCompleteEvent
+  | WorkFailedEvent;

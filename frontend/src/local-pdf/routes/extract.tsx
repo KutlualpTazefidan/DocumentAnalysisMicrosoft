@@ -1,16 +1,23 @@
 // frontend/src/local-pdf/routes/extract.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
 import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
+import { StageIndicator } from "../components/StageIndicator";
 import { useSegments } from "../hooks/useSegments";
 import { streamExtract, useExportSourceElements, useExtractRegion, useHtml, usePutHtml } from "../hooks/useExtract";
+import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
+import type { WorkerEvent } from "../types/domain";
 
 interface Props {
   token: string;
+}
+
+function reducer(state: StreamState, ev: WorkerEvent): StreamState {
+  return applyEvent(state, ev);
 }
 
 export function ExtractRoute({ token }: Props): JSX.Element {
@@ -24,6 +31,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const debounceRef = useRef<number | null>(null);
+  const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
 
   function handleHtmlChange(next: string) {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -39,9 +47,10 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   async function runExtract() {
     setRunning(true);
     try {
-      for await (const line of streamExtract(slug!, token)) {
-        if (line.type === "complete") toast.success(`extracted ${line.boxes_extracted} boxes`);
-        if (line.type === "error") toast.error(line.reason);
+      for await (const ev of streamExtract(slug!, token)) {
+        dispatch(ev);
+        if (ev.type === "work-complete") toast.success(`extracted ${ev.items_processed} boxes`);
+        if (ev.type === "work-failed") toast.error(ev.reason);
       }
       await html.refetch();
     } finally {
@@ -73,16 +82,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   if (!html.data) {
     return (
-      <div className="p-6">
+      <div className="p-6 relative">
         <button className="bg-blue-600 text-white px-3 py-1 rounded" onClick={runExtract} disabled={running}>
           {running ? "Extracting…" : "Run extraction"}
         </button>
+        <StageIndicator state={streamState} />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
       <section className="w-1/2 overflow-auto p-2 border-r">
         <PdfPage slug={slug!} token={token} page={page} scale={1.2}>
           {boxesOnPage.map((b) => (
@@ -105,6 +115,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         </div>
         <HtmlEditor html={html.data} onChange={handleHtmlChange} onClickElement={handleClickElement} />
       </section>
+      <StageIndicator state={streamState} />
     </div>
   );
 }
