@@ -22,6 +22,8 @@ interface Props {
   onDeactivate: () => void;
   onActivate: () => void;
   onResetBox: () => void;
+  onMergeUp: () => void;
+  onMergeDown: () => void;
   onPageChange: (page: number) => void;
 }
 
@@ -43,6 +45,8 @@ export function PropertiesSidebar({
   onDeactivate,
   onActivate,
   onResetBox,
+  onMergeUp,
+  onMergeDown,
   onPageChange,
 }: Props): JSX.Element {
   return (
@@ -181,6 +185,26 @@ export function PropertiesSidebar({
                   y1: {selected.bbox[3].toFixed(3)}
                 </div>
               </div>
+            </div>
+
+            {/* Action row: Merge up (left) | Merge down (right) */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                aria-label="Merge up"
+                disabled={currentPage <= 1 || !!selected.continues_from}
+                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={onMergeUp}
+              >
+                Merge up
+              </button>
+              <button
+                aria-label="Merge down"
+                disabled={currentPage >= totalPages || !!selected.continues_to}
+                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={onMergeDown}
+              >
+                Merge down
+              </button>
             </div>
 
             {/* Action row: Deactivate (left) | Activate (right) */}

@@ -45,6 +45,11 @@ const BOXES = [
   { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1, manually_activated: false },
 ];
 
+// Boxes with cross-page link set
+const BOXES_WITH_CONTINUES_TO = [
+  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0, manually_activated: false, continues_to: "p2-b0" },
+];
+
 const server = setupServer(
   http.get("*/api/admin/docs/rep", () =>
     HttpResponse.json({ slug: "rep", filename: "Rep.pdf", pages: 5, status: "raw", last_touched_utc: "2026-01-01T00:00:00Z", box_count: 2 }),
@@ -70,6 +75,12 @@ const server = setupServer(
   ),
   http.post("*/api/admin/docs/rep/segments/p1-b0/reset", () =>
     HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0, manually_activated: false }),
+  ),
+  http.post("*/api/admin/docs/rep/segments/p1-b0/merge-down", () =>
+    HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES[0], continues_to: "p2-b0" }] }),
+  ),
+  http.post("*/api/admin/docs/rep/segments/p1-b0/merge-up", () =>
+    HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES[0], continues_from: "p0-b0" }] }),
   ),
 );
 
@@ -324,5 +335,54 @@ describe("SegmentRoute", () => {
     fireEvent.click(screen.getByLabelText("Activate"));
     await waitFor(() => expect(putBodies.length).toBeGreaterThanOrEqual(1));
     expect(putBodies[0]).toMatchObject({ manually_activated: true });
+  });
+
+  it("Merge up button is disabled on page 1", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    fireEvent.click(screen.getByTestId("box-p1-b0"));
+    await waitFor(() => screen.getByLabelText("Merge up"));
+    expect(screen.getByLabelText("Merge up")).toBeDisabled();
+  });
+
+  it("Merge down button is enabled on page 1 (not last page) when no continues_to", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // page 1 of 5 — Merge down should be enabled when box has no continues_to
+    fireEvent.click(screen.getByTestId("box-p1-b0"));
+    await waitFor(() => screen.getByLabelText("Merge down"));
+    expect(screen.getByLabelText("Merge down")).not.toBeDisabled();
+  });
+
+  it("click merge-down dispatches POST to the right URL", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/api/admin/docs/rep/segments/:boxId/merge-down", ({ params }) => {
+        calls.push(params.boxId as string);
+        return HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES[0], continues_to: "p2-b0" }] });
+      }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    fireEvent.click(screen.getByTestId("box-p1-b0"));
+    await waitFor(() => screen.getByLabelText("Merge down"));
+    // On page 1 (not last page), Merge down should be enabled
+    const mergeDownBtn = screen.getByLabelText("Merge down");
+    expect(mergeDownBtn).not.toBeDisabled();
+    fireEvent.click(mergeDownBtn);
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    expect(calls[0]).toBe("p1-b0");
+  });
+
+  it("box with continues_to renders the down indicator", async () => {
+    server.use(
+      http.get("*/api/admin/docs/rep/segments", () =>
+        HttpResponse.json({ slug: "rep", boxes: BOXES_WITH_CONTINUES_TO }),
+      ),
+    );
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    expect(screen.getByTestId("continues-to-indicator-p1-b0")).toBeInTheDocument();
   });
 });

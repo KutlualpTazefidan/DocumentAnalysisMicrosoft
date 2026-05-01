@@ -19,6 +19,8 @@ export interface SegmentBox {
   confidence: number;
   reading_order: number;
   manually_activated: boolean;
+  continues_from?: string | null;
+  continues_to?: string | null;
 }
 
 export interface SegmentsFile {

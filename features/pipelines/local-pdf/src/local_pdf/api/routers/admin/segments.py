@@ -304,8 +304,60 @@ async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
                     "kind": BoxKind(orig["kind"]),
                     "confidence": orig["confidence"],
                     "manually_activated": False,
+                    "continues_from": None,
+                    "continues_to": None,
                 }
             )
             _replace_segments(cfg.data_root, slug, boxes)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+
+
+@router.post("/api/admin/docs/{slug}/segments/{box_id}/merge-down")
+async def merge_down(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+    """Link source box to the topmost non-discard box on the next page."""
+    cfg = request.app.state.config
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
+    if box_id not in by_id:
+        raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+    src_idx, src = by_id[box_id]
+    if src.continues_to is not None:
+        raise HTTPException(status_code=409, detail="already linked downwards")
+    next_page_candidates = [
+        b for b in boxes if b.page == src.page + 1 and b.kind != BoxKind.discard
+    ]
+    if not next_page_candidates:
+        raise HTTPException(status_code=409, detail="no box on next page to merge with")
+    target = min(next_page_candidates, key=lambda b: b.bbox[1])
+    tgt_idx, _ = by_id[target.box_id]
+    boxes[src_idx] = src.model_copy(update={"continues_to": target.box_id})
+    boxes[tgt_idx] = target.model_copy(update={"continues_from": box_id})
+    _replace_segments(cfg.data_root, slug, boxes)
+    seg = read_segments(cfg.data_root, slug)
+    return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
+
+
+@router.post("/api/admin/docs/{slug}/segments/{box_id}/merge-up")
+async def merge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+    """Link source box to the bottommost non-discard box on the previous page."""
+    cfg = request.app.state.config
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
+    if box_id not in by_id:
+        raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+    src_idx, src = by_id[box_id]
+    if src.continues_from is not None:
+        raise HTTPException(status_code=409, detail="already linked upwards")
+    prev_page_candidates = [
+        b for b in boxes if b.page == src.page - 1 and b.kind != BoxKind.discard
+    ]
+    if not prev_page_candidates:
+        raise HTTPException(status_code=409, detail="no box on previous page to merge with")
+    target = max(prev_page_candidates, key=lambda b: b.bbox[3])
+    tgt_idx, _ = by_id[target.box_id]
+    boxes[src_idx] = src.model_copy(update={"continues_from": target.box_id})
+    boxes[tgt_idx] = target.model_copy(update={"continues_to": box_id})
+    _replace_segments(cfg.data_root, slug, boxes)
+    seg = read_segments(cfg.data_root, slug)
+    return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]

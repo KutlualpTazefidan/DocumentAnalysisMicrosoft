@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createBox, deleteBox, getSegments, mergeBoxes, resetBox, resetPage, splitBox, updateBox } from "../api/docs";
+import { createBox, deleteBox, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, resetBox, resetPage, splitBox, updateBox } from "../api/docs";
 import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
 
 export function useSegments(slug: string, token: string) {
@@ -65,6 +65,22 @@ export function useResetBox(slug: string, token: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (boxId: string) => resetBox(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useMergeBoxDown(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => mergeBoxDown(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useMergeBoxUp(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => mergeBoxUp(slug, boxId, token),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
   });
 }

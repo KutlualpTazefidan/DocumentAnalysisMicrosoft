@@ -70,6 +70,24 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       <span className="box-label">
         {box.kind} · {box.confidence.toFixed(2)}
       </span>
+      {box.continues_from && (
+        <span
+          data-testid={`continues-from-indicator-${box.box_id}`}
+          className="absolute top-0 right-0 text-xs text-white bg-slate-700 px-1 rounded"
+          style={{ fontSize: "0.65rem" }}
+        >
+          ↑ p{box.page - 1}
+        </span>
+      )}
+      {box.continues_to && (
+        <span
+          data-testid={`continues-to-indicator-${box.box_id}`}
+          className="absolute bottom-0 right-0 text-xs text-white bg-slate-700 px-1 rounded"
+          style={{ fontSize: "0.65rem" }}
+        >
+          ↓ p{box.page + 1}
+        </span>
+      )}
       {selected && (
         <>
           <div data-testid="handle-tl" className="box-handle" style={{ left: -5, top: -5 }} onMouseDown={(e) => startDrag("tl", e)} />

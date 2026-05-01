@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PropertiesSidebar } from "../../src/admin/components/PropertiesSidebar";
+import type { SegmentBox } from "../../src/admin/types/domain";
 
 describe("PropertiesSidebar arrow buttons", () => {
   const defaultProps = {
@@ -22,6 +23,8 @@ describe("PropertiesSidebar arrow buttons", () => {
     onDeactivate: vi.fn(),
     onActivate: vi.fn(),
     onResetBox: vi.fn(),
+    onMergeUp: vi.fn(),
+    onMergeDown: vi.fn(),
     onPageChange: vi.fn(),
   };
 
@@ -61,5 +64,91 @@ describe("PropertiesSidebar arrow buttons", () => {
     await userEvent.click(nextButton!);
 
     expect(onPageChange).toHaveBeenCalledWith(6);
+  });
+});
+
+describe("PropertiesSidebar merge buttons", () => {
+  const selectedBox: SegmentBox = {
+    box_id: "p3-x",
+    page: 3,
+    bbox: [0, 0, 100, 50],
+    kind: "paragraph",
+    confidence: 0.9,
+    reading_order: 0,
+    manually_activated: false,
+    continues_from: null,
+    continues_to: null,
+  };
+
+  const baseProps = {
+    selected: selectedBox,
+    pageBoxCount: 1,
+    currentPage: 3,
+    totalPages: 5,
+    confidenceThreshold: 0.7,
+    showDeactivated: false,
+    onConfidenceChange: vi.fn(),
+    onShowDeactivatedChange: vi.fn(),
+    onRunExtractThisPage: vi.fn(),
+    onResetPage: vi.fn(),
+    extractEnabled: true,
+    running: false,
+    onChangeKind: vi.fn(),
+    onNewBox: vi.fn(),
+    onDeactivate: vi.fn(),
+    onActivate: vi.fn(),
+    onResetBox: vi.fn(),
+    onMergeUp: vi.fn(),
+    onMergeDown: vi.fn(),
+    onPageChange: vi.fn(),
+  };
+
+  it("Merge up disabled when on page 1", () => {
+    render(
+      <PropertiesSidebar
+        {...baseProps}
+        selected={{ ...selectedBox, page: 1 }}
+        currentPage={1}
+      />,
+    );
+    expect(screen.getByLabelText("Merge up")).toBeDisabled();
+  });
+
+  it("Merge down disabled when on last page", () => {
+    render(
+      <PropertiesSidebar
+        {...baseProps}
+        selected={{ ...selectedBox, page: 5 }}
+        currentPage={5}
+        totalPages={5}
+      />,
+    );
+    expect(screen.getByLabelText("Merge down")).toBeDisabled();
+  });
+
+  it("Merge up disabled when continues_from already set", () => {
+    render(
+      <PropertiesSidebar
+        {...baseProps}
+        selected={{ ...selectedBox, continues_from: "p2-abc" }}
+      />,
+    );
+    expect(screen.getByLabelText("Merge up")).toBeDisabled();
+  });
+
+  it("Merge down disabled when continues_to already set", () => {
+    render(
+      <PropertiesSidebar
+        {...baseProps}
+        selected={{ ...selectedBox, continues_to: "p4-abc" }}
+      />,
+    );
+    expect(screen.getByLabelText("Merge down")).toBeDisabled();
+  });
+
+  it("Both merge buttons enabled on a middle page with no links", () => {
+    render(<PropertiesSidebar {...baseProps} />);
+    expect(screen.getByLabelText("Merge up")).not.toBeDisabled();
+    expect(screen.getByLabelText("Merge down")).not.toBeDisabled();
   });
 });

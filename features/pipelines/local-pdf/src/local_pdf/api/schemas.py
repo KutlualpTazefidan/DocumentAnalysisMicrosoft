@@ -83,6 +83,8 @@ class SegmentBox(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     reading_order: int = 0
     manually_activated: bool = False
+    continues_from: str | None = None  # box_id on previous page that this is continuation of
+    continues_to: str | None = None  # box_id on next page that continues this
 
     @field_validator("box_id", mode="after")
     @classmethod

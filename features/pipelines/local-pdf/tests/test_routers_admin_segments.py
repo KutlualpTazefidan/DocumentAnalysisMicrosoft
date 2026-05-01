@@ -261,3 +261,239 @@ def test_reset_box_restores_manually_activated_false(client_with_yolo) -> None:
     )
     assert r.status_code == 200
     assert r.json()["manually_activated"] is False
+
+
+# ── merge-down / merge-up tests ───────────────────────────────────────────────
+
+
+@pytest.fixture
+def client_two_pages(tmp_path, monkeypatch):
+    """Client seeded with 2 boxes on page 1 and 2 boxes on page 2."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    import io
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_segments
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    seg_boxes = [
+        SegmentBox(
+            box_id="p1-a",
+            page=1,
+            bbox=(0.0, 0.0, 100.0, 50.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+        ),
+        SegmentBox(
+            box_id="p1-b",
+            page=1,
+            bbox=(0.0, 60.0, 100.0, 120.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=1,
+        ),
+        SegmentBox(
+            box_id="p2-a",
+            page=2,
+            bbox=(0.0, 5.0, 100.0, 55.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+        ),
+        SegmentBox(
+            box_id="p2-b",
+            page=2,
+            bbox=(0.0, 60.0, 100.0, 120.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=1,
+        ),
+    ]
+    write_segments(root, "doc", SegmentsFile(slug="doc", boxes=seg_boxes))
+    return client
+
+
+def test_merge_down_links_source_and_target(client_two_pages) -> None:
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p1-b/merge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+    # source gets continues_to pointing to topmost box on page 2 (smallest y0 = 5.0 → p2-a)
+    assert boxes["p1-b"]["continues_to"] == "p2-a"
+    assert boxes["p2-a"]["continues_from"] == "p1-b"
+    # unrelated boxes untouched
+    assert boxes["p1-a"]["continues_to"] is None
+    assert boxes["p2-b"]["continues_from"] is None
+
+
+def test_merge_down_409_when_source_on_last_page(client_two_pages) -> None:
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p2-a/merge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 409
+    assert "no box on next page" in r.json()["detail"]
+
+
+def test_merge_down_409_when_next_page_all_discard(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    import io
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import BoxKind, SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_segments
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    seg_boxes = [
+        SegmentBox(
+            box_id="p1-a",
+            page=1,
+            bbox=(0.0, 0.0, 100.0, 50.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+        ),
+        SegmentBox(
+            box_id="p2-x",
+            page=2,
+            bbox=(0.0, 5.0, 100.0, 55.0),
+            kind=BoxKind.discard,
+            confidence=0.9,
+            reading_order=0,
+        ),
+    ]
+    write_segments(root, "doc", SegmentsFile(slug="doc", boxes=seg_boxes))
+    r = client.post("/api/admin/docs/doc/segments/p1-a/merge-down", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 409
+    assert "no box on next page" in r.json()["detail"]
+
+
+def test_merge_down_409_when_already_linked(client_two_pages) -> None:
+    # First merge
+    client_two_pages.post(
+        "/api/admin/docs/doc/segments/p1-b/merge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    # Second merge on same source must 409
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p1-b/merge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 409
+    assert "already linked" in r.json()["detail"]
+
+
+def test_merge_up_links_source_and_target(client_two_pages) -> None:
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p2-a/merge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+    # source gets continues_from pointing to bottommost box on page 1 (largest y1 = 120.0 → p1-b)
+    assert boxes["p2-a"]["continues_from"] == "p1-b"
+    assert boxes["p1-b"]["continues_to"] == "p2-a"
+
+
+def test_merge_up_409_when_source_on_first_page(client_two_pages) -> None:
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p1-a/merge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 409
+    assert "no box on previous page" in r.json()["detail"]
+
+
+def test_merge_up_409_when_already_linked(client_two_pages) -> None:
+    client_two_pages.post(
+        "/api/admin/docs/doc/segments/p2-a/merge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    r = client_two_pages.post(
+        "/api/admin/docs/doc/segments/p2-a/merge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 409
+    assert "already linked" in r.json()["detail"]
+
+
+def test_reset_box_clears_continues_fields(tmp_path, monkeypatch) -> None:
+    """Per-box reset must clear continues_from and continues_to."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    import io
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_segments, write_yolo
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    yolo_boxes = [
+        {
+            "box_id": "p1-a",
+            "page": 1,
+            "bbox": [0.0, 0.0, 100.0, 50.0],
+            "kind": "paragraph",
+            "confidence": 0.9,
+            "reading_order": 0,
+        },
+        {
+            "box_id": "p2-a",
+            "page": 2,
+            "bbox": [0.0, 5.0, 100.0, 55.0],
+            "kind": "paragraph",
+            "confidence": 0.9,
+            "reading_order": 0,
+        },
+    ]
+    write_yolo(root, "doc", {"boxes": yolo_boxes})
+
+    seg_boxes = [
+        SegmentBox(
+            box_id="p1-a",
+            page=1,
+            bbox=(0.0, 0.0, 100.0, 50.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+            continues_to="p2-a",
+        ),
+        SegmentBox(
+            box_id="p2-a",
+            page=2,
+            bbox=(0.0, 5.0, 100.0, 55.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+            continues_from="p1-a",
+        ),
+    ]
+    write_segments(root, "doc", SegmentsFile(slug="doc", boxes=seg_boxes))
+
+    r = client.post("/api/admin/docs/doc/segments/p1-a/reset", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    assert r.json()["continues_to"] is None
+    assert r.json()["continues_from"] is None

@@ -15,6 +15,8 @@ import {
   useCreateBox,
   useDeleteBox,
   useMergeBoxes,
+  useMergeBoxDown,
+  useMergeBoxUp,
   useResetBox,
   useResetPage,
   useSegments,
@@ -63,6 +65,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const del = useDeleteBox(slug ?? "", token);
   const resetPageMut = useResetPage(slug ?? "", token);
   const resetBoxMut = useResetBox(slug ?? "", token);
+  const mergeDownMut = useMergeBoxDown(slug ?? "", token);
+  const mergeUpMut = useMergeBoxUp(slug ?? "", token);
   const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
@@ -202,6 +206,28 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     }
   }
 
+  function handleMergeDown() {
+    if (focused) {
+      mergeDownMut.mutate(focused.box_id, {
+        onError: (e) => {
+          const msg = e instanceof Error ? e.message : "Merge down fehlgeschlagen";
+          error(msg);
+        },
+      });
+    }
+  }
+
+  function handleMergeUp() {
+    if (focused) {
+      mergeUpMut.mutate(focused.box_id, {
+        onError: (e) => {
+          const msg = e instanceof Error ? e.message : "Merge up fehlgeschlagen";
+          error(msg);
+        },
+      });
+    }
+  }
+
   useBoxHotkeys({
     enabled: !!focused,
     setKind: (k: BoxKind) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } }),
@@ -312,6 +338,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onDeactivate={handleDeactivate}
           onActivate={handleActivate}
           onResetBox={handleResetBox}
+          onMergeUp={handleMergeUp}
+          onMergeDown={handleMergeDown}
           onPageChange={setPage}
         />
       </div>
