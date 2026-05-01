@@ -7,6 +7,7 @@ import { useToast } from "../../shared/components/useToast";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
+import { DocStepTabs } from "../components/DocStepTabs";
 import { PdfPage } from "../components/PdfPage";
 import { PropertiesSidebar } from "../components/PropertiesSidebar";
 import { StageIndicator } from "../components/StageIndicator";
@@ -339,11 +340,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* RIGHT: Alle Seiten extrahieren */}
+      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+        <DocStepTabs slug={slug!} />
         <button
           aria-label="Alle Seiten extrahieren"
           className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
@@ -356,11 +354,11 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 
       {/* ── Content row ─────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
-        {/* Scrollable PDF canvas area — centered horizontally */}
-        <div className="flex-1 overflow-auto p-4 relative">
-          {/* Floating colour legend, top-left of the PDF pane */}
+        {/* PDF pane: non-scrolling wrapper holds floating widgets; inner div scrolls */}
+        <div className="flex-1 relative min-w-0">
+          {/* Floating colour legend, top-left — pinned to wrapper corners */}
           <BoxLegend />
-          {/* Floating zoom control, top-right of the PDF pane */}
+          {/* Floating zoom control, top-right — pinned to wrapper corners */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-1 bg-white/90 backdrop-blur border border-slate-300 rounded shadow-sm px-2 py-1">
             <button
               aria-label="Zoom out"
@@ -387,20 +385,23 @@ export function SegmentRoute({ token }: Props): JSX.Element {
               +
             </button>
           </div>
-          <div className="flex justify-center">
-            <PdfPage slug={slug!} token={token} page={page} scale={scale}>
-              {visibleBoxes.map((b) => (
-                <BoxOverlay
-                  key={b.box_id}
-                  box={b}
-                  selected={selected === b.box_id}
-                  deactivated={!activeBoxIds.has(b.box_id)}
-                  onSelect={handleSelect}
-                  onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
-                  scale={boxScale}
-                />
-              ))}
-            </PdfPage>
+          {/* Scrollable inner container — PDF content pans inside here */}
+          <div className="absolute inset-0 overflow-auto p-4">
+            <div className="flex justify-center">
+              <PdfPage slug={slug!} token={token} page={page} scale={scale}>
+                {visibleBoxes.map((b) => (
+                  <BoxOverlay
+                    key={b.box_id}
+                    box={b}
+                    selected={selected === b.box_id}
+                    deactivated={!activeBoxIds.has(b.box_id)}
+                    onSelect={handleSelect}
+                    onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
+                    scale={boxScale}
+                  />
+                ))}
+              </PdfPage>
+            </div>
           </div>
         </div>
 

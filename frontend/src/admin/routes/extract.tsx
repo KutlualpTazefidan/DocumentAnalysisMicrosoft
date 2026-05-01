@@ -5,6 +5,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
+import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
@@ -99,7 +100,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const boxScale = (pdfScale * 72) / rasterDpi;
 
   return (
-    <div className="flex h-full relative">
+    <div className="flex flex-col h-full">
+      {/* ── Top bar ─────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+        <DocStepTabs slug={slug!} />
+      </div>
+      <div className="flex flex-1 min-h-0 relative">
       <section className="w-1/2 overflow-auto p-2 border-r">
         <PdfPage slug={slug!} token={token} page={page} scale={pdfScale}>
           {boxesOnPage.map((b) => (
@@ -123,6 +129,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         <HtmlEditor html={html.data} onChange={handleHtmlChange} onClickElement={handleClickElement} />
       </section>
       <StageIndicator state={streamState} />
+      </div>
     </div>
   );
 }
