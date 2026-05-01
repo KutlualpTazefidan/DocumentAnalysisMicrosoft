@@ -1,6 +1,7 @@
-// frontend/src/local-pdf/routes/inbox.tsx
+// frontend/src/admin/routes/inbox.tsx
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { Plus } from "../../shared/icons";
 
@@ -98,5 +99,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
 }
 
 export function Inbox() {
-  return <div className="p-6">coming soon</div>;
+  const { token } = useAuth();
+  if (!token) return <div className="p-6">Not authorised.</div>;
+  return <InboxRoute token={token} />;
 }

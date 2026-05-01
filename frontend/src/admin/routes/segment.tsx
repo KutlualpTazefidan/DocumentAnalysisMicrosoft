@@ -1,6 +1,7 @@
-// frontend/src/local-pdf/routes/segment.tsx
+// frontend/src/admin/routes/segment.tsx
 import { useMemo, useReducer, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
@@ -138,5 +139,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 }
 
 export function Segment() {
-  return <div className="p-6">coming soon</div>;
+  const { token } = useAuth();
+  if (!token) return <div className="p-6">Not authorised.</div>;
+  return <SegmentRoute token={token} />;
 }

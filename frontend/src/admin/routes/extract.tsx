@@ -1,6 +1,7 @@
-// frontend/src/local-pdf/routes/extract.tsx
+// frontend/src/admin/routes/extract.tsx
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
@@ -127,5 +128,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 }
 
 export function Extract() {
-  return <div className="p-6">coming soon</div>;
+  const { token } = useAuth();
+  if (!token) return <div className="p-6">Not authorised.</div>;
+  return <ExtractRoute token={token} />;
 }
