@@ -23,6 +23,8 @@ from local_pdf.workers.base import (
 __all__ = [
     "BoxKind",
     "CreateBoxRequest",
+    "Curator",
+    "CuratorsFile",
     "DocMeta",
     "DocStatus",
     "ExtractRegionRequest",
@@ -142,3 +144,20 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
     status: Literal["ok"] = "ok"
     data_root: str
+
+
+class Curator(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: str
+    name: str
+    token_prefix: str
+    token_sha256: str
+    assigned_slugs: list[str] = Field(default_factory=list)
+    created_at: str
+    last_seen_at: str | None = None
+    active: bool = True
+
+
+class CuratorsFile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    curators: list[Curator] = Field(default_factory=list)
