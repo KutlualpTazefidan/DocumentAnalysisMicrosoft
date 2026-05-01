@@ -101,6 +101,16 @@ export async function extractRegion(slug: string, boxId: string, token: string):
   return r.json();
 }
 
+export async function publishDoc(slug: string, token: string): Promise<DocMeta> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/publish`, token, { method: "POST" });
+  return r.json();
+}
+
+export async function archiveDoc(slug: string, token: string): Promise<DocMeta> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/archive`, token, { method: "POST" });
+  return r.json();
+}
+
 // ── Curator API ───────────────────────────────────────────────────────────
 
 export async function listCurators(token: string): Promise<CuratorRecord[]> {

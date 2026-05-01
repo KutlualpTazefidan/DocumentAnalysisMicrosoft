@@ -8,7 +8,7 @@ export type BoxKind =
   | "list_item"
   | "discard";
 
-export type DocStatus = "raw" | "segmenting" | "extracting" | "done" | "needs_ocr";
+export type DocStatus = "raw" | "segmenting" | "extracting" | "extracted" | "synthesising" | "synthesised" | "open-for-curation" | "archived" | "done" | "needs_ocr";
 
 export interface SegmentBox {
   box_id: string;

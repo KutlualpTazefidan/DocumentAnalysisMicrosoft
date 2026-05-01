@@ -86,3 +86,35 @@ async def get_source_pdf(slug: str, request: Request) -> FileResponse:
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
     return FileResponse(str(pdf), media_type="application/pdf")
+
+
+@router.post("/api/admin/docs/{slug}/publish")
+async def publish_doc(slug: str, request: Request) -> dict[str, object]:
+    cfg = request.app.state.config
+    meta = read_meta(cfg.data_root, slug)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    new = meta.model_copy(
+        update={
+            "status": DocStatus.open_for_curation,
+            "last_touched_utc": _now_iso(),
+        }
+    )
+    write_meta(cfg.data_root, slug, new)
+    return new.model_dump(mode="json")  # type: ignore[no-any-return]
+
+
+@router.post("/api/admin/docs/{slug}/archive")
+async def archive_doc(slug: str, request: Request) -> dict[str, object]:
+    cfg = request.app.state.config
+    meta = read_meta(cfg.data_root, slug)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    new = meta.model_copy(
+        update={
+            "status": DocStatus.archived,
+            "last_touched_utc": _now_iso(),
+        }
+    )
+    write_meta(cfg.data_root, slug, new)
+    return new.model_dump(mode="json")  # type: ignore[no-any-return]

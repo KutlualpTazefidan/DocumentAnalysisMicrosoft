@@ -53,3 +53,28 @@ def test_admin_source_pdf(client) -> None:
     r = client.get("/api/admin/docs/spec/source.pdf", headers={"X-Auth-Token": "tok"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
+
+
+def test_publish_flips_status(client) -> None:
+    files = {"file": ("X.pdf", io.BytesIO(_pdf()), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    # set to extracted manually for the test
+    from local_pdf.api.schemas import DocStatus
+    from local_pdf.storage.sidecar import read_meta, write_meta
+
+    cfg_root = client.app.state.config.data_root
+    m = read_meta(cfg_root, "x")
+    write_meta(cfg_root, "x", m.model_copy(update={"status": DocStatus.extracted}))
+
+    r = client.post("/api/admin/docs/x/publish", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "open-for-curation"
+
+
+def test_archive_flips_status(client) -> None:
+    files = {"file": ("Y.pdf", io.BytesIO(_pdf()), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    r = client.post("/api/admin/docs/y/archive", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "archived"

@@ -14,7 +14,11 @@ const server = setupServer(
     HttpResponse.json([
       { slug: "rep", filename: "Rep.pdf", pages: 4, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 },
       { slug: "spec", filename: "Spec.pdf", pages: 12, status: "done", last_touched_utc: "2026-04-30T11:00:00Z", box_count: 35 },
+      { slug: "ext", filename: "Ext.pdf", pages: 3, status: "extracted", last_touched_utc: "2026-04-30T12:00:00Z", box_count: 10 },
     ]),
+  ),
+  http.post("http://127.0.0.1:8001/api/admin/docs/ext/publish", () =>
+    HttpResponse.json({ slug: "ext", filename: "Ext.pdf", pages: 3, status: "open-for-curation", last_touched_utc: "2026-04-30T13:00:00Z", box_count: 10 }),
   ),
 );
 
@@ -57,5 +61,18 @@ describe("InboxRoute", () => {
   it("renders Add PDF button", async () => {
     render(wrapped());
     expect(screen.getByRole("button", { name: /add pdf/i })).toBeInTheDocument();
+  });
+
+  it("shows Publish button for extracted docs", async () => {
+    render(wrapped());
+    await waitFor(() => expect(screen.getByText("Ext.pdf")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /publish/i })).toBeInTheDocument();
+  });
+
+  it("does not show Publish button for raw docs", async () => {
+    render(wrapped());
+    await waitFor(() => expect(screen.getByText("Rep.pdf")).toBeInTheDocument());
+    // only one Publish button (for ext, not rep or spec)
+    expect(screen.getAllByRole("button", { name: /publish/i })).toHaveLength(1);
   });
 });

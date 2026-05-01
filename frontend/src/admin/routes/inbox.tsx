@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { useToast } from "../../shared/components/useToast";
 import { Plus } from "../../shared/icons";
 
-import { useDocs, useUploadDoc } from "../hooks/useDocs";
+import { useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
 import { StatusBadge } from "../components/StatusBadge";
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
 export function InboxRoute({ token }: Props): JSX.Element {
   const docs = useDocs(token);
   const upload = useUploadDoc(token);
+  const publish = usePublishDoc(token);
   const fileRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
   const { success, error } = useToast();
@@ -71,10 +72,21 @@ export function InboxRoute({ token }: Props): JSX.Element {
               </td>
               <td className="p-2">{d.box_count}</td>
               <td className="p-2 text-xs text-gray-500">{d.last_touched_utc}</td>
-              <td className="p-2">
+              <td className="p-2 flex items-center gap-2">
                 <Link className="text-blue-600 underline" to={`/local-pdf/doc/${d.slug}/segment`}>
                   {d.status === "raw" ? "start" : d.status === "done" ? "view" : "resume"}
                 </Link>
+                {(d.status === "extracted" || d.status === "synthesised") && (
+                  <button
+                    className="text-xs bg-green-600 text-white px-2 py-0.5 rounded"
+                    onClick={() => publish.mutate(d.slug, {
+                      onSuccess: () => success(`published ${d.slug}`),
+                      onError: (err) => error(`publish failed: ${(err as Error).message}`),
+                    })}
+                  >
+                    Publish
+                  </button>
+                )}
               </td>
             </tr>
           ))}

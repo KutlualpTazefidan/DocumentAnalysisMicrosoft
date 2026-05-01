@@ -6,6 +6,11 @@ const COLORS: Record<DocStatus, string> = {
   raw: "bg-gray-200 text-gray-800",
   segmenting: "bg-amber-200 text-amber-900",
   extracting: "bg-blue-200 text-blue-900",
+  extracted: "bg-blue-300 text-blue-900",
+  synthesising: "bg-purple-200 text-purple-900",
+  synthesised: "bg-purple-300 text-purple-900",
+  "open-for-curation": "bg-green-200 text-green-900",
+  archived: "bg-gray-400 text-gray-900",
   done: "bg-green-200 text-green-900",
   needs_ocr: "bg-red-200 text-red-900",
 };
@@ -14,6 +19,11 @@ const ICONS: Record<DocStatus, ComponentType<{ className?: string }>> = {
   raw: Circle,
   segmenting: Clock,
   extracting: RefreshCcw,
+  extracted: CheckCircle2,
+  synthesising: Clock,
+  synthesised: CheckCircle2,
+  "open-for-curation": CheckCircle2,
+  archived: AlertTriangle,
   done: CheckCircle2,
   needs_ocr: AlertTriangle,
 };
