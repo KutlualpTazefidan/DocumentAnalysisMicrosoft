@@ -202,7 +202,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const extractEnabled = (segments.data.boxes ?? []).some((b) => b.kind !== "discard");
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
         {/* Spacer */}

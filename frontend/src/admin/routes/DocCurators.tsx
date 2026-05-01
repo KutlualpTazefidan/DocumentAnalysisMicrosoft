@@ -51,7 +51,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
   });
 
   return (
-    <div className="p-6">
+    <div className="p-6 h-full overflow-auto">
       <h1 className="text-xl font-semibold mb-6">Curators for doc: {slug}</h1>
 
       <div className="flex gap-8">

@@ -15,9 +15,9 @@ export function AdminShell() {
   function handleLogout() { logout(); navigate("/login", { replace: true }); }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       <header
-        className="px-6 py-3 flex items-center justify-between"
+        className="px-6 py-3 flex items-center justify-between flex-shrink-0"
         style={{ background: ADMIN_THEME.chrome, color: ADMIN_THEME.chromeFg }}
       >
         <nav className="flex items-center gap-4 text-sm">
@@ -32,11 +32,12 @@ export function AdminShell() {
           <button onClick={handleLogout} className="flex items-center gap-1 text-sm underline"><LogOut className="w-4 h-4" />Logout</button>
         </div>
       </header>
-      <main className="flex-1">
+      <main className="flex-1 min-h-0 overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
             data-shell-motion
+            className="h-full"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

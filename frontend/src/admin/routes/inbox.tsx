@@ -37,7 +37,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
   const rows = (docs.data ?? []).filter((d) => d.filename.toLowerCase().includes(filter.toLowerCase()) || d.slug.includes(filter.toLowerCase()));
 
   return (
-    <div className="p-6">
+    <div className="p-6 h-full overflow-auto">
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-xl font-semibold">Local-PDF Inbox</h1>
         <input
@@ -100,6 +100,6 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
 export function Inbox() {
   const { token } = useAuth();
-  if (!token) return <div className="p-6">Not authorised.</div>;
+  if (!token) return <div className="p-6 h-full overflow-auto">Not authorised.</div>;
   return <InboxRoute token={token} />;
 }

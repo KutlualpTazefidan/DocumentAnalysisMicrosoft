@@ -10,10 +10,10 @@ export function CuratorDocs() {
     queryFn: () => listAssignedDocs(token!),
     enabled: !!token,
   });
-  if (q.isLoading) return <div className="p-6">Lade…</div>;
+  if (q.isLoading) return <div className="p-6 h-full overflow-auto">Lade…</div>;
   if (q.isError) return <div className="p-6 text-red-600">Fehler beim Laden.</div>;
   return (
-    <div className="p-6">
+    <div className="p-6 h-full overflow-auto">
       <h1 className="text-xl font-semibold mb-4">Meine zugewiesenen Dokumente</h1>
       <ul className="space-y-2">
         {(q.data ?? []).map((d) => (

@@ -69,7 +69,7 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-6 h-full overflow-auto">
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-xl font-semibold">Curators</h1>
         <button
