@@ -88,11 +88,28 @@ def write_segments(data_root: Path, slug: str, segments: SegmentsFile) -> None:
     _write_locked_text(_segments_path(data_root, slug), payload)
 
 
+def _migrate_segments_data(data: dict) -> dict:
+    """Transparently rewrite legacy kind values before validation.
+
+    Specifically: kind="abandon" was renamed to kind="auxiliary" in the
+    2026-05 release. Any stored segments.json that still uses the old value
+    is silently upgraded on read so the rest of the stack never sees "abandon".
+    """
+    boxes = data.get("boxes")
+    if not boxes:
+        return data
+    migrated = [{**b, "kind": "auxiliary"} if b.get("kind") == "abandon" else b for b in boxes]
+    if migrated == boxes:
+        return data
+    return {**data, "boxes": migrated}
+
+
 def read_segments(data_root: Path, slug: str) -> SegmentsFile | None:
     raw = _read_text_or_none(_segments_path(data_root, slug))
     if raw is None:
         return None
-    return SegmentsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+    data = _migrate_segments_data(json.loads(raw))
+    return SegmentsFile.model_validate(data)  # type: ignore[no-any-return]
 
 
 def write_html(data_root: Path, slug: str, html: str) -> None:

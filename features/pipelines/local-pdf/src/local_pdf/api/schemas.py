@@ -54,10 +54,10 @@ class BoxKind(StrEnum):
     caption = "caption"
     formula = "formula"
     list_item = "list_item"
-    # 'abandon' = page-level chrome DocLayout-YOLO flags as such (running
-    # headers, footers, page numbers). Kept as a distinct kind so the user
-    # can decide whether to keep or discard, instead of auto-discarding.
-    abandon = "abandon"
+    # 'auxiliary' = page-level chrome DocLayout-YOLO flags as "abandon"
+    # (running headers, footers, page numbers). Renamed to "auxiliary" for
+    # user-facing clarity; legacy "abandon" values are migrated on read.
+    auxiliary = "auxiliary"
     discard = "discard"
 
 

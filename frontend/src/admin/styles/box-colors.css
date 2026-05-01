@@ -5,7 +5,7 @@
 .box-caption    { --box-color: #9333ea; }
 .box-formula    { --box-color: #db2777; }
 .box-list_item  { --box-color: #4f46e5; }
-.box-abandon    { --box-color: #06b6d4; }
+.box-auxiliary  { --box-color: #06b6d4; }
 .box-discard    { --box-color: #6b7280; }
 
 .box-outline {

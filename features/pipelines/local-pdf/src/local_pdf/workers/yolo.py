@@ -41,7 +41,7 @@ YOLO_CLASS_TO_BOX_KIND: dict[str, BoxKind] = {
     "list": BoxKind.list_item,
     "formula": BoxKind.formula,
     "formula_caption": BoxKind.caption,
-    "abandon": BoxKind.abandon,
+    "abandon": BoxKind.auxiliary,
 }
 
 

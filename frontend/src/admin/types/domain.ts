@@ -6,7 +6,7 @@ export type BoxKind =
   | "caption"
   | "formula"
   | "list_item"
-  | "abandon"
+  | "auxiliary"
   | "discard";
 
 export type DocStatus = "raw" | "segmenting" | "extracting" | "extracted" | "synthesising" | "synthesised" | "open-for-curation" | "archived" | "done" | "needs_ocr";

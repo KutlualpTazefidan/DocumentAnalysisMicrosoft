@@ -17,7 +17,7 @@ def test_box_kind_enum_has_nine_values() -> None:
         "caption",
         "formula",
         "list_item",
-        "abandon",  # page-level chrome (headers/footers/page numbers); kept distinct from discard
+        "auxiliary",  # page-level chrome (headers/footers/page numbers); kept distinct from discard
         "discard",
     }
     assert {k.value for k in BoxKind} == expected
