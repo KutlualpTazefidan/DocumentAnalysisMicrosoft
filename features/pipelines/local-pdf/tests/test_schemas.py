@@ -25,7 +25,18 @@ def test_box_kind_enum_has_eight_values() -> None:
 def test_doc_status_enum_transitions() -> None:
     from local_pdf.api.schemas import DocStatus
 
-    expected = {"raw", "segmenting", "extracting", "done", "needs_ocr"}
+    expected = {
+        "raw",
+        "segmenting",
+        "extracting",
+        "extracted",
+        "synthesising",
+        "synthesised",
+        "open-for-curation",
+        "archived",
+        "done",
+        "needs_ocr",
+    }
     assert {s.value for s in DocStatus} == expected
 
 

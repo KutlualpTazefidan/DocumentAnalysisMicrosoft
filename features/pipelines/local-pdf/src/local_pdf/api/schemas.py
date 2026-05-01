@@ -61,7 +61,12 @@ class DocStatus(StrEnum):
     raw = "raw"
     segmenting = "segmenting"
     extracting = "extracting"
-    done = "done"
+    extracted = "extracted"
+    synthesising = "synthesising"
+    synthesised = "synthesised"
+    open_for_curation = "open-for-curation"
+    archived = "archived"
+    done = "done"  # legacy from A.0; keep for back-compat
     needs_ocr = "needs_ocr"
 
 
