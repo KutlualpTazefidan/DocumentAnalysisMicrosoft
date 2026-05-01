@@ -82,3 +82,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
     </div>
   );
 }
+
+export function Inbox() {
+  return <div className="p-6">coming soon</div>;
+}

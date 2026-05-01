@@ -129,3 +129,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     </div>
   );
 }
+
+export function Segment() {
+  return <div className="p-6">coming soon</div>;
+}

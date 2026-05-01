@@ -119,3 +119,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     </div>
   );
 }
+
+export function Extract() {
+  return <div className="p-6">coming soon</div>;
+}
