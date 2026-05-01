@@ -1,5 +1,6 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import { TopBar } from "./components/TopBar";
 import { Login } from "./routes/login";
 import { DocsIndex } from "./routes/docs-index";
 import { DocElements } from "./routes/doc-elements";
@@ -14,7 +15,12 @@ function RequireAuth() {
   if (!token) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
-  return <Outlet />;
+  return (
+    <>
+      <TopBar />
+      <Outlet />
+    </>
+  );
 }
 
 export function App() {

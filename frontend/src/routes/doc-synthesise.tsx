@@ -1,5 +1,4 @@
 import { useParams } from "react-router-dom";
-import { TopBar } from "../components/TopBar";
 import { SynthForm } from "../components/SynthForm";
 import { SynthProgress } from "../components/SynthProgress";
 import { SynthSummary } from "../components/SynthSummary";
@@ -13,7 +12,6 @@ export function DocSynthesise() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopBar />
       <main className="flex-1 p-8 max-w-3xl mx-auto w-full space-y-6">
         <h1 className="text-2xl font-semibold">Synthesise — {slug}</h1>
         {synth.status === "idle" || synth.status === "error" || synth.status === "cancelled" ? (
