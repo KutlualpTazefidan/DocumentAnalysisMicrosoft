@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useToast } from "../../shared/components/useToast";
+import { Plus } from "../../shared/icons";
 
 import { useDocs, useUploadDoc } from "../hooks/useDocs";
 import { StatusBadge } from "../components/StatusBadge";
@@ -44,8 +45,8 @@ export function InboxRoute({ token }: Props): JSX.Element {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm" onClick={handlePickFile}>
-          + Add PDF
+        <button className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded text-sm" onClick={handlePickFile}>
+          <Plus className="w-4 h-4" /> Add PDF
         </button>
         <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile} />
       </div>

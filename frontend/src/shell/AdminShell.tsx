@@ -2,6 +2,7 @@ import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-d
 import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
 import { RoleBadge } from "./shared/RoleBadge";
+import { Inbox, Users, Cpu, BarChart3, LogOut } from "../shared/icons";
 
 export function AdminShell() {
   const { token, role, name, logout } = useAuth();
@@ -20,14 +21,14 @@ export function AdminShell() {
       >
         <nav className="flex items-center gap-4 text-sm">
           <Link to="/admin/inbox" className="font-semibold">Goldens</Link>
-          <Link to="/admin/inbox">Inbox</Link>
-          <Link to="/admin/curators">Curators</Link>
-          <Link to="/admin/pipelines">Pipelines</Link>
-          <Link to="/admin/dashboard">Dashboard</Link>
+          <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Inbox</Link>
+          <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Curators</Link>
+          <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
+          <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Dashboard</Link>
         </nav>
         <div className="flex items-center gap-3">
           <RoleBadge theme={ADMIN_THEME} name={name ?? "admin"} />
-          <button onClick={handleLogout} className="text-sm underline">Logout</button>
+          <button onClick={handleLogout} className="flex items-center gap-1 text-sm underline"><LogOut className="w-4 h-4" />Logout</button>
         </div>
       </header>
       <main className="flex-1">
