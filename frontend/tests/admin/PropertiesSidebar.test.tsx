@@ -20,6 +20,7 @@ describe("PropertiesSidebar arrow buttons", () => {
     onChangeKind: vi.fn(),
     onNewBox: vi.fn(),
     onDeactivate: vi.fn(),
+    onActivate: vi.fn(),
     onResetBox: vi.fn(),
     onPageChange: vi.fn(),
   };

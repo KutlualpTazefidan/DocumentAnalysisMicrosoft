@@ -226,3 +226,38 @@ def test_reset_box_409_when_not_yolo_detected(client_with_yolo) -> None:
     )
     assert r.status_code == 409
     assert "no original" in r.json()["detail"]
+
+
+# ── manually_activated tests ───────────────────────────────────────────────────
+
+
+def test_box_defaults_manually_activated_false(client_with_segments) -> None:
+    r = client_with_segments.get("/api/admin/docs/spec/segments", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    assert r.json()["boxes"][0]["manually_activated"] is False
+
+
+def test_put_can_set_manually_activated_true(client_with_segments) -> None:
+    r = client_with_segments.put(
+        "/api/admin/docs/spec/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"manually_activated": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["manually_activated"] is True
+
+
+def test_reset_box_restores_manually_activated_false(client_with_yolo) -> None:
+    # First activate a YOLO-detected box
+    client_with_yolo.put(
+        "/api/admin/docs/spec/segments/p1-y1",
+        headers={"X-Auth-Token": "tok"},
+        json={"manually_activated": True},
+    )
+    # Then reset it — manually_activated must go back to False
+    r = client_with_yolo.post(
+        "/api/admin/docs/spec/segments/p1-y1/reset",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    assert r.json()["manually_activated"] is False

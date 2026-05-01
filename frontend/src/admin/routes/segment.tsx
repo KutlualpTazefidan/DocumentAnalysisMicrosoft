@@ -78,13 +78,12 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     [segments.data, page],
   );
 
-  // Active boxes pass the confidence threshold AND aren't manually marked
-  // discard. Deactivated ones (low-confidence OR kind=discard) are hidden
-  // unless `showDeactivated` is on.
+  // Active boxes are those not discarded AND (manually activated OR above threshold).
+  // Deactivated ones are hidden unless `showDeactivated` is on.
   const activeBoxIds = useMemo(
     () => new Set(
       allBoxesOnPage
-        .filter((b) => b.confidence >= confidenceThreshold && b.kind !== "discard")
+        .filter((b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confidenceThreshold))
         .map((b) => b.box_id),
     ),
     [allBoxesOnPage, confidenceThreshold],
@@ -154,6 +153,12 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   function handleDeactivate() {
     if (focused) {
       update.mutate({ boxId: focused.box_id, patch: { kind: "discard" } });
+    }
+  }
+
+  function handleActivate() {
+    if (focused) {
+      update.mutate({ boxId: focused.box_id, patch: { manually_activated: true } });
     }
   }
 
@@ -252,6 +257,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
           onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
           onDeactivate={handleDeactivate}
+          onActivate={handleActivate}
           onResetBox={handleResetBox}
           onPageChange={setPage}
         />

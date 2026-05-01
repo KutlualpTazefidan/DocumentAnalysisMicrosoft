@@ -26,7 +26,7 @@ export async function getSegments(slug: string, token: string): Promise<Segments
 export async function updateBox(
   slug: string,
   boxId: string,
-  patch: { kind?: BoxKind; bbox?: [number, number, number, number]; reading_order?: number },
+  patch: { kind?: BoxKind; bbox?: [number, number, number, number]; reading_order?: number; manually_activated?: boolean },
   token: string,
 ): Promise<SegmentBox> {
   const r = await apiFetch(

@@ -11,6 +11,7 @@ const box = {
   kind: "paragraph" as const,
   confidence: 0.92,
   reading_order: 0,
+  manually_activated: false,
 };
 
 describe("BoxOverlay", () => {

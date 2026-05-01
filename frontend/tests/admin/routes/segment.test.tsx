@@ -41,8 +41,8 @@ const EXTRACT_NDJSON = [
 
 // Two boxes: one above threshold (0.95) and one below (0.6 < 0.7 default)
 const BOXES = [
-  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 },
-  { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1 },
+  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0, manually_activated: false },
+  { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1, manually_activated: false },
 ];
 
 const server = setupServer(
@@ -53,8 +53,12 @@ const server = setupServer(
     HttpResponse.json({ slug: "rep", boxes: BOXES }),
   ),
   http.put("*/api/admin/docs/rep/segments/p1-b0", () =>
-    HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "list_item", confidence: 0.95, reading_order: 0 }),
+    HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "list_item", confidence: 0.95, reading_order: 0, manually_activated: false }),
   ),
+  http.put("*/api/admin/docs/rep/segments/p1-b1", async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({ box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.6, reading_order: 1, manually_activated: body.manually_activated ?? false });
+  }),
   http.post("*/api/admin/docs/rep/segment", () =>
     new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
@@ -65,7 +69,7 @@ const server = setupServer(
     HttpResponse.json({ slug: "rep", boxes: BOXES }),
   ),
   http.post("*/api/admin/docs/rep/segments/p1-b0/reset", () =>
-    HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 }),
+    HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0, manually_activated: false }),
   ),
 );
 
@@ -269,5 +273,56 @@ describe("SegmentRoute", () => {
     expect(calls[0]).toContain("page=1");
 
     vi.restoreAllMocks();
+  });
+
+  it("box below threshold is hidden when manually_activated is false", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // p1-b1 has confidence 0.6 < 0.7 and manually_activated=false → hidden
+    expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
+  });
+
+  it("box below threshold is visible when manually_activated is true", async () => {
+    const activatedBoxes = [
+      { ...BOXES[0] },
+      { ...BOXES[1], manually_activated: true },
+    ];
+    server.use(
+      http.get("*/api/admin/docs/rep/segments", () =>
+        HttpResponse.json({ slug: "rep", boxes: activatedBoxes }),
+      ),
+    );
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // p1-b1 has confidence 0.6 but manually_activated=true → shown
+    expect(screen.getByTestId("box-p1-b1")).toBeInTheDocument();
+  });
+
+  it("clicking Activate button dispatches PUT with manually_activated: true", async () => {
+    const putBodies: unknown[] = [];
+    server.use(
+      http.put("*/api/admin/docs/rep/segments/p1-b1", async ({ request }) => {
+        const body = await request.json();
+        putBodies.push(body);
+        return HttpResponse.json({ ...BOXES[1], manually_activated: true });
+      }),
+    );
+
+    // Serve p1-b1 visible via showDeactivated so we can select it
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Enable showDeactivated to make p1-b1 visible for selection
+    fireEvent.click(screen.getByLabelText("Show deactivated"));
+    await waitFor(() => screen.getByTestId("box-p1-b1"));
+
+    // Select p1-b1
+    fireEvent.click(screen.getByTestId("box-p1-b1"));
+    await waitFor(() => screen.getByLabelText("Activate"));
+
+    // Click Activate
+    fireEvent.click(screen.getByLabelText("Activate"));
+    await waitFor(() => expect(putBodies.length).toBeGreaterThanOrEqual(1));
+    expect(putBodies[0]).toMatchObject({ manually_activated: true });
   });
 });

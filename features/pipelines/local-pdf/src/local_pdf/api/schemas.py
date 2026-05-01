@@ -78,6 +78,7 @@ class SegmentBox(BaseModel):
     kind: BoxKind
     confidence: float = Field(ge=0.0, le=1.0)
     reading_order: int = 0
+    manually_activated: bool = False
 
     @field_validator("box_id", mode="after")
     @classmethod
@@ -120,6 +121,7 @@ class UpdateBoxRequest(BaseModel):
     kind: BoxKind | None = None
     bbox: tuple[float, float, float, float] | None = None
     reading_order: int | None = None
+    manually_activated: bool | None = None
 
 
 class MergeBoxesRequest(BaseModel):

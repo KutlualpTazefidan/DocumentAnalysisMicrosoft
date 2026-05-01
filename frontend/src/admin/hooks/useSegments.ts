@@ -9,7 +9,7 @@ export function useSegments(slug: string, token: string) {
 export function useUpdateBox(slug: string, token: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ boxId, patch }: { boxId: string; patch: { kind?: BoxKind; bbox?: [number, number, number, number] } }) =>
+    mutationFn: ({ boxId, patch }: { boxId: string; patch: { kind?: BoxKind; bbox?: [number, number, number, number]; manually_activated?: boolean } }) =>
       updateBox(slug, boxId, patch, token),
     onSuccess: (updated: SegmentBox) => {
       qc.setQueryData<SegmentsFile>(["segments", slug], (prev) => {

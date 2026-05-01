@@ -152,6 +152,8 @@ async def update_box(
                 updates["bbox"] = body.bbox
             if body.reading_order is not None:
                 updates["reading_order"] = body.reading_order
+            if body.manually_activated is not None:
+                updates["manually_activated"] = body.manually_activated
             boxes[i] = b.model_copy(update=updates)
             _replace_segments(cfg.data_root, slug, boxes)
             return dict(boxes[i].model_dump(mode="json"))
@@ -301,6 +303,7 @@ async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
                     "bbox": tuple(orig["bbox"]),
                     "kind": BoxKind(orig["kind"]),
                     "confidence": orig["confidence"],
+                    "manually_activated": False,
                 }
             )
             _replace_segments(cfg.data_root, slug, boxes)

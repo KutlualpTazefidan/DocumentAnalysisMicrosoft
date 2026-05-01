@@ -17,6 +17,7 @@ export interface SegmentBox {
   kind: BoxKind;
   confidence: number;
   reading_order: number;
+  manually_activated: boolean;
 }
 
 export interface SegmentsFile {

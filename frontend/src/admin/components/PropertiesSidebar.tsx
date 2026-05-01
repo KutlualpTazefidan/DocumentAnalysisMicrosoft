@@ -20,6 +20,7 @@ interface Props {
   onChangeKind: (k: BoxKind) => void;
   onNewBox: () => void;
   onDeactivate: () => void;
+  onActivate: () => void;
   onResetBox: () => void;
   onPageChange: (page: number) => void;
 }
@@ -40,6 +41,7 @@ export function PropertiesSidebar({
   onChangeKind,
   onNewBox,
   onDeactivate,
+  onActivate,
   onResetBox,
   onPageChange,
 }: Props): JSX.Element {
@@ -181,23 +183,32 @@ export function PropertiesSidebar({
               </div>
             </div>
 
-            {/* Action row: Deactivate (left) | Reset (right) */}
+            {/* Action row: Deactivate (left) | Activate (right) */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 aria-label="Deactivate"
-                className="px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-white"
+                className={`px-2 py-1 rounded text-white ${selected.kind === "discard" ? "bg-red-900" : "bg-red-700 hover:bg-red-600"}`}
                 onClick={onDeactivate}
               >
-                Deactivate
+                {selected.kind === "discard" ? "✓ Deactivated" : "Deactivate"}
               </button>
               <button
-                aria-label="Reset box"
-                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-                onClick={onResetBox}
+                aria-label="Activate"
+                className={`px-2 py-1 rounded border ${selected.manually_activated ? "bg-green-100 text-green-800 border-green-300" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}
+                onClick={onActivate}
               >
-                Reset
+                {selected.manually_activated ? "✓ Activated" : "Activate"}
               </button>
             </div>
+
+            {/* Reset — full-width below */}
+            <button
+              aria-label="Reset box"
+              className="w-full px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+              onClick={onResetBox}
+            >
+              Reset
+            </button>
           </>
         ) : (
           <p className="text-slate-400">Wähle eine Box aus</p>
