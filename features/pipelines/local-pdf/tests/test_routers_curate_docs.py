@@ -68,3 +68,28 @@ def test_admin_blocked_from_curate_route(env) -> None:
     client, _ = env
     r = client.get("/api/curate/docs", headers={"X-Auth-Token": "ADMIN"})
     assert r.status_code == 403
+
+
+def test_curator_get_assigned_doc(env) -> None:
+    from local_pdf.storage.sidecar import write_html
+
+    client, raw = env
+    write_html(client.app.state.config.data_root, "spec-a", "<p>body</p>")
+
+    r = client.get("/api/curate/docs/spec-a", headers={"X-Auth-Token": raw})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["slug"] == "spec-a"
+    assert body["html"] == "<p>body</p>"
+
+
+def test_curator_404_on_unassigned_doc(env) -> None:
+    client, raw = env
+    r = client.get("/api/curate/docs/spec-c", headers={"X-Auth-Token": raw})
+    assert r.status_code == 404
+
+
+def test_curator_404_on_unpublished_assigned_doc(env) -> None:
+    client, raw = env
+    r = client.get("/api/curate/docs/spec-b", headers={"X-Auth-Token": raw})
+    assert r.status_code == 404
