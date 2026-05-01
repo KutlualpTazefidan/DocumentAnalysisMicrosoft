@@ -28,7 +28,7 @@ from local_pdf.storage.sidecar import (
     write_mineru,
     write_source_elements,
 )
-from local_pdf.workers.mineru import run_mineru, run_mineru_region
+from local_pdf.workers.mineru import MineruWorker
 
 router = APIRouter()
 
@@ -69,10 +69,12 @@ async def run_extract(slug: str, request: Request) -> StreamingResponse:
     def stream():
         yield json.dumps(ExtractStartLine(total_boxes=len(targets)).model_dump(mode="json")) + "\n"
         elements: list[dict] = []
-        for r in run_mineru(pdf, targets, extract_fn=_MINERU_EXTRACT_FN):
-            line = ExtractElementLine(box_id=r.box_id, html_snippet=r.html)
-            elements.append(line.model_dump(mode="json"))
-            yield json.dumps(line.model_dump(mode="json")) + "\n"
+        with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
+            list(worker.run(pdf, targets))  # consume lifecycle events; results stored on worker
+            for r in worker.results:
+                line = ExtractElementLine(box_id=r.box_id, html_snippet=r.html)
+                elements.append(line.model_dump(mode="json"))
+                yield json.dumps(line.model_dump(mode="json")) + "\n"
         write_mineru(cfg.data_root, slug, {"elements": elements})
         write_html(cfg.data_root, slug, _wrap_html(elements))
         yield (
@@ -95,7 +97,8 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     target = next((b for b in seg.boxes if b.box_id == body.box_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"box not found: {body.box_id}")
-    result = run_mineru_region(pdf, target, extract_fn=_MINERU_EXTRACT_FN)
+    with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
+        result = worker.extract_region(pdf, target)
     return {"box_id": result.box_id, "html": result.html}
 
 
