@@ -21,7 +21,7 @@ export default defineConfig({
       jsdom: { url: "http://localhost/" },
     },
     setupFiles: ["./tests/setup.ts"],
-    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**", "tests/local-pdf/e2e/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

@@ -167,10 +167,36 @@ def cmd_serve(args: argparse.Namespace) -> int:  # pragma: no cover
     return 0
 
 
+def cmd_segment_serve(*, host: str, port: int, log_level: str) -> int:
+    """Start the local-pdf FastAPI app via uvicorn."""
+    import uvicorn
+    from local_pdf.api import create_app
+
+    app = create_app()
+    uvicorn.run(app, host=host, port=port, log_level=log_level)
+    return 0
+
+
+def _add_segment_subparser(subparsers) -> None:
+    seg = subparsers.add_parser("segment", help="local-pdf pipeline commands")
+    seg_sub = seg.add_subparsers(dest="segment_cmd", required=True)
+    serve = seg_sub.add_parser("serve", help="run the local-pdf HTTP API")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8001)
+    serve.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"])
+    serve.set_defaults(
+        func=lambda args: cmd_segment_serve(
+            host=args.host, port=args.port, log_level=args.log_level
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     _load_env()
     parser = argparse.ArgumentParser(prog="query-eval")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    _add_segment_subparser(sub)
 
     p_eval = sub.add_parser("eval", help="Run evaluation, write report")
     p_eval.add_argument("--dataset", default=str(DEFAULT_DATASET))
@@ -233,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
     except SystemExit as e:
-        return int(e.code or 2)
+        return int(e.code if e.code is not None else 2)
     try:
         return int(args.func(args) or 0)
     except Exception as e:  # pragma: no cover

@@ -80,6 +80,38 @@ ingest upload --in outputs/foo/embed/<ts>-section.jsonl               # -> Azure
 query-eval eval --doc foo --strategy section                           # -> outputs/foo/reports/<ts>-section.json
 ```
 
+## Local PDF pipeline (Phase A.0)
+
+A lightweight, offline-first document analysis and review workflow:
+
+```bash
+# 1. Prepare PDFs in a local directory
+mkdir -p data/raw-pdfs/my-doc
+cp my-document.pdf data/raw-pdfs/my-doc/
+
+# 2. Start the backend + frontend dev servers
+query-eval segment serve     # FastAPI at localhost:8001
+# in another terminal:
+cd frontend && npm run dev   # Vite at localhost:5173
+
+# 3. Open the UI
+# http://localhost:5173/local-pdf/inbox
+
+# 4. Upload or drag the PDF into the inbox, then:
+# - Segment: use DocLayout-YOLO to detect page layout (boxes, tables, reading order)
+# - Extract: use MinerU 3 to extract text + semantic annotations
+# - Review: 2-pane WYSIWYG editor (PDF on left, Tiptap rich-text on right)
+# - Export: generates sourceelements.json (canonical format, drop-in for goldens)
+```
+
+**Output**: `data/raw-pdfs/<slug>/sourceelements.json` — a JSON array of `SourceElement` objects with pipeline metadata (`source_pipeline: "local-pdf"`), fully compatible with the existing goldens evaluation system.
+
+**Features**:
+- **Segmentation UI**: 2-pane PDF viewer + interactive box overlay; hotkeys for element type (h=heading, p=paragraph, t=table, f=figure, c=caption, q=quote, l=list, x=discard) + multiselect (m/n) + undo (Backspace).
+- **Extraction UI**: concurrent region-level re-extract; WYSIWYG with CodeMirror raw-mode toggle; click to link source box.
+- **Streaming**: long-running segment/extract operations emit NDJSON progress; sidecar JSON locked with fcntl for safe concurrent writes.
+- **API**: 14 endpoints (upload, inbox, segment, extract, region, html, export, etc.).
+
 ## Documents
 
 - Design spec: [`docs/superpowers/specs/2026-04-27-query-index-evaluation-design.md`](docs/superpowers/specs/2026-04-27-query-index-evaluation-design.md)

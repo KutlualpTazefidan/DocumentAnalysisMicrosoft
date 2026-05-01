@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-pdf"
+version = "0.1.0"
+description = "Local PDF pipeline (DocLayout-YOLO + MinerU 3) producing canonical SourceElement JSON."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "pydantic>=2.5,<3",
+    "pydantic-settings>=2.0,<3",
+    "uvicorn[standard]>=0.27,<1.0",
+    "pdfplumber>=0.11,<0.12",
+    "doclayout-yolo>=0.0.4",
+    "mineru>=3.0,<4",
+    "python-multipart>=0.0.9",
+    "goldens",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-cov>=4",
+    "httpx>=0.25",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=src/local_pdf --cov-report=term-missing"

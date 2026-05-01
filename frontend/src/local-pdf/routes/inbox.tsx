@@ -1,0 +1,84 @@
+// frontend/src/local-pdf/routes/inbox.tsx
+import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
+
+import { useDocs, useUploadDoc } from "../hooks/useDocs";
+import { StatusBadge } from "../components/StatusBadge";
+
+interface Props {
+  token: string;
+}
+
+export function InboxRoute({ token }: Props): JSX.Element {
+  const docs = useDocs(token);
+  const upload = useUploadDoc(token);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState("");
+
+  function handlePickFile() {
+    fileRef.current?.click();
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    upload.mutate(f, {
+      onSuccess: (m) => toast.success(`uploaded ${m.slug}`),
+      onError: (err) => toast.error(`upload failed: ${(err as Error).message}`),
+    });
+    e.target.value = "";
+  }
+
+  const rows = (docs.data ?? []).filter((d) => d.filename.toLowerCase().includes(filter.toLowerCase()) || d.slug.includes(filter.toLowerCase()));
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <h1 className="text-xl font-semibold">Local-PDF Inbox</h1>
+        <input
+          type="text"
+          className="ml-auto border rounded px-2 py-1 text-sm"
+          placeholder="search…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <button className="bg-blue-600 text-white px-3 py-1 rounded text-sm" onClick={handlePickFile}>
+          + Add PDF
+        </button>
+        <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile} />
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left border-b">
+            <th className="p-2">filename</th>
+            <th className="p-2">pages</th>
+            <th className="p-2">status</th>
+            <th className="p-2">boxes</th>
+            <th className="p-2">last touched</th>
+            <th className="p-2">action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => (
+            <tr key={d.slug} className="border-b">
+              <td className="p-2">{d.filename}</td>
+              <td className="p-2">{d.pages}</td>
+              <td className="p-2">
+                <StatusBadge status={d.status} />
+              </td>
+              <td className="p-2">{d.box_count}</td>
+              <td className="p-2 text-xs text-gray-500">{d.last_touched_utc}</td>
+              <td className="p-2">
+                <Link className="text-blue-600 underline" to={`/local-pdf/doc/${d.slug}/segment`}>
+                  {d.status === "raw" ? "start" : d.status === "done" ? "view" : "resume"}
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-gray-400 mt-4">Drop PDFs into <code>data/raw-pdfs/</code> or use Add PDF.</p>
+    </div>
+  );
+}
