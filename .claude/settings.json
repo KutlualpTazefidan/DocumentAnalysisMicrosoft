@@ -1,14 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "Bash(source .venv/bin/activate)",
-      "Bash(pytest *)",
+      "Bash(PATH=*.venv/bin:* git commit *)",
+      "Bash(bash ./bootstrap.sh)",
+      "Bash(bash scripts/check_import_boundary.sh)",
+      "Bash(cd * && git diff*)",
+      "Bash(cd * && git log*)",
+      "Bash(cd * && git status*)",
+      "Bash(git add * && git commit *)",
+      "Bash(make lint)",
       "Bash(make test)",
       "Bash(make test-cov)",
-      "Bash(make lint)",
+      "Bash(npm run build*)",
+      "Bash(npm test*)",
+      "Bash(npx playwright test --list*)",
+      "Bash(npx tsc -b --noEmit*)",
+      "Bash(npx vitest run*)",
+      "Bash(pip show *)",
       "Bash(pre-commit run --all-files)",
-      "Bash(bash scripts/check_import_boundary.sh)",
-      "Bash(pip show *)"
+      "Bash(pytest *)",
+      "Bash(source .venv/bin/activate && pytest *)",
+      "Bash(source .venv/bin/activate && python -m pytest *)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(uvx ruff check *)",
+      "Bash(uvx ruff format --check *)"
     ]
   }
 }
