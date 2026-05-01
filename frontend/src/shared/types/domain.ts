@@ -67,6 +67,15 @@ export interface DocSummary {
   element_count: number;
 }
 
+export interface DocMeta {
+  slug: string;
+  filename: string;
+  pages: number;
+  status: string;
+  last_touched_utc: string;
+  box_count: number;
+}
+
 // Synthesise streaming line types
 export interface SynthStartLine {
   type: "start";

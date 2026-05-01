@@ -1,3 +1,6 @@
+import type { DocMeta } from "../../shared/types/domain";
+import { apiFetch as adminApiFetch } from "../../admin/api/adminClient";
+
 const TOKEN_KEY = "goldens.api_token";
 
 export class ApiError extends Error {
@@ -90,4 +93,9 @@ export async function rawFetch(
   opts: ApiOptions = {},
 ): Promise<Response> {
   return apiFetch<Response>(url, { ...opts, raw: true });
+}
+
+export async function listAssignedDocs(token: string): Promise<DocMeta[]> {
+  const r = await adminApiFetch("/api/curate/docs", token);
+  return r.json();
 }
