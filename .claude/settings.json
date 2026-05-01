@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(PATH=*.venv/bin:* git commit *)",
+      "Bash(PATH=*.venv/bin* git commit *)",
       "Bash(bash ./bootstrap.sh)",
       "Bash(bash scripts/check_import_boundary.sh)",
       "Bash(cd * && git diff*)",
