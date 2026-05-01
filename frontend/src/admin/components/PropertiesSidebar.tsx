@@ -1,4 +1,5 @@
 import type { BoxKind, SegmentBox } from "../types/domain";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Pagination } from "./Pagination";
 
 const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "discard"];
@@ -49,10 +50,28 @@ export function PropertiesSidebar({
         <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
       </div>
 
-      <div className="text-center text-slate-700 font-medium">
-        <h2 className="font-semibold text-slate-900">
+      <div className="flex items-center justify-center gap-2">
+        <button
+          aria-label="Previous page"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1}
+          className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft className="w-4 h-4 text-slate-700" />
+        </button>
+
+        <h2 className="font-semibold text-slate-900 text-center min-w-[6rem]">
           Seite {currentPage} / {totalPages}
         </h2>
+
+        <button
+          aria-label="Next page"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+          className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronRight className="w-4 h-4 text-slate-700" />
+        </button>
       </div>
 
       <hr className="my-3 border-slate-200" />
