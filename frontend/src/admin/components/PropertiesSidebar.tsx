@@ -187,14 +187,22 @@ export function PropertiesSidebar({
             <div className="grid grid-cols-2 gap-2">
               <button
                 aria-label="Deactivate"
-                className={`px-2 py-1 rounded text-white ${selected.kind === "discard" ? "bg-red-900" : "bg-red-700 hover:bg-red-600"}`}
+                className={`px-2 py-1 rounded ${
+                  selected.kind === "discard"
+                    ? "bg-red-700 text-white border border-red-700"  // chosen → strong red filled
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"  // not chosen → outline
+                }`}
                 onClick={onDeactivate}
               >
                 {selected.kind === "discard" ? "✓ Deactivated" : "Deactivate"}
               </button>
               <button
                 aria-label="Activate"
-                className={`px-2 py-1 rounded border ${selected.manually_activated ? "bg-green-100 text-green-800 border-green-300" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}
+                className={`px-2 py-1 rounded ${
+                  selected.manually_activated
+                    ? "bg-green-700 text-white border border-green-700"  // chosen → strong green filled
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"  // not chosen → outline
+                }`}
                 onClick={onActivate}
               >
                 {selected.manually_activated ? "✓ Activated" : "Activate"}
