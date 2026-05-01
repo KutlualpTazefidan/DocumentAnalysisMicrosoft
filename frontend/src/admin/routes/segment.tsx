@@ -130,7 +130,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
         onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
         onMerge={() => selected.length >= 2 && merge.mutate(selected)}
         onDelete={() => focused && del.mutate(focused.box_id)}
-        onRunExtract={() => navigate(`/local-pdf/doc/${slug}/extract`)}
+        onRunExtract={() => navigate(`/admin/doc/${slug}/extract`)}
         extractEnabled={(segments.data.boxes ?? []).some((b) => b.kind !== "discard")}
       />
       <StageIndicator state={streamState} />

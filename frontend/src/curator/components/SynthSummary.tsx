@@ -30,7 +30,7 @@ export function SynthSummary({ slug, totals, onReset }: Props) {
       </dl>
       <div className="flex items-center gap-2">
         <Link
-          to={`/docs/${encodeURIComponent(slug)}/elements`}
+          to={`/curate/doc/${encodeURIComponent(slug)}`}
           className="btn-primary"
         >
           Zurück zu den Elementen

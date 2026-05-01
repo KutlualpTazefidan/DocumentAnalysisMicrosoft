@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
@@ -37,10 +37,32 @@ export function App() {
           <Route path="doc/:slug" element={<CuratorDocPage />} />
           <Route path="doc/:slug/element/:elementId" element={<CuratorDocPage />} />
         </Route>
+
+        {/* Legacy URL redirects — keep old bookmarks working after the
+            coherence-and-roles migration. Pre-A.1.0 the SPA had a split
+            tree (/local-pdf/* and /docs/*); these now redirect to the
+            role-prefixed equivalents. */}
+        <Route path="/local-pdf/inbox" element={<Navigate to="/admin/inbox" replace />} />
+        <Route path="/local-pdf/doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
+        <Route path="/local-pdf/doc/:slug/extract" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
+        <Route path="/docs" element={<Navigate to="/admin/inbox" replace />} />
+        <Route path="/docs/:slug/elements" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
+        <Route path="/docs/:slug/elements/:elementId" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
+        <Route path="/docs/:slug/synthesise" element={<RedirectWithSlug to="/admin/doc/:slug/synthesise" />} />
+
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>
   );
+}
+
+function RedirectWithSlug({ to }: { to: string }): JSX.Element {
+  const params = useParams();
+  let target = to;
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) target = target.replace(`:${k}`, v);
+  }
+  return <Navigate to={target} replace />;
 }
 
 function NotFound() {
