@@ -39,9 +39,6 @@ export function useBoxHotkeys(h: BoxHotkeyHandlers): void {
       } else if (e.key === "n") {
         e.preventDefault();
         h.newBox();
-      } else if (e.key === "/") {
-        e.preventDefault();
-        h.split();
       } else if (e.key === "Backspace" || e.key === "Delete") {
         e.preventDefault();
         h.del();

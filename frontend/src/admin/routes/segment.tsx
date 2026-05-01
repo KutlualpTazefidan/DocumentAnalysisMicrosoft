@@ -175,72 +175,20 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     <div className="flex flex-col h-screen">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
-        {/* LEFT: Deactivate */}
-        <div className="flex-1 flex justify-start">
-          <button
-            aria-label="Deactivate"
-            className="text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
-            disabled={!focused}
-            onClick={handleDeactivate}
-          >
-            Deactivate
-          </button>
-        </div>
-
         {/* CENTER: pagination */}
         <div className="flex-1 flex justify-center">
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
 
-        {/* RIGHT: extract buttons + confidence slider + show-deactivated */}
-        <div className="flex-1 flex justify-end items-center gap-3">
-          <button
-            aria-label="Nur diese Seite extrahieren"
-            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
-            disabled={!extractEnabled || running}
-            onClick={onRunExtractThisPage}
-          >
-            {running ? "Running…" : "Nur diese Seite extrahieren"}
-          </button>
-          <button
-            aria-label="Alle Seiten extrahieren"
-            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
-            disabled={!extractEnabled || running}
-            onClick={onRunExtractAll}
-          >
-            {running ? "Running…" : "Alle Seiten extrahieren"}
-          </button>
-
-          {/* Confidence slider */}
-          <div className="flex items-center gap-1">
-            <label htmlFor="conf-slider" className="text-xs text-gray-300 whitespace-nowrap">
-              Conf ≥ {confidenceThreshold.toFixed(2)}
-            </label>
-            <input
-              id="conf-slider"
-              aria-label="Confidence threshold"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={confidenceThreshold}
-              onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
-              className="w-24 accent-blue-400"
-            />
-          </div>
-
-          {/* Show deactivated checkbox */}
-          <label className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
-            <input
-              aria-label="Show deactivated"
-              type="checkbox"
-              checked={showDeactivated}
-              onChange={(e) => setShowDeactivated(e.target.checked)}
-              className="accent-blue-400"
-            />
-            Show deactivated
-          </label>
-        </div>
+        {/* RIGHT: Alle Seiten extrahieren */}
+        <button
+          aria-label="Alle Seiten extrahieren"
+          className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
+          disabled={!extractEnabled || running}
+          onClick={onRunExtractAll}
+        >
+          {running ? "Running…" : "Alle Seiten extrahieren"}
+        </button>
       </div>
 
       {/* ── Content row ─────────────────────────────────────────────── */}
@@ -268,9 +216,18 @@ export function SegmentRoute({ token }: Props): JSX.Element {
         <PropertiesSidebar
           selected={focused}
           pageBoxCount={boxesOnPage.length}
+          currentPage={page}
+          totalPages={totalPages}
+          confidenceThreshold={confidenceThreshold}
+          showDeactivated={showDeactivated}
+          onConfidenceChange={setConfidenceThreshold}
+          onShowDeactivatedChange={setShowDeactivated}
+          onRunExtractThisPage={onRunExtractThisPage}
+          extractEnabled={extractEnabled}
+          running={running}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
-          onSplit={() => focused && split.mutate({ boxId: focused.box_id, splitY: (focused.bbox[1] + focused.bbox[3]) / 2 })}
           onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
+          onDeactivate={handleDeactivate}
         />
       </div>
 

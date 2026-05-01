@@ -30,7 +30,7 @@ export function Pagination({ page, totalPages, onPageChange }: Props): JSX.Eleme
         pageRangeDisplayed={3}
         previousLabel={<span aria-hidden>‹</span>}
         nextLabel={<span aria-hidden>›</span>}
-        breakLabel={<span className="px-1 text-gray-400">…</span>}
+        breakLabel={<span className="px-1 text-gray-200">…</span>}
         containerClassName="inline-flex items-center gap-1"
         pageClassName=""
         pageLinkClassName="min-w-[1.75rem] px-1 py-0.5 rounded text-xs font-medium text-gray-200 hover:bg-navy-700 inline-flex items-center justify-center"
@@ -59,7 +59,7 @@ export function Pagination({ page, totalPages, onPageChange }: Props): JSX.Eleme
         />
         <button
           type="submit"
-          className="text-xs px-2 py-0.5 rounded border border-navy-600 hover:bg-navy-700 text-gray-200"
+          className="text-xs px-2 py-0.5 rounded bg-blue-600 text-white hover:bg-blue-500"
         >
           Go
         </button>

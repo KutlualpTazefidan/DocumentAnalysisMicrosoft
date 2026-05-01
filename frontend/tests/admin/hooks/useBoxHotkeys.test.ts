@@ -39,7 +39,7 @@ describe("useBoxHotkeys", () => {
     expect(setKind).not.toHaveBeenCalled();
   });
 
-  it("n//// + Backspace map to newBox / split / delete", () => {
+  it("n + Backspace map to newBox / delete; '/' is no longer a hotkey", () => {
     const setKind = vi.fn();
     const deactivate = vi.fn();
     const split = vi.fn();
@@ -49,7 +49,7 @@ describe("useBoxHotkeys", () => {
     fireEvent.keyDown(window, { key: "n" });
     expect(newBox).toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "/" });
-    expect(split).toHaveBeenCalled();
+    expect(split).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Backspace" });
     expect(del).toHaveBeenCalled();
   });
