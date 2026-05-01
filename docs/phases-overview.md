@@ -1,6 +1,6 @@
 # Phasenübersicht — Goldset-System
 
-> **Letzte Aktualisierung:** 2026-04-30 (A-Plus.1 backend PR #24 + A-Plus.2 frontend PR #25 beide gemerged. Lead/Teammate-Topologie, ~25 Task-Units in 3.26h Maschine vs ~52h human-konservativ → 16x Speedup, ~$388 marginal token-cost vs ~€4180 saved → ~13x ROI.)
+> **Letzte Aktualisierung:** 2026-05-01 (A.0 Local PDF Pipeline gemerged via PR #26 + Model-Lifecycle/Progress follow-up via PR #27. Cleanup PRs #28/#29 ebenfalls merged. Phase A vollständig: A.0 → A.8 + A-Plus.1/.2 alle auf main. Phase B/C/D als nächstes.)
 > **Detail-Specs:** [`docs/superpowers/specs/`](superpowers/specs/) — vollständige Design-Dokumente pro Phase
 > **Pläne:** [`docs/superpowers/plans/`](superpowers/plans/) — granulare Implementations-Pläne
 
@@ -44,7 +44,7 @@ features/
 
 | Phase | Modul | Status | PR | Detail-Spec |
 |---|---|---|---|---|
-| A.0 | `pipelines/local-pdf/` (DocLayout-YOLO + MinerU 3 + visual review UI) | 🔍 PR offen (review) | branch `feat/a-0-local-pdf-pipeline` (29 commits ahead, push complete, PR awaits manual open) | [local-pdf-pipeline-design.md](superpowers/specs/2026-04-30-local-pdf-pipeline-design.md) |
+| A.0 | `pipelines/local-pdf/` (DocLayout-YOLO + MinerU 3 + visual review UI) | ✅ merged | [#26](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/26) + [#27](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/27) (model lifecycle + progress UI follow-up) | [local-pdf-pipeline-design.md](superpowers/specs/2026-04-30-local-pdf-pipeline-design.md), [model-lifecycle-and-progress-design.md](superpowers/specs/2026-05-01-a-0-model-lifecycle-and-progress-design.md) |
 | A.1 | `core/llm_clients/` | ✅ merged | [#7](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/7) | [a1-llm-clients-design.md](superpowers/specs/2026-04-28-a1-llm-clients-design.md) |
 | A.2 | `goldens/schemas/` | ✅ merged | [#8](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/8) | [a2-goldens-schemas-design.md](superpowers/specs/2026-04-28-a2-goldens-schemas-design.md) |
 | A.3 | `goldens/storage/` | ✅ merged | [#9](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/9) | [a3-goldens-storage-design.md](superpowers/specs/2026-04-29-a3-goldens-storage-design.md) |
