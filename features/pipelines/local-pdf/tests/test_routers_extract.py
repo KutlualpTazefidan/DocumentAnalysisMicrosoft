@@ -56,7 +56,7 @@ def app_with_segments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     ext_mod._MINERU_EXTRACT_FN = None
 
 
-def test_extract_streams_one_element_per_box(app_with_segments) -> None:
+def test_extract_streams_worker_events_one_progress_per_box(app_with_segments) -> None:
     client, _, slug = app_with_segments
     with client.stream(
         "POST", f"/api/docs/{slug}/extract", headers={"X-Auth-Token": "tok"}
@@ -64,11 +64,16 @@ def test_extract_streams_one_element_per_box(app_with_segments) -> None:
         assert resp.status_code == 200
         lines = [json.loads(ln) for ln in resp.iter_lines() if ln]
     types = [ln["type"] for ln in lines]
-    assert types[0] == "start"
-    assert types[-1] == "complete"
-    elements = [ln for ln in lines if ln["type"] == "element"]
-    assert len(elements) == 2
-    assert elements[0]["box_id"] == "p1-b0"
+    assert types[0] == "model-loading"
+    assert types[1] == "model-loaded"
+    progress = [ln for ln in lines if ln["type"] == "work-progress"]
+    assert len(progress) == 2  # two boxes
+    assert progress[-1]["current"] == 2 and progress[-1]["total"] == 2
+    assert types[-3] == "work-complete"
+    assert types[-2] == "model-unloading"
+    assert types[-1] == "model-unloaded"
+    for ln in lines:
+        assert ln["model"] == "MinerU 3"
 
 
 def test_extract_persists_html_and_mineru_out(app_with_segments) -> None:
