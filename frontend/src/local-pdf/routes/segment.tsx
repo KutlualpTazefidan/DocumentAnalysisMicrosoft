@@ -1,11 +1,12 @@
 // frontend/src/local-pdf/routes/segment.tsx
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
 import { PdfPage } from "../components/PdfPage";
 import { PropertiesSidebar } from "../components/PropertiesSidebar";
+import { StageIndicator } from "../components/StageIndicator";
 import { useBoxHotkeys } from "../hooks/useBoxHotkeys";
 import {
   useCreateBox,
@@ -16,10 +17,15 @@ import {
   useUpdateBox,
 } from "../hooks/useSegments";
 import { streamSegment } from "../hooks/useExtract";
-import type { BoxKind } from "../types/domain";
+import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
+import type { BoxKind, WorkerEvent } from "../types/domain";
 
 interface Props {
   token: string;
+}
+
+function reducer(state: StreamState, ev: WorkerEvent): StreamState {
+  return applyEvent(state, ev);
 }
 
 export function SegmentRoute({ token }: Props): JSX.Element {
@@ -35,6 +41,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const del = useDeleteBox(slug ?? "", token);
   const [selected, setSelected] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
 
   const boxesOnPage = useMemo(
     () => (segments.data?.boxes ?? []).filter((b) => b.page === page),
@@ -46,15 +53,18 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   );
 
   function handleSelect(boxId: string, multi: boolean) {
-    setSelected((prev) => (multi ? (prev.includes(boxId) ? prev.filter((p) => p !== boxId) : [...prev, boxId]) : [boxId]));
+    setSelected((prev) =>
+      multi ? (prev.includes(boxId) ? prev.filter((p) => p !== boxId) : [...prev, boxId]) : [boxId],
+    );
   }
 
   async function runSegment() {
     setRunning(true);
     try {
-      for await (const line of streamSegment(slug!, token)) {
-        if (line.type === "complete") toast.success(`segmented ${line.boxes_total} boxes`);
-        if (line.type === "error") toast.error(line.reason);
+      for await (const ev of streamSegment(slug!, token)) {
+        dispatch(ev);
+        if (ev.type === "work-complete") toast.success(`segmented ${ev.items_processed} boxes`);
+        if (ev.type === "work-failed") toast.error(ev.reason);
       }
       await segments.refetch();
     } finally {
@@ -73,17 +83,18 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 
   if (!segments.data) {
     return (
-      <div className="p-6">
+      <div className="p-6 relative">
         <p>No segmentation yet.</p>
         <button className="mt-4 bg-blue-600 text-white px-3 py-1 rounded" onClick={runSegment} disabled={running}>
           {running ? "Segmenting…" : "Run segmentation"}
         </button>
+        <StageIndicator state={streamState} />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
       <main className="flex-1 overflow-auto p-4">
         <div className="flex gap-2 mb-2">
           {Array.from({ length: 10 }, (_, i) => i + 1).map((p) => (
@@ -114,6 +125,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
         onRunExtract={() => navigate(`/local-pdf/doc/${slug}/extract`)}
         extractEnabled={(segments.data.boxes ?? []).some((b) => b.kind !== "discard")}
       />
+      <StageIndicator state={streamState} />
     </div>
   );
 }

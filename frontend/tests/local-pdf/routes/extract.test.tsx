@@ -61,4 +61,10 @@ describe("ExtractRoute", () => {
       expect(screen.getByRole("button", { name: /export/i })).not.toBeDisabled(),
     );
   });
+
+  it("StageIndicator is not present in idle, html-only render", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+    expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
+  });
 });
