@@ -166,3 +166,24 @@ class Curator(BaseModel):
 class CuratorsFile(BaseModel):
     model_config = ConfigDict(frozen=True)
     curators: list[Curator] = Field(default_factory=list)
+
+
+class CuratorQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    element_id: str
+    query: str = Field(min_length=1)
+
+
+class CuratorQuestion(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    question_id: str
+    element_id: str
+    curator_id: str
+    query: str
+    created_at: str
+
+
+class CuratorQuestionsFile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    slug: str
+    questions: list[CuratorQuestion] = Field(default_factory=list)

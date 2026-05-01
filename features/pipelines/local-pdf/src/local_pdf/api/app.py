@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     from local_pdf.api.routers.auth import router as auth_router
     from local_pdf.api.routers.curate.docs import router as curate_docs_router
     from local_pdf.api.routers.curate.elements import router as curate_elements_router
+    from local_pdf.api.routers.curate.questions import router as curate_questions_router
 
     app.include_router(auth_router)
     app.include_router(gone_router)
@@ -50,5 +51,6 @@ def create_app() -> FastAPI:
     app.include_router(extract_router)
     app.include_router(curate_docs_router)
     app.include_router(curate_elements_router)
+    app.include_router(curate_questions_router)
 
     return app

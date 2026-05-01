@@ -20,7 +20,7 @@ import json
 import os
 from pathlib import Path  # noqa: TC003
 
-from local_pdf.api.schemas import DocMeta, SegmentsFile
+from local_pdf.api.schemas import CuratorQuestionsFile, DocMeta, SegmentsFile
 
 
 def doc_dir(data_root: Path, slug: str) -> Path:
@@ -134,3 +134,21 @@ def write_source_elements(data_root: Path, slug: str, payload: dict) -> None:
 def read_source_elements(data_root: Path, slug: str) -> dict | None:
     raw = _read_text_or_none(_source_elements_path(data_root, slug))
     return json.loads(raw) if raw else None
+
+
+def _questions_path(data_root: Path, slug: str) -> Path:
+    return doc_dir(data_root, slug) / "curator-questions.json"
+
+
+def write_curator_questions(data_root: Path, slug: str, payload: CuratorQuestionsFile) -> None:
+    _write_locked_text(
+        _questions_path(data_root, slug),
+        json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, indent=2),
+    )
+
+
+def read_curator_questions(data_root: Path, slug: str) -> CuratorQuestionsFile | None:
+    raw = _read_text_or_none(_questions_path(data_root, slug))
+    if raw is None:
+        return None
+    return CuratorQuestionsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
