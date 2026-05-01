@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { apiFetch, ApiError } from "../api/client";
+import { apiFetch, ApiError } from "../curator/api/curatorClient";
 import { useAuth } from "../hooks/useAuth";
 
 export function Login() {

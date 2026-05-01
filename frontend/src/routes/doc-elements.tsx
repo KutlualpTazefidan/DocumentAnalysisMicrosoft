@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ElementSidebar } from "../components/ElementSidebar";
-import { ElementDetail } from "../components/ElementDetail";
-import { HelpModal } from "../components/HelpModal";
-import { useElements } from "../hooks/useElements";
-import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { ElementSidebar } from "../curator/components/ElementSidebar";
+import { ElementDetail } from "../curator/components/ElementDetail";
+import { HelpModal } from "../curator/components/HelpModal";
+import { useElements } from "../curator/hooks/useElements";
+import { useKeyboardShortcuts } from "../curator/hooks/useKeyboardShortcuts";
 
 export function DocElements() {
   const { slug, elementId } = useParams<{ slug: string; elementId?: string }>();

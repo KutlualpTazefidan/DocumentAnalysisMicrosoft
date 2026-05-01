@@ -1,8 +1,8 @@
 import { useParams } from "react-router-dom";
-import { SynthForm } from "../components/SynthForm";
-import { SynthProgress } from "../components/SynthProgress";
-import { SynthSummary } from "../components/SynthSummary";
-import { useSynthesise } from "../hooks/useSynthesise";
+import { SynthForm } from "../curator/components/SynthForm";
+import { SynthProgress } from "../curator/components/SynthProgress";
+import { SynthSummary } from "../curator/components/SynthSummary";
+import { useSynthesise } from "../curator/hooks/useSynthesise";
 
 export function DocSynthesise() {
   const { slug } = useParams<{ slug: string }>();

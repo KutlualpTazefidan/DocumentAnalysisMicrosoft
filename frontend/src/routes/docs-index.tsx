@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { useDocs } from "../hooks/useDocs";
-import { Spinner } from "../components/Spinner";
+import { useDocs } from "../curator/hooks/useDocs";
+import { Spinner } from "../shared/components/Spinner";
 
 export function DocsIndex() {
   const { data, isLoading, error } = useDocs();

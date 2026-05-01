@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAuth } from "../../src/hooks/useAuth";
-import { setToken } from "../../src/api/client";
+import { setToken } from "../../src/curator/api/curatorClient";
 
 describe("useAuth", () => {
   beforeEach(() => sessionStorage.clear());
