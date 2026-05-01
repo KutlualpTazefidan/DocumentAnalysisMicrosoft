@@ -91,10 +91,15 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     );
   }
 
+  const pdfScale = 1.2;
+  // bbox is pixel-space at raster_dpi; project onto pdfjs viewport at pdfScale.
+  const rasterDpi = segments.data?.raster_dpi ?? 144;
+  const boxScale = (pdfScale * 72) / rasterDpi;
+
   return (
     <div className="flex h-full relative">
       <section className="w-1/2 overflow-auto p-2 border-r">
-        <PdfPage slug={slug!} token={token} page={page} scale={1.2}>
+        <PdfPage slug={slug!} token={token} page={page} scale={pdfScale}>
           {boxesOnPage.map((b) => (
             <BoxOverlay
               key={b.box_id}
@@ -102,7 +107,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               selected={highlight === b.box_id}
               onSelect={(id) => handleRegion(id)}
               onChange={() => {}}
-              scale={1.2}
+              scale={boxScale}
             />
           ))}
         </PdfPage>
