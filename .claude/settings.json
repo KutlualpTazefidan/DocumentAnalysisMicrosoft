@@ -24,6 +24,31 @@
       "Bash(source .venv/bin/activate)",
       "Bash(uvx ruff check *)",
       "Bash(uvx ruff format --check *)"
+    ],
+    "deny": [
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push * main:main*)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin :main*)",
+      "Bash(git push origin -d main*)",
+      "Bash(git push origin --delete main*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force*)",
+      "Bash(git push *--force-with-lease*)",
+      "Bash(git reset --hard origin/main*)",
+      "Bash(git reset --hard HEAD@*main*)",
+      "Bash(git branch -D main*)",
+      "Bash(git branch -d main*)",
+      "Bash(git update-ref -d refs/heads/main*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr close*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh release delete*)",
+      "Bash(rm -rf .git)",
+      "Bash(rm -rf .git/*)",
+      "Bash(rm -rf ~/.claude)",
+      "Bash(rm -rf ~/.claude/*)"
     ]
   }
 }
