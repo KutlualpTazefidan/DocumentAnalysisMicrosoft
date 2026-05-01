@@ -1,4 +1,9 @@
-const BASE = (import.meta.env.VITE_LOCAL_PDF_API_BASE ?? "http://127.0.0.1:8001") as string;
+// Default to a relative URL so calls go through the Vite dev-server proxy
+// (configured in vite.config.ts to forward /api → backend) and, in production,
+// hit whatever origin serves the frontend (Task 27's static-mount means the
+// backend serves the SPA, so same-origin is correct). The env override is
+// retained for tests and for split-host deployments.
+const BASE = (import.meta.env.VITE_LOCAL_PDF_API_BASE ?? "") as string;
 
 export class ApiError extends Error {
   status: number;
