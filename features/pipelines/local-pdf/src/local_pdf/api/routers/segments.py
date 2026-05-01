@@ -31,7 +31,7 @@ from local_pdf.storage.sidecar import (
     write_segments,
     write_yolo,
 )
-from local_pdf.workers.yolo import run_yolo
+from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
 
@@ -60,7 +60,11 @@ async def run_segment(slug: str, request: Request) -> StreamingResponse:
     _bump_meta(cfg.data_root, slug, DocStatus.segmenting)
 
     def stream():
-        boxes = run_yolo(pdf, predict_fn=_YOLO_PREDICT_FN)
+        weights = cfg.yolo_weights or pdf  # fallback keeps existing behaviour in tests
+        with YoloWorker(weights, predict_fn=_YOLO_PREDICT_FN) as worker:
+            list(worker.run(pdf))
+            list(worker.unload())
+            boxes = worker.boxes
         pages = sorted({b.page for b in boxes})
         yield json.dumps(SegmentStartLine(total_pages=len(pages)).model_dump(mode="json")) + "\n"
         for p in pages:

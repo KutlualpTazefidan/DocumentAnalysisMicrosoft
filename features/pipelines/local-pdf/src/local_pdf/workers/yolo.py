@@ -1,20 +1,35 @@
-"""DocLayout-YOLO segmentation wrapper.
+"""DocLayout-YOLO segmentation worker.
 
-Public entry point: `run_yolo(pdf_path, *, predict_fn=None)`. When
-`predict_fn` is None, the default loads the doclayout_yolo package and
-the configured weights (LOCAL_PDF_YOLO_WEIGHTS) and runs inference.
-Tests inject a fake predict_fn to avoid loading the real model.
+`YoloWorker` is a context-managed model worker. `__enter__` loads weights,
+`run(pdf_path)` is a generator yielding `WorkerEvent`s and accumulating
+`SegmentBox` results into `self.boxes`, `unload()` yields the
+ModelUnloading / ModelUnloaded pair and frees VRAM. Tests inject a fake
+`predict_fn` to bypass the real model load.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import gc
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Self
 
 from local_pdf.api.schemas import BoxKind, SegmentBox
+from local_pdf.workers.base import (
+    EtaCalculator,
+    ModelLoadedEvent,
+    ModelLoadingEvent,
+    ModelUnloadedEvent,
+    ModelUnloadingEvent,
+    WorkCompleteEvent,
+    WorkerEvent,
+    WorkProgressEvent,
+    _import_torch,
+    _vram_used_mb,
+    now_ms,
+)
 
-# DocLayNet class names from DocLayout-YOLO -> our BoxKind enum.
 YOLO_CLASS_TO_BOX_KIND: dict[str, BoxKind] = {
     "title": BoxKind.heading,
     "plain text": BoxKind.paragraph,
@@ -87,22 +102,119 @@ def _default_predict(pdf_path: Path) -> list[YOLOPagePrediction]:
     return out
 
 
-def run_yolo(pdf_path: Path, *, predict_fn: PredictFn | None = None) -> list[SegmentBox]:
-    """Run DocLayout-YOLO on a PDF and return canonical SegmentBox list."""
-    fn = predict_fn or _default_predict
-    pages = fn(pdf_path)
-    out: list[SegmentBox] = []
-    for page_pred in pages:
-        for idx, b in enumerate(page_pred.boxes):
-            kind = YOLO_CLASS_TO_BOX_KIND.get(b.class_name, BoxKind.paragraph)
-            out.append(
-                SegmentBox(
-                    box_id=make_box_id(page_pred.page, idx),
-                    page=page_pred.page,
-                    bbox=b.bbox,
-                    kind=kind,
-                    confidence=b.confidence,
-                    reading_order=idx,
+class YoloWorker:
+    """Context-managed DocLayout-YOLO segmentation worker."""
+
+    name: str = "DocLayout-YOLO"
+    estimated_vram_mb: int = 700
+
+    def __init__(self, weights: Path, *, predict_fn: PredictFn | None = None) -> None:
+        self._weights = weights
+        self._predict_fn = predict_fn
+        self._loaded_vram_mb = 0
+        self._load_seconds = 0.0
+        self._unloaded = False
+        self.boxes: list[SegmentBox] = []
+
+    def __enter__(self) -> Self:
+        # Test mode bypass — no real load.
+        if self._predict_fn is not None:
+            self._loaded_vram_mb = 0
+            self._load_seconds = 0.0
+            return self
+
+        before = _vram_used_mb()
+        t0 = time.monotonic()
+        # Production load path — only the import-side-effect of YOLOv10 here;
+        # the actual predict happens inside `_default_predict`. We still emit
+        # measured VRAM and load_seconds.
+        from doclayout_yolo import YOLOv10  # noqa: F401  (warm-up import)
+
+        self._load_seconds = time.monotonic() - t0
+        self._loaded_vram_mb = max(0, _vram_used_mb() - before)
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        # Safety net: if user forgot to call unload(), free here without
+        # emitting events (events can't be yielded from __exit__).
+        if self._unloaded:
+            return
+        self._free_vram()
+        self._unloaded = True
+
+    def _free_vram(self) -> None:
+        gc.collect()
+        try:
+            torch = _import_torch()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+    def run(self, pdf_path: Path) -> Iterator[WorkerEvent]:
+        yield ModelLoadingEvent(
+            model=self.name,
+            timestamp_ms=now_ms(),
+            source=str(self._weights),
+            vram_estimate_mb=self.estimated_vram_mb,
+        )
+        yield ModelLoadedEvent(
+            model=self.name,
+            timestamp_ms=now_ms(),
+            vram_actual_mb=self._loaded_vram_mb,
+            load_seconds=self._load_seconds,
+        )
+
+        run_t0 = time.monotonic()
+        fn = self._predict_fn or _default_predict
+        pages = fn(pdf_path)
+        total_pages = len(pages)
+        eta = EtaCalculator()
+        self.boxes = []
+        for page_idx, page_pred in enumerate(pages, start=1):
+            for idx, b in enumerate(page_pred.boxes):
+                kind = YOLO_CLASS_TO_BOX_KIND.get(b.class_name, BoxKind.paragraph)
+                self.boxes.append(
+                    SegmentBox(
+                        box_id=make_box_id(page_pred.page, idx),
+                        page=page_pred.page,
+                        bbox=b.bbox,
+                        kind=kind,
+                        confidence=b.confidence,
+                        reading_order=idx,
+                    )
                 )
+            eta.observe(page_idx, time.monotonic())
+            eta_seconds, throughput = eta.estimate(total=total_pages)
+            yield WorkProgressEvent(
+                model=self.name,
+                timestamp_ms=now_ms(),
+                stage="page",
+                current=page_idx,
+                total=total_pages,
+                eta_seconds=eta_seconds,
+                throughput_per_sec=throughput,
+                vram_current_mb=_vram_used_mb(),
             )
-    return out
+
+        yield WorkCompleteEvent(
+            model=self.name,
+            timestamp_ms=now_ms(),
+            total_seconds=time.monotonic() - run_t0,
+            items_processed=len(self.boxes),
+            output_summary={"pages": total_pages, "boxes": len(self.boxes)},
+        )
+
+    def unload(self) -> Iterator[WorkerEvent]:
+        if self._unloaded:
+            return
+        yield ModelUnloadingEvent(model=self.name, timestamp_ms=now_ms())
+        before = _vram_used_mb()
+        self._free_vram()
+        freed = max(0, before - _vram_used_mb())
+        self._unloaded = True
+        yield ModelUnloadedEvent(
+            model=self.name,
+            timestamp_ms=now_ms(),
+            vram_freed_mb=freed,
+        )
