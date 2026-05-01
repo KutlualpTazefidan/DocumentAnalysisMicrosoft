@@ -61,6 +61,12 @@ const server = setupServer(
   http.post("*/api/admin/docs/rep/extract", () =>
     new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
+  http.post("*/api/admin/docs/rep/segments/reset", () =>
+    HttpResponse.json({ slug: "rep", boxes: BOXES }),
+  ),
+  http.post("*/api/admin/docs/rep/segments/p1-b0/reset", () =>
+    HttpResponse.json({ box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 }),
+  ),
 );
 
 beforeAll(() => server.listen());
@@ -156,6 +162,15 @@ describe("SegmentRoute", () => {
     expect(calls[0]).toContain("page=1");
   });
 
+  it("pagination is in the sidebar (not the top bar)", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Jump-to-page input is inside the aside (sidebar)
+    const input = screen.getByLabelText("Jump to page") as HTMLInputElement;
+    expect(input.closest("aside")).not.toBeNull();
+  });
+
   it("pagination jump-to-page navigates correctly", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
@@ -210,13 +225,49 @@ describe("SegmentRoute", () => {
     expect(btn.closest("aside")).not.toBeNull();
   });
 
-  it("New box button is in the sidebar", async () => {
+  it("New box button label is 'New box' without hotkey hint", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Select a box to make Properties section visible
     fireEvent.click(screen.getByTestId("box-p1-b0"));
-    await waitFor(() => screen.getByRole("button", { name: /New box/i }));
-    const btn = screen.getByRole("button", { name: /New box/i });
+    await waitFor(() => screen.getByRole("button", { name: "New box" }));
+    const btn = screen.getByRole("button", { name: "New box" });
+    expect(btn.textContent).toBe("New box");
     expect(btn.closest("aside")).not.toBeNull();
+  });
+
+  it("Reset diese Seite button is in the sidebar", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    const btn = screen.getByLabelText("Reset diese Seite");
+    expect(btn).toBeInTheDocument();
+    expect(btn.closest("aside")).not.toBeNull();
+  });
+
+  it("Reset box button appears in sidebar when a box is selected", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    fireEvent.click(screen.getByTestId("box-p1-b0"));
+    await waitFor(() => screen.getByLabelText("Reset box"));
+    const btn = screen.getByLabelText("Reset box");
+    expect(btn.closest("aside")).not.toBeNull();
+  });
+
+  it("Reset diese Seite fires confirm and calls reset endpoint", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/api/admin/docs/rep/segments/reset", ({ request }) => {
+        calls.push(new URL(request.url).search);
+        return HttpResponse.json({ slug: "rep", boxes: BOXES });
+      }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    fireEvent.click(screen.getByLabelText("Reset diese Seite"));
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    expect(calls[0]).toContain("page=1");
+
+    vi.restoreAllMocks();
   });
 });

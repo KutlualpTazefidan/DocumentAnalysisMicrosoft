@@ -6,7 +6,6 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
 import { BoxOverlay } from "../components/BoxOverlay";
-import { Pagination } from "../components/Pagination";
 import { PdfPage } from "../components/PdfPage";
 import { PropertiesSidebar } from "../components/PropertiesSidebar";
 import { StageIndicator } from "../components/StageIndicator";
@@ -15,6 +14,8 @@ import {
   useCreateBox,
   useDeleteBox,
   useMergeBoxes,
+  useResetBox,
+  useResetPage,
   useSegments,
   useSplitBox,
   useUpdateBox,
@@ -49,6 +50,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const split = useSplitBox(slug ?? "", token);
   const newBox = useCreateBox(slug ?? "", token);
   const del = useDeleteBox(slug ?? "", token);
+  const resetPageMut = useResetPage(slug ?? "", token);
+  const resetBoxMut = useResetBox(slug ?? "", token);
   const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
@@ -148,6 +151,22 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     }
   }
 
+  function handleResetPage() {
+    if (window.confirm(`Alle Boxen auf Seite ${page} zurücksetzen?`)) {
+      resetPageMut.mutate(page, {
+        onError: (e) => error(e instanceof Error ? e.message : "Reset fehlgeschlagen"),
+      });
+    }
+  }
+
+  function handleResetBox() {
+    if (focused) {
+      resetBoxMut.mutate(focused.box_id, {
+        onError: (e) => error(e instanceof Error ? e.message : "Reset fehlgeschlagen"),
+      });
+    }
+  }
+
   useBoxHotkeys({
     enabled: !!focused,
     setKind: (k: BoxKind) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } }),
@@ -175,10 +194,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     <div className="flex flex-col h-screen">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
-        {/* CENTER: pagination */}
-        <div className="flex-1 flex justify-center">
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-        </div>
+        {/* Spacer */}
+        <div className="flex-1" />
 
         {/* RIGHT: Alle Seiten extrahieren */}
         <button
@@ -223,11 +240,14 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onConfidenceChange={setConfidenceThreshold}
           onShowDeactivatedChange={setShowDeactivated}
           onRunExtractThisPage={onRunExtractThisPage}
+          onResetPage={handleResetPage}
           extractEnabled={extractEnabled}
           running={running}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
           onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
           onDeactivate={handleDeactivate}
+          onResetBox={handleResetBox}
+          onPageChange={setPage}
         />
       </div>
 

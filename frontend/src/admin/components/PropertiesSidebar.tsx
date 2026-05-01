@@ -1,4 +1,5 @@
 import type { BoxKind, SegmentBox } from "../types/domain";
+import { Pagination } from "./Pagination";
 
 const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "discard"];
 
@@ -12,11 +13,14 @@ interface Props {
   onConfidenceChange: (v: number) => void;
   onShowDeactivatedChange: (v: boolean) => void;
   onRunExtractThisPage: () => void;
+  onResetPage: () => void;
   extractEnabled: boolean;
   running: boolean;
   onChangeKind: (k: BoxKind) => void;
   onNewBox: () => void;
   onDeactivate: () => void;
+  onResetBox: () => void;
+  onPageChange: (page: number) => void;
 }
 
 export function PropertiesSidebar({
@@ -29,20 +33,31 @@ export function PropertiesSidebar({
   onConfidenceChange,
   onShowDeactivatedChange,
   onRunExtractThisPage,
+  onResetPage,
   extractEnabled,
   running,
   onChangeKind,
   onNewBox,
   onDeactivate,
+  onResetBox,
+  onPageChange,
 }: Props): JSX.Element {
   return (
-    <aside className="w-72 border-l p-4 flex flex-col gap-4 text-sm bg-white">
-      {/* Heading */}
-      <h2 className="font-semibold text-slate-900">
-        Seite {currentPage} / {totalPages}
-      </h2>
+    <aside className="w-72 border-l p-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
+      {/* ── Pagination ─────────────────────────────────────────────── */}
+      <div className="flex justify-center">
+        <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
+      </div>
 
-      {/* ── Section 1: Filter ───────────────────────────────────────── */}
+      <div className="text-center text-slate-700 font-medium">
+        <h2 className="font-semibold text-slate-900">
+          Seite {currentPage} / {totalPages}
+        </h2>
+      </div>
+
+      <hr className="my-3 border-slate-200" />
+
+      {/* ── Section: Filter ────────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter</span>
 
@@ -75,7 +90,7 @@ export function PropertiesSidebar({
         </label>
       </div>
 
-      {/* ── Section 2: Nur diese Seite ─────────────────────────────── */}
+      {/* ── Page action buttons ────────────────────────────────────── */}
       <button
         aria-label="Nur diese Seite extrahieren"
         className="w-full py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
@@ -85,7 +100,18 @@ export function PropertiesSidebar({
         {running ? "Running…" : "Nur diese Seite extrahieren"}
       </button>
 
-      {/* ── Section 3: Properties ──────────────────────────────────── */}
+      <button
+        aria-label="Reset diese Seite"
+        className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        disabled={running}
+        onClick={onResetPage}
+      >
+        Reset diese Seite
+      </button>
+
+      <hr className="my-3 border-slate-200" />
+
+      {/* ── Section: Properties ────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Properties</span>
 
@@ -135,7 +161,7 @@ export function PropertiesSidebar({
                 className="px-2 py-1 border rounded text-slate-700 hover:bg-slate-50"
                 onClick={onNewBox}
               >
-                New box (n)
+                New box
               </button>
               <button
                 aria-label="Deactivate"
@@ -145,6 +171,15 @@ export function PropertiesSidebar({
                 Deactivate
               </button>
             </div>
+
+            {/* Reset selected box — full-width secondary */}
+            <button
+              aria-label="Reset box"
+              className="w-full py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50"
+              onClick={onResetBox}
+            >
+              Reset
+            </button>
           </>
         ) : (
           <p className="text-slate-400">Wähle eine Box aus</p>
