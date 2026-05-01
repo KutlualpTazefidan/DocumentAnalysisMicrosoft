@@ -497,3 +497,119 @@ def test_reset_box_clears_continues_fields(tmp_path, monkeypatch) -> None:
     assert r.status_code == 200
     assert r.json()["continues_to"] is None
     assert r.json()["continues_from"] is None
+
+
+# ── unmerge-down / unmerge-up tests ──────────────────────────────────────────
+
+
+@pytest.fixture
+def client_linked(tmp_path, monkeypatch):
+    """Client with two linked boxes: p1-a → p2-a."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    import io
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_segments
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    seg_boxes = [
+        SegmentBox(
+            box_id="p1-a",
+            page=1,
+            bbox=(0.0, 0.0, 100.0, 50.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+            continues_to="p2-a",
+        ),
+        SegmentBox(
+            box_id="p2-a",
+            page=2,
+            bbox=(0.0, 5.0, 100.0, 55.0),
+            kind="paragraph",
+            confidence=0.9,
+            reading_order=0,
+            continues_from="p1-a",
+        ),
+    ]
+    write_segments(root, "doc", SegmentsFile(slug="doc", boxes=seg_boxes))
+    return client
+
+
+def test_unmerge_down_clears_both_ends(client_linked) -> None:
+    r = client_linked.post(
+        "/api/admin/docs/doc/segments/p1-a/unmerge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+    assert boxes["p1-a"]["continues_to"] is None
+    assert boxes["p2-a"]["continues_from"] is None
+
+
+def test_unmerge_down_409_when_no_continues_to(client_linked) -> None:
+    # p2-a has no continues_to
+    r = client_linked.post(
+        "/api/admin/docs/doc/segments/p2-a/unmerge-down",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 409
+    assert "continues_to not set" in r.json()["detail"]
+
+
+def test_unmerge_up_clears_both_ends(client_linked) -> None:
+    r = client_linked.post(
+        "/api/admin/docs/doc/segments/p2-a/unmerge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+    assert boxes["p2-a"]["continues_from"] is None
+    assert boxes["p1-a"]["continues_to"] is None
+
+
+def test_unmerge_up_404_when_box_missing(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    import io
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_segments
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    write_segments(
+        root,
+        "doc",
+        SegmentsFile(
+            slug="doc",
+            boxes=[
+                SegmentBox(
+                    box_id="p1-a",
+                    page=1,
+                    bbox=(0.0, 0.0, 100.0, 50.0),
+                    kind="paragraph",
+                    confidence=0.9,
+                    reading_order=0,
+                )
+            ],
+        ),
+    )
+    r = client.post(
+        "/api/admin/docs/doc/segments/nonexistent/unmerge-up",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 404

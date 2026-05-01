@@ -82,6 +82,9 @@ const server = setupServer(
   http.post("*/api/admin/docs/rep/segments/p1-b0/merge-up", () =>
     HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES[0], continues_from: "p0-b0" }] }),
   ),
+  http.post("*/api/admin/docs/rep/segments/p1-b0/unmerge-down", () =>
+    HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES_WITH_CONTINUES_TO[0], continues_to: null }] }),
+  ),
 );
 
 beforeAll(() => server.listen());
@@ -384,5 +387,33 @@ describe("SegmentRoute", () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
     expect(screen.getByTestId("continues-to-indicator-p1-b0")).toBeInTheDocument();
+  });
+
+  it("when continues_to is set, Merge down becomes Unmerge ↓ and clicking dispatches POST to unmerge-down", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.get("*/api/admin/docs/rep/segments", () =>
+        HttpResponse.json({ slug: "rep", boxes: BOXES_WITH_CONTINUES_TO }),
+      ),
+      http.post("*/api/admin/docs/rep/segments/:boxId/unmerge-down", ({ params }) => {
+        calls.push(params.boxId as string);
+        return HttpResponse.json({ slug: "rep", boxes: [{ ...BOXES_WITH_CONTINUES_TO[0], continues_to: null }] });
+      }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Select the box
+    fireEvent.click(screen.getByTestId("box-p1-b0"));
+
+    // With continues_to set, the button should now show "Unmerge ↓"
+    await waitFor(() => screen.getByLabelText("Unmerge down"));
+    expect(screen.queryByLabelText("Merge down")).not.toBeInTheDocument();
+
+    // Click Unmerge ↓ → dispatches POST to unmerge-down
+    fireEvent.click(screen.getByLabelText("Unmerge down"));
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    expect(calls[0]).toBe("p1-b0");
   });
 });

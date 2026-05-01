@@ -17,6 +17,8 @@ import {
   useMergeBoxes,
   useMergeBoxDown,
   useMergeBoxUp,
+  useUnmergeBoxDown,
+  useUnmergeBoxUp,
   useResetBox,
   useResetPage,
   useSegments,
@@ -67,6 +69,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const resetBoxMut = useResetBox(slug ?? "", token);
   const mergeDownMut = useMergeBoxDown(slug ?? "", token);
   const mergeUpMut = useMergeBoxUp(slug ?? "", token);
+  const unmergeDownMut = useUnmergeBoxDown(slug ?? "", token);
+  const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
   const [selected, setSelected] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
@@ -228,6 +232,28 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     }
   }
 
+  function handleUnmergeDown() {
+    if (focused) {
+      unmergeDownMut.mutate(focused.box_id, {
+        onError: (e) => {
+          const msg = e instanceof Error ? e.message : "Unmerge down fehlgeschlagen";
+          error(msg);
+        },
+      });
+    }
+  }
+
+  function handleUnmergeUp() {
+    if (focused) {
+      unmergeUpMut.mutate(focused.box_id, {
+        onError: (e) => {
+          const msg = e instanceof Error ? e.message : "Unmerge up fehlgeschlagen";
+          error(msg);
+        },
+      });
+    }
+  }
+
   useBoxHotkeys({
     enabled: !!focused,
     setKind: (k: BoxKind) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } }),
@@ -340,6 +366,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onResetBox={handleResetBox}
           onMergeUp={handleMergeUp}
           onMergeDown={handleMergeDown}
+          onUnmergeUp={handleUnmergeUp}
+          onUnmergeDown={handleUnmergeDown}
           onPageChange={setPage}
         />
       </div>

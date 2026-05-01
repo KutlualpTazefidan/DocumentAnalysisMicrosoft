@@ -109,6 +109,24 @@ export async function mergeBoxUp(slug: string, boxId: string, token: string): Pr
   return r.json();
 }
 
+export async function unmergeBoxDown(slug: string, boxId: string, token: string): Promise<SegmentsFile> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}/unmerge-down`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
+export async function unmergeBoxUp(slug: string, boxId: string, token: string): Promise<SegmentsFile> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}/unmerge-up`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
 export async function getHtml(slug: string, token: string): Promise<string> {
   const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token);
   const j = (await r.json()) as { html: string };

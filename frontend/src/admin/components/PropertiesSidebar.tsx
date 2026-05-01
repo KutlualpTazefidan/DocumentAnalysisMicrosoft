@@ -24,6 +24,8 @@ interface Props {
   onResetBox: () => void;
   onMergeUp: () => void;
   onMergeDown: () => void;
+  onUnmergeUp: () => void;
+  onUnmergeDown: () => void;
   onPageChange: (page: number) => void;
 }
 
@@ -47,6 +49,8 @@ export function PropertiesSidebar({
   onResetBox,
   onMergeUp,
   onMergeDown,
+  onUnmergeUp,
+  onUnmergeDown,
   onPageChange,
 }: Props): JSX.Element {
   return (
@@ -187,24 +191,44 @@ export function PropertiesSidebar({
               </div>
             </div>
 
-            {/* Action row: Merge up (left) | Merge down (right) */}
+            {/* Action row: Merge/Unmerge up (left) | Merge/Unmerge down (right) */}
             <div className="grid grid-cols-2 gap-2">
-              <button
-                aria-label="Merge up"
-                disabled={currentPage <= 1 || !!selected.continues_from}
-                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={onMergeUp}
-              >
-                Merge up
-              </button>
-              <button
-                aria-label="Merge down"
-                disabled={currentPage >= totalPages || !!selected.continues_to}
-                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={onMergeDown}
-              >
-                Merge down
-              </button>
+              {selected.continues_from ? (
+                <button
+                  aria-label="Unmerge up"
+                  className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
+                  onClick={onUnmergeUp}
+                >
+                  Unmerge ↑
+                </button>
+              ) : (
+                <button
+                  aria-label="Merge up"
+                  disabled={currentPage <= 1}
+                  className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={onMergeUp}
+                >
+                  Merge up
+                </button>
+              )}
+              {selected.continues_to ? (
+                <button
+                  aria-label="Unmerge down"
+                  className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
+                  onClick={onUnmergeDown}
+                >
+                  Unmerge ↓
+                </button>
+              ) : (
+                <button
+                  aria-label="Merge down"
+                  disabled={currentPage >= totalPages}
+                  className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={onMergeDown}
+                >
+                  Merge down
+                </button>
+              )}
             </div>
 
             {/* Action row: Deactivate (left) | Activate (right) */}

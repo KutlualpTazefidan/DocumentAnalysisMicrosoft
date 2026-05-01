@@ -25,6 +25,8 @@ describe("PropertiesSidebar arrow buttons", () => {
     onResetBox: vi.fn(),
     onMergeUp: vi.fn(),
     onMergeDown: vi.fn(),
+    onUnmergeUp: vi.fn(),
+    onUnmergeDown: vi.fn(),
     onPageChange: vi.fn(),
   };
 
@@ -100,6 +102,8 @@ describe("PropertiesSidebar merge buttons", () => {
     onResetBox: vi.fn(),
     onMergeUp: vi.fn(),
     onMergeDown: vi.fn(),
+    onUnmergeUp: vi.fn(),
+    onUnmergeDown: vi.fn(),
     onPageChange: vi.fn(),
   };
 
@@ -126,24 +130,28 @@ describe("PropertiesSidebar merge buttons", () => {
     expect(screen.getByLabelText("Merge down")).toBeDisabled();
   });
 
-  it("Merge up disabled when continues_from already set", () => {
+  it("Unmerge up button shown when continues_from already set", () => {
     render(
       <PropertiesSidebar
         {...baseProps}
         selected={{ ...selectedBox, continues_from: "p2-abc" }}
       />,
     );
-    expect(screen.getByLabelText("Merge up")).toBeDisabled();
+    // continues_from set → shows "Unmerge ↑" instead of "Merge up"
+    expect(screen.getByLabelText("Unmerge up")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Merge up")).not.toBeInTheDocument();
   });
 
-  it("Merge down disabled when continues_to already set", () => {
+  it("Unmerge down button shown when continues_to already set", () => {
     render(
       <PropertiesSidebar
         {...baseProps}
         selected={{ ...selectedBox, continues_to: "p4-abc" }}
       />,
     );
-    expect(screen.getByLabelText("Merge down")).toBeDisabled();
+    // continues_to set → shows "Unmerge ↓" instead of "Merge down"
+    expect(screen.getByLabelText("Unmerge down")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Merge down")).not.toBeInTheDocument();
   });
 
   it("Both merge buttons enabled on a middle page with no links", () => {

@@ -361,3 +361,45 @@ async def merge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     _replace_segments(cfg.data_root, slug, boxes)
     seg = read_segments(cfg.data_root, slug)
     return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
+
+
+@router.post("/api/admin/docs/{slug}/segments/{box_id}/unmerge-down")
+async def unmerge_down(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+    """Clear continues_to on source and continues_from on the linked target."""
+    cfg = request.app.state.config
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
+    if box_id not in by_id:
+        raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+    src_idx, src = by_id[box_id]
+    if src.continues_to is None:
+        raise HTTPException(status_code=409, detail="continues_to not set; nothing to unmerge")
+    target_id = src.continues_to
+    boxes[src_idx] = src.model_copy(update={"continues_to": None})
+    if target_id in by_id:
+        tgt_idx, tgt = by_id[target_id]
+        boxes[tgt_idx] = tgt.model_copy(update={"continues_from": None})
+    _replace_segments(cfg.data_root, slug, boxes)
+    seg = read_segments(cfg.data_root, slug)
+    return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
+
+
+@router.post("/api/admin/docs/{slug}/segments/{box_id}/unmerge-up")
+async def unmerge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+    """Clear continues_from on source and continues_to on the linked target."""
+    cfg = request.app.state.config
+    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
+    if box_id not in by_id:
+        raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+    src_idx, src = by_id[box_id]
+    if src.continues_from is None:
+        raise HTTPException(status_code=409, detail="continues_from not set; nothing to unmerge")
+    target_id = src.continues_from
+    boxes[src_idx] = src.model_copy(update={"continues_from": None})
+    if target_id in by_id:
+        tgt_idx, tgt = by_id[target_id]
+        boxes[tgt_idx] = tgt.model_copy(update={"continues_to": None})
+    _replace_segments(cfg.data_root, slug, boxes)
+    seg = read_segments(cfg.data_root, slug)
+    return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
