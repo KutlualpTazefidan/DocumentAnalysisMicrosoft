@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
+import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
 import { PdfPage } from "../components/PdfPage";
 import { PropertiesSidebar } from "../components/PropertiesSidebar";
@@ -246,6 +247,8 @@ export function SegmentRoute({ token }: Props): JSX.Element {
       <div className="flex flex-1 min-h-0">
         {/* Scrollable PDF canvas area — centered horizontally */}
         <div className="flex-1 overflow-auto p-4 relative">
+          {/* Floating colour legend, top-left of the PDF pane */}
+          <BoxLegend />
           {/* Floating zoom control, top-right of the PDF pane */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-1 bg-white/90 backdrop-blur border border-slate-300 rounded shadow-sm px-2 py-1">
             <button
