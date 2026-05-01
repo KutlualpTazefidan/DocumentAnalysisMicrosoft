@@ -25,7 +25,7 @@ export function useExtractRegion(slug: string, token: string) {
 }
 
 export async function* streamSegment(slug: string, token: string): AsyncGenerator<WorkerEvent> {
-  const r = await fetch(`${apiBase()}/api/docs/${encodeURIComponent(slug)}/segment`, {
+  const r = await fetch(`${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/segment`, {
     method: "POST",
     headers: { "X-Auth-Token": token },
   });
@@ -34,7 +34,7 @@ export async function* streamSegment(slug: string, token: string): AsyncGenerato
 }
 
 export async function* streamExtract(slug: string, token: string): AsyncGenerator<WorkerEvent> {
-  const r = await fetch(`${apiBase()}/api/docs/${encodeURIComponent(slug)}/extract`, {
+  const r = await fetch(`${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/extract`, {
     method: "POST",
     headers: { "X-Auth-Token": token },
   });

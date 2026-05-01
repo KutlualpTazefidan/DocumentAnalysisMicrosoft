@@ -8,8 +8,11 @@ describe("adminClient module shape", () => {
     expect(typeof mod.authHeaders).toBe("function");
   });
 
-  it("apiBase includes /api/admin in default", async () => {
+  it("apiBase returns the BASE prefix only (call sites add /api/admin/...)", async () => {
     const { apiBase } = await import("../../../src/admin/api/adminClient");
-    expect(apiBase().endsWith("/api/admin")).toBe(true);
+    // Default BASE is "" so apiBase() === "". Direct-fetch call sites
+    // (PdfPage, useExtract streamSegment/streamExtract) include the
+    // full "/api/admin/docs/..." path themselves.
+    expect(apiBase()).toBe("");
   });
 });

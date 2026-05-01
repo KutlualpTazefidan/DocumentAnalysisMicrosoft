@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function PdfPage({ slug, token, page, scale, children }: Props): JSX.Element {
-  const url = `${apiBase()}/api/docs/${encodeURIComponent(slug)}/source.pdf`;
+  const url = `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/source.pdf`;
   const { canvasRef, viewport, loading, error } = usePdfPage(url, token, page, scale);
   if (error) return <div className="text-red-600 p-4">PDF error: {error}</div>;
   return (

@@ -32,6 +32,9 @@ export async function apiFetch(path: string, token: string, init: RequestInit = 
   return resp;
 }
 
+/** Returns the URL prefix for fetch calls. Empty by default (relative
+ * URL → Vite proxy in dev, same-origin in prod). Call sites must include
+ * the full path (e.g. `${apiBase()}/api/admin/docs/<slug>/source.pdf`). */
 export function apiBase(): string {
-  return `${BASE}/api/admin`;
+  return BASE;
 }
