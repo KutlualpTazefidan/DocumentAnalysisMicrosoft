@@ -39,6 +39,7 @@ describe("CuratorDocPage", () => {
         <ToastProvider>
           <MemoryRouter initialEntries={["/curate/doc/doc-a"]}>
             <Routes>
+              <Route path="/curate/doc/:slug/element/:elementId" element={<CuratorDocPage />} />
               <Route path="/curate/doc/:slug" element={<CuratorDocPage />} />
             </Routes>
           </MemoryRouter>
@@ -51,5 +52,32 @@ describe("CuratorDocPage", () => {
     await waitFor(() =>
       expect(postedBody).toEqual({ element_id: "p1-x", query: "Was bedeutet Foo?" })
     );
+  });
+
+  it("j moves to next element via deep-link navigation", async () => {
+    const qc = new QueryClient();
+    server.use(
+      http.get("http://127.0.0.1:8001/api/curate/docs/doc-a/elements", () =>
+        HttpResponse.json([
+          { element_id: "p1-x", page_number: 1, element_type: "paragraph", content: "Foo" },
+          { element_id: "p1-y", page_number: 1, element_type: "paragraph", content: "Bar" },
+        ])
+      ),
+    );
+    render(
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={["/curate/doc/doc-a/element/p1-x"]}>
+            <Routes>
+              <Route path="/curate/doc/:slug/element/:elementId" element={<CuratorDocPage />} />
+              <Route path="/curate/doc/:slug" element={<CuratorDocPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Foo");
+    await userEvent.keyboard("j");
+    await waitFor(() => expect(screen.getByText("Bar")).toBeInTheDocument());
   });
 });
