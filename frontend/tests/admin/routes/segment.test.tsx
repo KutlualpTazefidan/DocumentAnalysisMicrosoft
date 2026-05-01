@@ -389,6 +389,49 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("continues-to-indicator-p1-b0")).toBeInTheDocument();
   });
 
+  it("sidebar shows + Mehr Seiten segmentieren button when segments are loaded", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    expect(screen.getByLabelText("Mehr Seiten segmentieren")).toBeInTheDocument();
+  });
+
+  it("clicking Mehr Seiten segmentieren opens a dialog", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    fireEvent.click(screen.getByLabelText("Mehr Seiten segmentieren"));
+    await waitFor(() => screen.getByRole("dialog", { name: "Mehr Seiten segmentieren" }));
+    expect(screen.getByRole("dialog", { name: "Mehr Seiten segmentieren" })).toBeInTheDocument();
+  });
+
+  it("Mehr Seiten dialog submit calls streamSegment with start and end params", async () => {
+    const calls: string[] = [];
+    server.use(
+      http.post("*/api/admin/docs/rep/segment", ({ request }) => {
+        calls.push(new URL(request.url).search);
+        return new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
+      }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Open dialog
+    fireEvent.click(screen.getByLabelText("Mehr Seiten segmentieren"));
+    await waitFor(() => screen.getByRole("dialog", { name: "Mehr Seiten segmentieren" }));
+
+    // Change the "Bis Seite" input to 3
+    const bisInput = screen.getByLabelText("Mehr bis Seite") as HTMLInputElement;
+    fireEvent.change(bisInput, { target: { value: "3" } });
+
+    // Submit
+    fireEvent.click(screen.getByRole("button", { name: "Segmentieren" }));
+
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    // URL must contain start= and end= params
+    expect(calls[0]).toMatch(/start=\d+/);
+    expect(calls[0]).toMatch(/end=3/);
+  });
+
   it("when continues_to is set, Merge down becomes Unmerge ↓ and clicking dispatches POST to unmerge-down", async () => {
     const calls: string[] = [];
     server.use(

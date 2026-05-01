@@ -151,7 +151,17 @@ class YoloWorker:
         except ImportError:
             pass
 
-    def run(self, pdf_path: Path) -> Iterator[WorkerEvent]:
+    def run(
+        self,
+        pdf_path: Path,
+        start_page: int | None = None,
+        end_page: int | None = None,
+    ) -> Iterator[WorkerEvent]:
+        """Segment *pdf_path*, optionally restricting to pages [start_page, end_page].
+
+        Page numbers are 1-based and inclusive.  When both are None the full
+        document is processed (original behaviour).
+        """
         yield ModelLoadingEvent(
             model=self.name,
             timestamp_ms=now_ms(),
@@ -167,7 +177,14 @@ class YoloWorker:
 
         run_t0 = time.monotonic()
         fn = self._predict_fn or _default_predict
-        pages = fn(pdf_path)
+        all_pages = fn(pdf_path)
+        # Filter to requested range (1-based, inclusive on both ends).
+        if start_page is not None or end_page is not None:
+            lo = start_page if start_page is not None else 1
+            hi = end_page if end_page is not None else len(all_pages)
+            pages = [p for p in all_pages if lo <= p.page <= hi]
+        else:
+            pages = all_pages
         total_pages = len(pages)
         eta = EtaCalculator()
         self.boxes = []

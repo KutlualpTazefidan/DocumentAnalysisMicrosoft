@@ -1,5 +1,5 @@
 // frontend/src/admin/routes/segment.tsx
-import { useMemo, useReducer, useState } from "react";
+import { useCallback, useMemo, useReducer, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/useAuth";
@@ -76,6 +76,16 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
   const { success, error } = useToast();
 
+  // Range inputs for no-segments-yet view
+  const [rangeStart, setRangeStart] = useState(1);
+  const [rangeEnd, setRangeEnd] = useState(10);
+
+  // Mehr-Seiten dialog state
+  const [moreDialogOpen, setMoreDialogOpen] = useState(false);
+  const [moreStart, setMoreStart] = useState(1);
+  const [moreEnd, setMoreEnd] = useState(10);
+
+
   // Filter state
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
   const [showDeactivated, setShowDeactivated] = useState(false);
@@ -129,10 +139,10 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     setSelected((prev) => (prev === boxId ? null : boxId));
   }
 
-  async function runSegment() {
+  async function runSegmentRange(start?: number, end?: number) {
     setRunning(true);
     try {
-      for await (const ev of streamSegment(slug!, token)) {
+      for await (const ev of streamSegment(slug!, token, start, end)) {
         dispatch(ev);
         if (ev.type === "work-complete") success(`segmented ${ev.items_processed} boxes`);
         if (ev.type === "work-failed") error(ev.reason);
@@ -141,6 +151,25 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     } finally {
       setRunning(false);
     }
+  }
+
+  function runSegment() {
+    return runSegmentRange(rangeStart, rangeEnd);
+  }
+
+  const openMoreDialog = useCallback(() => {
+    const boxes = segments.data?.boxes ?? [];
+    const maxPage = boxes.length > 0 ? Math.max(...boxes.map((b) => b.page)) : 0;
+    const nextStart = Math.min(maxPage + 1, totalPages);
+    const nextEnd = Math.min(nextStart + 9, totalPages);
+    setMoreStart(nextStart);
+    setMoreEnd(nextEnd);
+    setMoreDialogOpen(true);
+  }, [segments.data, totalPages]);
+
+  async function handleMoreSegment() {
+    setMoreDialogOpen(false);
+    await runSegmentRange(moreStart, moreEnd);
   }
 
   async function onRunExtractAll() {
@@ -267,9 +296,39 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     return (
       <div className="p-6 relative">
         <p>No segmentation yet.</p>
-        <button className="mt-4 bg-blue-600 text-white px-3 py-1 rounded" onClick={runSegment} disabled={running}>
-          {running ? "Segmenting…" : "Run segmentation"}
-        </button>
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-1 text-sm">
+            Von Seite
+            <input
+              aria-label="Von Seite"
+              type="number"
+              min={1}
+              max={totalPages}
+              value={rangeStart}
+              onChange={(e) => setRangeStart(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className="w-16 border rounded px-1 py-0.5 text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-sm">
+            Bis Seite
+            <input
+              aria-label="Bis Seite"
+              type="number"
+              min={1}
+              max={totalPages}
+              value={rangeEnd}
+              onChange={(e) => setRangeEnd(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className="w-16 border rounded px-1 py-0.5 text-sm"
+            />
+          </label>
+          <button
+            className="bg-blue-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
+            onClick={runSegment}
+            disabled={running}
+          >
+            {running ? "Segmenting…" : "Run segmentation"}
+          </button>
+        </div>
         <StageIndicator state={streamState} />
       </div>
     );
@@ -368,11 +427,66 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onMergeDown={handleMergeDown}
           onUnmergeUp={handleUnmergeUp}
           onUnmergeDown={handleUnmergeDown}
+          onMorePages={openMoreDialog}
           onPageChange={setPage}
         />
       </div>
 
       <StageIndicator state={streamState} />
+
+      {/* ── Mehr Seiten segmentieren dialog ─────────────────────────── */}
+      {moreDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mehr Seiten segmentieren"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+        >
+          <div className="bg-white rounded shadow-lg p-6 flex flex-col gap-4 min-w-[300px]">
+            <h3 className="font-semibold text-slate-900">Seiten-Bereich segmentieren</h3>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1 text-sm">
+                Von Seite
+                <input
+                  aria-label="Mehr von Seite"
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={moreStart}
+                  onChange={(e) => setMoreStart(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-16 border rounded px-1 py-0.5 text-sm"
+                />
+              </label>
+              <label className="flex items-center gap-1 text-sm">
+                Bis Seite
+                <input
+                  aria-label="Mehr bis Seite"
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  value={moreEnd}
+                  onChange={(e) => setMoreEnd(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-16 border rounded px-1 py-0.5 text-sm"
+                />
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                className="px-3 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                onClick={() => setMoreDialogOpen(false)}
+              >
+                Abbrechen
+              </button>
+              <button
+                className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-500"
+                onClick={handleMoreSegment}
+              >
+                Segmentieren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

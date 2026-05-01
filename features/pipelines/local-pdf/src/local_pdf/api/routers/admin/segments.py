@@ -26,6 +26,7 @@ from local_pdf.storage.sidecar import (
     doc_dir,
     read_meta,
     read_segments,
+    read_yolo,
     write_meta,
     write_segments,
     write_yolo,
@@ -56,7 +57,19 @@ def _yolo_weights_path() -> Path:
 
 
 @router.post("/api/admin/docs/{slug}/segment")
-async def run_segment(slug: str, request: Request) -> StreamingResponse:
+async def run_segment(
+    slug: str,
+    request: Request,
+    start: int | None = None,
+    end: int | None = None,
+) -> StreamingResponse:
+    """Stream YOLO segmentation for *slug*.
+
+    Optional *start* / *end* query parameters (1-based, inclusive) restrict
+    processing to a page range.  When provided, existing boxes outside that
+    range are preserved; boxes inside the range are replaced with fresh output.
+    Omitting both processes the full document (original behaviour).
+    """
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
     if not pdf.exists():
@@ -66,16 +79,37 @@ async def run_segment(slug: str, request: Request) -> StreamingResponse:
     def stream():
         try:
             with YoloWorker(_yolo_weights_path(), predict_fn=_YOLO_PREDICT_FN) as worker:
-                for ev in worker.run(pdf):
+                for ev in worker.run(pdf, start_page=start, end_page=end):
                     yield ev.model_dump_json() + "\n"
-                # Persist results before unload events.
-                boxes = worker.boxes
-                write_yolo(
-                    cfg.data_root,
-                    slug,
-                    {"boxes": [b.model_dump(mode="json") for b in boxes]},
-                )
-                write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=boxes))
+                new_boxes = worker.boxes
+
+                # ── yolo.json: merge pristine output, replacing only pages in range ──
+                existing_yolo = read_yolo(cfg.data_root, slug) or {"boxes": []}
+                if start is not None or end is not None:
+                    lo = start if start is not None else 1
+                    hi = end if end is not None else float("inf")
+                    kept_yolo = [
+                        b
+                        for b in existing_yolo.get("boxes", [])
+                        if not (lo <= b.get("page", 0) <= hi)
+                    ]
+                else:
+                    kept_yolo = []
+                merged_yolo_boxes = kept_yolo + [b.model_dump(mode="json") for b in new_boxes]
+                write_yolo(cfg.data_root, slug, {"boxes": merged_yolo_boxes})
+
+                # ── segments.json: same merge logic ──────────────────────────────────
+                existing_seg = read_segments(cfg.data_root, slug)
+                if existing_seg is not None and (start is not None or end is not None):
+                    lo = start if start is not None else 1
+                    hi = end if end is not None else float("inf")
+                    kept_seg = [b for b in existing_seg.boxes if not (lo <= b.page <= hi)]
+                else:
+                    kept_seg = []
+                all_boxes = kept_seg + new_boxes
+                all_boxes.sort(key=lambda b: (b.page, b.reading_order))
+                write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes))
+
                 meta = read_meta(cfg.data_root, slug)
                 if meta is not None:
                     write_meta(
@@ -83,7 +117,9 @@ async def run_segment(slug: str, request: Request) -> StreamingResponse:
                         slug,
                         meta.model_copy(
                             update={
-                                "box_count": len(boxes),
+                                "box_count": len(
+                                    [b for b in all_boxes if b.kind != BoxKind.discard]
+                                ),
                                 "last_touched_utc": _now_iso(),
                             }
                         ),
@@ -255,8 +291,6 @@ async def create_box(slug: str, body: CreateBoxRequest, request: Request) -> dic
 
 
 def _load_yolo_or_404(data_root, slug: str) -> dict:
-    from local_pdf.storage.sidecar import read_yolo
-
     yolo = read_yolo(data_root, slug)
     if yolo is None:
         raise HTTPException(status_code=404, detail="no yolo output to reset from")

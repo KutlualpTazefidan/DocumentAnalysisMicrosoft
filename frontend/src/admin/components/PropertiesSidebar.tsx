@@ -26,6 +26,7 @@ interface Props {
   onMergeDown: () => void;
   onUnmergeUp: () => void;
   onUnmergeDown: () => void;
+  onMorePages?: () => void;
   onPageChange: (page: number) => void;
 }
 
@@ -51,6 +52,7 @@ export function PropertiesSidebar({
   onMergeDown,
   onUnmergeUp,
   onUnmergeDown,
+  onMorePages,
   onPageChange,
 }: Props): JSX.Element {
   return (
@@ -120,6 +122,16 @@ export function PropertiesSidebar({
       </div>
 
       {/* ── Page action buttons ────────────────────────────────────── */}
+      {onMorePages && (
+        <button
+          aria-label="Mehr Seiten segmentieren"
+          className="w-full py-2 rounded border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50"
+          onClick={onMorePages}
+        >
+          + Mehr Seiten segmentieren
+        </button>
+      )}
+
       <button
         className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
         onClick={onNewBox}
