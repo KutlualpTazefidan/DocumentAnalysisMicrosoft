@@ -46,7 +46,7 @@ export function PropertiesSidebar({
   onPageChange,
 }: Props): JSX.Element {
   return (
-    <aside className="w-72 border-l p-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
+    <aside className="w-80 border-l px-8 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
       {/* ── Pagination ─────────────────────────────────────────────── */}
       <div className="flex justify-center">
         <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />

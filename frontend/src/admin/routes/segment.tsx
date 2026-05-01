@@ -152,13 +152,26 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 
   function handleDeactivate() {
     if (focused) {
-      update.mutate({ boxId: focused.box_id, patch: { kind: "discard" } });
+      // Deactivate is mutually exclusive with Activate. Setting kind=discard
+      // also clears manually_activated so the two states can't coexist.
+      update.mutate({
+        boxId: focused.box_id,
+        patch: { kind: "discard", manually_activated: false },
+      });
     }
   }
 
   function handleActivate() {
     if (focused) {
-      update.mutate({ boxId: focused.box_id, patch: { manually_activated: true } });
+      // Activate is mutually exclusive with Deactivate. If the box was
+      // previously discarded, restore kind to "paragraph" (a safe default;
+      // user can re-categorize via the kind dropdown). Then mark manually
+      // activated so it's included regardless of confidence threshold.
+      const restoredKind: BoxKind = focused.kind === "discard" ? "paragraph" : focused.kind;
+      update.mutate({
+        boxId: focused.box_id,
+        patch: { kind: restoredKind, manually_activated: true },
+      });
     }
   }
 
