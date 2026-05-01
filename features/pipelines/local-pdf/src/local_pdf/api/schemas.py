@@ -168,6 +168,25 @@ class CuratorsFile(BaseModel):
     curators: list[Curator] = Field(default_factory=list)
 
 
+class CreateCuratorRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    name: str = Field(min_length=1)
+
+
+class CreateCuratorResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: str
+    name: str
+    token: str  # full token, returned ONCE
+    token_prefix: str
+    created_at: str
+
+
+class AssignCuratorRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    curator_id: str
+
+
 class CuratorQuestionRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     element_id: str
