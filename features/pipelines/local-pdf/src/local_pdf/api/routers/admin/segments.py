@@ -55,7 +55,7 @@ def _yolo_weights_path() -> Path:
     return Path(os.environ.get("LOCAL_PDF_YOLO_WEIGHTS", "doclayout-yolo.pt"))
 
 
-@router.post("/api/docs/{slug}/segment")
+@router.post("/api/admin/docs/{slug}/segment")
 async def run_segment(slug: str, request: Request) -> StreamingResponse:
     cfg = request.app.state.config
     pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
@@ -105,7 +105,7 @@ async def run_segment(slug: str, request: Request) -> StreamingResponse:
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
-@router.get("/api/docs/{slug}/segments")
+@router.get("/api/admin/docs/{slug}/segments")
 async def get_segments(slug: str, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
     seg = read_segments(cfg.data_root, slug)
@@ -137,7 +137,7 @@ def _load_boxes_or_404(data_root, slug: str) -> list[SegmentBox]:
     return list(seg.boxes)
 
 
-@router.put("/api/docs/{slug}/segments/{box_id}")
+@router.put("/api/admin/docs/{slug}/segments/{box_id}")
 async def update_box(
     slug: str, box_id: str, body: UpdateBoxRequest, request: Request
 ) -> dict[str, Any]:
@@ -158,7 +158,7 @@ async def update_box(
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
 
-@router.delete("/api/docs/{slug}/segments/{box_id}")
+@router.delete("/api/admin/docs/{slug}/segments/{box_id}")
 async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
     boxes = _load_boxes_or_404(cfg.data_root, slug)
@@ -170,7 +170,7 @@ async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
 
-@router.post("/api/docs/{slug}/segments/merge")
+@router.post("/api/admin/docs/{slug}/segments/merge")
 async def merge_boxes(slug: str, body: MergeBoxesRequest, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
     boxes = _load_boxes_or_404(cfg.data_root, slug)
@@ -203,7 +203,7 @@ async def merge_boxes(slug: str, body: MergeBoxesRequest, request: Request) -> d
     return dict(merged.model_dump(mode="json"))
 
 
-@router.post("/api/docs/{slug}/segments/split")
+@router.post("/api/admin/docs/{slug}/segments/split")
 async def split_box(slug: str, body: SplitBoxRequest, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
     boxes = _load_boxes_or_404(cfg.data_root, slug)
@@ -235,7 +235,7 @@ async def split_box(slug: str, body: SplitBoxRequest, request: Request) -> dict[
     raise HTTPException(status_code=404, detail=f"box not found: {body.box_id}")
 
 
-@router.post("/api/docs/{slug}/segments", status_code=status.HTTP_201_CREATED)
+@router.post("/api/admin/docs/{slug}/segments", status_code=status.HTTP_201_CREATED)
 async def create_box(slug: str, body: CreateBoxRequest, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
     boxes = _load_boxes_or_404(cfg.data_root, slug)
