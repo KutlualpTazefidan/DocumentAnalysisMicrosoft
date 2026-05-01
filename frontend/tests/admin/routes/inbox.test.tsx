@@ -10,14 +10,14 @@ import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { InboxRoute } from "../../../src/admin/routes/inbox";
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/admin/docs", () =>
+  http.get("*/api/admin/docs", () =>
     HttpResponse.json([
       { slug: "rep", filename: "Rep.pdf", pages: 4, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 },
       { slug: "spec", filename: "Spec.pdf", pages: 12, status: "done", last_touched_utc: "2026-04-30T11:00:00Z", box_count: 35 },
       { slug: "ext", filename: "Ext.pdf", pages: 3, status: "extracted", last_touched_utc: "2026-04-30T12:00:00Z", box_count: 10 },
     ]),
   ),
-  http.post("http://127.0.0.1:8001/api/admin/docs/ext/publish", () =>
+  http.post("*/api/admin/docs/ext/publish", () =>
     HttpResponse.json({ slug: "ext", filename: "Ext.pdf", pages: 3, status: "open-for-curation", last_touched_utc: "2026-04-30T13:00:00Z", box_count: 10 }),
   ),
 );

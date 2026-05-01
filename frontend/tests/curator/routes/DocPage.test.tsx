@@ -14,12 +14,12 @@ vi.mock("../../../src/auth/useAuth", () => ({
 
 let postedBody: unknown = null;
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/curate/docs/doc-a/elements", () =>
+  http.get("*/api/curate/docs/doc-a/elements", () =>
     HttpResponse.json([
       { element_id: "p1-x", page_number: 1, element_type: "paragraph", content: "Foo" },
     ])
   ),
-  http.post("http://127.0.0.1:8001/api/curate/docs/doc-a/questions", async ({ request }) => {
+  http.post("*/api/curate/docs/doc-a/questions", async ({ request }) => {
     postedBody = await request.json();
     return new HttpResponse(JSON.stringify({
       question_id: "q-1", element_id: "p1-x", curator_id: "c-1",
@@ -57,7 +57,7 @@ describe("CuratorDocPage", () => {
   it("j moves to next element via deep-link navigation", async () => {
     const qc = new QueryClient();
     server.use(
-      http.get("http://127.0.0.1:8001/api/curate/docs/doc-a/elements", () =>
+      http.get("*/api/curate/docs/doc-a/elements", () =>
         HttpResponse.json([
           { element_id: "p1-x", page_number: 1, element_type: "paragraph", content: "Foo" },
           { element_id: "p1-y", page_number: 1, element_type: "paragraph", content: "Bar" },

@@ -17,19 +17,19 @@ const ALL_CURATORS = [
 const DOC_CURATORS_INITIAL: typeof ALL_CURATORS = [];
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/admin/curators", () =>
+  http.get("*/api/admin/curators", () =>
     HttpResponse.json(ALL_CURATORS),
   ),
-  http.get("http://127.0.0.1:8001/api/admin/docs/:slug/curators", () =>
+  http.get("*/api/admin/docs/:slug/curators", () =>
     HttpResponse.json(DOC_CURATORS_INITIAL),
   ),
-  http.post("http://127.0.0.1:8001/api/admin/docs/:slug/curators", async ({ request }) => {
+  http.post("*/api/admin/docs/:slug/curators", async ({ request }) => {
     const body = (await request.json()) as { curator_id: string };
     const matched = ALL_CURATORS.find((c) => c.id === body.curator_id);
     if (!matched) return new HttpResponse(null, { status: 404 });
     return HttpResponse.json(matched, { status: 201 });
   }),
-  http.delete("http://127.0.0.1:8001/api/admin/docs/:slug/curators/:curatorId", () =>
+  http.delete("*/api/admin/docs/:slug/curators/:curatorId", () =>
     new HttpResponse(null, { status: 204 }),
   ),
 );
@@ -65,13 +65,13 @@ describe("DocCurators", () => {
 
     // Override: POST marks assignment done; subsequent GET returns the assigned curator
     server.use(
-      http.get("http://127.0.0.1:8001/api/admin/docs/my-doc/curators", () => {
+      http.get("*/api/admin/docs/my-doc/curators", () => {
         if (postReceived) {
           return HttpResponse.json([ALL_CURATORS[0]]);
         }
         return HttpResponse.json([]);
       }),
-      http.post("http://127.0.0.1:8001/api/admin/docs/my-doc/curators", async ({ request }) => {
+      http.post("*/api/admin/docs/my-doc/curators", async ({ request }) => {
         const body = (await request.json()) as { curator_id: string };
         postReceived = true;
         const matched = ALL_CURATORS.find((c) => c.id === body.curator_id);

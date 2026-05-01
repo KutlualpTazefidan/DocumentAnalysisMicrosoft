@@ -22,13 +22,13 @@ const CREATE_RESPONSE = {
 };
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/admin/curators", () =>
+  http.get("*/api/admin/curators", () =>
     HttpResponse.json(CURATORS_INITIAL),
   ),
-  http.post("http://127.0.0.1:8001/api/admin/curators", () =>
+  http.post("*/api/admin/curators", () =>
     HttpResponse.json(CREATE_RESPONSE, { status: 201 }),
   ),
-  http.delete("http://127.0.0.1:8001/api/admin/curators/:id", () =>
+  http.delete("*/api/admin/curators/:id", () =>
     new HttpResponse(null, { status: 204 }),
   ),
 );
@@ -80,7 +80,7 @@ describe("Curators", () => {
   it("after dismissing token modal, list shows new token_prefix", async () => {
     // MSW re-orders: after create, GET returns both curators
     server.use(
-      http.get("http://127.0.0.1:8001/api/admin/curators", () =>
+      http.get("*/api/admin/curators", () =>
         HttpResponse.json([
           ...CURATORS_INITIAL,
           { id: "c2", name: "Dr X", token_prefix: "xyz999", created_utc: "2026-04-30T10:00:00Z" },

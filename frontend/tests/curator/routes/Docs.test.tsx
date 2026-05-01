@@ -11,7 +11,7 @@ vi.mock("../../../src/auth/useAuth", () => ({
 }));
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/curate/docs", () =>
+  http.get("*/api/curate/docs", () =>
     HttpResponse.json([
       { slug: "doc-a", filename: "doc-a.pdf", pages: 3, status: "open-for-curation",
         last_touched_utc: "t", box_count: 5 },

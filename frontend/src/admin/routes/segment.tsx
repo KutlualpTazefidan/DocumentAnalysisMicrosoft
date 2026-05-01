@@ -34,6 +34,12 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [page, setPage] = useState(1);
   const scale = 1.5;
   const segments = useSegments(slug ?? "", token);
+  // Bbox coords are pixel-space at the rasterization DPI used for YOLO
+  // inference. To overlay them on a PDF.js viewport rendered at `scale`
+  // (where scale=1 means 72 DPI / native PDF units), multiply by
+  // (scale * 72 / raster_dpi). Default raster_dpi=144 covers legacy files.
+  const rasterDpi = segments.data?.raster_dpi ?? 144;
+  const boxScale = (scale * 72) / rasterDpi;
   const update = useUpdateBox(slug ?? "", token);
   const merge = useMergeBoxes(slug ?? "", token);
   const split = useSplitBox(slug ?? "", token);
@@ -112,7 +118,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
               selected={selected.includes(b.box_id)}
               onSelect={handleSelect}
               onChange={(boxId, bbox) => update.mutate({ boxId, patch: { bbox } })}
-              scale={scale}
+              scale={boxScale}
             />
           ))}
         </PdfPage>

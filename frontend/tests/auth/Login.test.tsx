@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Login } from "../../src/auth/routes/Login";
 
 const server = setupServer(
-  http.post("http://127.0.0.1:8001/api/auth/check", async ({ request }) => {
+  http.post("*/api/auth/check", async ({ request }) => {
     const body = await request.json() as { token: string };
     if (body.token === "ADMIN-T") return HttpResponse.json({ role: "admin", name: "admin" });
     if (body.token === "CUR-T") return HttpResponse.json({ role: "curator", name: "Dr Q" });

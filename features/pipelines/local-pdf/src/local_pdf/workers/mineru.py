@@ -120,29 +120,49 @@ class MineruWorker:
             pass
 
     def run(self, pdf_path: Path, boxes: list[SegmentBox]) -> Iterator[WorkerEvent]:
-        # Source string is descriptive; MinerU has no single weights file.
+        # MinerU has no single weights file and our worker shells out to a
+        # subprocess that lazy-loads the model on first invocation. We can't
+        # observe the load timing in __enter__; instead we report it as the
+        # duration of the first subprocess call (which subsumes weight
+        # download + model init + first-page inference). This avoids the
+        # misleading "loaded (0.0s, 0MB)" the UI saw before.
+        targets = [b for b in boxes if b.kind != BoxKind.discard]
+        total = len(targets)
+        load_t0 = time.monotonic()
         yield ModelLoadingEvent(
             model=self.name,
             timestamp_ms=now_ms(),
             source=os.environ.get("LOCAL_PDF_MINERU_BIN", "mineru"),
             vram_estimate_mb=self.estimated_vram_mb,
         )
-        yield ModelLoadedEvent(
-            model=self.name,
-            timestamp_ms=now_ms(),
-            vram_actual_mb=self._loaded_vram_mb,
-            load_seconds=self._load_seconds,
-        )
 
-        targets = [b for b in boxes if b.kind != BoxKind.discard]
-        total = len(targets)
         run_t0 = time.monotonic()
         eta = EtaCalculator()
         fn = self._extract_fn or _default_extract
         self.results = []
+        emitted_loaded = False
         for i, box in enumerate(targets, start=1):
             result = fn(pdf_path, box)
             self.results.append(result)
+            if not emitted_loaded:
+                # First box completed — model is warm. Use this as our
+                # "loaded" signal with real elapsed time (includes weight
+                # download on first run + first-page inference; subsequent
+                # boxes will be much faster).
+                load_seconds = time.monotonic() - load_t0
+                self._load_seconds = load_seconds
+                self._loaded_vram_mb = max(0, _vram_used_mb())
+                yield ModelLoadedEvent(
+                    model=self.name,
+                    timestamp_ms=now_ms(),
+                    vram_actual_mb=self._loaded_vram_mb,
+                    load_seconds=load_seconds,
+                )
+                emitted_loaded = True
+                # Reset run-timing baseline so per-box throughput isn't
+                # skewed by the load-time embedded in the first box.
+                run_t0 = time.monotonic()
+                eta = EtaCalculator()
             eta.observe(i, time.monotonic())
             eta_seconds, throughput = eta.estimate(total=total)
             yield WorkProgressEvent(
