@@ -118,14 +118,20 @@ export function PropertiesSidebar({
   const currentState = pageStateFor(currentPage, segmentedPages, approvedPages);
   return (
     <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
-      {/* ── Legend strip — always visible ─────────────────────────────── */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
-        <span className="text-xs text-slate-600">Nicht segmentiert</span>
-        <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
-        <span className="text-xs text-slate-600">Segmentiert</span>
-        <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
-        <span className="text-xs text-slate-600">Gesperrt</span>
+      {/* ── Legend strip — single line, always visible ──────────────── */}
+      <div className="flex items-center justify-between gap-1 text-[11px] text-slate-600 whitespace-nowrap">
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
+          Nicht segm.
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded bg-green-200 shrink-0" aria-hidden="true" />
+          Segmentiert
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
+          Gesperrt
+        </span>
       </div>
 
       {/* ── Single page button — toggles the grid below ──────────────── */}
