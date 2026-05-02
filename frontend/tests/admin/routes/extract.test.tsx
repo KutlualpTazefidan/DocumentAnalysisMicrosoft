@@ -218,13 +218,13 @@ describe("ExtractRoute", () => {
     expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("approve button toggles page to blue (approved) state and persists to localStorage", async () => {
+  it("lock button toggles page to blue (locked) state and persists to localStorage", async () => {
     render(wrap());
     await waitForEditor();
     await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
 
-    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
-    fireEvent.click(approveBtn);
+    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    fireEvent.click(lockBtn);
 
     fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
     await waitFor(() =>
@@ -235,15 +235,15 @@ describe("ExtractRoute", () => {
     expect(stored).toContain(1);
   });
 
-  it("approve button label toggles to 'Genehmigung aufheben' after approval", async () => {
+  it("lock button label toggles to 'Diese Seite entsperren' after locking", async () => {
     render(wrap());
     await waitForEditor();
 
-    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
-    fireEvent.click(approveBtn);
+    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    fireEvent.click(lockBtn);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /diese seite entsperren/i })).toBeInTheDocument(),
     );
   });
 

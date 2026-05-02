@@ -374,7 +374,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
-              Genehmigt
+              Gesperrt
             </span>
           </div>
 
@@ -437,30 +437,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
           <hr className="border-slate-200" />
 
-          {/* Per-box extract — only when a box is selected */}
+          {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
           <button
-            aria-label="Re-extract this box"
-            title={!highlight ? "Klicke zuerst eine Box im PDF an" : undefined}
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
-            onClick={handleReExtractBox}
-            disabled={!highlight || running}
-          >
-            Diese Box extrahieren
-          </button>
-
-          {/* Per-page extract */}
-          <button
-            aria-label="Re-extract this page"
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-            onClick={runExtractThisPage}
-            disabled={running}
-          >
-            {running ? "Läuft…" : "Diese Seite extrahieren"}
-          </button>
-
-          {/* Approve current page — v1: localStorage */}
-          <button
-            aria-label={approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+            aria-label={approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"}
             className={
               approvedPages.has(page)
                 ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
@@ -468,7 +447,39 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             }
             onClick={handleToggleApprove}
           >
-            {approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+          </button>
+
+          {/* Per-box extract — only when a box is selected */}
+          <button
+            aria-label="Re-extract this box"
+            title={
+              approvedPages.has(page)
+                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
+                : !highlight
+                ? "Klicke zuerst eine Box im PDF an"
+                : undefined
+            }
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={handleReExtractBox}
+            disabled={!highlight || running || approvedPages.has(page)}
+          >
+            Diese Box extrahieren
+          </button>
+
+          {/* Per-page extract */}
+          <button
+            aria-label="Re-extract this page"
+            title={
+              approvedPages.has(page)
+                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
+                : undefined
+            }
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={runExtractThisPage}
+            disabled={running || approvedPages.has(page)}
+          >
+            {running ? "Läuft…" : "Diese Seite extrahieren"}
           </button>
 
           {/* Conf filter status indicator */}
