@@ -97,6 +97,32 @@ describe("setDefaultThreshold", () => {
   });
 });
 
+describe("state independence", () => {
+  it("setting default to 0.5 with perPage[8]=0.7 → effective for page 8 stays 0.7", () => {
+    localStorage.setItem(
+      "segment.confThreshold.ind-doc",
+      JSON.stringify({ default: 0.70, perPage: { 8: 0.70 } }),
+    );
+    setPageThreshold("ind-doc", 8, 0.70);
+    const next = setDefaultThreshold("ind-doc", 0.50);
+    // The perPage override for page 8 is untouched
+    expect(next.perPage[8]).toBe(0.70);
+    // Effective threshold for page 8 uses the override, not the new default
+    expect(effectiveThreshold(next, 8)).toBe(0.70);
+  });
+
+  it("setting perPage[8]=0.7 with default=0.5 → default stays 0.5", () => {
+    localStorage.setItem(
+      "segment.confThreshold.ind-doc2",
+      JSON.stringify({ default: 0.50, perPage: {} }),
+    );
+    const next = setPageThreshold("ind-doc2", 8, 0.70);
+    // Setting a page override must not modify the default
+    expect(next.default).toBe(0.50);
+    expect(loadConf("ind-doc2").default).toBe(0.50);
+  });
+});
+
 describe("clearPageOverride", () => {
   it("removes the override for the specified page", () => {
     localStorage.setItem(

@@ -130,13 +130,52 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("box-p1-b0")).not.toHaveAttribute("data-deactivated");
   });
 
-  it("confidence threshold slider is in the top bar", async () => {
+  it("top bar shows Confidence numeric input (not 'Default ≥')", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Slider is in the top bar — found by aria-label
-    const slider = screen.getByLabelText("Confidence threshold") as HTMLInputElement;
+    // The top bar label text is "Confidence", not "Default ≥"
+    expect(screen.getByLabelText("Confidence")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Default confidence threshold")).not.toBeInTheDocument();
+  });
+
+  it("top bar does NOT contain a range slider", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // No range slider should be in the top bar
+    const sliders = document.querySelectorAll('input[type="range"]');
+    // All range sliders should be inside <aside> (the sidebar), not the top bar div
+    sliders.forEach((slider) => {
+      expect(slider.closest("aside")).not.toBeNull();
+    });
+  });
+
+  it("sidebar contains the per-page confidence slider", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    const slider = screen.getByTestId("per-page-conf-slider") as HTMLInputElement;
     expect(slider).toBeInTheDocument();
-    expect(slider.value).toBe("0.7");
+    expect(slider.closest("aside")).not.toBeNull();
+  });
+
+  it("changing Confidence in top bar does not affect a per-page override", async () => {
+    // Seed localStorage BEFORE render so the component initialises with the override
+    localStorage.setItem(
+      "segment.confThreshold.rep",
+      JSON.stringify({ default: 0.70, perPage: { 8: 0.85 } }),
+    );
+
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+
+    // Change the default confidence input
+    const confInput = screen.getByLabelText("Confidence") as HTMLInputElement;
+    fireEvent.change(confInput, { target: { value: "0.50" } });
+
+    // The perPage[8] override should still be 0.85 in localStorage
+    const stored = JSON.parse(
+      localStorage.getItem("segment.confThreshold.rep") ?? "{}",
+    ) as { default: number; perPage: Record<string, number> };
+    expect(stored.perPage[8]).toBe(0.85);
   });
 
   it("Alle Seiten segmentieren button is on the top bar and calls segment (no page param)", async () => {

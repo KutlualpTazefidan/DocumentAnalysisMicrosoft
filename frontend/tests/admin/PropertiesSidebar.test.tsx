@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PropertiesSidebar } from "../../src/admin/components/PropertiesSidebar";
 import type { SegmentBox } from "../../src/admin/types/domain";
@@ -26,6 +26,10 @@ describe("PropertiesSidebar page-button grid", () => {
     onUnmergeUp: vi.fn(),
     onUnmergeDown: vi.fn(),
     onPageChange: vi.fn(),
+    perPageThreshold: 0.70,
+    hasOverride: false,
+    onPerPageChange: vi.fn(),
+    onClearPerPage: vi.fn(),
   };
 
   it("renders a button for each page", () => {
@@ -120,6 +124,10 @@ describe("PropertiesSidebar merge buttons", () => {
     onUnmergeUp: vi.fn(),
     onUnmergeDown: vi.fn(),
     onPageChange: vi.fn(),
+    perPageThreshold: 0.70,
+    hasOverride: false,
+    onPerPageChange: vi.fn(),
+    onClearPerPage: vi.fn(),
   };
 
   it("Merge up disabled when on page 1", () => {
@@ -171,5 +179,66 @@ describe("PropertiesSidebar merge buttons", () => {
     render(<PropertiesSidebar {...baseProps} />);
     expect(screen.getByLabelText("Merge up")).not.toBeDisabled();
     expect(screen.getByLabelText("Merge down")).not.toBeDisabled();
+  });
+});
+
+describe("PropertiesSidebar per-page confidence slider", () => {
+  const defaultProps = {
+    slug: "test-doc",
+    selected: null,
+    pageBoxCount: 2,
+    currentPage: 3,
+    totalPages: 5,
+    segmentedPages: new Set<number>([3]),
+    approvedPages: new Set<number>(),
+    onToggleApprove: vi.fn(),
+    onResetPage: vi.fn(),
+    running: false,
+    onChangeKind: vi.fn(),
+    onNewBox: vi.fn(),
+    onDeactivate: vi.fn(),
+    onActivate: vi.fn(),
+    onResetBox: vi.fn(),
+    onMergeUp: vi.fn(),
+    onMergeDown: vi.fn(),
+    onUnmergeUp: vi.fn(),
+    onUnmergeDown: vi.fn(),
+    onPageChange: vi.fn(),
+    perPageThreshold: 0.55,
+    hasOverride: true,
+    onPerPageChange: vi.fn(),
+    onClearPerPage: vi.fn(),
+  };
+
+  it("slider renders with the current effective threshold value", () => {
+    render(<PropertiesSidebar {...defaultProps} />);
+    const slider = screen.getByTestId("per-page-conf-slider") as HTMLInputElement;
+    expect(slider).toBeInTheDocument();
+    expect(parseFloat(slider.value)).toBeCloseTo(0.55);
+  });
+
+  it("reset button is enabled when hasOverride is true", () => {
+    render(<PropertiesSidebar {...defaultProps} hasOverride={true} />);
+    expect(screen.getByTestId("per-page-conf-reset")).not.toBeDisabled();
+  });
+
+  it("reset button is disabled when hasOverride is false", () => {
+    render(<PropertiesSidebar {...defaultProps} hasOverride={false} />);
+    expect(screen.getByTestId("per-page-conf-reset")).toBeDisabled();
+  });
+
+  it("clicking reset button calls onClearPerPage", async () => {
+    const onClearPerPage = vi.fn();
+    render(<PropertiesSidebar {...defaultProps} hasOverride={true} onClearPerPage={onClearPerPage} />);
+    await userEvent.click(screen.getByTestId("per-page-conf-reset"));
+    expect(onClearPerPage).toHaveBeenCalled();
+  });
+
+  it("slider change calls onPerPageChange with the new numeric value", async () => {
+    const onPerPageChange = vi.fn();
+    render(<PropertiesSidebar {...defaultProps} onPerPageChange={onPerPageChange} />);
+    const slider = screen.getByTestId("per-page-conf-slider");
+    fireEvent.change(slider, { target: { value: "0.75" } });
+    expect(onPerPageChange).toHaveBeenCalledWith(0.75);
   });
 });

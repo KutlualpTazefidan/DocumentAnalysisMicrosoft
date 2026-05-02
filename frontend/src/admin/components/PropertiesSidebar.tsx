@@ -74,6 +74,14 @@ interface Props {
   onUnmergeUp: () => void;
   onUnmergeDown: () => void;
   onPageChange: (page: number) => void;
+  /** Effective threshold for the current page (default or per-page override) */
+  perPageThreshold: number;
+  /** Whether a per-page override exists for the current page */
+  hasOverride: boolean;
+  /** Write a per-page override for the current page */
+  onPerPageChange: (v: number) => void;
+  /** Clear the per-page override for the current page */
+  onClearPerPage: () => void;
 }
 
 export function PropertiesSidebar({
@@ -97,6 +105,10 @@ export function PropertiesSidebar({
   onUnmergeUp,
   onUnmergeDown,
   onPageChange,
+  perPageThreshold,
+  hasOverride,
+  onPerPageChange,
+  onClearPerPage,
 }: Props): JSX.Element {
   return (
     <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
@@ -148,6 +160,35 @@ export function PropertiesSidebar({
       >
         {approvedPages.has(currentPage) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
       </button>
+
+      {/* ── Per-page confidence slider ─────────────────────────────────── */}
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-slate-500">Confidence (Seite {currentPage})</span>
+        <div className="flex items-center gap-2">
+          <input
+            data-testid="per-page-conf-slider"
+            aria-label={`Confidence threshold for page ${currentPage}`}
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={perPageThreshold}
+            onChange={(e) => onPerPageChange(parseFloat(e.target.value))}
+            className="flex-1 accent-blue-500"
+          />
+          <span className="font-mono text-xs text-slate-700 w-8 text-center">{perPageThreshold.toFixed(2)}</span>
+          <button
+            data-testid="per-page-conf-reset"
+            aria-label="Reset per-page confidence override"
+            title="Zurück auf Standard"
+            disabled={!hasOverride}
+            className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed px-1"
+            onClick={onClearPerPage}
+          >
+            ↺
+          </button>
+        </div>
+      </div>
 
       {/* ── Page action buttons ────────────────────────────────────────── */}
       <button

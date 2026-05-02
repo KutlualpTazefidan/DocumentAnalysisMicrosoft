@@ -364,48 +364,23 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug!} />
 
-        {/* Filters: default conf input + page slider */}
-        <div className="flex items-center gap-3 text-xs">
+        {/* Right-aligned group: Confidence input + Show deactivated + action buttons */}
+        <div className="flex items-center gap-3 ml-auto text-xs">
           <label className="flex items-center gap-1 text-navy-100 whitespace-nowrap">
-            Default ≥
+            Confidence
             <input
-              aria-label="Default confidence threshold"
+              aria-label="Confidence"
               type="number"
               min={0}
               max={1}
-              step={0.01}
+              step={0.05}
               value={confState.default.toFixed(2)}
               onChange={(e) => handleDefaultThresholdChange(parseFloat(e.target.value) || 0)}
               className="w-14 border border-navy-600 rounded px-1 py-0.5 text-xs bg-navy-700 text-white text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
-          </label>
-          <label className="flex items-center gap-1 text-navy-100 whitespace-nowrap">
-            Seite ≥
-            <input
-              id="seg-page-conf-slider"
-              aria-label="Confidence threshold"
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={currentThreshold}
-              onChange={(e) => handlePageThresholdChange(parseFloat(e.target.value))}
-              className="w-24 accent-blue-400"
-            />
-            <span className="font-mono w-8 text-center">{currentThreshold.toFixed(2)}</span>
-            {hasPageOverride && (
-              <button
-                aria-label="Reset page confidence override"
-                title="Zurück auf Standard"
-                className="text-navy-300 hover:text-white px-1"
-                onClick={handleClearPageOverride}
-              >
-                ↺
-              </button>
-            )}
           </label>
           <label className="flex items-center gap-1 text-navy-100 cursor-pointer">
             <input
@@ -417,10 +392,6 @@ export function SegmentRoute({ token }: Props): JSX.Element {
             />
             Show deactivated
           </label>
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-1.5">
           <button
             aria-label="Mehr Seiten segmentieren"
             className="text-xs px-3 py-1 rounded border border-blue-300 text-blue-200 hover:bg-blue-900 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -515,6 +486,10 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onUnmergeUp={handleUnmergeUp}
           onUnmergeDown={handleUnmergeDown}
           onPageChange={setPage}
+          perPageThreshold={currentThreshold}
+          hasOverride={hasPageOverride}
+          onPerPageChange={handlePageThresholdChange}
+          onClearPerPage={handleClearPageOverride}
         />
       </div>
 
