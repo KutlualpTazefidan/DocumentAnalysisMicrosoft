@@ -404,17 +404,44 @@ def _build_one_box_html(
     return ""
 
 
+# ── PDF page slicer ───────────────────────────────────────────────────────────
+
+
+def _slice_pdf_to_pages(pdf_bytes: bytes, page_nums: list[int]) -> bytes:
+    """Return PDF bytes containing only the given 1-indexed pages, in order.
+
+    Used when the worker only needs a subset of pages — passing a sliced PDF
+    to MinerU's VLM avoids parsing the entire document.
+    """
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for p in sorted(set(page_nums)):
+        writer.add_page(reader.pages[p - 1])
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
 # ── Real MinerU doc parse (production path) ──────────────────────────────────
 
 
 def _make_real_parse_doc_fn(
     predictor: object,
     image_writer_dir: Path | None = None,
-) -> ParseDocFn:
-    """Return a ParseDocFn that uses the loaded MinerU VLM predictor.
+) -> Callable[[Path, list[int] | None], dict[int, PageData]]:
+    """Return a parse function that uses the loaded MinerU VLM predictor.
 
-    Parses the entire PDF once and returns a dict mapping 1-indexed page
-    numbers to PageData (page_size + list of ParsedElement).
+    The returned function signature is:
+        (pdf_path: Path, page_subset: list[int] | None = None) -> dict[int, PageData]
+
+    When `page_subset` is None, all pages are parsed (previous behaviour).
+    When `page_subset` is a non-empty list of 1-indexed page numbers, the PDF
+    is sliced to those pages before calling doc_analyze, and the resulting
+    pdf_info indices are remapped back to the original page numbers.
 
     MinerU's `doc_analyze` API processes a whole PDF via a windowed VLM
     inference loop.  Both the pipeline and VLM backends produce the same
@@ -433,9 +460,22 @@ def _make_real_parse_doc_fn(
     if image_writer_dir is not None:
         from mineru.data.data_reader_writer import FileBasedDataWriter
 
-    def _parse_doc(pdf_path: Path) -> dict[int, PageData]:
-        """Parse all pages of a PDF using MinerU VLM backend."""
+    def _parse_doc(pdf_path: Path, page_subset: list[int] | None = None) -> dict[int, PageData]:
+        """Parse a PDF (or a sliced subset of its pages) using MinerU VLM backend.
+
+        When page_subset is provided, the PDF is sliced to those pages before
+        passing to doc_analyze, reducing VLM work to only the needed pages.
+        The returned dict is always keyed by original 1-indexed page numbers.
+        """
         pdf_bytes = pdf_path.read_bytes()
+
+        # Slice to requested pages when a subset is specified.
+        # sorted_subset[i] is the original page number for sliced page i+1.
+        if page_subset:
+            sorted_subset = sorted(set(page_subset))
+            pdf_bytes = _slice_pdf_to_pages(pdf_bytes, sorted_subset)
+        else:
+            sorted_subset = None
 
         # Pick the image writer: file-based when caller wants cropouts saved.
         if image_writer_dir is not None:
@@ -460,7 +500,10 @@ def _make_real_parse_doc_fn(
 
         pages: dict[int, PageData] = {}
         for page_idx, page_info in enumerate(all_page_infos):
-            page_number = page_idx + 1  # 1-indexed
+            # When a page_subset was used, sliced page i+1 maps back to
+            # sorted_subset[i] in the original document.  Without a subset,
+            # page_idx + 1 is the canonical 1-indexed page number.
+            page_number = sorted_subset[page_idx] if sorted_subset is not None else page_idx + 1
             raw_page_size = page_info.get("page_size")
             try:
                 page_size: tuple[float, float] = (
@@ -526,7 +569,7 @@ def _make_real_parse_page_fn(predictor: object) -> ParsePageFn:
     parse_doc = _make_real_parse_doc_fn(predictor)
 
     def _parse_page(pdf_path: Path, page_number: int) -> list[ParsedElement]:
-        pages = parse_doc(pdf_path)
+        pages = parse_doc(pdf_path, None)
         page_data = pages.get(page_number)
         return page_data.elements if page_data is not None else []
 
@@ -591,7 +634,10 @@ class MineruWorker:
         self.results: list[MinerUResult] = []
         # Per-worker doc cache: avoids re-parsing the same PDF across multiple
         # calls to run() / extract_region() within one worker lifetime.
-        self._doc_cache: dict[Path, dict[int, PageData]] = {}
+        # Cache key: (pdf_path, frozenset of requested pages | None for full doc).
+        # A partial-page run and a full-doc run are different cache entries so
+        # "Diese Seite extrahieren" never poisons the full-doc cache.
+        self._doc_cache: dict[tuple[Path, frozenset[int] | None], dict[int, PageData]] = {}
 
     # ── Context manager ───────────────────────────────────────────────────────
 
@@ -646,38 +692,62 @@ class MineruWorker:
         except ImportError:
             pass
 
-    def _get_doc_pages(self, pdf_path: Path) -> dict[int, PageData]:
-        """Return cached per-page data for `pdf_path`, parsing at most once.
+    def _get_doc_pages(
+        self,
+        pdf_path: Path,
+        page_subset: list[int] | None = None,
+    ) -> dict[int, PageData]:
+        """Return cached per-page data for `pdf_path`, parsing at most once per key.
+
+        Args:
+            pdf_path: Path to the PDF file.
+            page_subset: 1-indexed page numbers to parse.  None = full document.
+                         Results are always keyed by original page numbers.
 
         Returns dict[int, PageData] where PageData holds page_size and elements.
 
+        Cache key is (pdf_path, frozenset(page_subset) | None), so partial-page
+        and full-document runs live in separate cache slots and never interfere.
+
         Preference order:
-          1. `parse_doc_fn` injection (new preferred path, parses doc once).
-          2. Real model via `_make_real_parse_doc_fn`.
+          1. `parse_doc_fn` injection (test path) — called without page_subset
+             for back-compat, then filtered to the requested subset.
+          2. Real model via `_make_real_parse_doc_fn` — receives page_subset so
+             the PDF is sliced before VLM inference.
           3. Fallback: empty dict when no model available.
 
         Note: `parse_page_fn` injection is handled separately in run() /
         extract_region() for legacy back-compat; it does NOT flow through here.
         """
-        if pdf_path in self._doc_cache:
-            return self._doc_cache[pdf_path]
+        cache_key: tuple[Path, frozenset[int] | None] = (
+            pdf_path,
+            frozenset(page_subset) if page_subset else None,
+        )
+        if cache_key in self._doc_cache:
+            return self._doc_cache[cache_key]
 
         if self._parse_doc_fn is not None:
             # Normalise to dict[int, PageData]. Legacy test injections may return
             # dict[int, list[ParsedElement]] — detect and wrap on the fly.
+            # Call without page_subset for back-compat; filter afterwards.
+            raw = self._parse_doc_fn(pdf_path)
             pages: dict[int, PageData] = {}
-            for k, v in self._parse_doc_fn(pdf_path).items():
+            for k, v in raw.items():
+                if page_subset is not None and k not in page_subset:
+                    continue
                 if isinstance(v, PageData):
                     pages[k] = v
                 else:
                     # Legacy list[ParsedElement] from old test injections
                     pages[k] = PageData(page_size=(612.0, 792.0), elements=list(v))
         elif self._predictor is not None:
-            pages = _make_real_parse_doc_fn(self._predictor, self._image_writer_dir)(pdf_path)
+            pages = _make_real_parse_doc_fn(self._predictor, self._image_writer_dir)(
+                pdf_path, page_subset
+            )
         else:
             pages = {}
 
-        self._doc_cache[pdf_path] = pages
+        self._doc_cache[cache_key] = pages
         return pages
 
     def _get_parse_page_fn(self) -> ParsePageFn:
@@ -782,8 +852,11 @@ class MineruWorker:
                     vram_current_mb=_vram_used_mb(),
                 )
         else:
-            # Main path: parse entire doc ONCE, look up each page from cache.
-            doc_pages = self._get_doc_pages(pdf_path)
+            # Main path: parse only the pages that targets actually need,
+            # then look up each page from the cache.  Slicing the PDF before
+            # calling doc_analyze avoids VLM work on irrelevant pages.
+            unique_pages = sorted({b.page for b in targets})
+            doc_pages = self._get_doc_pages(pdf_path, page_subset=unique_pages or None)
 
             # Determine h1 promotion candidate
             non_discard = [b for b in targets if b.kind != BoxKind.discard]
@@ -843,7 +916,7 @@ class MineruWorker:
             page_elements = parse_page(pdf_path, box.page)
             page_size = (612.0, 792.0)
         else:
-            doc_pages = self._get_doc_pages(pdf_path)
+            doc_pages = self._get_doc_pages(pdf_path, page_subset=[box.page])
             page_data = doc_pages.get(box.page)
             page_elements = page_data.elements if page_data is not None else []
             page_size = page_data.page_size if page_data is not None else (612.0, 792.0)

@@ -1094,3 +1094,117 @@ def test_h1_promotion_not_applied_when_multiple_headings(tmp_path: Path) -> None
     for r in worker.results:
         assert "<h1" not in r.html, f"Expected no h1 promotion, got: {r.html}"
         assert "<h2" in r.html
+
+
+# ── New tests: page-subset slicing (fix for full-doc VLM on single-page extract) ─
+
+
+def test_run_with_page_subset_only_returns_those_pages(tmp_path: Path) -> None:
+    """When targets only touch page 2, parse_doc_fn is called once and results
+    contain only page-2 boxes — pages 1 and 3 are filtered out of the cache."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "three_pages.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # Single box on page 2 only
+    boxes = [
+        SegmentBox(
+            box_id="p2-b0",
+            page=2,
+            bbox=(0.0, 0.0, 50.0, 50.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        )
+    ]
+
+    call_args: list[int | None] = []
+
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        # Return three pages worth of data; worker should filter to page 2 only
+        call_args.append(None)  # sentinel: we were called
+        return {
+            1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page1</p>", text="page1")],
+            2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page2</p>", text="page2")],
+            3: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page3</p>", text="page3")],
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    assert len(call_args) == 1, "parse_doc_fn should be called exactly once"
+    assert len(worker.results) == 1
+    assert worker.results[0].box_id == "p2-b0"
+    assert "page2" in worker.results[0].html
+
+
+def test_page_subset_cache_key_is_independent_of_full_doc(tmp_path: Path) -> None:
+    """A partial-page run and a full-doc run use separate cache slots.
+
+    parse_doc_fn is called twice: once for the subset run, once for the
+    full-doc run.  Neither result is reused for the other.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "two_pages.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box_p1 = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(0.0, 0.0, 50.0, 50.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+    box_p2 = SegmentBox(
+        box_id="p2-b0",
+        page=2,
+        bbox=(0.0, 0.0, 50.0, 50.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    call_count = 0
+
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        nonlocal call_count
+        call_count += 1
+        return {
+            1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>p1</p>", text="p1")],
+            2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>p2</p>", text="p2")],
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        # First run: page 1 only → partial cache entry (pdf, {1})
+        list(worker.run(pdf, [box_p1]))
+        # Second run: both pages → full cache entry (pdf, {1, 2})
+        list(worker.run(pdf, [box_p1, box_p2]))
+
+    # parse_doc_fn called twice: different cache keys → no sharing
+    assert call_count == 2, (
+        f"expected 2 parse_doc_fn calls (different cache keys), got {call_count}"
+    )
+
+
+def test_pdf_slicing_helper_extracts_correct_pages(tmp_path: Path) -> None:
+    """_slice_pdf_to_pages: slicing a 5-page PDF to pages [2, 4] yields a 2-page PDF."""
+    import io
+
+    from local_pdf.workers.mineru import _slice_pdf_to_pages
+    from pypdf import PdfReader, PdfWriter
+
+    # Build a minimal 5-page PDF in memory using pypdf
+    writer = PdfWriter()
+    for _ in range(5):
+        writer.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    writer.write(buf)
+    five_page_bytes = buf.getvalue()
+
+    # Slice to pages 2 and 4 (1-indexed)
+    sliced = _slice_pdf_to_pages(five_page_bytes, [2, 4])
+
+    reader = PdfReader(io.BytesIO(sliced))
+    assert len(reader.pages) == 2, f"expected 2 pages after slicing, got {len(reader.pages)}"
