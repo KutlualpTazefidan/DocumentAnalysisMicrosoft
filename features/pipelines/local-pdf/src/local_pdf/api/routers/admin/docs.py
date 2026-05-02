@@ -118,3 +118,28 @@ async def archive_doc(slug: str, request: Request) -> dict[str, object]:
     )
     write_meta(cfg.data_root, slug, new)
     return new.model_dump(mode="json")  # type: ignore[no-any-return]
+
+
+@router.delete("/api/admin/docs/{slug}", status_code=204)
+async def delete_doc(slug: str, request: Request) -> JSONResponse:
+    """Delete a document and ALL of its sidecar artefacts.
+
+    Wipes ``outputs/{slug}/`` (or whatever ``data_root/{slug}`` resolves to):
+    source.pdf, meta.json, segments.json, mineru.json, html.html,
+    sourceelements.json, mineru-images/, etc.
+
+    Returns 204 on success, 404 if the slug doesn't exist.
+    """
+    import shutil
+
+    cfg = request.app.state.config
+    target = doc_dir(cfg.data_root, slug)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    # Refuse to nuke anything outside data_root via path traversal in slug.
+    try:
+        target.resolve().relative_to(cfg.data_root.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid slug path") from exc
+    shutil.rmtree(target)
+    return JSONResponse(status_code=204, content=None)

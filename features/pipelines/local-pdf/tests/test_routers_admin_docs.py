@@ -78,3 +78,27 @@ def test_archive_flips_status(client) -> None:
     r = client.post("/api/admin/docs/y/archive", headers={"X-Auth-Token": "tok"})
     assert r.status_code == 200
     assert r.json()["status"] == "archived"
+
+
+def test_delete_doc_removes_directory(client, tmp_path) -> None:
+    """DELETE /api/admin/docs/{slug} wipes the entire per-doc directory.
+
+    The list endpoint should stop returning the slug afterwards.
+    """
+    files = {"file": ("ToDel.pdf", io.BytesIO(_pdf()), "application/pdf")}
+    r = client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    slug = r.json()["slug"]
+
+    listed = client.get("/api/admin/docs", headers={"X-Auth-Token": "tok"}).json()
+    assert any(d["slug"] == slug for d in listed)
+
+    r = client.delete(f"/api/admin/docs/{slug}", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 204
+
+    listed = client.get("/api/admin/docs", headers={"X-Auth-Token": "tok"}).json()
+    assert not any(d["slug"] == slug for d in listed)
+
+
+def test_delete_doc_404_when_missing(client) -> None:
+    r = client.delete("/api/admin/docs/nonexistent", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 404

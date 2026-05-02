@@ -18,6 +18,15 @@ export async function getDoc(slug: string, token: string): Promise<DocMeta> {
   return r.json();
 }
 
+export async function deleteDoc(slug: string, token: string): Promise<void> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}`, token, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 204) {
+    throw new Error(`delete failed: ${r.status}`);
+  }
+}
+
 export async function getSegments(slug: string, token: string): Promise<SegmentsFile> {
   const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments`, token);
   return r.json();

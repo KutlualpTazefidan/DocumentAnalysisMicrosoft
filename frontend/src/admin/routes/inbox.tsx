@@ -3,9 +3,9 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
-import { Plus } from "../../shared/icons";
+import { Plus, Trash2 } from "../../shared/icons";
 
-import { useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
+import { useDeleteDoc, useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
 import { StatusBadge } from "../components/StatusBadge";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { T } from "../styles/typography";
@@ -18,6 +18,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
   const docs = useDocs(token);
   const upload = useUploadDoc(token);
   const publish = usePublishDoc(token);
+  const del = useDeleteDoc(token);
   const fileRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
   const { success, error } = useToast();
@@ -94,6 +95,21 @@ export function InboxRoute({ token }: Props): JSX.Element {
                     Publish
                   </button>
                 )}
+                <button
+                  aria-label={`Delete ${d.slug}`}
+                  title="Delete this doc and all its files"
+                  className={`${T.body} ml-auto p-1 text-slate-400 hover:text-red-600 disabled:opacity-40`}
+                  disabled={del.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`Wirklich „${d.filename}" und alle erzeugten Dateien löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+                    del.mutate(d.slug, {
+                      onSuccess: () => success(`gelöscht: ${d.slug}`),
+                      onError: (err) => error(`delete failed: ${(err as Error).message}`),
+                    });
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </td>
             </tr>
           ))}
