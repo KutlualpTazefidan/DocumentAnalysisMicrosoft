@@ -420,7 +420,11 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                 transition={{ duration: 0.2, ease: "easeOut" }}
                 style={{ overflow: "hidden" }}
               >
-                <div className="grid grid-cols-5 gap-1 pt-1" role="group" aria-label="Page navigation">
+                <div
+                  className="grid grid-cols-5 gap-1 pt-1 max-h-64 overflow-y-auto pr-1"
+                  role="group"
+                  aria-label="Page navigation"
+                >
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
                     const state = pageStateFor(p, extractedPages, approvedPages);
                     return (
