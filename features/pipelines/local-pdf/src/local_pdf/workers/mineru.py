@@ -1,12 +1,13 @@
-"""MinerU 3 extraction worker — in-process Python API with batch lifecycle.
+"""MinerU 2.5 VLM extraction worker — in-process Python API with batch lifecycle.
 
 `MineruWorker` is a context-managed model worker.
 
-- `__enter__`: instantiate the MinerU pipeline model and load weights.
-  Emits `ModelLoadingEvent` then `ModelLoadedEvent` with real `load_seconds`
-  and `vram_actual_mb`.  If `extract_fn`, `parse_page_fn`, or `parse_doc_fn`
-  is injected (test path) the real model is skipped entirely.
-- `__exit__`: del model, gc.collect(), torch.cuda.empty_cache().
+- `__enter__`: load the MinerU 2.5 VLM model (Qwen2-VL fine-tune) via
+  ModelSingleton and the `transformers` backend.  Emits `ModelLoadingEvent`
+  then `ModelLoadedEvent` with real `load_seconds` and `vram_actual_mb`.
+  If `extract_fn`, `parse_page_fn`, or `parse_doc_fn` is injected (test path)
+  the real model is skipped entirely.
+- `__exit__`: call shutdown_cached_models(), gc.collect(), torch.cuda.empty_cache().
 - `run(pdf, boxes)`: parse the full doc ONCE (cached), match each user bbox
   to parsed elements via IoU / center-containment, yield one
   `WorkProgressEvent` per box, one `WorkCompleteEvent` at the end.
@@ -49,6 +50,10 @@ from local_pdf.workers.base import (
     _vram_used_mb,
     now_ms,
 )
+
+# Default VLM model: ~1.2B-parameter Qwen2-VL fine-tune for document parsing.
+# ~3 GB VRAM in fp16.  First run downloads from HuggingFace (~3 GB cache).
+_DEFAULT_VLM_MODEL = "opendatalab/MinerU2.5-Pro-2604-1.2B"
 
 
 @dataclass(frozen=True)
@@ -403,38 +408,34 @@ def _build_one_box_html(
 
 
 def _make_real_parse_doc_fn(
-    model: object,
+    predictor: object,
     image_writer_dir: Path | None = None,
 ) -> ParseDocFn:
-    """Return a ParseDocFn that uses the loaded MinerU pipeline model.
+    """Return a ParseDocFn that uses the loaded MinerU VLM predictor.
 
     Parses the entire PDF once and returns a dict mapping 1-indexed page
     numbers to PageData (page_size + list of ParsedElement).
 
-    MinerU's `doc_analyze_streaming` API processes a whole PDF; we capture
-    all pages in one pass to avoid the N-page x full-doc-parse blowup that
-    the old per-page approach caused.
+    MinerU's `doc_analyze` API processes a whole PDF via a windowed VLM
+    inference loop.  Both the pipeline and VLM backends produce the same
+    `pdf_info -> para_blocks / discarded_blocks / page_size` schema via
+    `init_middle_json()`, so all downstream block parsing is unchanged.
 
     If `image_writer_dir` is given, MinerU's figure / table cropouts are
     written to that directory (created on demand). With `None` (default),
     cropouts are discarded.
     """
     try:
-        from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming
+        from mineru.backend.vlm.vlm_analyze import doc_analyze
     except ImportError as exc:
-        raise ImportError("MinerU 'core' extra not installed. Install mineru[core].") from exc
+        raise ImportError("mineru[vlm] missing — install mineru[core] or mineru[vlm].") from exc
 
     if image_writer_dir is not None:
-        try:
-            from mineru.data.data_reader_writer import FileBasedDataWriter
-        except ImportError as exc:
-            raise ImportError("MinerU 'core' extra missing FileBasedDataWriter.") from exc
+        from mineru.data.data_reader_writer import FileBasedDataWriter
 
     def _parse_doc(pdf_path: Path) -> dict[int, PageData]:
-        """Parse all pages of a PDF using MinerU streaming pipeline."""
+        """Parse all pages of a PDF using MinerU VLM backend."""
         pdf_bytes = pdf_path.read_bytes()
-
-        all_page_infos: list[dict] = []
 
         # Pick the image writer: file-based when caller wants cropouts saved.
         if image_writer_dir is not None:
@@ -448,22 +449,14 @@ def _make_real_parse_doc_fn(
 
             image_writer = _NullWriter()
 
-        def _on_ready(
-            doc_index: int,
-            model_list: list,
-            middle_json: dict,
-            ocr_enable: bool,
-        ) -> None:
-            pdf_info = middle_json.get("pdf_info", [])
-            all_page_infos.extend(pdf_info)
-
-        doc_analyze_streaming(
-            pdf_bytes_list=[pdf_bytes],
-            image_writer_list=[image_writer],
-            lang_list=[None],
-            on_doc_ready=_on_ready,
-            parse_method="auto",
+        middle_json, _results = doc_analyze(
+            pdf_bytes,
+            image_writer,
+            predictor=predictor,
+            backend="transformers",
         )
+
+        all_page_infos = middle_json.get("pdf_info", []) if middle_json else []
 
         pages: dict[int, PageData] = {}
         for page_idx, page_info in enumerate(all_page_infos):
@@ -482,9 +475,9 @@ def _make_real_parse_doc_fn(
                 page_size = (612.0, 792.0)
 
             elements: list[ParsedElement] = []
-            # MinerU 3.1.6 segregates header / footer / page-number content
-            # into `discarded_blocks` (separate from `para_blocks`).  Include
-            # both pools so user "auxiliary" bboxes can match their content.
+            # MinerU segregates header / footer / page-number content into
+            # `discarded_blocks` (separate from `para_blocks`).  Include both
+            # pools so user "auxiliary" bboxes can match their content.
             for block in (page_info.get("para_blocks") or []) + (
                 page_info.get("discarded_blocks") or []
             ):
@@ -524,16 +517,13 @@ def _make_real_parse_doc_fn(
     return _parse_doc
 
 
-def _make_real_parse_page_fn(model: object) -> ParsePageFn:
+def _make_real_parse_page_fn(predictor: object) -> ParsePageFn:
     """Return a ParsePageFn wrapping _make_real_parse_doc_fn for single-page calls.
 
     This is a compatibility shim: it re-parses the full doc on every call.
     Production code should use _get_doc_pages / ParseDocFn instead.
-
-    TODO(mineru-api): bind directly to MineruPipelineModel.predict_page or
-    equivalent when a stable single-page API is exposed.
     """
-    parse_doc = _make_real_parse_doc_fn(model)
+    parse_doc = _make_real_parse_doc_fn(predictor)
 
     def _parse_page(pdf_path: Path, page_number: int) -> list[ParsedElement]:
         pages = parse_doc(pdf_path)
@@ -569,15 +559,15 @@ def _user_bbox_to_pts(
 
 
 class MineruWorker:
-    """Context-managed MinerU 3 extraction worker.
+    """Context-managed MinerU 2.5 VLM extraction worker.
 
     Production use — real model loaded in __enter__, unloaded in __exit__ /
     unload().  Tests inject `extract_fn`, `parse_doc_fn`, or `parse_page_fn`
     to avoid loading any real weights.
     """
 
-    name: str = "MinerU 3"
-    estimated_vram_mb: int = 2500
+    name: str = "MinerU 2.5 VLM"
+    estimated_vram_mb: int = 3500
 
     def __init__(
         self,
@@ -594,7 +584,7 @@ class MineruWorker:
         self._raster_dpi = raster_dpi
         # When set, MinerU figure/table cropouts are written here (per-doc).
         self._image_writer_dir = image_writer_dir
-        self._model: object = None
+        self._predictor: object = None
         self._loaded_vram_mb = 0
         self._load_seconds = 0.0
         self._unloaded = False
@@ -617,12 +607,17 @@ class MineruWorker:
         before = _vram_used_mb()
         t0 = time.monotonic()
         try:
-            from mineru.backend.pipeline.pipeline_analyze import custom_model_init
+            from mineru.backend.vlm.vlm_analyze import ModelSingleton
 
-            self._model = custom_model_init()
+            model_path = os.environ.get("LOCAL_PDF_MINERU_MODEL_PATH") or None
+            self._predictor = ModelSingleton().get_model(
+                backend="transformers",
+                model_path=model_path,
+                server_url=None,
+            )
         except ImportError:
-            # MinerU not installed — graceful degradation.
-            self._model = None
+            # MinerU VLM deps not installed — graceful degradation.
+            self._predictor = None
         self._load_seconds = time.monotonic() - t0
         self._loaded_vram_mb = max(0, _vram_used_mb() - before)
         return self
@@ -636,9 +631,13 @@ class MineruWorker:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _free_model(self) -> None:
-        if self._model is not None:
-            del self._model
-            self._model = None
+        self._predictor = None
+        try:
+            from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
+
+            shutdown_cached_models()
+        except ImportError:
+            pass
         gc.collect()
         try:
             torch = _import_torch()
@@ -673,8 +672,8 @@ class MineruWorker:
                 else:
                     # Legacy list[ParsedElement] from old test injections
                     pages[k] = PageData(page_size=(612.0, 792.0), elements=list(v))
-        elif self._model is not None:
-            pages = _make_real_parse_doc_fn(self._model, self._image_writer_dir)(pdf_path)
+        elif self._predictor is not None:
+            pages = _make_real_parse_doc_fn(self._predictor, self._image_writer_dir)(pdf_path)
         else:
             pages = {}
 
@@ -685,8 +684,8 @@ class MineruWorker:
         """Legacy accessor for the per-page parse function (back-compat)."""
         if self._parse_page_fn is not None:
             return self._parse_page_fn
-        if self._model is not None:
-            return _make_real_parse_page_fn(self._model)
+        if self._predictor is not None:
+            return _make_real_parse_page_fn(self._predictor)
         # Fallback when model could not be loaded.
         return lambda _pdf, _page: []
 

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 def test_mineru_worker_advertises_name_and_estimated_vram() -> None:
     from local_pdf.workers.mineru import MineruWorker
 
-    assert MineruWorker.name == "MinerU 3"
+    assert MineruWorker.name == "MinerU 2.5 VLM"
     assert MineruWorker.estimated_vram_mb >= 1000
 
 
@@ -61,7 +61,7 @@ def test_mineru_worker_run_emits_lifecycle_events_with_injected_extract(tmp_path
     assert types[-1] == "model-unloaded"
 
     loading = next(e for e in events if isinstance(e, ModelLoadingEvent))
-    assert loading.model == "MinerU 3"
+    assert loading.model == "MinerU 2.5 VLM"
     assert loading.vram_estimate_mb >= 1000
 
     loaded = next(e for e in events if isinstance(e, ModelLoadedEvent))
