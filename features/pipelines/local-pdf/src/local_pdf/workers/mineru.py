@@ -664,7 +664,13 @@ class MineruWorker:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def run(self, pdf_path: Path, boxes: list[SegmentBox]) -> Iterator[WorkerEvent]:
-        targets = [b for b in boxes if b.kind != BoxKind.discard]
+        # Sort by (page, y_top, x_left) so emitted HTML is in reading order —
+        # otherwise titles appear wherever YOLO emitted them in seg.boxes,
+        # not where they sit on the page.
+        targets = sorted(
+            (b for b in boxes if b.kind != BoxKind.discard),
+            key=lambda b: (b.page, b.bbox[1], b.bbox[0]),
+        )
         total = len(targets)
 
         yield ModelLoadingEvent(
