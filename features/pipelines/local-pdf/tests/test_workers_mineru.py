@@ -173,29 +173,35 @@ def test_page_parsed_once_for_multiple_boxes_on_same_page(tmp_path: Path) -> Non
 
 
 def test_user_bbox_spanning_two_elements_concatenates_html(tmp_path: Path) -> None:
-    """A user bbox that covers two parsed elements yields concatenated HTML."""
+    """A user bbox that covers two stacked elements (in PDF pts) yields concatenated HTML.
+
+    User box is in pixel space at raster_dpi=144.  After conversion to pts
+    (factor 72/144 = 0.5) it maps to (0,0,50,50).  The two parsed elements
+    are given in pt coords that both fall inside that converted box.
+    """
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
     pdf = tmp_path / "fake.pdf"
     pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
 
-    # User box spans the full width and height of two stacked elements
+    # User box in pixels at 144 dpi: (0,0,100,100) → pts (0,0,50,50)
     box = SegmentBox(
         box_id="p1-b0",
         page=1,
-        bbox=(0.0, 0.0, 100.0, 100.0),
+        bbox=(0.0, 0.0, 100.0, 100.0),  # pixels at 144 dpi
         kind=BoxKind.paragraph,
         confidence=0.9,
     )
 
     def fake_parse(_pdf: Path, page: int) -> list[ParsedElement]:
+        # Element bboxes are in PDF pts and fit within the converted user box (0,0,50,50)
         return [
-            ParsedElement(bbox=(0.0, 0.0, 100.0, 50.0), html="<p>top</p>"),
-            ParsedElement(bbox=(0.0, 50.0, 100.0, 100.0), html="<p>bottom</p>"),
+            ParsedElement(bbox=(0.0, 0.0, 50.0, 25.0), html="<p>top</p>"),
+            ParsedElement(bbox=(0.0, 25.0, 50.0, 50.0), html="<p>bottom</p>"),
         ]
 
-    with MineruWorker(parse_page_fn=fake_parse) as worker:
+    with MineruWorker(parse_page_fn=fake_parse, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
     assert "<p>top</p>" in result.html
@@ -468,3 +474,55 @@ def test_match_reading_order_sort() -> None:
     result = _match_box_to_elements(user_box, elements)
     assert result[0].html == "<p>upper</p>"
     assert result[1].html == "<p>lower</p>"
+
+
+# ── Coordinate-space conversion tests ────────────────────────────────────────
+
+
+def test_user_bbox_to_pts_default_dpi() -> None:
+    """_user_bbox_to_pts converts 144-dpi pixel bbox to PDF point space (factor 0.5)."""
+    from local_pdf.workers.mineru import _user_bbox_to_pts
+
+    # At 144 dpi: pts = px * 72/144 = px * 0.5
+    result = _user_bbox_to_pts((100.0, 200.0, 500.0, 300.0), raster_dpi=144)
+    assert result == (50.0, 100.0, 250.0, 150.0)
+
+
+def test_user_bbox_to_pts_custom_dpi() -> None:
+    """_user_bbox_to_pts scales correctly for non-default DPI."""
+    from local_pdf.workers.mineru import _user_bbox_to_pts
+
+    # At 72 dpi: pts = px * 72/72 = px (1:1)
+    result = _user_bbox_to_pts((100.0, 200.0, 500.0, 300.0), raster_dpi=72)
+    assert result == (100.0, 200.0, 500.0, 300.0)
+
+
+def test_bbox_conversion_enables_match_via_parse_doc_fn(tmp_path: Path) -> None:
+    """parse_doc_fn element at PDF-pt bbox (50,100,250,150) must be matched when
+    user box is (100,200,500,300) in pixels at raster_dpi=144 (→ same pts after conversion).
+    Without conversion IoU is 0 and html would be empty."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "conv.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # User box: pixel coords at 144 dpi → converts to pts (50, 100, 250, 150)
+    box = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(100.0, 200.0, 500.0, 300.0),  # pixels at 144 dpi
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    # MinerU element with the exact matching pts bbox
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        return {1: [ParsedElement(bbox=(50.0, 100.0, 250.0, 150.0), html="<p>matched</p>")]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert result.html == "<p>matched</p>", (
+        f"expected '<p>matched</p>' but got {result.html!r}; bbox conversion may not be applied"
+    )

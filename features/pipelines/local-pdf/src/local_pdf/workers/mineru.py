@@ -242,6 +242,28 @@ def _make_real_parse_page_fn(model: object) -> ParsePageFn:
     return _parse_page
 
 
+# ── Coordinate-space conversion ───────────────────────────────────────────────
+
+
+def _user_bbox_to_pts(
+    bbox: tuple[float, float, float, float], raster_dpi: int
+) -> tuple[float, float, float, float]:
+    """Convert a user bbox from pixel space (at raster_dpi) to PDF point space.
+
+    Segment boxes from the YOLO worker are stored in pixel coordinates at
+    raster_dpi (default 144).  MinerU's parsed-element bboxes are in PDF
+    points (1 pt = 1/72 inch).  The conversion is: pts = px * 72 / raster_dpi.
+
+    Diagnostic confirmation (gnb-b-148-2001-rev-1, page 8, raster_dpi=144):
+      sample user px bbox [100, 200, 500, 300] → pts [50, 100, 250, 150]
+      MinerU block bbox     [50, 100, 250, 150]  (PDF pts from para_blocks)
+    Without this conversion IoU is always ~0 because the coordinate spaces
+    differ by a factor of 144/72 = 2 in each dimension.
+    """
+    k = 72.0 / raster_dpi
+    return (bbox[0] * k, bbox[1] * k, bbox[2] * k, bbox[3] * k)
+
+
 # ── Worker ────────────────────────────────────────────────────────────────────
 
 
@@ -262,10 +284,12 @@ class MineruWorker:
         extract_fn: ExtractFn | None = None,
         parse_doc_fn: ParseDocFn | None = None,
         parse_page_fn: ParsePageFn | None = None,
+        raster_dpi: int = 144,
     ) -> None:
         self._extract_fn = extract_fn
         self._parse_doc_fn = parse_doc_fn
         self._parse_page_fn = parse_page_fn
+        self._raster_dpi = raster_dpi
         self._model: object = None
         self._loaded_vram_mb = 0
         self._load_seconds = 0.0
@@ -403,7 +427,8 @@ class MineruWorker:
 
             for i, box in enumerate(targets, start=1):
                 page_elements = page_cache.get(box.page, [])
-                matched = _match_box_to_elements(box.bbox, page_elements)
+                user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
+                matched = _match_box_to_elements(user_bbox_pts, page_elements)
                 html = "".join(el.html for el in matched)
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
@@ -424,7 +449,8 @@ class MineruWorker:
 
             for i, box in enumerate(targets, start=1):
                 page_elements = doc_pages.get(box.page, [])
-                matched = _match_box_to_elements(box.bbox, page_elements)
+                user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
+                matched = _match_box_to_elements(user_bbox_pts, page_elements)
                 html = "".join(el.html for el in matched)
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
@@ -461,7 +487,8 @@ class MineruWorker:
             doc_pages = self._get_doc_pages(pdf_path)
             page_elements = doc_pages.get(box.page, [])
 
-        matched = _match_box_to_elements(box.bbox, page_elements)
+        user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
+        matched = _match_box_to_elements(user_bbox_pts, page_elements)
         html = "".join(el.html for el in matched)
         return MinerUResult(box_id=box.box_id, html=html)
 

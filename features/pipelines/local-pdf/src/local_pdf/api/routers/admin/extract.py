@@ -68,7 +68,7 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
 
     def stream():
         try:
-            with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
+            with MineruWorker(extract_fn=_MINERU_EXTRACT_FN, raster_dpi=seg.raster_dpi) as worker:
                 for ev in worker.run(pdf, targets):
                     # Persist after each yielded WorkProgressEvent's box result.
                     yield ev.model_dump_json() + "\n"
@@ -105,7 +105,7 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     target = next((b for b in seg.boxes if b.box_id == body.box_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"box not found: {body.box_id}")
-    with MineruWorker(extract_fn=_MINERU_EXTRACT_FN) as worker:
+    with MineruWorker(extract_fn=_MINERU_EXTRACT_FN, raster_dpi=seg.raster_dpi) as worker:
         result = worker.extract_region(pdf, target)
     return {"box_id": result.box_id, "html": result.html}
 
