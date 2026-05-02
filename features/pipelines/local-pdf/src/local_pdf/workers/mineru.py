@@ -268,6 +268,80 @@ def _html_to_text(html: str) -> str:
     return html_lib.unescape(stripped)
 
 
+# Common LaTeX symbol → Unicode replacements applied inside `$...$` math spans.
+# Ambiguous-Unicode warnings are intentional here — these chars are LaTeX
+# command targets, not human-typed text.
+_LATEX_SYMBOL_MAP = {
+    r"\\circ": "°",
+    r"\\degree": "°",
+    r"\\pm": "±",
+    r"\\times": "×",  # noqa: RUF001
+    r"\\div": "÷",
+    r"\\mu": "µ",
+    r"\\alpha": "α",  # noqa: RUF001
+    r"\\beta": "β",
+    r"\\gamma": "γ",  # noqa: RUF001
+    r"\\delta": "δ",
+    r"\\Delta": "Δ",
+    r"\\sigma": "σ",  # noqa: RUF001
+    r"\\rho": "ρ",  # noqa: RUF001
+    r"\\phi": "φ",
+    r"\\theta": "θ",
+    r"\\lambda": "λ",
+    r"\\le(?:q)?": "≤",
+    r"\\ge(?:q)?": "≥",
+    r"\\ne(?:q)?": "≠",
+    r"\\approx": "≈",
+    r"\\textregistered": "®",
+    r"\\textcopyright": "©",
+    r"\\texttrademark": "™",
+}
+
+
+def _convert_inline_latex(s: str) -> str:
+    """Convert common inline LaTeX math (``$...$``) to plain HTML / Unicode.
+
+    The VLM emits LaTeX-style math for symbols even when the result is just
+    a Unicode char (e.g. ``$^{®}$``).  Without MathJax in the iframe this
+    renders as raw ``$^{®}$`` text.  We post-process to lift these into
+    ``<sup>...</sup>`` / ``<sub>...</sub>`` and Unicode equivalents.
+
+    Handles:
+      - ``$^{X}$`` → ``<sup>X</sup>``
+      - ``$_{X}$`` → ``<sub>X</sub>``
+      - ``$X$``    → ``X`` (unwrap dollar signs around a simple token)
+      - LaTeX command symbols inside math mode are mapped via _LATEX_SYMBOL_MAP.
+
+    Display-mode ``$$...$$`` is left alone (we don't have MathJax loaded).
+    """
+    if not s or "$" not in s:
+        return s
+
+    def _replace_latex_symbols(content: str) -> str:
+        for pattern, replacement in _LATEX_SYMBOL_MAP.items():
+            content = re.sub(pattern, replacement, content)
+        return content
+
+    def _math_replace(m: re.Match[str]) -> str:
+        body = m.group(1)
+        body = _replace_latex_symbols(body)
+        # Superscript: ^{X} or ^X
+        sup = re.fullmatch(r"\^(?:\{([^}]*)\}|(\S))", body)
+        if sup:
+            inner = sup.group(1) if sup.group(1) is not None else sup.group(2)
+            return f"<sup>{inner}</sup>"
+        # Subscript: _{X} or _X
+        sub = re.fullmatch(r"_(?:\{([^}]*)\}|(\S))", body)
+        if sub:
+            inner = sub.group(1) if sub.group(1) is not None else sub.group(2)
+            return f"<sub>{inner}</sub>"
+        # Plain math span — strip the dollar signs
+        return body
+
+    # Match $...$ but not $$...$$ (display mode left alone)
+    return re.sub(r"(?<!\$)\$([^$]+)\$(?!\$)", _math_replace, s)
+
+
 # ── Caption rescue helpers ────────────────────────────────────────────────────
 
 _CAPTION_RE = re.compile(r"<caption[^>]*>(.*?)</caption>", re.DOTALL | re.IGNORECASE)
@@ -615,30 +689,24 @@ def _build_one_box_html(
     kind = box.kind
     box_id = box.box_id
 
-    empty_marker = "[Keine Extraktion fur diesen Bereich]"
-
     # ── visual kinds: use MinerU HTML as-is ───────────────────────────────────
     if kind in _VISUAL_KINDS:
         if matched:
             # Use the first matched element's html for visual content
-            mineru_html = matched[0].html
+            mineru_html = _convert_inline_latex(matched[0].html or "")
             if mineru_html:
                 if kind == BoxKind.table:
                     inner = f'<div class="extracted-table">{mineru_html}</div>'
                 else:  # figure
                     inner = f"<figure>{mineru_html}</figure>"
                 return f'<div data-source-box="{box_id}">{inner}</div>'
-        # No match or empty html: empty marker
-        if kind == BoxKind.table:
-            return (
-                f'<div class="extracted-table" data-source-box="{box_id}"'
-                f' class="empty">{empty_marker}</div>'
-            )
-        return f'<figure data-source-box="{box_id}" class="empty">{empty_marker}</figure>'
+        # No match: emit nothing — user wants empty boxes silent for debugging.
+        return ""
 
     # ── text-like kinds: extract plain text ───────────────────────────────────
     if kind in _TEXT_LIKE_KINDS:
         text = " ".join(_html_to_text(el.html) for el in matched).strip() if matched else ""
+        text = _convert_inline_latex(text)
 
         # Caption-rescue marker: the only matched element is a synthetic
         # ParsedElement carrying the caption text from an adjacent table/figure
@@ -651,30 +719,9 @@ def _build_one_box_html(
                 f"{'figcaption' if kind == BoxKind.caption else 'p'}>"
             )
 
+        # No match: emit nothing — user wants empty boxes silent for debugging.
         if not text:
-            # Empty marker per kind
-            if kind == BoxKind.heading:
-                tag = "h1" if promote_to_h1 else "h2"
-                return f'<{tag} data-source-box="{box_id}" class="empty">{empty_marker}</{tag}>'
-            if kind == BoxKind.paragraph:
-                return f'<p data-source-box="{box_id}" class="empty">{empty_marker}</p>'
-            if kind == BoxKind.list_item:
-                return f'<li data-source-box="{box_id}" class="empty">{empty_marker}</li>'
-            if kind == BoxKind.caption:
-                return (
-                    f'<figcaption data-source-box="{box_id}" class="empty">'
-                    f"{empty_marker}</figcaption>"
-                )
-            if kind == BoxKind.formula:
-                return (
-                    f'<pre data-source-box="{box_id}" class="empty">'
-                    f"<code>{empty_marker}</code></pre>"
-                )
-            # auxiliary
-            return (
-                f'<aside class="auxiliary" data-source-box="{box_id}" class="empty">'
-                f"{empty_marker}</aside>"
-            )
+            return ""
 
         if kind == BoxKind.heading:
             tag = "h1" if promote_to_h1 else "h2"
@@ -835,13 +882,16 @@ def _make_real_parse_doc_fn(
                 html_content = _block_to_html(block, page_size=page_size)
                 if not html_content:
                     continue
+                # Convert inline LaTeX math (e.g. $^{®}$) to HTML/Unicode so
+                # the editor (no MathJax) renders sensibly.
+                html_content = _convert_inline_latex(html_content)
 
                 # Extract plain text for text-like blocks (defensive against
                 # blocks without the expected 'lines' key — see _safe_merge_para_text).
                 if block_type in _VISUAL_BLOCK_TYPES:
                     text_content = ""
                 else:
-                    text_content = _safe_merge_para_text(block)
+                    text_content = _convert_inline_latex(_safe_merge_para_text(block))
 
                 elements.append(
                     ParsedElement(

@@ -943,8 +943,9 @@ def test_user_kind_auxiliary_bottom_zone_emits_footer(tmp_path: Path) -> None:
     assert 'data-source-box="p1-aux1"' in result.html
 
 
-def test_custom_box_no_mineru_match_emits_empty_marker(tmp_path: Path) -> None:
-    """When no MinerU element matches (empty page), emit the empty marker."""
+def test_custom_box_no_mineru_match_returns_empty(tmp_path: Path) -> None:
+    """When no MinerU element matches (empty page), the box renders as empty
+    string — no marker text is injected.  Empty boxes are silent."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, PageData
 
@@ -960,15 +961,12 @@ def test_custom_box_no_mineru_match_emits_empty_marker(tmp_path: Path) -> None:
     )
 
     def fake_parse_doc(_pdf: Path) -> dict:
-        # Empty page — no elements at all
         return {1: PageData(page_size=(612.0, 792.0), elements=[])}
 
     with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
         result = worker.extract_region(pdf, box)
 
-    assert "empty" in result.html
-    assert "Keine Extraktion" in result.html
-    assert 'data-source-box="p1-custom"' in result.html
+    assert result.html == ""
 
 
 def test_user_boxes_sorted_by_y_then_x(tmp_path: Path) -> None:
@@ -1112,7 +1110,7 @@ def test_h1_promotion_not_applied_when_multiple_headings(tmp_path: Path) -> None
             ]
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         list(worker.run(pdf, boxes))
 
     for r in worker.results:
@@ -1292,9 +1290,7 @@ def test_overlapping_user_boxes_no_double_count(tmp_path: Path) -> None:
         f"heading box should contain the element, got: {by_id['head']!r}"
     )
     # Paragraph box should get the empty marker (element already claimed by heading)
-    assert "Keine Extraktion" in by_id["para"], (
-        f"para box should get empty marker, got: {by_id['para']!r}"
-    )
+    assert by_id["para"] == "", f"para box should get empty marker, got: {by_id['para']!r}"
     # "shared element" must NOT appear in the paragraph box
     assert "shared element" not in by_id["para"], (
         f"para box must NOT contain the element text (double-count), got: {by_id['para']!r}"
@@ -1624,9 +1620,7 @@ def test_no_rescue_when_no_caption_or_leading_text(tmp_path: Path) -> None:
     by_id = {r.box_id: r.html for r in worker.results}
 
     # No caption extractable → heading stays empty.
-    assert "Keine Extraktion" in by_id["heading"], (
-        f"heading should stay empty, got: {by_id['heading']!r}"
-    )
+    assert by_id["heading"] == "", f"heading should stay empty, got: {by_id['heading']!r}"
     # Table unchanged.
     assert "cell" in by_id["table"]
 
@@ -1681,7 +1675,7 @@ def test_rescue_only_when_text_kind_center_inside_visual_bbox(tmp_path: Path) ->
     by_id = {r.box_id: r.html for r in worker.results}
 
     # Paragraph bbox center is outside the table user-bbox → no rescue.
-    assert "Keine Extraktion" in by_id["paragraph"], (
+    assert by_id["paragraph"] == "", (
         f"paragraph should stay empty (no enclosure), got: {by_id['paragraph']!r}"
     )
     # Table box gets the element (caption still in html since no rescue occurred).
@@ -1869,7 +1863,7 @@ def test_far_heading_above_table_not_rescued(tmp_path: Path) -> None:
     by_id = {r.box_id: r.html for r in worker.results}
 
     # Gap = 200 - 50 = 150 pts > max_gap=50 → no rescue → heading stays empty.
-    assert "Keine Extraktion" in by_id["heading"], (
+    assert by_id["heading"] == "", (
         f"heading should stay empty (gap too large), got: {by_id['heading']!r}"
     )
     assert "Far caption" not in by_id["heading"]
@@ -1926,7 +1920,7 @@ def test_different_column_heading_not_rescued(tmp_path: Path) -> None:
     by_id = {r.box_id: r.html for r in worker.results}
 
     # Different column → no horizontal overlap → no rescue → heading stays empty.
-    assert "Keine Extraktion" in by_id["heading"], (
+    assert by_id["heading"] == "", (
         f"heading should stay empty (different column), got: {by_id['heading']!r}"
     )
     assert "Col caption" not in by_id["heading"]
