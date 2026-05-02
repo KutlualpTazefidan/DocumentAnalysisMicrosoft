@@ -1699,9 +1699,10 @@ def test_caption_tag_rescued_from_table_block(tmp_path: Path) -> None:
     assert 'class="caption-ref"' in by_id["heading"], (
         f"heading should be styled as caption-ref, got: {by_id['heading']!r}"
     )
-    # Table HTML keeps its caption — MinerU's natural rendering preserved.
-    assert "<caption" in by_id["table"]
-    assert "Tab. 1 example caption" in by_id["table"]
+    # Table HTML has the caption STRIPPED to avoid double rendering — the
+    # caption now lives only in the heading bbox's caption-ref slot.
+    assert "<caption" not in by_id["table"]
+    assert "Tab. 1 example caption" not in by_id["table"]
     # Table cell data still present.
     assert "cell" in by_id["table"], (
         f"table should still contain cell data, got: {by_id['table']!r}"
@@ -1760,8 +1761,8 @@ def test_leading_text_rescued_when_no_caption_tag(tmp_path: Path) -> None:
     )
     assert "Keine Extraktion" not in by_id["heading"]
     assert 'class="caption-ref"' in by_id["heading"]
-    # Table HTML preserved as MinerU rendered it (no stripping).
-    assert "Some lead-in text" in by_id["table"]
+    # Caption stripped from the table HTML to avoid double rendering.
+    assert "Some lead-in text" not in by_id["table"]
     assert "cell" in by_id["table"]
 
 
@@ -1936,14 +1937,13 @@ def test_caption_above_table_rescued_via_adjacency(tmp_path: Path) -> None:
         f"heading must not be empty after rescue, got: {by_id['heading']!r}"
     )
     assert 'class="caption-ref"' in by_id["heading"]
-    # Table HTML preserved — MinerU's caption stays where it rendered it.
-    assert "<caption" in by_id["table"]
-    assert "The table caption" in by_id["table"]
+    # Caption stripped from the table HTML so it doesn't render twice — the
+    # caption-ref slot is the single source of truth.  Click-mapping naturally
+    # routes to the heading bbox because the caption text is no longer inside
+    # the table's data-source-box wrapper.
+    assert "<caption" not in by_id["table"]
+    assert "The table caption" not in by_id["table"]
     assert "cell" in by_id["table"]
-    # Caption-portion of the table HTML now points back to the heading
-    # bbox so clicks on the caption text in the rendered HTML highlight
-    # the heading user-bbox, not the surrounding table user-bbox.
-    assert 'data-source-box="heading"' in by_id["table"]
 
 
 def test_caption_below_table_rescued_via_adjacency(tmp_path: Path) -> None:
@@ -2002,8 +2002,8 @@ def test_caption_below_table_rescued_via_adjacency(tmp_path: Path) -> None:
     )
     assert "Keine Extraktion" not in by_id["heading"]
     assert 'class="caption-ref"' in by_id["heading"]
-    # Table HTML preserved.
-    assert "<caption" in by_id["table"]
+    # Caption stripped from the table HTML — single source of truth.
+    assert "<caption" not in by_id["table"]
     assert "cell" in by_id["table"]
 
 
@@ -2191,8 +2191,8 @@ def test_multiple_visual_boxes_picks_closest(tmp_path: Path) -> None:
     assert "Keine Extraktion" not in by_id["heading"]
     assert 'class="caption-ref"' in by_id["heading"]
 
-    # tableA HTML preserved (no stripping).
-    assert "<caption" in by_id["tableA"]
+    # tableA had its caption stripped (rescue fired against it).
+    assert "<caption" not in by_id["tableA"]
     assert "cellA" in by_id["tableA"]
 
     # tableB is unchanged (gap=250 > max_gap, no rescue from tableB).

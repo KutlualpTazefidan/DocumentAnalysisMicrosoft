@@ -718,7 +718,13 @@ def _rescue_captions_from_visual_boxes(
             rescue = _try_extract_caption(el.html)
             if rescue is None:
                 continue
-            cap_text, _cleaned = rescue  # ignore the stripped variant
+            cap_text, cleaned_html = rescue
+            # Single source of truth: caption renders ONCE as <p class="caption-ref">
+            # at the heading user-bbox's position (reading-order sort places it
+            # before/after the table to match the source PDF).  Strip it from the
+            # table block so it doesn't appear twice.  Click-mapping always lands
+            # on the heading bbox because the caption text is no longer inside the
+            # table's data-source-box wrapper.
             synthetic = ParsedElement(
                 bbox=empty_pts,
                 html=f"<p>{cap_text}</p>",
@@ -726,14 +732,10 @@ def _rescue_captions_from_visual_boxes(
                 block_type="caption_rescue",
             )
             new_assignments[empty_id].append(synthetic)
-            # Re-tag the caption portion of the table/figure block so clicks
-            # on it in the rendered HTML highlight the user's caption/heading
-            # bbox rather than the surrounding visual bbox.
-            tagged_html = _attach_source_box_to_caption(el.html, empty_id)
-            if tagged_html != el.html:
+            if cleaned_html != el.html:
                 new_assignments[win_id][idx] = ParsedElement(
                     bbox=el.bbox,
-                    html=tagged_html,
+                    html=cleaned_html,
                     text=el.text,
                     block_type=el.block_type,
                 )
@@ -744,7 +746,7 @@ def _rescue_captions_from_visual_boxes(
                         "source_bbox": empty_id,
                         "target_visual_bbox": win_id,
                         "caption_text": cap_text[:200],
-                        "click_remap": tagged_html != el.html,
+                        "click_remap": True,
                     }
                 )
             rescued = True
