@@ -402,7 +402,10 @@ def _build_one_box_html(
 # ── Real MinerU doc parse (production path) ──────────────────────────────────
 
 
-def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
+def _make_real_parse_doc_fn(
+    model: object,
+    image_writer_dir: Path | None = None,
+) -> ParseDocFn:
     """Return a ParseDocFn that uses the loaded MinerU pipeline model.
 
     Parses the entire PDF once and returns a dict mapping 1-indexed page
@@ -411,11 +414,21 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
     MinerU's `doc_analyze_streaming` API processes a whole PDF; we capture
     all pages in one pass to avoid the N-page x full-doc-parse blowup that
     the old per-page approach caused.
+
+    If `image_writer_dir` is given, MinerU's figure / table cropouts are
+    written to that directory (created on demand). With `None` (default),
+    cropouts are discarded.
     """
     try:
         from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming
     except ImportError as exc:
         raise ImportError("MinerU 'core' extra not installed. Install mineru[core].") from exc
+
+    if image_writer_dir is not None:
+        try:
+            from mineru.data.data_reader_writer import FileBasedDataWriter
+        except ImportError as exc:
+            raise ImportError("MinerU 'core' extra missing FileBasedDataWriter.") from exc
 
     def _parse_doc(pdf_path: Path) -> dict[int, PageData]:
         """Parse all pages of a PDF using MinerU streaming pipeline."""
@@ -423,9 +436,17 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
 
         all_page_infos: list[dict] = []
 
-        class _NullWriter:
-            def write(self, *_a: object, **_kw: object) -> None:
-                pass
+        # Pick the image writer: file-based when caller wants cropouts saved.
+        if image_writer_dir is not None:
+            image_writer_dir.mkdir(parents=True, exist_ok=True)
+            image_writer = FileBasedDataWriter(str(image_writer_dir))
+        else:
+
+            class _NullWriter:
+                def write(self, *_a: object, **_kw: object) -> None:
+                    pass
+
+            image_writer = _NullWriter()
 
         def _on_ready(
             doc_index: int,
@@ -438,7 +459,7 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
 
         doc_analyze_streaming(
             pdf_bytes_list=[pdf_bytes],
-            image_writer_list=[_NullWriter()],
+            image_writer_list=[image_writer],
             lang_list=[None],
             on_doc_ready=_on_ready,
             parse_method="auto",
@@ -565,11 +586,14 @@ class MineruWorker:
         parse_doc_fn: ParseDocFn | None = None,
         parse_page_fn: ParsePageFn | None = None,
         raster_dpi: int = 288,
+        image_writer_dir: Path | None = None,
     ) -> None:
         self._extract_fn = extract_fn
         self._parse_doc_fn = parse_doc_fn
         self._parse_page_fn = parse_page_fn
         self._raster_dpi = raster_dpi
+        # When set, MinerU figure/table cropouts are written here (per-doc).
+        self._image_writer_dir = image_writer_dir
         self._model: object = None
         self._loaded_vram_mb = 0
         self._load_seconds = 0.0
@@ -650,7 +674,7 @@ class MineruWorker:
                     # Legacy list[ParsedElement] from old test injections
                     pages[k] = PageData(page_size=(612.0, 792.0), elements=list(v))
         elif self._model is not None:
-            pages = _make_real_parse_doc_fn(self._model)(pdf_path)
+            pages = _make_real_parse_doc_fn(self._model, self._image_writer_dir)(pdf_path)
         else:
             pages = {}
 

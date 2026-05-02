@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from local_pdf.api.schemas import (
     BoxKind,
@@ -169,7 +169,11 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
 
     def stream():
         try:
-            with MineruWorker(extract_fn=_MINERU_EXTRACT_FN, raster_dpi=seg.raster_dpi) as worker:
+            with MineruWorker(
+                extract_fn=_MINERU_EXTRACT_FN,
+                raster_dpi=seg.raster_dpi,
+                image_writer_dir=doc_dir(cfg.data_root, slug) / "mineru-images",
+            ) as worker:
                 for ev in worker.run(pdf, targets):
                     # Persist after each yielded WorkProgressEvent's box result.
                     yield ev.model_dump_json() + "\n"
@@ -216,7 +220,11 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     target = next((b for b in seg.boxes if b.box_id == body.box_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"box not found: {body.box_id}")
-    with MineruWorker(extract_fn=_MINERU_EXTRACT_FN, raster_dpi=seg.raster_dpi) as worker:
+    with MineruWorker(
+        extract_fn=_MINERU_EXTRACT_FN,
+        raster_dpi=seg.raster_dpi,
+        image_writer_dir=doc_dir(cfg.data_root, slug) / "mineru-images",
+    ) as worker:
         result = worker.extract_region(pdf, target)
     return {"box_id": result.box_id, "html": result.html}
 
@@ -395,3 +403,65 @@ async def run_export(slug: str, request: Request) -> dict:
             meta.model_copy(update={"status": DocStatus.done, "last_touched_utc": _now_iso()}),
         )
     return payload
+
+
+@router.get("/api/admin/docs/{slug}/page-image")
+async def get_page_image(
+    slug: str,
+    request: Request,
+    page: int = 1,
+    dpi: int | None = None,
+) -> Response:
+    """Render a single PDF page as PNG at the given DPI (default = seg.raster_dpi).
+
+    Useful for inspecting what YOLO / MinerU see as input. Mirrors the
+    rasterization YOLO uses (pdfplumber `to_image(resolution=dpi)`).
+    """
+    import io
+
+    import pdfplumber
+
+    cfg = request.app.state.config
+    pdf_path = doc_dir(cfg.data_root, slug) / "source.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
+
+    if dpi is None:
+        seg = read_segments(cfg.data_root, slug)
+        dpi = seg.raster_dpi if seg is not None else 288
+
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        if page < 1 or page > len(pdf.pages):
+            raise HTTPException(status_code=404, detail=f"page out of range: {page}")
+        im = pdf.pages[page - 1].to_image(resolution=dpi).original
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
+@router.get("/api/admin/docs/{slug}/mineru-images/{filename}")
+async def get_mineru_image(slug: str, filename: str, request: Request) -> FileResponse:
+    """Serve a single image cropout MinerU saved during extraction.
+
+    Files live under ``outputs/{slug}/mineru-images/`` (figures, tables,
+    formulas etc.). Filename traversal is rejected.
+    """
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="invalid filename")
+    cfg = request.app.state.config
+    path = doc_dir(cfg.data_root, slug) / "mineru-images" / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"image not found: {filename}")
+    return FileResponse(path)
+
+
+@router.get("/api/admin/docs/{slug}/mineru-images")
+async def list_mineru_images(slug: str, request: Request) -> dict:
+    """List image cropouts MinerU saved during extraction for this doc."""
+    cfg = request.app.state.config
+    img_dir = doc_dir(cfg.data_root, slug) / "mineru-images"
+    if not img_dir.exists():
+        return {"images": []}
+    files = sorted(p.name for p in img_dir.iterdir() if p.is_file())
+    return {"images": files}
