@@ -461,7 +461,12 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
                 page_size = (612.0, 792.0)
 
             elements: list[ParsedElement] = []
-            for block in page_info.get("para_blocks", []) or []:
+            # MinerU 3.1.6 segregates header / footer / page-number content
+            # into `discarded_blocks` (separate from `para_blocks`).  Include
+            # both pools so user "auxiliary" bboxes can match their content.
+            for block in (page_info.get("para_blocks") or []) + (
+                page_info.get("discarded_blocks") or []
+            ):
                 raw_bbox = block.get("bbox", None)
                 if raw_bbox is None:
                     continue
