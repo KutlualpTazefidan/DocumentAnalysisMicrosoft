@@ -237,39 +237,32 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("seg-page-btn-1")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("sidebar approve button toggles page to blue state", async () => {
+  it("sidebar lock button toggles page to blue state", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("seg-page-btn-1"));
 
-    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
-    fireEvent.click(approveBtn);
+    const lockBtn = screen.getByRole("button", { name: /seite sperren/i });
+    fireEvent.click(lockBtn);
 
     await waitFor(() =>
       expect(screen.getByTestId("seg-page-btn-1").className).toContain("blue"),
     );
 
-    // localStorage should contain the approved page
+    // localStorage should contain the locked page
     const stored = JSON.parse(localStorage.getItem("segment.approved.rep") ?? "[]") as number[];
     expect(stored).toContain(1);
   });
 
-  it("sidebar approve button label toggles to 'Genehmigung aufheben' after approval", async () => {
+  it("sidebar lock button label toggles to 'Seite entsperren' after locking", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("seg-page-btn-1"));
 
-    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
-    fireEvent.click(approveBtn);
+    const lockBtn = screen.getByRole("button", { name: /seite sperren/i });
+    fireEvent.click(lockBtn);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /seite entsperren/i })).toBeInTheDocument(),
     );
-  });
-
-  it("sidebar shows Seite X / Y heading", async () => {
-    render(wrap());
-    await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Sidebar heading shows current page / total pages (1 / 5 from docMeta mock)
-    expect(screen.getByRole("heading", { level: 2, name: /Seite 1 \/ 5/i })).toBeInTheDocument();
   });
 
   it("changes selected box kind via hotkey 'l'", async () => {

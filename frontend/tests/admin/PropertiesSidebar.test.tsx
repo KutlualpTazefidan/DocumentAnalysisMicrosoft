@@ -14,6 +14,7 @@ describe("PropertiesSidebar page-button grid", () => {
     segmentedPages: new Set<number>([1, 2]),
     approvedPages: new Set<number>([3]),
     onToggleApprove: vi.fn(),
+    onResegmentPage: vi.fn(),
     onResetPage: vi.fn(),
     running: false,
     onChangeKind: vi.fn(),
@@ -72,20 +73,20 @@ describe("PropertiesSidebar page-button grid", () => {
     expect(onPageChange).toHaveBeenCalledWith(3);
   });
 
-  it("shows 'Diese Seite genehmigen' when page is not approved", () => {
+  it("shows 'Seite sperren' when page is not locked", () => {
     render(<PropertiesSidebar {...defaultProps} currentPage={1} approvedPages={new Set()} />);
-    expect(screen.getByRole("button", { name: /diese seite genehmigen/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /seite sperren/i })).toBeInTheDocument();
   });
 
-  it("shows 'Genehmigung aufheben' when page is approved", () => {
+  it("shows 'Seite entsperren' when page is locked", () => {
     render(<PropertiesSidebar {...defaultProps} currentPage={1} approvedPages={new Set([1])} />);
-    expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /seite entsperren/i })).toBeInTheDocument();
   });
 
-  it("approve button calls onToggleApprove", async () => {
+  it("lock button calls onToggleApprove", async () => {
     const onToggleApprove = vi.fn();
     render(<PropertiesSidebar {...defaultProps} onToggleApprove={onToggleApprove} />);
-    await userEvent.click(screen.getByRole("button", { name: /diese seite genehmigen/i }));
+    await userEvent.click(screen.getByRole("button", { name: /seite sperren/i }));
     expect(onToggleApprove).toHaveBeenCalled();
   });
 });
@@ -112,6 +113,7 @@ describe("PropertiesSidebar merge buttons", () => {
     segmentedPages: new Set<number>([1, 2, 3]),
     approvedPages: new Set<number>(),
     onToggleApprove: vi.fn(),
+    onResegmentPage: vi.fn(),
     onResetPage: vi.fn(),
     running: false,
     onChangeKind: vi.fn(),
@@ -192,6 +194,7 @@ describe("PropertiesSidebar per-page confidence slider", () => {
     segmentedPages: new Set<number>([3]),
     approvedPages: new Set<number>(),
     onToggleApprove: vi.fn(),
+    onResegmentPage: vi.fn(),
     onResetPage: vi.fn(),
     running: false,
     onChangeKind: vi.fn(),

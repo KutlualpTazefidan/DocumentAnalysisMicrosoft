@@ -62,6 +62,7 @@ interface Props {
   /** Set of page numbers approved by user (controlled externally) */
   approvedPages: Set<number>;
   onToggleApprove: () => void;
+  onResegmentPage: () => void;
   onResetPage: () => void;
   running: boolean;
   onChangeKind: (k: BoxKind) => void;
@@ -93,6 +94,7 @@ export function PropertiesSidebar({
   segmentedPages,
   approvedPages,
   onToggleApprove,
+  onResegmentPage,
   onResetPage,
   running,
   onChangeKind,
@@ -119,7 +121,7 @@ export function PropertiesSidebar({
         <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
         <span className="text-xs text-slate-600">Segmentiert</span>
         <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
-        <span className="text-xs text-slate-600">Genehmigt</span>
+        <span className="text-xs text-slate-600">Gesperrt</span>
       </div>
 
       {/* ── Page-button grid (5 cols) ───────────────────────────────────── */}
@@ -141,16 +143,28 @@ export function PropertiesSidebar({
         })}
       </div>
 
-      {/* ── Seite X / Y heading ───────────────────────────────────────── */}
-      <h2 className="font-semibold text-slate-900 text-center min-w-[6rem]">
-        Seite {currentPage} / {totalPages}
-      </h2>
-
       <hr className="border-slate-200" />
 
-      {/* ── Approve current page ──────────────────────────────────────── */}
+      {/* ── Re-segment current page ──────────────────────────────────── */}
       <button
-        aria-label={approvedPages.has(currentPage) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+        aria-label={segmentedPages.has(currentPage) ? "Diese Seite neu segmentieren" : "Nur diese Seite segmentieren"}
+        title={
+          approvedPages.has(currentPage)
+            ? "Seite ist gesperrt. Erst entsperren um neu zu segmentieren."
+            : undefined
+        }
+        className="w-full text-xs px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled={running || approvedPages.has(currentPage)}
+        onClick={onResegmentPage}
+      >
+        {segmentedPages.has(currentPage)
+          ? "Diese Seite neu segmentieren"
+          : "Nur diese Seite segmentieren"}
+      </button>
+
+      {/* ── Lock / unlock current page ────────────────────────────────── */}
+      <button
+        aria-label={approvedPages.has(currentPage) ? "Seite entsperren" : "Seite sperren"}
         className={
           approvedPages.has(currentPage)
             ? "text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full"
@@ -158,7 +172,7 @@ export function PropertiesSidebar({
         }
         onClick={onToggleApprove}
       >
-        {approvedPages.has(currentPage) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+        {approvedPages.has(currentPage) ? "🔓 Seite entsperren" : "🔒 Seite sperren"}
       </button>
 
       {/* ── Per-page confidence slider ─────────────────────────────────── */}

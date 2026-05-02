@@ -474,6 +474,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           segmentedPages={segmentedPages}
           approvedPages={approvedPages}
           onToggleApprove={handleToggleApprove}
+          onResegmentPage={() => runSegmentRange(page, page)}
           onResetPage={handleResetPage}
           running={running}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
