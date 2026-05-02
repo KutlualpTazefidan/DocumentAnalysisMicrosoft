@@ -151,17 +151,19 @@ describe("ExtractRoute", () => {
     await waitFor(() => expect(reExtractBtn).not.toBeDisabled());
   });
 
-  it("empty state (no html) renders DocStepTabs and Run extraction button", async () => {
+  it("empty state (no html) renders the full chrome with hint card overlay", async () => {
     // Override html endpoint to return null/empty so we hit the empty state
     server.use(
       http.get("*/api/admin/docs/rep/html", () => HttpResponse.json(null)),
     );
     render(wrapNoHtml());
 
-    // DocStepTabs should still render in the top bar
+    // Full chrome renders: DocStepTabs in the top bar
     await waitFor(() => expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument());
-    // Run extraction button visible
-    expect(screen.getByRole("button", { name: /run extraction/i })).toBeInTheDocument();
+    // Top-bar action button "Re-extract all" remains the entry point
+    expect(screen.getByLabelText("Re-extract all")).toBeInTheDocument();
+    // Hint card overlay is visible
+    expect(screen.getByTestId("empty-extract-hint")).toBeInTheDocument();
   });
 
   // ── Phase 4: colored page buttons ─────────────────────────────────────

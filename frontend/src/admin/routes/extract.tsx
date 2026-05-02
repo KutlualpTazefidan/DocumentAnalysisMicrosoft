@@ -296,30 +296,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     </div>
   );
 
-  if (!html.data) {
-    return (
-      <div className="flex flex-col h-full">
-        {topBar}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-8 max-w-sm w-full text-center space-y-4">
-            <h2 className={`${T.cardTitle} text-slate-800`}>No extraction yet</h2>
-            <p className={T.cardSubtle}>
-              Pages: {totalPages}. Click below to run extraction on all pages.
-            </p>
-            <button
-              aria-label="Run extraction"
-              className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
-              onClick={runExtract}
-              disabled={running}
-            >
-              {running ? "Extracting…" : "Run extraction"}
-            </button>
-          </div>
-        </div>
-        <StageIndicator state={streamState} />
-      </div>
-    );
-  }
+  const hasExtraction = !!html.data;
 
   return (
     <div className="flex flex-col h-full">
@@ -376,6 +353,20 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               </PdfPage>
             </div>
           </div>
+          {/* Empty-state hint card — overlays the PDF pane when nothing extracted yet */}
+          {!hasExtraction && (
+            <div
+              data-testid="empty-extract-hint"
+              className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"
+            >
+              <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-lg shadow-sm p-4 max-w-xs text-center space-y-1 pointer-events-auto">
+                <p className={`${T.body} text-slate-700 font-medium`}>Noch keine Extraktion.</p>
+                <p className={T.cardSubtle}>
+                  Klicke „Re-extract all" oben rechts, oder „Re-extract this page" für die aktuelle Seite.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* HTML editor pane — shows only the current page's content */}
