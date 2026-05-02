@@ -283,7 +283,7 @@ async def diagnose_extract(slug: str, request: Request, page: int = 1) -> dict:
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
     seg = read_segments(cfg.data_root, slug)
-    raster_dpi = seg.raster_dpi if seg is not None else 144
+    raster_dpi = seg.raster_dpi if seg is not None else 288
 
     try:
         from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming

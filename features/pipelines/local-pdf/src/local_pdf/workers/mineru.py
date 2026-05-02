@@ -564,7 +564,7 @@ class MineruWorker:
         extract_fn: ExtractFn | None = None,
         parse_doc_fn: ParseDocFn | None = None,
         parse_page_fn: ParsePageFn | None = None,
-        raster_dpi: int = 144,
+        raster_dpi: int = 288,
     ) -> None:
         self._extract_fn = extract_fn
         self._parse_doc_fn = parse_doc_fn

@@ -82,7 +82,7 @@ def _default_predict(pdf_path: Path) -> list[YOLOPagePrediction]:
     out: list[YOLOPagePrediction] = []
     with pdfplumber.open(str(pdf_path)) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
-            im = page.to_image(resolution=144).original
+            im = page.to_image(resolution=288).original
             buf = io.BytesIO()
             im.save(buf, format="PNG")
             img = Image.open(io.BytesIO(buf.getvalue()))

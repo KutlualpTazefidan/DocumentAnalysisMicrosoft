@@ -108,8 +108,9 @@ class SegmentsFile(BaseModel):
     # DPI at which PDFs were rasterized for YOLO inference. bbox coordinates in
     # `boxes` are pixel-space at this DPI. Frontend computes the on-screen
     # placement as bbox * (pdfjs_viewport_scale * 72 / raster_dpi) so the
-    # 144-DPI default doesn't leak into client code.
-    raster_dpi: int = 144
+    # default doesn't leak into client code. Raised from 144 → 288 for
+    # sharper inputs to YOLO (smaller text + dense layouts segment better).
+    raster_dpi: int = 288
 
 
 class DocMeta(BaseModel):
