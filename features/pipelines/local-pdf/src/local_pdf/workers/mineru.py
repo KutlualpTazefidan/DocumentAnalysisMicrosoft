@@ -69,6 +69,12 @@ class ParsedElement:
     # claim a text-type element from a kind=heading user-bbox sitting next
     # to it (e.g. a table caption).  Empty string when unknown.
     block_type: str = ""
+    # Per-line sub-elements (only for text-like blocks). Used by the
+    # assignment helper to split a single MinerU block across multiple
+    # user-bboxes when the user segmented one visual paragraph into several
+    # sub-bboxes (e.g. each bullet of a bullet list got its own bbox).
+    # Empty tuple = no line-level decomposition available.
+    lines: tuple[ParsedElement, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -234,12 +240,44 @@ def _assign_elements_to_boxes(
     the pair.  Element goes to the highest-final-score box; elements with no
     qualifying box are dropped (no fallback double-counting).
 
+    Pre-pass: when a single MinerU text-like block has non-trivial overlap
+    with multiple text-kind user-bboxes (the user segmented one visual
+    paragraph into several sub-bboxes — e.g. one bbox per bullet of a list
+    that MinerU emitted as a single block), the block is decomposed into
+    its line sub-elements (via the precomputed ``ParsedElement.lines``).
+    This lets each user-bbox claim its own line.
+
     Returns dict mapping box_id -> list of matched ParsedElement, sorted by
     reading order (top, left).
     """
     min_score = 0.3
-    assignments: dict[str, list[ParsedElement]] = {bid: [] for bid, _, _ in boxes_with_kinds}
+    text_kinds_set = _TEXT_LIKE_KINDS
+
+    # Pre-pass: split blocks that overlap multiple text-kind user-bboxes.
+    refined_elements: list[ParsedElement] = []
     for el in page_elements:
+        if not el.lines or el.block_type in _VISUAL_BLOCK_TYPES:
+            refined_elements.append(el)
+            continue
+        # Count text-kind user-bboxes that have non-trivial overlap with
+        # this block. Use a low IoU threshold (0.05) since user-bboxes
+        # might be tight around individual lines.
+        competing = 0
+        for _bid, bbox, kind in boxes_with_kinds:
+            if kind not in text_kinds_set:
+                continue
+            if _iou(bbox, el.bbox) > 0.05:
+                competing += 1
+                if competing > 1:
+                    break
+        if competing > 1:
+            # Split: replace the block with its line sub-elements.
+            refined_elements.extend(el.lines)
+        else:
+            refined_elements.append(el)
+
+    assignments: dict[str, list[ParsedElement]] = {bid: [] for bid, _, _ in boxes_with_kinds}
+    for el in refined_elements:
         cx = (el.bbox[0] + el.bbox[2]) / 2.0
         cy = (el.bbox[1] + el.bbox[3]) / 2.0
         best_id: str | None = None
@@ -370,6 +408,48 @@ def _try_extract_caption(html: str) -> tuple[str, str] | None:
         if len(clean) >= 5:  # avoid grabbing single-char artifacts
             return clean, html[m.end(1) :]  # strip leading text from html
     return None
+
+
+def _block_to_line_elements(block: dict, block_type: str) -> tuple[ParsedElement, ...]:
+    """Decompose a text-like MinerU block into per-line ParsedElements.
+
+    Used by _assign_elements_to_boxes when a single block overlaps multiple
+    user-bboxes — splitting by line lets each user-bbox claim its own line.
+
+    Returns an empty tuple if the block has no usable line structure (e.g.
+    fewer than 2 lines, or lines without bboxes/text).
+    """
+    raw_lines = block.get("lines") or []
+    if len(raw_lines) < 2:
+        return ()
+    out: list[ParsedElement] = []
+    for line in raw_lines:
+        lbbox = line.get("bbox")
+        if lbbox is None:
+            continue
+        try:
+            lx0, ly0, lx1, ly1 = (float(v) for v in lbbox[:4])
+        except (TypeError, ValueError):
+            continue
+        spans = line.get("spans") or []
+        text_parts: list[str] = []
+        for span in spans:
+            content = span.get("content")
+            if isinstance(content, str) and content:
+                text_parts.append(content)
+        line_text = "".join(text_parts).strip()
+        if not line_text:
+            continue
+        line_text = _convert_inline_latex(line_text)
+        out.append(
+            ParsedElement(
+                bbox=(lx0, ly0, lx1, ly1),
+                html=f"<p>{line_text}</p>",
+                text=line_text,
+                block_type=block_type,
+            )
+        )
+    return tuple(out)
 
 
 def _attach_source_box_to_caption(html: str, source_box_id: str) -> str:
@@ -948,8 +1028,14 @@ def _make_real_parse_doc_fn(
                 # blocks without the expected 'lines' key — see _safe_merge_para_text).
                 if block_type in _VISUAL_BLOCK_TYPES:
                     text_content = ""
+                    line_subs: tuple[ParsedElement, ...] = ()
                 else:
                     text_content = _convert_inline_latex(_safe_merge_para_text(block))
+                    # Pre-build line-level sub-elements so the assignment
+                    # helper can split this block when multiple user-bboxes
+                    # spread across its lines (e.g. one user-bbox per bullet
+                    # in a bullet list MinerU emitted as one text block).
+                    line_subs = _block_to_line_elements(block, block_type)
 
                 elements.append(
                     ParsedElement(
@@ -957,6 +1043,7 @@ def _make_real_parse_doc_fn(
                         html=html_content,
                         text=text_content,
                         block_type=block_type,
+                        lines=line_subs,
                     )
                 )
             pages[page_number] = PageData(page_size=page_size, elements=elements)

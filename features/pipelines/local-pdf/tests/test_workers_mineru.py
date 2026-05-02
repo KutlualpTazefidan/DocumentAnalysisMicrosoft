@@ -883,6 +883,144 @@ def test_paragraph_with_multiple_matches_emits_separate_p_tags(tmp_path: Path) -
     assert result.html.count('data-source-box="p1-p0"') == 3
 
 
+def test_one_block_split_across_user_bboxes_via_lines(tmp_path: Path) -> None:
+    """When MinerU emits one block that covers multiple user paragraph bboxes
+    (e.g. a bullet list as one text block, but the user gave each bullet its
+    own bbox), the assignment splits the block into its line sub-elements
+    and routes each line to the user-bbox that contains it.
+
+    Previously: best-match gave the whole block to one user bbox, so all
+    bullets merged into one <p> — the other user bboxes were silent.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # 3 user-bboxes, each tight around one bullet line, raster_dpi=144.
+    boxes = [
+        SegmentBox(
+            box_id="b1",
+            page=1,
+            bbox=(100.0, 100.0, 600.0, 140.0),  # → pts (50, 50, 300, 70)
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="b2",
+            page=1,
+            bbox=(100.0, 150.0, 600.0, 190.0),  # → pts (50, 75, 300, 95)
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="b3",
+            page=1,
+            bbox=(100.0, 200.0, 600.0, 240.0),  # → pts (50, 100, 300, 120)
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+    ]
+
+    # ONE big block (in pts, covers all 3 lines) with line sub-elements.
+    big_block = ParsedElement(
+        bbox=(50.0, 50.0, 300.0, 120.0),
+        html="<p>- bullet one\n- bullet two\n- bullet three</p>",
+        text="- bullet one - bullet two - bullet three",
+        block_type="text",
+        lines=(
+            ParsedElement(
+                bbox=(50.0, 50.0, 300.0, 70.0),
+                html="<p>- bullet one</p>",
+                text="- bullet one",
+                block_type="text",
+            ),
+            ParsedElement(
+                bbox=(50.0, 75.0, 300.0, 95.0),
+                html="<p>- bullet two</p>",
+                text="- bullet two",
+                block_type="text",
+            ),
+            ParsedElement(
+                bbox=(50.0, 100.0, 300.0, 120.0),
+                html="<p>- bullet three</p>",
+                text="- bullet three",
+                block_type="text",
+            ),
+        ),
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {1: [big_block]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+    # Each user-bbox got exactly its corresponding line.
+    assert "bullet one" in by_id["b1"]
+    assert "bullet two" not in by_id["b1"]
+    assert "bullet two" in by_id["b2"]
+    assert "bullet one" not in by_id["b2"]
+    assert "bullet three" in by_id["b3"]
+    assert "bullet two" not in by_id["b3"]
+    # Each carries its own data-source-box for click-mapping.
+    assert 'data-source-box="b1"' in by_id["b1"]
+    assert 'data-source-box="b2"' in by_id["b2"]
+    assert 'data-source-box="b3"' in by_id["b3"]
+
+
+def test_block_kept_whole_when_only_one_user_bbox_overlaps(tmp_path: Path) -> None:
+    """When only one text-kind user-bbox overlaps a block, don't split it.
+    A normal multi-line paragraph should stay as one element/<p>."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p0",
+        page=1,
+        bbox=(100.0, 100.0, 600.0, 240.0),  # one big bbox covering the whole para
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    big_block = ParsedElement(
+        bbox=(50.0, 50.0, 300.0, 120.0),
+        html="<p>This is a multi-line paragraph.</p>",
+        text="This is a multi-line paragraph.",
+        block_type="text",
+        lines=(
+            ParsedElement(
+                bbox=(50.0, 50.0, 300.0, 80.0),
+                html="<p>line a</p>",
+                text="line a",
+                block_type="text",
+            ),
+            ParsedElement(
+                bbox=(50.0, 90.0, 300.0, 120.0),
+                html="<p>line b</p>",
+                text="line b",
+                block_type="text",
+            ),
+        ),
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {1: [big_block]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes=[box]))
+
+    [result] = worker.results
+    # Single <p> with the whole text — no line-level split.
+    assert result.html.count("<p data-source-box=") == 1
+    assert "multi-line paragraph" in result.html
+
+
 def test_user_kind_table_uses_mineru_html(tmp_path: Path) -> None:
     """kind=table → MinerU HTML wrapped in extracted-table div, not plain text."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
