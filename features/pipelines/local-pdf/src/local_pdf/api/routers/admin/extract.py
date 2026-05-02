@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -59,33 +60,64 @@ _PDF_STYLE = (
     ".md-list{margin:0.6em 0;padding-left:1.5em}"
     "pre{background:#f3f4f6;padding:1em;border-radius:4px;overflow-x:auto}"
     'code{font-family:"SF Mono",Menlo,monospace}'
-    "hr.page-break{border:none;border-top:2px dashed #d1d5db;margin:2em 0}"
+    "section[data-page]{padding:1em 0}"
+    "section[data-page]+section[data-page]{"
+    "border-top:2px dashed #d1d5db;margin-top:2em;padding-top:2em}"
     "</style>"
 )
 
 
+def _page_from_box_id(box_id: str) -> int | None:
+    """Return the page number from a box_id like 'p8-b3' → 8."""
+    m = re.match(r"p(\d+)-", box_id or "")
+    return int(m.group(1)) if m else None
+
+
 def _wrap_html(elements: list[dict]) -> str:
-    """Wrap extracted HTML snippets with PDF-like typography and page-break separators.
+    """Wrap extracted HTML snippets with PDF-like typography and page sections.
 
-    Inserts ``<hr class="page-break">`` between elements from different pages.
-    The page number is derived from the box_id prefix (``pN-bM`` convention).
+    Groups elements by page number (derived from box_id prefix ``pN-bM``) and
+    wraps each group in ``<section data-page="{N}">`` so the frontend can slice
+    by page number instead of relying on brittle hr-count indexing.
     """
-
-    def _page_from_box_id(box_id: str) -> str:
-        """Return the page prefix (e.g. 'p1') from a box_id like 'p1-b0'."""
-        return box_id.split("-")[0] if box_id else ""
-
-    parts: list[str] = []
-    prev_page = ""
+    by_page: dict[int, list[str]] = {}
+    page_order: list[int] = []
     for e in elements:
-        cur_page = _page_from_box_id(e.get("box_id", ""))
-        if prev_page and cur_page != prev_page:
-            parts.append('<hr class="page-break">')
-        parts.append(e["html_snippet"])
-        prev_page = cur_page
+        page = _page_from_box_id(e.get("box_id", ""))
+        if page is None:
+            continue
+        if page not in by_page:
+            by_page[page] = []
+            page_order.append(page)
+        by_page[page].append(e["html_snippet"])
 
-    body = "\n".join(parts)
+    sections = [f'<section data-page="{p}">\n{"".join(by_page[p])}\n</section>' for p in page_order]
+    body = "\n".join(sections)
     return f"<!DOCTYPE html>\n<html><head>{_PDF_STYLE}</head><body>\n{body}\n</body></html>\n"
+
+
+def _merge_elements(existing: list[dict], new_elements: list[dict]) -> list[dict]:
+    """Merge *new_elements* into *existing*, replacing any with matching box_id.
+
+    Preserves the order of existing elements; appends genuinely new box_ids at
+    the end in the order they appear in *new_elements*.
+    """
+    by_id = {e["box_id"]: e for e in existing}
+    for e in new_elements:
+        by_id[e["box_id"]] = e
+    # Rebuild: existing order first, then any new box_ids not previously present.
+    seen: set[str] = set()
+    result: list[dict] = []
+    for e in existing:
+        bid = e["box_id"]
+        result.append(by_id[bid])
+        seen.add(bid)
+    for e in new_elements:
+        bid = e["box_id"]
+        if bid not in seen:
+            result.append(by_id[bid])
+            seen.add(bid)
+    return result
 
 
 @router.post("/api/admin/docs/{slug}/extract")
@@ -118,9 +150,19 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     # Persist after each yielded WorkProgressEvent's box result.
                     yield ev.model_dump_json() + "\n"
                 # Build elements list from worker.results.
-                elements = [{"box_id": r.box_id, "html_snippet": r.html} for r in worker.results]
-                write_mineru(cfg.data_root, slug, {"elements": elements})
-                write_html(cfg.data_root, slug, _wrap_html(elements))
+                new_elements = [
+                    {"box_id": r.box_id, "html_snippet": r.html} for r in worker.results
+                ]
+                if page is not None:
+                    # Partial extraction: merge new page's elements into the
+                    # existing on-disk mineru data so other pages are preserved.
+                    existing_data = read_mineru(cfg.data_root, slug)
+                    existing_elements = existing_data["elements"] if existing_data else []
+                    merged = _merge_elements(existing_elements, new_elements)
+                else:
+                    merged = new_elements
+                write_mineru(cfg.data_root, slug, {"elements": merged})
+                write_html(cfg.data_root, slug, _wrap_html(merged))
                 for ev in worker.unload():
                     yield ev.model_dump_json() + "\n"
         except Exception as exc:
