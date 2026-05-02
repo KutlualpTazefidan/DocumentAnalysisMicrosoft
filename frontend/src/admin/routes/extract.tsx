@@ -396,7 +396,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
             aria-expanded={gridOpen}
             onClick={() => setGridOpen((p) => !p)}
-            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-sm transition-colors`}
+            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-xs transition-colors`}
             data-testid="extract-page-grid-toggle"
           >
             <span>Seite {page} / {totalPages}</span>

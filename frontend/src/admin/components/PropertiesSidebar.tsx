@@ -139,7 +139,7 @@ export function PropertiesSidebar({
         aria-label={`Seite ${currentPage} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
         aria-expanded={gridOpen}
         onClick={() => setGridOpen((p) => !p)}
-        className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 text-sm transition-colors`}
+        className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 text-xs transition-colors`}
         data-testid="seg-page-grid-toggle"
       >
         <span>Seite {currentPage} / {totalPages}</span>
@@ -254,7 +254,7 @@ export function PropertiesSidebar({
 
       {/* ── Page action buttons ────────────────────────────────────────── */}
       <button
-        className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+        className="w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50"
         onClick={onNewBox}
       >
         New box
@@ -262,7 +262,7 @@ export function PropertiesSidebar({
 
       <button
         aria-label="Reset diese Seite"
-        className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={running}
         onClick={onResetPage}
       >
