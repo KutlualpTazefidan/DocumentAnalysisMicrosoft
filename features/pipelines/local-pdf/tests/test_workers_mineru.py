@@ -833,6 +833,56 @@ def test_user_kind_paragraph_emits_p(tmp_path: Path) -> None:
     assert result.html == '<p data-source-box="p1-p0">Hello world</p>'
 
 
+def test_paragraph_with_multiple_matches_emits_separate_p_tags(tmp_path: Path) -> None:
+    """When one paragraph user-bbox matches multiple MinerU paragraph elements,
+    each becomes its own <p> tag instead of being joined into one inline blob."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-p0",
+        page=1,
+        bbox=(0.0, 0.0, 400.0, 800.0),  # big bbox covering several paras
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(10.0, 10.0, 190.0, 60.0),
+                    html="<p>First paragraph.</p>",
+                    text="First paragraph.",
+                ),
+                ParsedElement(
+                    bbox=(10.0, 70.0, 190.0, 130.0),
+                    html="<p>Second paragraph.</p>",
+                    text="Second paragraph.",
+                ),
+                ParsedElement(
+                    bbox=(10.0, 140.0, 190.0, 200.0),
+                    html="<p>Third paragraph.</p>",
+                    text="Third paragraph.",
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        result = worker.extract_region(pdf, box)
+
+    # Three separate <p> tags emitted, each with the same data-source-box.
+    assert result.html.count("<p data-source-box=") == 3
+    assert "First paragraph." in result.html
+    assert "Second paragraph." in result.html
+    assert "Third paragraph." in result.html
+    # Adjacent <p>s share the source bbox so click-highlight still works.
+    assert result.html.count('data-source-box="p1-p0"') == 3
+
+
 def test_user_kind_table_uses_mineru_html(tmp_path: Path) -> None:
     """kind=table → MinerU HTML wrapped in extracted-table div, not plain text."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
@@ -1512,7 +1562,7 @@ def test_caption_tag_rescued_from_table_block(tmp_path: Path) -> None:
         f"heading should be styled as caption-ref, got: {by_id['heading']!r}"
     )
     # Table HTML keeps its caption — MinerU's natural rendering preserved.
-    assert "<caption>" in by_id["table"]
+    assert "<caption" in by_id["table"]
     assert "Tab. 1 example caption" in by_id["table"]
     # Table cell data still present.
     assert "cell" in by_id["table"], (
@@ -1749,9 +1799,13 @@ def test_caption_above_table_rescued_via_adjacency(tmp_path: Path) -> None:
     )
     assert 'class="caption-ref"' in by_id["heading"]
     # Table HTML preserved — MinerU's caption stays where it rendered it.
-    assert "<caption>" in by_id["table"]
+    assert "<caption" in by_id["table"]
     assert "The table caption" in by_id["table"]
     assert "cell" in by_id["table"]
+    # Caption-portion of the table HTML now points back to the heading
+    # bbox so clicks on the caption text in the rendered HTML highlight
+    # the heading user-bbox, not the surrounding table user-bbox.
+    assert 'data-source-box="heading"' in by_id["table"]
 
 
 def test_caption_below_table_rescued_via_adjacency(tmp_path: Path) -> None:
@@ -1811,7 +1865,7 @@ def test_caption_below_table_rescued_via_adjacency(tmp_path: Path) -> None:
     assert "Keine Extraktion" not in by_id["heading"]
     assert 'class="caption-ref"' in by_id["heading"]
     # Table HTML preserved.
-    assert "<caption>" in by_id["table"]
+    assert "<caption" in by_id["table"]
     assert "cell" in by_id["table"]
 
 
@@ -2000,7 +2054,7 @@ def test_multiple_visual_boxes_picks_closest(tmp_path: Path) -> None:
     assert 'class="caption-ref"' in by_id["heading"]
 
     # tableA HTML preserved (no stripping).
-    assert "<caption>" in by_id["tableA"]
+    assert "<caption" in by_id["tableA"]
     assert "cellA" in by_id["tableA"]
 
     # tableB is unchanged (gap=250 > max_gap, no rescue from tableB).

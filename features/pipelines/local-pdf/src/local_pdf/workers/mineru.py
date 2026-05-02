@@ -372,6 +372,35 @@ def _try_extract_caption(html: str) -> tuple[str, str] | None:
     return None
 
 
+def _attach_source_box_to_caption(html: str, source_box_id: str) -> str:
+    """Re-tag the caption portion of a table/figure block so clicks map back
+    to the user's caption/heading bbox instead of the surrounding visual bbox.
+
+    Tries the ``<caption>`` tag first.  If absent, wraps the leading text
+    before the first ``<table>``/``<figure>`` opening tag in a ``<span>``.
+    Returns the HTML unchanged when neither pattern is found.
+    """
+    if not html:
+        return html
+
+    if _CAPTION_RE.search(html):
+        # Strip any existing data-source-box on the caption tag, then inject ours.
+        def _add_attr(m: re.Match[str]) -> str:
+            existing = m.group(1) or ""
+            cleaned = re.sub(r'\s*data-source-box="[^"]*"', "", existing)
+            return f'<caption data-source-box="{source_box_id}"{cleaned}>'
+
+        return re.sub(r"<caption([^>]*)>", _add_attr, html, count=1)
+
+    m = _LEADING_TEXT_RE.match(html)
+    if m:
+        leading = m.group(1)
+        if leading and re.sub(r"<[^>]+>", "", leading).strip():
+            rest = html[m.end(1) :]
+            return f'<span data-source-box="{source_box_id}">{leading}</span>{rest}'
+    return html
+
+
 def _caption_adjacency_score(
     empty_pts: tuple[float, float, float, float],
     visual_pts: tuple[float, float, float, float],
@@ -458,7 +487,7 @@ def _rescue_captions_from_visual_boxes(
         # detects via block_type="caption_rescue" and renders in a muted,
         # smaller style (the heading slot becomes a reference, not a duplicate
         # primary heading).
-        for el in win_els:
+        for idx, el in enumerate(win_els):
             rescue = _try_extract_caption(el.html)
             if rescue is None:
                 continue
@@ -470,6 +499,17 @@ def _rescue_captions_from_visual_boxes(
                 block_type="caption_rescue",
             )
             new_assignments[empty_id].append(synthetic)
+            # Re-tag the caption portion of the table/figure block so clicks
+            # on it in the rendered HTML highlight the user's caption/heading
+            # bbox rather than the surrounding visual bbox.
+            tagged_html = _attach_source_box_to_caption(el.html, empty_id)
+            if tagged_html != el.html:
+                new_assignments[win_id][idx] = ParsedElement(
+                    bbox=el.bbox,
+                    html=tagged_html,
+                    text=el.text,
+                    block_type=el.block_type,
+                )
             break
 
     return new_assignments
@@ -727,8 +767,26 @@ def _build_one_box_html(
             tag = "h1" if promote_to_h1 else "h2"
             return f'<{tag} data-source-box="{box_id}">{text}</{tag}>'
         if kind == BoxKind.paragraph:
+            # If MinerU returned multiple paragraph elements for one user box,
+            # emit each as its own <p> so visual paragraph breaks survive
+            # (rather than collapsing N paragraphs into a single inline blob).
+            if len(matched) > 1:
+                return "".join(
+                    f'<p data-source-box="{box_id}">'
+                    f"{_convert_inline_latex(_html_to_text(el.html)).strip()}</p>"
+                    for el in matched
+                    if _html_to_text(el.html).strip()
+                )
             return f'<p data-source-box="{box_id}">{text}</p>'
         if kind == BoxKind.list_item:
+            # Same treatment for list items — one <li> per matched element.
+            if len(matched) > 1:
+                return "".join(
+                    f'<li data-source-box="{box_id}">'
+                    f"{_convert_inline_latex(_html_to_text(el.html)).strip()}</li>"
+                    for el in matched
+                    if _html_to_text(el.html).strip()
+                )
             return f'<li data-source-box="{box_id}">{text}</li>'
         if kind == BoxKind.caption:
             return f'<figcaption data-source-box="{box_id}">{text}</figcaption>'
