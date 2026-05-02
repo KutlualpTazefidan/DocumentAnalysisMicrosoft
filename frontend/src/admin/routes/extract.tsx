@@ -1,7 +1,8 @@
 // frontend/src/admin/routes/extract.tsx
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
+import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 
@@ -91,7 +92,15 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
 
-  const [page, setPage] = useState(1);
+  // Current page is persisted per-doc so segment/extract tabs stay in sync.
+  const [page, setPageRaw] = useState(() => loadCurrentPage(slug ?? ""));
+  const setPage = useCallback(
+    (p: number) => {
+      setPageRaw(p);
+      saveCurrentPage(slug ?? "", p);
+    },
+    [slug],
+  );
   const [gridOpen, setGridOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);

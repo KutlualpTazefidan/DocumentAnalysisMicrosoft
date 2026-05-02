@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
+import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
@@ -51,7 +52,15 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
 
 export function SegmentRoute({ token }: Props): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
-  const [page, setPage] = useState(1);
+  // Current page is persisted per-doc so segment/extract tabs stay in sync.
+  const [page, setPageRaw] = useState(() => loadCurrentPage(slug ?? ""));
+  const setPage = useCallback(
+    (p: number) => {
+      setPageRaw(p);
+      saveCurrentPage(slug ?? "", p);
+    },
+    [slug],
+  );
   // Zoom is persisted in localStorage so it survives page reloads + applies
   // to every page in this and future docs (single global preference).
   const [scale, setScale] = useState<number>(() => {
