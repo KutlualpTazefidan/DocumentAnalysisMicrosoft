@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { ExtractRoute } from "../../../src/admin/routes/extract";
@@ -15,7 +15,14 @@ vi.mock("../../../src/admin/hooks/usePdfPage", () => ({
 
 const BOXES = [
   { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 },
+  { box_id: "p2-b0", page: 2, bbox: [10, 20, 100, 50], kind: "paragraph", confidence: 0.88, reading_order: 0 },
 ];
+
+const MINERU_DATA = {
+  elements: [
+    { box_id: "p1-b0", html_snippet: "<h2>Hi</h2>" },
+  ],
+};
 
 const server = setupServer(
   http.get("*/api/admin/docs/rep/segments", () =>
@@ -31,11 +38,19 @@ const server = setupServer(
   http.post("*/api/admin/docs/rep/segments/p1-b0/extract", () =>
     HttpResponse.json({ box_id: "p1-b0", html: "<p>re-extracted</p>" }),
   ),
+  http.get("*/api/admin/docs/rep/mineru", () =>
+    HttpResponse.json(MINERU_DATA),
+  ),
 );
 
 beforeAll(() => server.listen());
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
+
+// Clear localStorage before each test to reset approval state.
+beforeEach(() => {
+  localStorage.clear();
+});
 
 function wrap() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -88,7 +103,7 @@ describe("ExtractRoute", () => {
     expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
   });
 
-  // ── New tests ──────────────────────────────────────────────────────────
+  // ── Top bar tests ──────────────────────────────────────────────────────
 
   it("top bar shows DocStepTabs with Extract tab active", async () => {
     render(wrap());
@@ -129,5 +144,84 @@ describe("ExtractRoute", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument());
     // Run extraction button visible
     expect(screen.getByRole("button", { name: /run extraction/i })).toBeInTheDocument();
+  });
+
+  // ── Phase 4: colored page buttons ─────────────────────────────────────
+
+  it("renders page buttons for each page in the segment data", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+
+    // Two pages from BOXES (page 1 and page 2)
+    await waitFor(() => screen.getByTestId("page-btn-1"));
+    expect(screen.getByTestId("page-btn-1")).toBeInTheDocument();
+    expect(screen.getByTestId("page-btn-2")).toBeInTheDocument();
+  });
+
+  it("page 1 button is green (extracted) because mineru has an element for p1-b0", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+    await waitFor(() => screen.getByTestId("page-btn-1"));
+
+    const btn1 = screen.getByTestId("page-btn-1");
+    // Green = extracted state
+    expect(btn1.className).toContain("green");
+  });
+
+  it("page 2 button is red (no extraction) when mineru has no element for page 2", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+    await waitFor(() => screen.getByTestId("page-btn-2"));
+
+    const btn2 = screen.getByTestId("page-btn-2");
+    // Red = no extraction
+    expect(btn2.className).toContain("red");
+  });
+
+  it("clicking a page button navigates to that page", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+    await waitFor(() => screen.getByTestId("page-btn-2"));
+
+    // Active page 1 initially; btn-1 has aria-pressed=true
+    expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("page-btn-2")).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(screen.getByTestId("page-btn-2"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("page-btn-2")).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("approve button toggles page to blue (approved) state and persists to localStorage", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+    await waitFor(() => screen.getByTestId("page-btn-1"));
+
+    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
+    fireEvent.click(approveBtn);
+
+    // After approval the page button for page 1 should be blue
+    await waitFor(() =>
+      expect(screen.getByTestId("page-btn-1").className).toContain("blue"),
+    );
+
+    // localStorage should contain the approved page
+    const stored = JSON.parse(localStorage.getItem("extract.approved.rep") ?? "[]") as number[];
+    expect(stored).toContain(1);
+  });
+
+  it("approve button label toggles to 'Genehmigung aufheben' after approval", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByText("Hi"));
+
+    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
+    fireEvent.click(approveBtn);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument(),
+    );
   });
 });

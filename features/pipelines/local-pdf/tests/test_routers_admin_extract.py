@@ -169,3 +169,26 @@ def test_diagnose_returns_404_for_missing_pdf(client) -> None:
         headers={"X-Auth-Token": "tok"},
     )
     assert r.status_code == 404
+
+
+def test_get_mineru_404_before_extraction(client) -> None:
+    """GET /mineru returns 404 when no extraction has been run yet."""
+    files = {"file": ("Spec.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    r = client.get("/api/admin/docs/spec/mineru", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 404
+
+
+def test_get_mineru_returns_stored_data(client, monkeypatch) -> None:
+    """GET /mineru returns the elements written by a prior extraction run."""
+    from local_pdf.storage.sidecar import write_mineru
+
+    root = client.app.state.config.data_root
+    files = {"file": ("Spec.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    # Write mineru data directly.
+    payload = {"elements": [{"box_id": "p1-b0", "html_snippet": "<p>hi</p>"}]}
+    write_mineru(root, "spec", payload)
+    r = client.get("/api/admin/docs/spec/mineru", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    assert r.json()["elements"][0]["box_id"] == "p1-b0"

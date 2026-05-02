@@ -11,7 +11,14 @@ import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
 import { useSegments } from "../hooks/useSegments";
-import { streamExtract, useExportSourceElements, useExtractRegion, useHtml, usePutHtml } from "../hooks/useExtract";
+import {
+  streamExtract,
+  useExportSourceElements,
+  useExtractRegion,
+  useHtml,
+  useMineru,
+  usePutHtml,
+} from "../hooks/useExtract";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import type { WorkerEvent } from "../types/domain";
 
@@ -23,10 +30,60 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
   return applyEvent(state, ev);
 }
 
+// ── Approval helpers (v1: localStorage) ───────────────────────────────────────
+
+function approvedPagesKey(slug: string): string {
+  return `extract.approved.${slug}`;
+}
+
+function loadApprovedPages(slug: string): Set<number> {
+  try {
+    const raw = localStorage.getItem(approvedPagesKey(slug));
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as number[];
+    return new Set(arr);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveApprovedPages(slug: string, pages: Set<number>): void {
+  localStorage.setItem(approvedPagesKey(slug), JSON.stringify([...pages]));
+}
+
+// ── Page-state helpers ─────────────────────────────────────────────────────────
+
+type PageState = "no-extraction" | "extracted" | "approved";
+
+function pageStateFor(
+  pageNum: number,
+  extractedPages: Set<number>,
+  approvedPages: Set<number>,
+): PageState {
+  if (approvedPages.has(pageNum)) return "approved";
+  if (extractedPages.has(pageNum)) return "extracted";
+  return "no-extraction";
+}
+
+function pageButtonClasses(state: PageState, isActive: boolean): string {
+  const base = "w-10 h-10 rounded text-xs font-medium flex items-center justify-center transition-colors";
+  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  switch (state) {
+    case "approved":
+      return `${base} bg-blue-100 hover:bg-blue-200 text-blue-800${ring}`;
+    case "extracted":
+      return `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`;
+    case "no-extraction":
+    default:
+      return `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
+  }
+}
+
 export function ExtractRoute({ token }: Props): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const segments = useSegments(slug ?? "", token);
   const html = useHtml(slug ?? "", token);
+  const mineru = useMineru(slug ?? "", token);
   const putHtml = usePutHtml(slug ?? "", token);
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
@@ -34,6 +91,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const [page, setPage] = useState(1);
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
+    loadApprovedPages(slug ?? ""),
+  );
   // Zoom persisted under admin.extract.scale, mirroring segment's pattern.
   const [scale, setScale] = useState<number>(() => {
     const stored = parseFloat(localStorage.getItem("admin.extract.scale") ?? "");
@@ -69,6 +129,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         if (ev.type === "work-failed") error(ev.reason);
       }
       await html.refetch();
+      await mineru.refetch();
     } finally {
       setRunning(false);
     }
@@ -83,6 +144,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         if (ev.type === "work-failed") error(ev.reason);
       }
       await html.refetch();
+      await mineru.refetch();
     } finally {
       setRunning(false);
     }
@@ -110,6 +172,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     });
   }
 
+  function handleToggleApprove() {
+    const next = new Set(approvedPages);
+    if (next.has(page)) {
+      next.delete(page);
+    } else {
+      next.add(page);
+    }
+    setApprovedPages(next);
+    saveApprovedPages(slug ?? "", next);
+  }
+
   const rasterDpi = segments.data?.raster_dpi ?? 144;
   const boxScale = (scale * 72) / rasterDpi;
 
@@ -123,7 +196,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     [segments.data, page],
   );
 
-  // ── Saving status derived from putHtml mutation state ───────────────────
+  // ── Compute which pages have extractions ──────────────────────────────
+  const extractedPages = useMemo<Set<number>>(() => {
+    const elements = mineru.data?.elements ?? [];
+    const pages = new Set<number>();
+    for (const el of elements) {
+      // box_id format: pN-bM  →  page = N
+      const match = el.box_id.match(/^p(\d+)-/);
+      if (match) pages.add(parseInt(match[1], 10));
+    }
+    return pages;
+  }, [mineru.data]);
+
+  // ── Saving status derived from putHtml mutation state ─────────────────
   const savingStatus = putHtml.isPending
     ? "Saving…"
     : putHtml.isSuccess
@@ -270,8 +355,52 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <HtmlEditor html={html.data} onChange={handleHtmlChange} onClickElement={handleClickElement} />
         </div>
 
-        {/* Sidebar — page grid (populated in Phase 4) */}
+        {/* Sidebar — colored page-button grid */}
         <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 text-sm bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
+          {/* Legend */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Nicht extrahiert</span>
+            <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Extrahiert</span>
+            <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Genehmigt</span>
+          </div>
+
+          {/* Page grid — 5 columns */}
+          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+              const state = pageStateFor(p, extractedPages, approvedPages);
+              return (
+                <button
+                  key={p}
+                  aria-label={`Page ${p}`}
+                  aria-pressed={p === page}
+                  className={pageButtonClasses(state, p === page)}
+                  onClick={() => setPage(p)}
+                  data-testid={`page-btn-${p}`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+
+          <hr className="border-slate-200" />
+
+          {/* Approve current page — v1: localStorage */}
+          <button
+            aria-label={approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+            className={
+              approvedPages.has(page)
+                ? "text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full"
+                : "text-xs px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full"
+            }
+            onClick={handleToggleApprove}
+          >
+            {approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+          </button>
+
           <p className="text-xs text-slate-400 text-center">
             {boxesOnPage.length} boxes on page {page}
           </p>

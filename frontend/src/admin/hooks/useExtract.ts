@@ -4,6 +4,27 @@ import { apiBase } from "../api/adminClient";
 import { readNdjsonLines } from "../api/ndjson";
 import type { WorkerEvent } from "../types/domain";
 
+/** Shape returned by GET /api/admin/docs/{slug}/mineru */
+export interface MineruFile {
+  elements: Array<{ box_id: string; html_snippet: string }>;
+}
+
+async function getMineru(slug: string, token: string): Promise<MineruFile | null> {
+  const r = await fetch(`${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/mineru`, {
+    headers: { "X-Auth-Token": token },
+  });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`GET /mineru failed: ${r.status}`);
+  return r.json() as Promise<MineruFile>;
+}
+
+export function useMineru(slug: string, token: string) {
+  return useQuery({
+    queryKey: ["mineru", slug],
+    queryFn: () => getMineru(slug, token),
+  });
+}
+
 export function useHtml(slug: string, token: string) {
   return useQuery({ queryKey: ["html", slug], queryFn: () => getHtml(slug, token) });
 }

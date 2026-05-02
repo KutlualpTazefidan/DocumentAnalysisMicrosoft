@@ -19,6 +19,7 @@ from local_pdf.storage.sidecar import (
     doc_dir,
     read_html,
     read_meta,
+    read_mineru,
     read_segments,
     write_html,
     write_meta,
@@ -152,6 +153,21 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     with MineruWorker(extract_fn=_MINERU_EXTRACT_FN, raster_dpi=seg.raster_dpi) as worker:
         result = worker.extract_region(pdf, target)
     return {"box_id": result.box_id, "html": result.html}
+
+
+@router.get("/api/admin/docs/{slug}/mineru")
+async def get_mineru(slug: str, request: Request) -> dict:
+    """Return the stored MinerU extraction output (mineru-out.json).
+
+    Used by the frontend to compute per-page extraction state for the
+    colored page-button grid.  Returns 404 when no extraction has been
+    run yet.
+    """
+    cfg = request.app.state.config
+    data = read_mineru(cfg.data_root, slug)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"no mineru data for {slug}")
+    return data
 
 
 @router.get("/api/admin/docs/{slug}/html")
