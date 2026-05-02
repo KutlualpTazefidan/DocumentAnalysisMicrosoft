@@ -437,16 +437,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
           <hr className="border-slate-200" />
 
-          {/* Per-page extract */}
-          <button
-            aria-label="Re-extract this page"
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-            onClick={runExtractThisPage}
-            disabled={running}
-          >
-            {running ? "Läuft…" : "Diese Seite extrahieren"}
-          </button>
-
           {/* Per-box extract — only when a box is selected */}
           <button
             aria-label="Re-extract this box"
@@ -456,6 +446,16 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             disabled={!highlight || running}
           >
             Diese Box extrahieren
+          </button>
+
+          {/* Per-page extract */}
+          <button
+            aria-label="Re-extract this page"
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={runExtractThisPage}
+            disabled={running}
+          >
+            {running ? "Läuft…" : "Diese Seite extrahieren"}
           </button>
 
           {/* Approve current page — v1: localStorage */}
