@@ -431,10 +431,17 @@ _CAPTION_RE = re.compile(r"<caption[^>]*>(.*?)</caption>", re.DOTALL | re.IGNORE
 _LEADING_TEXT_RE = re.compile(r"^(.*?)(?=<(?:table|figure)\b)", re.DOTALL | re.IGNORECASE)
 
 
+_TRAILING_TEXT_RE = re.compile(r"(?:</table>|</figure>)(.*?)$", re.DOTALL | re.IGNORECASE)
+
+
 def _try_extract_caption(html: str) -> tuple[str, str] | None:
     """Return (caption_text, html_without_caption) if a caption can be extracted.
 
-    Tries <caption> tag first, then leading text before <table>/<figure>.
+    Tries, in order:
+      1. <caption> tag inside the HTML
+      2. Leading text before <table>/<figure>
+      3. Trailing text after </table>/</figure> (caption-below-table layout
+         the VLM sometimes emits)
     Returns None if no caption text is found.
     """
     if not html:
@@ -452,6 +459,13 @@ def _try_extract_caption(html: str) -> tuple[str, str] | None:
         clean = re.sub(r"<[^>]+>", "", leading).strip()
         if len(clean) >= 5:  # avoid grabbing single-char artifacts
             return clean, html[m.end(1) :]  # strip leading text from html
+    # Strategy 3: trailing text after </table>/</figure> (caption-below layout).
+    m = _TRAILING_TEXT_RE.search(html)
+    if m:
+        trailing = m.group(1).strip()
+        clean = re.sub(r"<[^>]+>", "", trailing).strip()
+        if len(clean) >= 5:
+            return clean, html[: m.start(1)]
     return None
 
 
@@ -738,8 +752,11 @@ def _rescue_captions_from_visual_boxes(
 
         if not rescued and diagnostics is not None:
             # We had a candidate visual neighbor but no extractable caption text.
-            # Surface the situation so the user knows the heading bbox stayed empty.
+            # Surface the situation AND a snippet of the visual element's HTML so
+            # we can see what shape MinerU produced (helps when the caption is
+            # somewhere unusual — e.g. inside <thead>, <tbody> first row, etc.).
             preview = (win_els[0].text or "")[:200] if win_els else ""
+            html_preview = (win_els[0].html or "")[:400] if win_els else ""
             diagnostics.append(
                 {
                     "kind": "caption_rescue_failed",
@@ -747,6 +764,7 @@ def _rescue_captions_from_visual_boxes(
                     "target_visual_bbox": win_id,
                     "caption_text": "",
                     "text_preview": preview,
+                    "target_html_preview": html_preview,
                 }
             )
 

@@ -181,9 +181,20 @@ function DiagItem({ d }: { d: ExtractDiagnostic }): JSX.Element {
       <div className={`${T.tinyMuted} mt-0.5`}>
         Nachbar: {d.target_visual_bbox} · keine Caption im HTML gefunden
       </div>
-      <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
-        {d.text_preview || "(no preview)"}
-      </div>
+      {d.target_html_preview ? (
+        <details className="mt-0.5">
+          <summary className={`${T.tinyMuted} cursor-pointer hover:text-slate-700`}>
+            HTML-Snippet zeigen (zum Diagnosieren)
+          </summary>
+          <pre className="font-mono text-[10px] text-slate-500 mt-1 whitespace-pre-wrap break-all bg-white/50 rounded px-1 py-1 max-h-40 overflow-auto">
+            {d.target_html_preview}
+          </pre>
+        </details>
+      ) : (
+        <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+          {d.text_preview || "(no preview)"}
+        </div>
+      )}
     </li>
   );
 }

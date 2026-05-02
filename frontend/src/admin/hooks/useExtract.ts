@@ -23,6 +23,10 @@ export interface ExtractDiagnostic {
   target_visual_bbox?: string;   // table/figure user-bbox the caption was inside
   caption_text?: string;         // extracted caption (empty for failed)
   click_remap?: boolean;         // whether <caption data-source-box=...> was injected
+  /** First ~400 chars of the visual element's HTML — populated for
+   *  caption_rescue_failed so we can see what shape MinerU produced
+   *  (helps diagnose where the caption text actually lives). */
+  target_html_preview?: string;
 }
 
 /** Shape returned by GET /api/admin/docs/{slug}/mineru */
