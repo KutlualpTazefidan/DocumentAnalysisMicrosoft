@@ -317,7 +317,7 @@ def test_doc_parsed_once_for_multi_page_batch(tmp_path: Path) -> None:
             2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page2</p>", text="page2")],
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         list(worker.run(pdf, boxes))
 
     assert call_count == 1, f"expected parse_doc_fn called once, got {call_count}"
@@ -435,7 +435,7 @@ def test_merge_para_with_text_wiring_via_monkeypatch(tmp_path: Path) -> None:
             1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>hello</p>", text="hello")]
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
     # New behaviour: kind=paragraph → plain text "hello" wrapped in <p data-source-box="...">
@@ -460,18 +460,29 @@ def test_iou_no_overlap() -> None:
     assert _iou((0.0, 0.0, 5.0, 5.0), (10.0, 10.0, 20.0, 20.0)) == 0.0
 
 
-def test_match_fallback_to_best_when_no_threshold_met() -> None:
-    """If no element meets IoU > 0.3 or center-in, return the one with highest IoU."""
+def test_match_no_fallback_when_no_threshold_met() -> None:
+    """When no element meets IoU > 0.3 or center-in, _match_box_to_elements returns [].
+
+    The best-effort fallback was removed; callers receive an empty list and
+    emit the empty marker instead of silently returning an unrelated element.
+
+    Both elements below are strictly non-overlapping (IoU=0) with centers
+    outside the user box, so neither qualifies.
+    """
     from local_pdf.workers.mineru import ParsedElement, _match_box_to_elements
 
+    # user_box: (0,0,10,10)
     user_box = (0.0, 0.0, 10.0, 10.0)
     elements = [
-        ParsedElement(bbox=(20.0, 20.0, 30.0, 30.0), html="<p>far</p>"),  # IoU = 0
-        ParsedElement(bbox=(5.0, 5.0, 15.0, 15.0), html="<p>near</p>"),  # partial overlap
+        ParsedElement(
+            bbox=(20.0, 20.0, 30.0, 30.0), html="<p>far</p>"
+        ),  # no overlap, center=(25,25)
+        ParsedElement(
+            bbox=(15.0, 15.0, 25.0, 25.0), html="<p>near</p>"
+        ),  # no overlap, center=(20,20)
     ]
     result = _match_box_to_elements(user_box, elements)
-    assert len(result) == 1
-    assert result[0].html == "<p>near</p>"
+    assert result == [], f"expected empty list (no fallback), got {result}"
 
 
 def test_match_reading_order_sort() -> None:
@@ -772,7 +783,7 @@ def test_user_kind_heading_emits_h2(tmp_path: Path) -> None:
             ]
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
     assert result.html == '<h2 data-source-box="p1-h0">My Title</h2>'
@@ -803,7 +814,7 @@ def test_user_kind_paragraph_emits_p(tmp_path: Path) -> None:
             ]
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
     assert result.html == '<p data-source-box="p1-p0">Hello world</p>'
@@ -829,7 +840,7 @@ def test_user_kind_table_uses_mineru_html(tmp_path: Path) -> None:
     def fake_parse_doc(_pdf: Path) -> dict:
         return {1: [ParsedElement(bbox=(0.0, 0.0, 400.0, 100.0), html=table_html, text="")]}
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
     assert 'data-source-box="p1-t0"' in result.html
@@ -1039,7 +1050,7 @@ def test_h1_promotion_for_single_first_page_heading(tmp_path: Path) -> None:
             ]
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         list(worker.run(pdf, boxes))
 
     heading_result = next(r for r in worker.results if r.box_id == "p1-h0")
@@ -1130,7 +1141,7 @@ def test_run_with_page_subset_only_returns_those_pages(tmp_path: Path) -> None:
             3: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page3</p>", text="page3")],
         }
 
-    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         list(worker.run(pdf, boxes))
 
     assert len(call_args) == 1, "parse_doc_fn should be called exactly once"
@@ -1208,3 +1219,142 @@ def test_pdf_slicing_helper_extracts_correct_pages(tmp_path: Path) -> None:
 
     reader = PdfReader(io.BytesIO(sliced))
     assert len(reader.pages) == 2, f"expected 2 pages after slicing, got {len(reader.pages)}"
+
+
+# ── New tests: page-level best-match assignment (no double-counting) ──────────
+
+
+def test_overlapping_user_boxes_no_double_count(tmp_path: Path) -> None:
+    """When two user boxes both overlap the same MinerU element, only the one with
+    the higher IoU score receives it; the other gets the empty marker.
+
+    Setup (all coords in PDF pts at raster_dpi=144, px = pts * 2):
+      MinerU element:  pts (50, 100, 200, 150)
+      Heading user box (enclosing):  px (80, 180, 440, 320) → pts (40, 90, 220, 160)
+        IoU with element ≈ 0.595 — wins
+      Paragraph user box (inner):   px (120, 220, 360, 320) → pts (60, 110, 180, 160)
+        IoU with element ≈ 0.552 — loses
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "overlap.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="head",
+            page=1,
+            bbox=(80.0, 180.0, 440.0, 320.0),  # → pts (40, 90, 220, 160)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="para",
+            page=1,
+            bbox=(120.0, 220.0, 360.0, 320.0),  # → pts (60, 110, 180, 160)
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(50.0, 100.0, 200.0, 150.0),
+                    html="<p>shared element</p>",
+                    text="shared element",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading box has higher IoU → gets the element text
+    assert "shared element" in by_id["head"], (
+        f"heading box should contain the element, got: {by_id['head']!r}"
+    )
+    # Paragraph box should get the empty marker (element already claimed by heading)
+    assert "Keine Extraktion" in by_id["para"], (
+        f"para box should get empty marker, got: {by_id['para']!r}"
+    )
+    # "shared element" must NOT appear in the paragraph box
+    assert "shared element" not in by_id["para"], (
+        f"para box must NOT contain the element text (double-count), got: {by_id['para']!r}"
+    )
+
+
+def test_table_caption_only_in_caption_box(tmp_path: Path) -> None:
+    """Caption and table elements each go exclusively to the matching user box.
+
+    Two MinerU elements (caption at top, table below) and two user boxes
+    (heading tight around caption, table tight around table).  After assignment,
+    neither box should contain the other's content.
+
+    All coords in PDF pts; raster_dpi=144 so px = pts * 2.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "caption_table.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # px = pts * 2 (raster_dpi=144, factor 72/144=0.5)
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 90.0, 610.0, 170.0),  # → pts (45, 45, 305, 85): tight around caption
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(90.0, 190.0, 610.0, 610.0),  # → pts (45, 95, 305, 305): tight around table
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    caption_text = "Table 1. Summary of results"
+    table_html = "<table><tr><td>col1</td><td>col2</td></tr></table>"
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(50.0, 50.0, 300.0, 80.0),  # caption element in pts
+                    html=f"<h2>{caption_text}</h2>",
+                    text=caption_text,
+                ),
+                ParsedElement(
+                    bbox=(50.0, 100.0, 300.0, 300.0),  # table element in pts
+                    html=table_html,
+                    text="",
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading box: caption text present, no table data
+    assert caption_text in by_id["heading"], (
+        f"heading box should contain caption, got: {by_id['heading']!r}"
+    )
+    assert "col1" not in by_id["heading"], (
+        f"heading box must NOT contain table data, got: {by_id['heading']!r}"
+    )
+
+    # Table box: table HTML present, no caption text
+    assert "col1" in by_id["table"], f"table box should contain table data, got: {by_id['table']!r}"
+    assert caption_text not in by_id["table"], (
+        f"table box must NOT contain caption text, got: {by_id['table']!r}"
+    )

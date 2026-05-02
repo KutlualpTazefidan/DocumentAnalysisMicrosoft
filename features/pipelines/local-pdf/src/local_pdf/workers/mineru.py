@@ -138,29 +138,58 @@ def _match_box_to_elements(
 ) -> list[ParsedElement]:
     """Return elements overlapping `user_bbox` by IoU > 0.3 or center containment.
 
-    If nothing qualifies, fall back to the element with the highest IoU.
+    Returns [] when nothing qualifies (no best-effort fallback).
     Results are sorted by (top, left) for reading order before return.
     """
     if not page_elements:
         return []
 
-    iou_scores = [(_iou(user_bbox, el.bbox), el) for el in page_elements]
-
     matches: list[ParsedElement] = []
-    for score, el in iou_scores:
+    for el in page_elements:
+        score = _iou(user_bbox, el.bbox)
         cx = (el.bbox[0] + el.bbox[2]) / 2.0
         cy = (el.bbox[1] + el.bbox[3]) / 2.0
         if score > 0.3 or _center_in((cx, cy), user_bbox):
             matches.append(el)
 
-    if not matches:
-        # best-effort fallback: element with highest IoU
-        best_el = max(iou_scores, key=lambda t: t[0])[1]
-        matches = [best_el]
-
     # Reading order: top then left
     matches.sort(key=lambda el: (el.bbox[1], el.bbox[0]))
     return matches
+
+
+def _assign_elements_to_boxes(
+    boxes_with_pts: list[tuple[str, tuple[float, float, float, float]]],
+    page_elements: list[ParsedElement],
+) -> dict[str, list[ParsedElement]]:
+    """Assign each MinerU element to at most ONE user box.
+
+    Score per (element, box) pair = IoU; center-in counts as 0.31 (just above
+    the 0.3 threshold) so a contained-but-low-IoU element still claims its box.
+    The element goes to the box with the highest score, provided score >= 0.3.
+    Elements with no qualifying box are dropped (no fallback double-counting).
+
+    Returns dict mapping box_id -> list of matched ParsedElement, sorted by
+    reading order (top, left).
+    """
+    min_score = 0.3
+    assignments: dict[str, list[ParsedElement]] = {bid: [] for bid, _ in boxes_with_pts}
+    for el in page_elements:
+        cx = (el.bbox[0] + el.bbox[2]) / 2.0
+        cy = (el.bbox[1] + el.bbox[3]) / 2.0
+        best_id: str | None = None
+        best_score = 0.0
+        for bid, bbox in boxes_with_pts:
+            score = _iou(bbox, el.bbox)
+            if _center_in((cx, cy), bbox):
+                score = max(score, 0.31)
+            if score > best_score:
+                best_score = score
+                best_id = bid
+        if best_id and best_score >= min_score:
+            assignments[best_id].append(el)
+    for bid in assignments:
+        assignments[bid].sort(key=lambda el: (el.bbox[1], el.bbox[0]))
+    return assignments
 
 
 # ── Text helpers ──────────────────────────────────────────────────────────────
@@ -299,10 +328,10 @@ def _block_to_html(
 
 def _build_one_box_html(
     box: SegmentBox,
-    page_elements: list[ParsedElement],
+    matched: list[ParsedElement],
     page_size: tuple[float, float],
-    raster_dpi: int,
     *,
+    raster_dpi: int = 288,
     promote_to_h1: bool = False,
 ) -> str:
     """Build kind-driven HTML for a single user box.
@@ -319,11 +348,14 @@ def _build_one_box_html(
     ``promote_to_h1`` applies only to heading boxes; when True, wraps in
     ``<h1>`` instead of ``<h2>``.
 
+    ``matched`` is the pre-resolved list of ParsedElement objects for this box,
+    produced by ``_assign_elements_to_boxes`` at the page level.
+
+    ``raster_dpi`` is used only for auxiliary-zone detection (converting the
+    box's pixel y-coordinate to a page-height fraction).
+
     Returns the complete HTML fragment (tag + data-source-box attribute).
     """
-    user_bbox_pts = _user_bbox_to_pts(box.bbox, raster_dpi)
-    matched = _match_box_to_elements(user_bbox_pts, page_elements)
-
     kind = box.kind
     box_id = box.box_id
 
@@ -826,9 +858,23 @@ class MineruWorker:
                 sum(1 for b in first_page_boxes if b.kind == BoxKind.heading) == 1
             )
 
+            # Per-page best-match assignment (legacy path).
+            boxes_by_page_legacy: dict[int, list[SegmentBox]] = {}
+            for b in targets:
+                boxes_by_page_legacy.setdefault(b.page, []).append(b)
+            page_assignments_legacy: dict[int, dict[str, list[ParsedElement]]] = {}
+            for pg, page_boxes in boxes_by_page_legacy.items():
+                page_elements_pg = page_cache.get(pg, [])
+                boxes_with_pts_pg = [
+                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi)) for b in page_boxes
+                ]
+                page_assignments_legacy[pg] = _assign_elements_to_boxes(
+                    boxes_with_pts_pg, page_elements_pg
+                )
+
             for i, box in enumerate(targets, start=1):
-                page_elements = page_cache.get(box.page, [])
                 page_size = (612.0, 792.0)  # default for legacy path
+                matched = page_assignments_legacy.get(box.page, {}).get(box.box_id, [])
                 promote = (
                     box.kind == BoxKind.heading
                     and box.box_id == first_box_id
@@ -836,7 +882,7 @@ class MineruWorker:
                     and box.page == first_page
                 )
                 html = _build_one_box_html(
-                    box, page_elements, page_size, self._raster_dpi, promote_to_h1=promote
+                    box, matched, page_size, raster_dpi=self._raster_dpi, promote_to_h1=promote
                 )
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
@@ -870,10 +916,25 @@ class MineruWorker:
                 sum(1 for b in first_page_boxes if b.kind == BoxKind.heading) == 1
             )
 
+            # Group user boxes by page for per-page best-match assignment.
+            boxes_by_page: dict[int, list[SegmentBox]] = {}
+            for b in targets:
+                boxes_by_page.setdefault(b.page, []).append(b)
+
+            # Per-page best-match assignment: each MinerU element goes to at most ONE box.
+            page_assignments: dict[int, dict[str, list[ParsedElement]]] = {}
+            for pg, page_boxes in boxes_by_page.items():
+                page_data = doc_pages.get(pg)
+                page_elements = page_data.elements if page_data is not None else []
+                boxes_with_pts = [
+                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi)) for b in page_boxes
+                ]
+                page_assignments[pg] = _assign_elements_to_boxes(boxes_with_pts, page_elements)
+
             for i, box in enumerate(targets, start=1):
                 page_data = doc_pages.get(box.page)
                 page_size = page_data.page_size if page_data is not None else (612.0, 792.0)
-                page_elements = page_data.elements if page_data is not None else []
+                matched = page_assignments.get(box.page, {}).get(box.box_id, [])
                 promote = (
                     box.kind == BoxKind.heading
                     and box.box_id == first_box_id
@@ -881,7 +942,7 @@ class MineruWorker:
                     and box.page == first_page
                 )
                 html = _build_one_box_html(
-                    box, page_elements, page_size, self._raster_dpi, promote_to_h1=promote
+                    box, matched, page_size, raster_dpi=self._raster_dpi, promote_to_h1=promote
                 )
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
@@ -921,7 +982,11 @@ class MineruWorker:
             page_elements = page_data.elements if page_data is not None else []
             page_size = page_data.page_size if page_data is not None else (612.0, 792.0)
 
-        html = _build_one_box_html(box, page_elements, page_size, self._raster_dpi)
+        # Use the same assignment helper for consistency (single-box: no competition).
+        boxes_with_pts = [(box.box_id, _user_bbox_to_pts(box.bbox, self._raster_dpi))]
+        assignments = _assign_elements_to_boxes(boxes_with_pts, page_elements)
+        matched = assignments.get(box.box_id, [])
+        html = _build_one_box_html(box, matched, page_size, raster_dpi=self._raster_dpi)
         return MinerUResult(box_id=box.box_id, html=html)
 
     def unload(self) -> Iterator[WorkerEvent]:
