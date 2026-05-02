@@ -1358,3 +1358,74 @@ def test_table_caption_only_in_caption_box(tmp_path: Path) -> None:
     assert caption_text not in by_id["table"], (
         f"table box must NOT contain caption text, got: {by_id['table']!r}"
     )
+
+
+def test_table_user_bbox_rejects_text_block_when_heading_overlaps(tmp_path: Path) -> None:
+    """Type-compat: a kind=table user-bbox enclosing a text-type MinerU block
+    should NOT outscore a kind=heading user-bbox sitting next to that block.
+
+    Geometric: table user-bbox encloses the caption block (large bbox covering
+    both caption + table area); heading user-bbox is smaller, tight around just
+    the caption. Without type compat, the table user-bbox would win the caption
+    block via larger IoU. With type compat (table kind hard-rejects text blocks),
+    the caption block goes to the heading.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "table_compat.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 90.0, 610.0, 170.0),  # → pts (45, 45, 305, 85): tight around caption
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            # → pts (40, 40, 310, 310): big enough to also envelop the caption
+            bbox=(80.0, 80.0, 620.0, 620.0),
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    caption_text = "Table 1. Summary"
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                # Caption is a text-type block. Without type-compat, the bigger
+                # table user-bbox would claim it via higher IoU (caption sits
+                # inside the table user-bbox area). With type-compat, table kind
+                # hard-rejects text blocks → caption goes to heading.
+                ParsedElement(
+                    bbox=(50.0, 50.0, 300.0, 80.0),
+                    html=f"<h2>{caption_text}</h2>",
+                    text=caption_text,
+                    block_type="text",
+                ),
+                ParsedElement(
+                    bbox=(50.0, 100.0, 300.0, 300.0),
+                    html="<table><tr><td>col1</td></tr></table>",
+                    text="",
+                    block_type="table",
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading user-bbox wins the caption block.
+    assert caption_text in by_id["heading"]
+    # Table user-bbox does NOT take the caption.
+    assert caption_text not in by_id["table"]
+    # Table user-bbox still gets its own table block.
+    assert "col1" in by_id["table"]

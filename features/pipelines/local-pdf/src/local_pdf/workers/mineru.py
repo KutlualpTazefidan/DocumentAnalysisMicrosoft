@@ -63,6 +63,12 @@ class ParsedElement:
     bbox: tuple[float, float, float, float]  # (x0, y0, x1, y1) in PDF pts
     html: str
     text: str = ""
+    # MinerU block type ("text", "title", "table", "image", "list", ...).
+    # Used to apply kind-vs-block-type compatibility weighting in
+    # _assign_elements_to_boxes so a user-bbox with kind=table doesn't
+    # claim a text-type element from a kind=heading user-bbox sitting next
+    # to it (e.g. a table caption).  Empty string when unknown.
+    block_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -157,31 +163,92 @@ def _match_box_to_elements(
     return matches
 
 
+def _kind_compat(user_kind: BoxKind, block_type: str) -> float:
+    """Compatibility multiplier between a user-bbox kind and a MinerU block type.
+
+    A user-bbox shouldn't claim a MinerU element whose block type is
+    semantically inappropriate.  E.g. a kind=table user-bbox enclosing a
+    text-type block (table caption) should NOT outscore a kind=heading
+    user-bbox that's meant to capture that caption.  The multiplier scales
+    the geometric score (IoU + center-in) before best-match selection.
+
+    Returns:
+      - 0.0 hard reject — element won't be assigned to this box even if
+        it's the only spatial match.  Used for clear semantic mismatches
+        (e.g. table user-bbox vs text MinerU block).
+      - 1.0 neutral — kind/type pair is compatible; geometric score wins.
+      - >1.0 boost — strong semantic match (e.g. heading user-bbox vs
+        title MinerU block).
+    """
+    # Unknown block type → neutral. The real parser always sets block_type;
+    # this fallback keeps test fixtures and legacy callers working.
+    if not block_type:
+        return 1.0
+
+    visual_blocks = _VISUAL_BLOCK_TYPES  # {"image", "table", "chart", "code"}
+
+    if user_kind == BoxKind.table:
+        # Table user-bbox only matches MinerU table/chart blocks.
+        return 1.5 if block_type in {"table", "chart"} else 0.0
+    if user_kind == BoxKind.figure:
+        # Figure user-bbox only matches MinerU image-type blocks.
+        return 1.5 if block_type in {"image"} else 0.0
+    if user_kind == BoxKind.formula:
+        # Formula user-bbox prefers equation/code; reject visual blocks.
+        if block_type in {"equation", "interline_equation", "code"}:
+            return 1.5
+        if block_type in visual_blocks:
+            return 0.0
+        return 1.0  # fall through to text-ish match
+    # Text-like user kinds (heading/paragraph/caption/list_item/auxiliary):
+    # give a boost on title-type for headings, otherwise neutral.
+    # Hard reject visual block types so a heading user-bbox doesn't grab
+    # a table block by accident.
+    if user_kind in {
+        BoxKind.heading,
+        BoxKind.paragraph,
+        BoxKind.caption,
+        BoxKind.list_item,
+        BoxKind.auxiliary,
+    }:
+        if block_type in visual_blocks:
+            return 0.0
+        if user_kind == BoxKind.heading and block_type == "title":
+            return 1.5
+        if user_kind == BoxKind.list_item and block_type == "list":
+            return 1.5
+        return 1.0
+    return 1.0
+
+
 def _assign_elements_to_boxes(
-    boxes_with_pts: list[tuple[str, tuple[float, float, float, float]]],
+    boxes_with_kinds: list[tuple[str, tuple[float, float, float, float], BoxKind]],
     page_elements: list[ParsedElement],
 ) -> dict[str, list[ParsedElement]]:
     """Assign each MinerU element to at most ONE user box.
 
-    Score per (element, box) pair = IoU; center-in counts as 0.31 (just above
-    the 0.3 threshold) so a contained-but-low-IoU element still claims its box.
-    The element goes to the box with the highest score, provided score >= 0.3.
-    Elements with no qualifying box are dropped (no fallback double-counting).
+    Geometric score per (element, box) pair = IoU; center-in counts as 0.31
+    (just above the 0.3 threshold) so a contained-but-low-IoU element still
+    claims its box.  Then geometric score is multiplied by a kind-vs-block-type
+    compatibility factor (see ``_kind_compat``) — a 0.0 multiplier hard-rejects
+    the pair.  Element goes to the highest-final-score box; elements with no
+    qualifying box are dropped (no fallback double-counting).
 
     Returns dict mapping box_id -> list of matched ParsedElement, sorted by
     reading order (top, left).
     """
     min_score = 0.3
-    assignments: dict[str, list[ParsedElement]] = {bid: [] for bid, _ in boxes_with_pts}
+    assignments: dict[str, list[ParsedElement]] = {bid: [] for bid, _, _ in boxes_with_kinds}
     for el in page_elements:
         cx = (el.bbox[0] + el.bbox[2]) / 2.0
         cy = (el.bbox[1] + el.bbox[3]) / 2.0
         best_id: str | None = None
         best_score = 0.0
-        for bid, bbox in boxes_with_pts:
-            score = _iou(bbox, el.bbox)
+        for bid, bbox, kind in boxes_with_kinds:
+            geom = _iou(bbox, el.bbox)
             if _center_in((cx, cy), bbox):
-                score = max(score, 0.31)
+                geom = max(geom, 0.31)
+            score = geom * _kind_compat(kind, el.block_type)
             if score > best_score:
                 best_score = score
                 best_id = bid
@@ -583,7 +650,12 @@ def _make_real_parse_doc_fn(
                         text_content = ""
 
                 elements.append(
-                    ParsedElement(bbox=(x0, y0, x1, y1), html=html_content, text=text_content)
+                    ParsedElement(
+                        bbox=(x0, y0, x1, y1),
+                        html=html_content,
+                        text=text_content,
+                        block_type=block_type,
+                    )
                 )
             pages[page_number] = PageData(page_size=page_size, elements=elements)
 
@@ -866,7 +938,8 @@ class MineruWorker:
             for pg, page_boxes in boxes_by_page_legacy.items():
                 page_elements_pg = page_cache.get(pg, [])
                 boxes_with_pts_pg = [
-                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi)) for b in page_boxes
+                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
+                    for b in page_boxes
                 ]
                 page_assignments_legacy[pg] = _assign_elements_to_boxes(
                     boxes_with_pts_pg, page_elements_pg
@@ -927,7 +1000,8 @@ class MineruWorker:
                 page_data = doc_pages.get(pg)
                 page_elements = page_data.elements if page_data is not None else []
                 boxes_with_pts = [
-                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi)) for b in page_boxes
+                    (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
+                    for b in page_boxes
                 ]
                 page_assignments[pg] = _assign_elements_to_boxes(boxes_with_pts, page_elements)
 
@@ -983,7 +1057,7 @@ class MineruWorker:
             page_size = page_data.page_size if page_data is not None else (612.0, 792.0)
 
         # Use the same assignment helper for consistency (single-box: no competition).
-        boxes_with_pts = [(box.box_id, _user_bbox_to_pts(box.bbox, self._raster_dpi))]
+        boxes_with_pts = [(box.box_id, _user_bbox_to_pts(box.bbox, self._raster_dpi), box.kind)]
         assignments = _assign_elements_to_boxes(boxes_with_pts, page_elements)
         matched = assignments.get(box.box_id, [])
         html = _build_one_box_html(box, matched, page_size, raster_dpi=self._raster_dpi)
