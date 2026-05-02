@@ -1,5 +1,6 @@
 // frontend/src/admin/routes/extract.tsx
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
@@ -374,59 +375,68 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* Sidebar — colored page-button grid */}
         <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 text-sm bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
-          {/* Collapsed: single page button. Expanded: legend + 5-col grid. */}
-          {!gridOpen ? (
-            <button
-              aria-label={`Seite ${page} von ${totalPages}, Liste öffnen`}
-              aria-expanded={false}
-              onClick={() => setGridOpen(true)}
-              className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-sm`}
-              data-testid="extract-page-grid-toggle"
-            >
-              <span>Seite {page} / {totalPages}</span>
-              <span aria-hidden="true">▾</span>
-            </button>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
-                <span className="text-xs text-slate-600">Nicht extrahiert</span>
-                <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
-                <span className="text-xs text-slate-600">Extrahiert</span>
-                <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
-                <span className="text-xs text-slate-600">Genehmigt</span>
-                <button
-                  aria-label="Seitenraster schließen"
-                  className="ml-auto text-slate-400 hover:text-slate-700"
-                  onClick={() => setGridOpen(false)}
-                  data-testid="extract-page-grid-close"
-                >
-                  ×
-                </button>
-              </div>
+          {/* Legend strip — always visible */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Nicht extrahiert</span>
+            <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Extrahiert</span>
+            <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
+            <span className="text-xs text-slate-600">Genehmigt</span>
+          </div>
 
-              <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                  const state = pageStateFor(p, extractedPages, approvedPages);
-                  return (
-                    <button
-                      key={p}
-                      aria-label={`Page ${p}`}
-                      aria-pressed={p === page}
-                      className={pageButtonClasses(state, p === page)}
-                      onClick={() => {
-                        setPage(p);
-                        setGridOpen(false);
-                      }}
-                      data-testid={`page-btn-${p}`}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          {/* Single page button — toggles the grid below */}
+          <button
+            aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
+            aria-expanded={gridOpen}
+            onClick={() => setGridOpen((p) => !p)}
+            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-sm transition-colors`}
+            data-testid="extract-page-grid-toggle"
+          >
+            <span>Seite {page} / {totalPages}</span>
+            <motion.span
+              aria-hidden="true"
+              animate={{ rotate: gridOpen ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              ▾
+            </motion.span>
+          </button>
+
+          {/* Animated grid (expand/collapse) */}
+          <AnimatePresence initial={false}>
+            {gridOpen && (
+              <motion.div
+                key="extract-page-grid"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                style={{ overflow: "hidden" }}
+              >
+                <div className="grid grid-cols-5 gap-1 pt-1" role="group" aria-label="Page navigation">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                    const state = pageStateFor(p, extractedPages, approvedPages);
+                    return (
+                      <button
+                        key={p}
+                        aria-label={`Page ${p}`}
+                        aria-pressed={p === page}
+                        className={`${pageButtonClasses(state, p === page)} transition-colors`}
+                        onClick={() => {
+                          setPage(p);
+                          setGridOpen(false);
+                        }}
+                        data-testid={`page-btn-${p}`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <hr className="border-slate-200" />
 

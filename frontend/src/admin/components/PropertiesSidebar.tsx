@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import type { BoxKind, SegmentBox } from "../types/domain";
 
 const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "auxiliary", "discard"];
@@ -117,59 +118,68 @@ export function PropertiesSidebar({
   const currentState = pageStateFor(currentPage, segmentedPages, approvedPages);
   return (
     <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
-      {/* ── Collapsed: single page button. Expanded: legend + 5-col grid. ── */}
-      {!gridOpen ? (
-        <button
-          aria-label={`Seite ${currentPage} von ${totalPages}, Liste öffnen`}
-          aria-expanded={false}
-          onClick={() => setGridOpen(true)}
-          className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 text-sm`}
-          data-testid="seg-page-grid-toggle"
-        >
-          <span>Seite {currentPage} / {totalPages}</span>
-          <span aria-hidden="true">▾</span>
-        </button>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Nicht segmentiert</span>
-            <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Segmentiert</span>
-            <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Gesperrt</span>
-            <button
-              aria-label="Seitenraster schließen"
-              className="ml-auto text-slate-400 hover:text-slate-700"
-              onClick={() => setGridOpen(false)}
-              data-testid="seg-page-grid-close"
-            >
-              ×
-            </button>
-          </div>
+      {/* ── Legend strip — always visible ─────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Nicht segmentiert</span>
+        <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Segmentiert</span>
+        <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Gesperrt</span>
+      </div>
 
-          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-              const state = pageStateFor(p, segmentedPages, approvedPages);
-              return (
-                <button
-                  key={p}
-                  aria-label={`Page ${p}`}
-                  aria-pressed={p === currentPage}
-                  className={pageButtonClasses(state, p === currentPage)}
-                  onClick={() => {
-                    onPageChange(p);
-                    setGridOpen(false);
-                  }}
-                  data-testid={`seg-page-btn-${p}`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {/* ── Single page button — toggles the grid below ──────────────── */}
+      <button
+        aria-label={`Seite ${currentPage} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
+        aria-expanded={gridOpen}
+        onClick={() => setGridOpen((p) => !p)}
+        className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 text-sm transition-colors`}
+        data-testid="seg-page-grid-toggle"
+      >
+        <span>Seite {currentPage} / {totalPages}</span>
+        <motion.span
+          aria-hidden="true"
+          animate={{ rotate: gridOpen ? 180 : 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          ▾
+        </motion.span>
+      </button>
+
+      {/* ── Animated grid (expand/collapse) ──────────────────────────── */}
+      <AnimatePresence initial={false}>
+        {gridOpen && (
+          <motion.div
+            key="seg-page-grid"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            style={{ overflow: "hidden" }}
+          >
+            <div className="grid grid-cols-5 gap-1 pt-1" role="group" aria-label="Page navigation">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                const state = pageStateFor(p, segmentedPages, approvedPages);
+                return (
+                  <button
+                    key={p}
+                    aria-label={`Page ${p}`}
+                    aria-pressed={p === currentPage}
+                    className={`${pageButtonClasses(state, p === currentPage)} transition-colors`}
+                    onClick={() => {
+                      onPageChange(p);
+                      setGridOpen(false);
+                    }}
+                    data-testid={`seg-page-btn-${p}`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <hr className="border-slate-200" />
 
