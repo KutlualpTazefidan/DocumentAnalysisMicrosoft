@@ -275,10 +275,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       >
         Export
       </button>
-      {/* Status dot */}
-      {running && (
-        <span className={`${T.body} text-navy-200 animate-pulse ml-1`}>Extracting…</span>
-      )}
+      {/* Save-state indicator (HTML editor). Extraction progress lives in the
+          StageIndicator pill at bottom-left, not duplicated here. */}
       {!running && savingStatus && (
         <span className={`${T.body} text-navy-200 ml-1`}>{savingStatus}</span>
       )}
