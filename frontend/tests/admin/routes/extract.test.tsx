@@ -170,8 +170,8 @@ describe("ExtractRoute", () => {
     render(wrap());
     await waitForEditor();
 
-    // Two pages from BOXES (page 1 and page 2)
-    await waitFor(() => screen.getByTestId("page-btn-1"));
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
     expect(screen.getByTestId("page-btn-1")).toBeInTheDocument();
     expect(screen.getByTestId("page-btn-2")).toBeInTheDocument();
   });
@@ -179,33 +179,36 @@ describe("ExtractRoute", () => {
   it("page 1 button is green (extracted) because mineru has an element for p1-b0", async () => {
     render(wrap());
     await waitForEditor();
-    await waitFor(() => screen.getByTestId("page-btn-1"));
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
 
-    const btn1 = screen.getByTestId("page-btn-1");
-    // Green = extracted state
-    expect(btn1.className).toContain("green");
+    expect(screen.getByTestId("page-btn-1").className).toContain("green");
   });
 
   it("page 2 button is red (no extraction) when mineru has no element for page 2", async () => {
     render(wrap());
     await waitForEditor();
-    await waitFor(() => screen.getByTestId("page-btn-2"));
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
 
-    const btn2 = screen.getByTestId("page-btn-2");
-    // Red = no extraction
-    expect(btn2.className).toContain("red");
+    expect(screen.getByTestId("page-btn-2").className).toContain("red");
   });
 
   it("clicking a page button navigates to that page", async () => {
     render(wrap());
     await waitForEditor();
-    await waitFor(() => screen.getByTestId("page-btn-2"));
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
 
-    // Active page 1 initially; btn-1 has aria-pressed=true
     expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("page-btn-2")).toHaveAttribute("aria-pressed", "false");
 
+    // Click collapses the grid
     fireEvent.click(screen.getByTestId("page-btn-2"));
+
+    // Re-open and verify
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
 
     await waitFor(() =>
       expect(screen.getByTestId("page-btn-2")).toHaveAttribute("aria-pressed", "true"),
@@ -216,17 +219,16 @@ describe("ExtractRoute", () => {
   it("approve button toggles page to blue (approved) state and persists to localStorage", async () => {
     render(wrap());
     await waitForEditor();
-    await waitFor(() => screen.getByTestId("page-btn-1"));
+    await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
 
     const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
     fireEvent.click(approveBtn);
 
-    // After approval the page button for page 1 should be blue
+    fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("page-btn-1").className).toContain("blue"),
     );
 
-    // localStorage should contain the approved page
     const stored = JSON.parse(localStorage.getItem("extract.approved.rep") ?? "[]") as number[];
     expect(stored).toContain(1);
   });

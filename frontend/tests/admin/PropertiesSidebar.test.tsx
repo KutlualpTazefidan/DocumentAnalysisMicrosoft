@@ -33,42 +33,50 @@ describe("PropertiesSidebar page-button grid", () => {
     onClearPerPage: vi.fn(),
   };
 
-  it("renders a button for each page", () => {
+  // Grid is collapsed by default; open it before asserting individual page buttons.
+  async function openGrid() {
+    await userEvent.click(screen.getByTestId("seg-page-grid-toggle"));
+  }
+
+  it("renders a button for each page", async () => {
     render(<PropertiesSidebar {...defaultProps} />);
+    await openGrid();
     for (let p = 1; p <= 5; p++) {
       expect(screen.getByTestId(`seg-page-btn-${p}`)).toBeInTheDocument();
     }
   });
 
-  it("active page button has ring class", () => {
+  it("active page button has ring class", async () => {
     render(<PropertiesSidebar {...defaultProps} currentPage={2} />);
+    await openGrid();
     expect(screen.getByTestId("seg-page-btn-2").className).toContain("ring-2");
     expect(screen.getByTestId("seg-page-btn-1").className).not.toContain("ring-2");
   });
 
-  it("segmented page button is green", () => {
+  it("segmented page button is green", async () => {
     render(<PropertiesSidebar {...defaultProps} />);
-    // page 1 and 2 are segmented → green
+    await openGrid();
     expect(screen.getByTestId("seg-page-btn-1").className).toContain("green");
     expect(screen.getByTestId("seg-page-btn-2").className).toContain("green");
   });
 
-  it("unsegmented page button is red", () => {
+  it("unsegmented page button is red", async () => {
     render(<PropertiesSidebar {...defaultProps} />);
-    // page 4 and 5 are neither segmented nor approved → red
+    await openGrid();
     expect(screen.getByTestId("seg-page-btn-4").className).toContain("red");
     expect(screen.getByTestId("seg-page-btn-5").className).toContain("red");
   });
 
-  it("approved page button is blue", () => {
+  it("approved page button is blue", async () => {
     render(<PropertiesSidebar {...defaultProps} />);
-    // page 3 is approved → blue
+    await openGrid();
     expect(screen.getByTestId("seg-page-btn-3").className).toContain("blue");
   });
 
   it("clicking a page button calls onPageChange", async () => {
     const onPageChange = vi.fn();
     render(<PropertiesSidebar {...defaultProps} onPageChange={onPageChange} />);
+    await openGrid();
     await userEvent.click(screen.getByTestId("seg-page-btn-3"));
     expect(onPageChange).toHaveBeenCalledWith(3);
   });

@@ -91,6 +91,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const extractRegion = useExtractRegion(slug ?? "", token);
 
   const [page, setPage] = useState(1);
+  const [gridOpen, setGridOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
@@ -373,34 +374,59 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* Sidebar — colored page-button grid */}
         <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 text-sm bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
-          {/* Legend */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Nicht extrahiert</span>
-            <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Extrahiert</span>
-            <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
-            <span className="text-xs text-slate-600">Genehmigt</span>
-          </div>
-
-          {/* Page grid — 5 columns */}
-          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-              const state = pageStateFor(p, extractedPages, approvedPages);
-              return (
+          {/* Collapsed: single page button. Expanded: legend + 5-col grid. */}
+          {!gridOpen ? (
+            <button
+              aria-label={`Seite ${page} von ${totalPages}, Liste öffnen`}
+              aria-expanded={false}
+              onClick={() => setGridOpen(true)}
+              className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-sm`}
+              data-testid="extract-page-grid-toggle"
+            >
+              <span>Seite {page} / {totalPages}</span>
+              <span aria-hidden="true">▾</span>
+            </button>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
+                <span className="text-xs text-slate-600">Nicht extrahiert</span>
+                <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
+                <span className="text-xs text-slate-600">Extrahiert</span>
+                <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
+                <span className="text-xs text-slate-600">Genehmigt</span>
                 <button
-                  key={p}
-                  aria-label={`Page ${p}`}
-                  aria-pressed={p === page}
-                  className={pageButtonClasses(state, p === page)}
-                  onClick={() => setPage(p)}
-                  data-testid={`page-btn-${p}`}
+                  aria-label="Seitenraster schließen"
+                  className="ml-auto text-slate-400 hover:text-slate-700"
+                  onClick={() => setGridOpen(false)}
+                  data-testid="extract-page-grid-close"
                 >
-                  {p}
+                  ×
                 </button>
-              );
-            })}
-          </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                  const state = pageStateFor(p, extractedPages, approvedPages);
+                  return (
+                    <button
+                      key={p}
+                      aria-label={`Page ${p}`}
+                      aria-pressed={p === page}
+                      className={pageButtonClasses(state, p === page)}
+                      onClick={() => {
+                        setPage(p);
+                        setGridOpen(false);
+                      }}
+                      data-testid={`page-btn-${p}`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           <hr className="border-slate-200" />
 

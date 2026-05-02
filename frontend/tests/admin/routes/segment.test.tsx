@@ -206,16 +206,15 @@ describe("SegmentRoute", () => {
   it("sidebar has page-button grid (no Pagination component)", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Page-button grid buttons exist in the sidebar
+    fireEvent.click(screen.getByTestId("seg-page-grid-toggle"));
     expect(screen.getByTestId("seg-page-btn-1")).toBeInTheDocument();
-    // No "Jump to page" input (that was Pagination)
     expect(screen.queryByLabelText("Jump to page")).not.toBeInTheDocument();
   });
 
   it("sidebar shows colored page buttons (green for segmented page 1)", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // page 1 has boxes → segmented → green
+    fireEvent.click(screen.getByTestId("seg-page-grid-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("seg-page-btn-1").className).toContain("green"),
     );
@@ -223,13 +222,18 @@ describe("SegmentRoute", () => {
 
   it("clicking segment page button navigates to that page", async () => {
     render(wrap());
+    await waitFor(() => screen.getByTestId("seg-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("seg-page-grid-toggle"));
     await waitFor(() => screen.getByTestId("seg-page-btn-1"));
 
-    // Initially page 1 is active
     expect(screen.getByTestId("seg-page-btn-1")).toHaveAttribute("aria-pressed", "true");
 
-    // Click page 3 button
+    // Click page 3 button — selection collapses the grid
     fireEvent.click(screen.getByTestId("seg-page-btn-3"));
+
+    // Re-open the grid to check active state on page 3
+    await waitFor(() => screen.getByTestId("seg-page-grid-toggle"));
+    fireEvent.click(screen.getByTestId("seg-page-grid-toggle"));
 
     await waitFor(() =>
       expect(screen.getByTestId("seg-page-btn-3")).toHaveAttribute("aria-pressed", "true"),
@@ -239,23 +243,24 @@ describe("SegmentRoute", () => {
 
   it("sidebar lock button toggles page to blue state", async () => {
     render(wrap());
-    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
+    await waitFor(() => screen.getByTestId("seg-page-grid-toggle"));
 
     const lockBtn = screen.getByRole("button", { name: /seite sperren/i });
     fireEvent.click(lockBtn);
 
+    // Open grid to verify the page button colour
+    fireEvent.click(screen.getByTestId("seg-page-grid-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("seg-page-btn-1").className).toContain("blue"),
     );
 
-    // localStorage should contain the locked page
     const stored = JSON.parse(localStorage.getItem("segment.approved.rep") ?? "[]") as number[];
     expect(stored).toContain(1);
   });
 
   it("sidebar lock button label toggles to 'Seite entsperren' after locking", async () => {
     render(wrap());
-    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
+    await waitFor(() => screen.getByTestId("seg-page-grid-toggle"));
 
     const lockBtn = screen.getByRole("button", { name: /seite sperren/i });
     fireEvent.click(lockBtn);
