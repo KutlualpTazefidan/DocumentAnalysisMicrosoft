@@ -254,25 +254,49 @@ def _assign_elements_to_boxes(
     text_kinds_set = _TEXT_LIKE_KINDS
 
     # Pre-pass: split blocks that overlap multiple text-kind user-bboxes.
+    # Also: when an element has no precomputed lines but text-kind user-bboxes
+    # spread across its area, log a warning so the user sees the situation in
+    # dev-script logs (no curl required to diagnose).
+    import sys
+
     refined_elements: list[ParsedElement] = []
     for el in page_elements:
-        if not el.lines or el.block_type in _VISUAL_BLOCK_TYPES:
+        if el.block_type in _VISUAL_BLOCK_TYPES:
             refined_elements.append(el)
             continue
-        # Count text-kind user-bboxes that have non-trivial overlap with
-        # this block. Use a low IoU threshold (0.05) since user-bboxes
-        # might be tight around individual lines.
-        competing = 0
-        for _bid, bbox, kind in boxes_with_kinds:
+        # Count text-kind user-bboxes that have non-trivial overlap with this
+        # block. Threshold 0.05 catches user-bboxes tight around individual lines.
+        overlapping_ids: list[str] = []
+        for bid, bbox, kind in boxes_with_kinds:
             if kind not in text_kinds_set:
                 continue
-            if _iou(bbox, el.bbox) > 0.05:
-                competing += 1
-                if competing > 1:
-                    break
-        if competing > 1:
-            # Split: replace the block with its line sub-elements.
-            refined_elements.extend(el.lines)
+            if _iou(bbox, el.bbox) > 0.05 or _center_in(
+                ((el.bbox[0] + el.bbox[2]) / 2.0, (el.bbox[1] + el.bbox[3]) / 2.0),
+                bbox,
+            ):
+                overlapping_ids.append(bid)
+        if len(overlapping_ids) > 1:
+            if el.lines:
+                print(
+                    f"[mineru] block bbox={el.bbox} overlaps {len(overlapping_ids)} "
+                    f"user-bboxes ({overlapping_ids[:5]}); splitting into "
+                    f"{len(el.lines)} line sub-elements",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                refined_elements.extend(el.lines)
+            else:
+                # No precomputed lines available — element will go to one bbox
+                # via best-match, others stay empty. Surface the situation.
+                print(
+                    f"[mineru] block bbox={el.bbox} type={el.block_type} overlaps "
+                    f"{len(overlapping_ids)} user-bboxes ({overlapping_ids[:5]}) "
+                    f"but has NO line sub-elements — only one user-bbox will get "
+                    f"the content. text_preview={el.text[:80]!r}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                refined_elements.append(el)
         else:
             refined_elements.append(el)
 
@@ -416,40 +440,126 @@ def _block_to_line_elements(block: dict, block_type: str) -> tuple[ParsedElement
     Used by _assign_elements_to_boxes when a single block overlaps multiple
     user-bboxes — splitting by line lets each user-bbox claim its own line.
 
-    Returns an empty tuple if the block has no usable line structure (e.g.
-    fewer than 2 lines, or lines without bboxes/text).
+    Tries (in order):
+      1. block['lines'] — pipeline-style structured lines with bboxes.
+      2. block['blocks'] — sub-block-style nested structure (some VLM cases).
+      3. text-split fallback: split text on newlines and interpolate per-line
+         bboxes by dividing the parent block bbox vertically by N.
+
+    Returns empty tuple if no usable decomposition is found.
     """
-    raw_lines = block.get("lines") or []
-    if len(raw_lines) < 2:
-        return ()
-    out: list[ParsedElement] = []
-    for line in raw_lines:
-        lbbox = line.get("bbox")
-        if lbbox is None:
-            continue
+    parent_bbox = block.get("bbox")
+    parent_pts: tuple[float, float, float, float] | None = None
+    if parent_bbox is not None:
         try:
-            lx0, ly0, lx1, ly1 = (float(v) for v in lbbox[:4])
+            parent_pts = (
+                float(parent_bbox[0]),
+                float(parent_bbox[1]),
+                float(parent_bbox[2]),
+                float(parent_bbox[3]),
+            )
         except (TypeError, ValueError):
-            continue
-        spans = line.get("spans") or []
-        text_parts: list[str] = []
-        for span in spans:
-            content = span.get("content")
-            if isinstance(content, str) and content:
-                text_parts.append(content)
-        line_text = "".join(text_parts).strip()
-        if not line_text:
-            continue
-        line_text = _convert_inline_latex(line_text)
-        out.append(
+            parent_pts = None
+
+    # ── Strategy 1: pipeline-style lines with bboxes ─────────────────────────
+    raw_lines = block.get("lines") or []
+    if len(raw_lines) >= 2:
+        out: list[ParsedElement] = []
+        for line in raw_lines:
+            lbbox = line.get("bbox")
+            if lbbox is None:
+                continue
+            try:
+                lx0, ly0, lx1, ly1 = (float(v) for v in lbbox[:4])
+            except (TypeError, ValueError):
+                continue
+            spans = line.get("spans") or []
+            text_parts: list[str] = []
+            for span in spans:
+                content = span.get("content")
+                if isinstance(content, str) and content:
+                    text_parts.append(content)
+            line_text = "".join(text_parts).strip()
+            if not line_text:
+                continue
+            line_text = _convert_inline_latex(line_text)
+            out.append(
+                ParsedElement(
+                    bbox=(lx0, ly0, lx1, ly1),
+                    html=f"<p>{line_text}</p>",
+                    text=line_text,
+                    block_type=block_type,
+                )
+            )
+        if len(out) >= 2:
+            return tuple(out)
+
+    # ── Strategy 2: nested sub-blocks (some VLM emissions) ───────────────────
+    sub_blocks = block.get("blocks") or []
+    if len(sub_blocks) >= 2:
+        out2: list[ParsedElement] = []
+        for sb in sub_blocks:
+            sbbox = sb.get("bbox") if isinstance(sb, dict) else None
+            if sbbox is None:
+                continue
+            try:
+                sx0, sy0, sx1, sy1 = (float(v) for v in sbbox[:4])
+            except (TypeError, ValueError):
+                continue
+            sb_text = _walk_block_for_text(sb).strip()
+            if not sb_text:
+                continue
+            sb_text = _convert_inline_latex(sb_text)
+            out2.append(
+                ParsedElement(
+                    bbox=(sx0, sy0, sx1, sy1),
+                    html=f"<p>{sb_text}</p>",
+                    text=sb_text,
+                    block_type=block_type,
+                )
+            )
+        if len(out2) >= 2:
+            return tuple(out2)
+
+    # ── Strategy 3: text-split fallback ──────────────────────────────────────
+    # Try the merged-text first (handles structured spans), fall back to raw
+    # 'content'/'text' field. Split on newlines OR on common bullet markers.
+    merged_text = _safe_merge_para_text(block) or _walk_block_for_text(block)
+    if not merged_text or parent_pts is None:
+        return ()
+
+    # Split on newlines first; if that gives only one line, try bullet markers.
+    chunks = [c.strip() for c in re.split(r"\n+", merged_text) if c.strip()]
+    if len(chunks) < 2:
+        # Try splitting on inline bullet markers (- /  • /  · ) when they
+        # start a new "line". Conservative — only at start-of-string boundaries.
+        chunks = [
+            c.strip() for c in re.split(r"(?:(?<=[.!?])\s+)?(?=[-·•]\s)", merged_text) if c.strip()
+        ]
+    if len(chunks) < 2:
+        return ()
+
+    px0, py0, px1, py1 = parent_pts
+    height = py1 - py0
+    if height <= 0:
+        return ()
+    # Interpolate per-line bboxes by dividing the parent vertically.
+    n = len(chunks)
+    step = height / n
+    out3: list[ParsedElement] = []
+    for i, chunk in enumerate(chunks):
+        ly0 = py0 + i * step
+        ly1 = py0 + (i + 1) * step
+        chunk = _convert_inline_latex(chunk)
+        out3.append(
             ParsedElement(
-                bbox=(lx0, ly0, lx1, ly1),
-                html=f"<p>{line_text}</p>",
-                text=line_text,
+                bbox=(px0, ly0, px1, ly1),
+                html=f"<p>{chunk}</p>",
+                text=chunk,
                 block_type=block_type,
             )
         )
-    return tuple(out)
+    return tuple(out3)
 
 
 def _attach_source_box_to_caption(html: str, source_box_id: str) -> str:
