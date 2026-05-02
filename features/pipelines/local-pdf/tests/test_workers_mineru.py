@@ -1673,3 +1673,335 @@ def test_rescue_only_when_text_kind_center_inside_visual_bbox(tmp_path: Path) ->
     )
     # Table box gets the element (caption still in html since no rescue occurred).
     assert "cell" in by_id["table"]
+
+
+# ── New tests: adjacency-based caption rescue ─────────────────────────────────
+
+
+def test_caption_above_table_rescued_via_adjacency(tmp_path: Path) -> None:
+    """Canonical layout: caption user-bbox above table user-bbox, vertically separated.
+
+    heading pts (45,47,305,65) tight around caption text.
+    table   pts (45,70,305,305) tight around table body.
+    Gap = 70 - 65 = 5 pts — within max_gap=50.  Same column.
+    parse_doc_fn returns one block on page 1 (block_type="table") with a
+    <caption> tag and a table body.  After run():
+      - heading box gets "The table caption"
+      - table box html no longer contains the <caption> tag
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "caption_above.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # raster_dpi=144: px = pts * 2
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 94.0, 610.0, 130.0),  # → pts (45, 47, 305, 65)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(90.0, 140.0, 610.0, 610.0),  # → pts (45, 70, 305, 305)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        # One big block covering both areas; MinerU puts caption+table together.
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(45.0, 47.0, 305.0, 305.0),
+                    html=(
+                        "<caption>The table caption</caption><table><tr><td>cell</td></tr></table>"
+                    ),
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading bbox should contain the rescued caption text.
+    assert "The table caption" in by_id["heading"], (
+        f"heading should contain rescued caption, got: {by_id['heading']!r}"
+    )
+    assert "Keine Extraktion" not in by_id["heading"], (
+        f"heading must not be empty after rescue, got: {by_id['heading']!r}"
+    )
+    # Table box should no longer contain the <caption> tag or caption text.
+    assert "<caption>" not in by_id["table"], (
+        f"table should not contain <caption> tag after rescue, got: {by_id['table']!r}"
+    )
+    assert "The table caption" not in by_id["table"], (
+        f"table should not contain caption text after rescue, got: {by_id['table']!r}"
+    )
+    # Table cell data still present.
+    assert "cell" in by_id["table"], (
+        f"table should still contain cell data, got: {by_id['table']!r}"
+    )
+
+
+def test_caption_below_table_rescued_via_adjacency(tmp_path: Path) -> None:
+    """Some PDFs place the caption below the table body.
+
+    table   pts (45, 70, 305, 305): table body above
+    heading pts (45,310, 305,330): caption label below
+    Gap = heading y_top - table y_bottom = 310 - 305 = 5 pts — within max_gap=50.
+    Rescue should still work regardless of above/below order.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "caption_below.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # raster_dpi=144: px = pts * 2
+    boxes = [
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(90.0, 140.0, 610.0, 610.0),  # → pts (45, 70, 305, 305)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 620.0, 610.0, 660.0),  # → pts (45, 310, 305, 330)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(45.0, 70.0, 305.0, 330.0),
+                    html=(
+                        "<caption>The table caption</caption><table><tr><td>cell</td></tr></table>"
+                    ),
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    assert "The table caption" in by_id["heading"], (
+        f"heading should contain rescued caption (below-table layout), got: {by_id['heading']!r}"
+    )
+    assert "Keine Extraktion" not in by_id["heading"]
+    assert "<caption>" not in by_id["table"], (
+        f"table should not contain <caption> tag after rescue, got: {by_id['table']!r}"
+    )
+    assert "cell" in by_id["table"]
+
+
+def test_far_heading_above_table_not_rescued(tmp_path: Path) -> None:
+    """Gap > max_gap (50 pts) → adjacency score is 0, no rescue.
+
+    heading y_bottom = 50 pts, table y_top = 200 pts → gap = 150 pts > 50.
+    Heading bbox should stay empty.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "far_heading.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # raster_dpi=144: px = pts * 2
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 20.0, 610.0, 100.0),  # → pts (45, 10, 305, 50)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(90.0, 400.0, 610.0, 900.0),  # → pts (45, 200, 305, 450)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(45.0, 200.0, 305.0, 450.0),
+                    html="<caption>Far caption</caption><table><tr><td>cell</td></tr></table>",
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Gap = 200 - 50 = 150 pts > max_gap=50 → no rescue → heading stays empty.
+    assert "Keine Extraktion" in by_id["heading"], (
+        f"heading should stay empty (gap too large), got: {by_id['heading']!r}"
+    )
+    assert "Far caption" not in by_id["heading"]
+    # Table box is unchanged — caption still in its html (no rescue occurred).
+    assert "cell" in by_id["table"]
+
+
+def test_different_column_heading_not_rescued(tmp_path: Path) -> None:
+    """No horizontal overlap (2-column layout) → adjacency score is 0, no rescue.
+
+    heading x = (400, 500) pts, table x = (50, 300) pts.
+    x_overlap = max(0, min(500,300) - max(400,50)) = max(0, 300-400) = 0.
+    empty_width = 100 → ratio = 0/100 = 0 < 0.3 → score = 0, no rescue.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "diff_column.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # raster_dpi=144: px = pts * 2
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(800.0, 94.0, 1000.0, 130.0),  # → pts (400, 47, 500, 65)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(100.0, 140.0, 600.0, 610.0),  # → pts (50, 70, 300, 305)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(50.0, 70.0, 300.0, 305.0),
+                    html="<caption>Col caption</caption><table><tr><td>cell</td></tr></table>",
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Different column → no horizontal overlap → no rescue → heading stays empty.
+    assert "Keine Extraktion" in by_id["heading"], (
+        f"heading should stay empty (different column), got: {by_id['heading']!r}"
+    )
+    assert "Col caption" not in by_id["heading"]
+
+
+def test_multiple_visual_boxes_picks_closest(tmp_path: Path) -> None:
+    """When two tables are both adjacent, rescue picks the one with the higher score.
+
+    heading at y pts (130,150): center between the two tables.
+    tableA at y pts (160,300): gap = 160 - 150 = 10 → score = 1/(1+10) ≈ 0.091
+    tableB at y pts (400,500): gap = 400 - 150 = 250 > max_gap=50 → score = 0
+
+    Caption html only in tableA.  After rescue:
+      heading gets tableA's caption.
+      tableA html has caption stripped.
+      tableB html is unchanged.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "multi_table.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # raster_dpi=144: px = pts * 2
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 260.0, 610.0, 300.0),  # → pts (45, 130, 305, 150)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="tableA",
+            page=1,
+            bbox=(90.0, 320.0, 610.0, 600.0),  # → pts (45, 160, 305, 300)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="tableB",
+            page=1,
+            bbox=(90.0, 800.0, 610.0, 1000.0),  # → pts (45, 400, 305, 500)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(45.0, 160.0, 305.0, 300.0),
+                    html="<caption>Close caption</caption><table><tr><td>cellA</td></tr></table>",
+                    text="",
+                    block_type="table",
+                ),
+                ParsedElement(
+                    bbox=(45.0, 400.0, 305.0, 500.0),
+                    html="<table><tr><td>cellB</td></tr></table>",
+                    text="",
+                    block_type="table",
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading rescued from tableA (gap=10, score≈0.091).
+    assert "Close caption" in by_id["heading"], (
+        f"heading should contain tableA's caption, got: {by_id['heading']!r}"
+    )
+    assert "Keine Extraktion" not in by_id["heading"]
+
+    # tableA has its caption stripped.
+    assert "<caption>" not in by_id["tableA"], (
+        f"tableA should have caption stripped, got: {by_id['tableA']!r}"
+    )
+    assert "cellA" in by_id["tableA"]
+
+    # tableB is unchanged (gap=250 > max_gap, no rescue from tableB).
+    assert "cellB" in by_id["tableB"], f"tableB should be unchanged, got: {by_id['tableB']!r}"

@@ -298,6 +298,41 @@ def _try_extract_caption(html: str) -> tuple[str, str] | None:
     return None
 
 
+def _caption_adjacency_score(
+    empty_pts: tuple[float, float, float, float],
+    visual_pts: tuple[float, float, float, float],
+    max_gap: float = 50.0,
+) -> float:
+    """Score how likely `empty_pts` is the caption for `visual_pts`.
+
+    Captions sit in the same horizontal column as their table/figure, with
+    little vertical gap (above or below; sometimes overlapping). Returns
+    0.0 if the geometry rules out a caption relationship; higher = more
+    likely. ``max_gap`` is in PDF points; gaps beyond it score 0.
+    """
+    # Require >= 30% horizontal overlap relative to the empty box's width
+    # (same-column heuristic).
+    x_overlap = max(
+        0.0,
+        min(empty_pts[2], visual_pts[2]) - max(empty_pts[0], visual_pts[0]),
+    )
+    empty_width = max(1.0, empty_pts[2] - empty_pts[0])
+    if x_overlap / empty_width < 0.3:
+        return 0.0
+
+    # Vertical gap: positive when separated, 0 when overlapping.
+    if empty_pts[3] <= visual_pts[1]:
+        gap = visual_pts[1] - empty_pts[3]  # empty entirely above visual
+    elif empty_pts[1] >= visual_pts[3]:
+        gap = empty_pts[1] - visual_pts[3]  # empty entirely below visual
+    else:
+        gap = 0.0  # overlap → treat as adjacent
+
+    if gap > max_gap:
+        return 0.0
+    return 1.0 / (1.0 + gap)
+
+
 def _rescue_captions_from_visual_boxes(
     assignments: dict[str, list[ParsedElement]],
     user_boxes: list[SegmentBox],
@@ -306,22 +341,14 @@ def _rescue_captions_from_visual_boxes(
     """Post-process page assignments: route captions hidden inside table/figure
     blocks to nearby empty heading/caption/paragraph user-boxes.
 
-    For each empty text-like user-bbox whose center is enclosed by a winning
-    visual user-bbox (table/figure), tries to extract the caption text from
-    the visual element's HTML.  When found, a synthetic ParsedElement is added
-    to the empty box and the caption is stripped from the visual element so it
-    does not appear twice.
-
-    Returns a new dict (copy of assignments with rescue edits applied).
+    Selection is by spatial adjacency (same column + small vertical gap),
+    not containment — caption-above-table is the canonical layout.
     """
     by_id = {b.box_id: b for b in user_boxes}
     text_kinds = {BoxKind.heading, BoxKind.caption, BoxKind.paragraph}
     visual_kinds = {BoxKind.table, BoxKind.figure}
 
-    # Build a mutable copy.
-    new_assignments: dict[str, list[ParsedElement]] = {
-        bid: list(els) for bid, els in assignments.items()
-    }
+    new_assignments = {bid: list(els) for bid, els in assignments.items()}
 
     for empty_id, els in assignments.items():
         if els:
@@ -330,10 +357,9 @@ def _rescue_captions_from_visual_boxes(
         if not empty_box or empty_box.kind not in text_kinds:
             continue
         empty_pts = _user_bbox_to_pts(empty_box.bbox, raster_dpi)
-        cx = (empty_pts[0] + empty_pts[2]) / 2.0
-        cy = (empty_pts[1] + empty_pts[3]) / 2.0
 
-        # Find a winning visual user-bbox that contains the empty box's center.
+        # Score every winning visual user-bbox for adjacency
+        candidates: list[tuple[float, str]] = []
         for win_id, win_els in assignments.items():
             if win_id == empty_id or not win_els:
                 continue
@@ -341,34 +367,36 @@ def _rescue_captions_from_visual_boxes(
             if not win_box or win_box.kind not in visual_kinds:
                 continue
             win_pts = _user_bbox_to_pts(win_box.bbox, raster_dpi)
-            if not _center_in((cx, cy), win_pts):
+            score = _caption_adjacency_score(empty_pts, win_pts)
+            if score > 0:
+                candidates.append((score, win_id))
+
+        if not candidates:
+            continue
+        candidates.sort(reverse=True)  # highest score first
+        win_id = candidates[0][1]
+        win_els = new_assignments[win_id]
+
+        # Try rescue against the best candidate's elements
+        for idx, el in enumerate(win_els):
+            rescue = _try_extract_caption(el.html)
+            if rescue is None:
                 continue
-            # Try to rescue caption from each element in the winning box.
-            for idx, el in enumerate(win_els):
-                rescue = _try_extract_caption(el.html)
-                if rescue is None:
-                    continue
-                cap_text, cleaned_html = rescue
-                # Synthesise a ParsedElement for the empty box.
-                synthetic = ParsedElement(
-                    bbox=empty_pts,
-                    html=f"<p>{cap_text}</p>",
-                    text=cap_text,
-                    block_type="caption_rescue",
-                )
-                new_assignments[empty_id].append(synthetic)
-                # Replace the winning element with caption-stripped version.
-                cleaned_el = ParsedElement(
-                    bbox=el.bbox,
-                    html=cleaned_html,
-                    text=el.text,
-                    block_type=el.block_type,
-                )
-                new_assignments[win_id][idx] = cleaned_el
-                break  # one rescue per empty box
-            else:
-                continue
-            break  # rescue done — don't check other winners
+            cap_text, cleaned_html = rescue
+            synthetic = ParsedElement(
+                bbox=empty_pts,
+                html=f"<p>{cap_text}</p>",
+                text=cap_text,
+                block_type="caption_rescue",
+            )
+            new_assignments[empty_id].append(synthetic)
+            new_assignments[win_id][idx] = ParsedElement(
+                bbox=el.bbox,
+                html=cleaned_html,
+                text=el.text,
+                block_type=el.block_type,
+            )
+            break
 
     return new_assignments
 
