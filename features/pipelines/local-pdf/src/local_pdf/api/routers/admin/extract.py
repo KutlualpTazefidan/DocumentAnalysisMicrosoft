@@ -63,6 +63,11 @@ _PDF_STYLE = (
     "section[data-page]{padding:1em 0}"
     "section[data-page]+section[data-page]{"
     "border-top:2px dashed #d1d5db;margin-top:2em;padding-top:2em}"
+    # Caption-rescue marker: a user-bbox sitting adjacent to a table/figure
+    # whose caption is already rendered inside that table/figure. Style the
+    # reference smaller + italic + muted so it reads as a marker, not a heading.
+    ".caption-ref{font-size:0.85em;color:#6b7280;font-style:italic;"
+    "margin:0.3em 0;border:none;padding:0}"
     "</style>"
 )
 

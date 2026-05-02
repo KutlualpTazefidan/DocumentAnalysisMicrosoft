@@ -377,12 +377,18 @@ def _rescue_captions_from_visual_boxes(
         win_id = candidates[0][1]
         win_els = new_assignments[win_id]
 
-        # Try rescue against the best candidate's elements
-        for idx, el in enumerate(win_els):
+        # Try rescue against the best candidate's elements.
+        # We keep the caption WHERE MinerU put it (inside the table block) so
+        # the table renders naturally with its caption.  The empty user-bbox
+        # gets a synthetic copy of the caption text — which `_build_one_box_html`
+        # detects via block_type="caption_rescue" and renders in a muted,
+        # smaller style (the heading slot becomes a reference, not a duplicate
+        # primary heading).
+        for el in win_els:
             rescue = _try_extract_caption(el.html)
             if rescue is None:
                 continue
-            cap_text, cleaned_html = rescue
+            cap_text, _cleaned = rescue  # ignore the stripped variant
             synthetic = ParsedElement(
                 bbox=empty_pts,
                 html=f"<p>{cap_text}</p>",
@@ -390,12 +396,6 @@ def _rescue_captions_from_visual_boxes(
                 block_type="caption_rescue",
             )
             new_assignments[empty_id].append(synthetic)
-            new_assignments[win_id][idx] = ParsedElement(
-                bbox=el.bbox,
-                html=cleaned_html,
-                text=el.text,
-                block_type=el.block_type,
-            )
             break
 
     return new_assignments
@@ -583,6 +583,17 @@ def _build_one_box_html(
     # ── text-like kinds: extract plain text ───────────────────────────────────
     if kind in _TEXT_LIKE_KINDS:
         text = " ".join(_html_to_text(el.html) for el in matched).strip() if matched else ""
+
+        # Caption-rescue marker: the only matched element is a synthetic
+        # ParsedElement carrying the caption text from an adjacent table/figure
+        # block (which still renders the caption itself).  Render the user's
+        # bbox as a visually muted reference so the caption isn't shouted twice.
+        if matched and all(el.block_type == "caption_rescue" for el in matched):
+            return (
+                f"<{'figcaption' if kind == BoxKind.caption else 'p'} "
+                f'data-source-box="{box_id}" class="caption-ref">{text}</'
+                f"{'figcaption' if kind == BoxKind.caption else 'p'}>"
+            )
 
         if not text:
             # Empty marker per kind
