@@ -376,3 +376,79 @@ def test_reextract_page1_replaces_only_page1_elements(
     # Page-2 elements must be untouched (v1 from full extraction).
     assert "v1" in by_id["p2-bb"]["html_snippet"]
     assert "v1" in by_id["p2-cc"]["html_snippet"]
+
+
+# ---------------------------------------------------------------------------
+# _group_list_items unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_consecutive_list_items_wrapped_in_ul() -> None:
+    """_group_list_items wraps adjacent <li> elements in a single <ul>."""
+    from local_pdf.api.routers.admin.extract import _group_list_items
+
+    inner = (
+        '<li data-source-box="p1-a">Item 1</li>'
+        '<li data-source-box="p1-b">Item 2</li>'
+        '<li data-source-box="p1-c">Item 3</li>'
+    )
+    result = _group_list_items(inner)
+
+    assert result.count("<ul>") == 1
+    assert result.count("</ul>") == 1
+    assert "Item 1" in result
+    assert "Item 2" in result
+    assert "Item 3" in result
+    # All three li elements must be inside the single ul
+    ul_start = result.index("<ul>")
+    ul_end = result.index("</ul>")
+    assert result.index("Item 1") > ul_start
+    assert result.index("Item 3") < ul_end
+
+
+def test_non_adjacent_list_items_get_separate_uls() -> None:
+    """Non-adjacent <li> elements (separated by another element) each get their own <ul>."""
+    from local_pdf.api.routers.admin.extract import _group_list_items
+
+    inner = (
+        '<li data-source-box="p1-a">Item A</li>'
+        '<p data-source-box="p1-p">Paragraph break</p>'
+        '<li data-source-box="p1-b">Item B</li>'
+        '<li data-source-box="p1-c">Item C</li>'
+    )
+    result = _group_list_items(inner)
+
+    # Two separate ul groups: one around Item A, one around Item B+C
+    assert result.count("<ul>") == 2
+    assert result.count("</ul>") == 2
+    assert "Item A" in result
+    assert "Item B" in result
+    assert "Item C" in result
+
+
+def test_group_list_items_no_li_returns_unchanged() -> None:
+    """_group_list_items is a no-op when there are no <li> elements."""
+    from local_pdf.api.routers.admin.extract import _group_list_items
+
+    inner = '<p data-source-box="p1-a">Paragraph</p><h2 data-source-box="p1-b">Heading</h2>'
+    result = _group_list_items(inner)
+    assert result == inner
+    assert "<ul>" not in result
+
+
+def test_wrap_html_groups_list_items_within_section() -> None:
+    """_wrap_html applies _group_list_items: adjacent <li> elements get a <ul> wrapper."""
+    from local_pdf.api.routers.admin.extract import _wrap_html
+
+    elements = [
+        {"box_id": "p1-a", "html_snippet": '<li data-source-box="p1-a">First</li>'},
+        {"box_id": "p1-b", "html_snippet": '<li data-source-box="p1-b">Second</li>'},
+        {"box_id": "p1-c", "html_snippet": '<p data-source-box="p1-c">Para</p>'},
+    ]
+    html = _wrap_html(elements)
+
+    assert "<ul>" in html
+    assert html.count("<ul>") == 1
+    assert "First" in html
+    assert "Second" in html
+    assert "Para" in html

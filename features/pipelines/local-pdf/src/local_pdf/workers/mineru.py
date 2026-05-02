@@ -15,7 +15,7 @@
 Injection points (tests):
   `extract_fn`: overrides the entire per-box extraction path.
   `parse_doc_fn`: overrides the per-doc parse step (preferred new path);
-    signature (pdf_path: Path) -> dict[int, list[ParsedElement]].
+    signature (pdf_path: Path) -> dict[int, PageData].
   `parse_page_fn`: legacy per-page injection; still honoured for back-compat.
     If only `parse_page_fn` is injected, pages are parsed on demand (slower,
     but existing tests don't care about speed).
@@ -26,7 +26,9 @@ No subprocess.  No sidecar.  No HTTP.  Pure in-process Python.
 from __future__ import annotations
 
 import gc
+import html as html_lib
 import os
+import re
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -55,6 +57,15 @@ class ParsedElement:
 
     bbox: tuple[float, float, float, float]  # (x0, y0, x1, y1) in PDF pts
     html: str
+    text: str = ""
+
+
+@dataclass(frozen=True)
+class PageData:
+    """Per-page parse result: page dimensions plus all parsed elements."""
+
+    page_size: tuple[float, float]  # (width_pt, height_pt)
+    elements: list[ParsedElement]
 
 
 @dataclass(frozen=True)
@@ -65,10 +76,29 @@ class MinerUResult:
 
 ExtractFn = Callable[[Path, SegmentBox], MinerUResult]
 ParsePageFn = Callable[[Path, int], list[ParsedElement]]
-ParseDocFn = Callable[[Path], dict[int, list[ParsedElement]]]
+# ParseDocFn may return dict[int, PageData] (preferred) or dict[int, list[ParsedElement]]
+# (legacy test format). _get_doc_pages normalises both.
+ParseDocFn = Callable[[Path], dict]
 
 # Visual block types that require merge_visual_blocks_to_markdown
 _VISUAL_BLOCK_TYPES = {"image", "table", "chart", "code"}
+
+# Text-like user kinds (styling comes from plain text extracted from MinerU)
+_TEXT_LIKE_KINDS = {
+    BoxKind.heading,
+    BoxKind.paragraph,
+    BoxKind.caption,
+    BoxKind.auxiliary,
+    BoxKind.list_item,
+    BoxKind.formula,
+}
+
+# Visual user kinds (MinerU HTML used as-is)
+_VISUAL_KINDS = {BoxKind.table, BoxKind.figure}
+
+# Auxiliary zone thresholds as fraction of page height
+_AUXILIARY_HEADER_THRESHOLD = 0.08
+_AUXILIARY_FOOTER_THRESHOLD = 0.92
 
 
 # ── IoU + reading-order helpers ───────────────────────────────────────────────
@@ -126,6 +156,15 @@ def _match_box_to_elements(
     # Reading order: top then left
     matches.sort(key=lambda el: (el.bbox[1], el.bbox[0]))
     return matches
+
+
+# ── Text helpers ──────────────────────────────────────────────────────────────
+
+
+def _html_to_text(html: str) -> str:
+    """Strip HTML tags and decode entities, returning plain text."""
+    stripped = re.sub(r"<[^>]+>", "", html)
+    return html_lib.unescape(stripped)
 
 
 # ── Block → HTML/markdown conversion ─────────────────────────────────────────
@@ -250,6 +289,116 @@ def _block_to_html(
     return inner
 
 
+# ── Per-box HTML builder (user-kind driven) ───────────────────────────────────
+
+
+def _build_one_box_html(
+    box: SegmentBox,
+    page_elements: list[ParsedElement],
+    page_size: tuple[float, float],
+    raster_dpi: int,
+    *,
+    promote_to_h1: bool = False,
+) -> str:
+    """Build kind-driven HTML for a single user box.
+
+    Styling is determined entirely by ``box.kind`` (user annotation), NOT by
+    MinerU's block type.  MinerU matched elements are used only as a text/HTML
+    source.
+
+    - Text-like kinds (heading, paragraph, caption, auxiliary, list_item,
+      formula): extract plain text from matched elements, join with space.
+    - Visual kinds (table, figure): use matched MinerU element HTML as-is.
+    - No match: emit empty marker.
+
+    ``promote_to_h1`` applies only to heading boxes; when True, wraps in
+    ``<h1>`` instead of ``<h2>``.
+
+    Returns the complete HTML fragment (tag + data-source-box attribute).
+    """
+    user_bbox_pts = _user_bbox_to_pts(box.bbox, raster_dpi)
+    matched = _match_box_to_elements(user_bbox_pts, page_elements)
+
+    kind = box.kind
+    box_id = box.box_id
+
+    empty_marker = "[Keine Extraktion fur diesen Bereich]"
+
+    # ── visual kinds: use MinerU HTML as-is ───────────────────────────────────
+    if kind in _VISUAL_KINDS:
+        if matched:
+            # Use the first matched element's html for visual content
+            mineru_html = matched[0].html
+            if mineru_html:
+                if kind == BoxKind.table:
+                    inner = f'<div class="extracted-table">{mineru_html}</div>'
+                else:  # figure
+                    inner = f"<figure>{mineru_html}</figure>"
+                return f'<div data-source-box="{box_id}">{inner}</div>'
+        # No match or empty html: empty marker
+        if kind == BoxKind.table:
+            return (
+                f'<div class="extracted-table" data-source-box="{box_id}"'
+                f' class="empty">{empty_marker}</div>'
+            )
+        return f'<figure data-source-box="{box_id}" class="empty">{empty_marker}</figure>'
+
+    # ── text-like kinds: extract plain text ───────────────────────────────────
+    if kind in _TEXT_LIKE_KINDS:
+        text = " ".join(_html_to_text(el.html) for el in matched).strip() if matched else ""
+
+        if not text:
+            # Empty marker per kind
+            if kind == BoxKind.heading:
+                tag = "h1" if promote_to_h1 else "h2"
+                return f'<{tag} data-source-box="{box_id}" class="empty">{empty_marker}</{tag}>'
+            if kind == BoxKind.paragraph:
+                return f'<p data-source-box="{box_id}" class="empty">{empty_marker}</p>'
+            if kind == BoxKind.list_item:
+                return f'<li data-source-box="{box_id}" class="empty">{empty_marker}</li>'
+            if kind == BoxKind.caption:
+                return (
+                    f'<figcaption data-source-box="{box_id}" class="empty">'
+                    f"{empty_marker}</figcaption>"
+                )
+            if kind == BoxKind.formula:
+                return (
+                    f'<pre data-source-box="{box_id}" class="empty">'
+                    f"<code>{empty_marker}</code></pre>"
+                )
+            # auxiliary
+            return (
+                f'<aside class="auxiliary" data-source-box="{box_id}" class="empty">'
+                f"{empty_marker}</aside>"
+            )
+
+        if kind == BoxKind.heading:
+            tag = "h1" if promote_to_h1 else "h2"
+            return f'<{tag} data-source-box="{box_id}">{text}</{tag}>'
+        if kind == BoxKind.paragraph:
+            return f'<p data-source-box="{box_id}">{text}</p>'
+        if kind == BoxKind.list_item:
+            return f'<li data-source-box="{box_id}">{text}</li>'
+        if kind == BoxKind.caption:
+            return f'<figcaption data-source-box="{box_id}">{text}</figcaption>'
+        if kind == BoxKind.formula:
+            return f'<pre data-source-box="{box_id}"><code>{text}</code></pre>'
+        # auxiliary: zone detection
+        # box.bbox is (x0, y0, x1, y1) in pixels; convert y_top to pt fraction
+        y_top_px = box.bbox[1]
+        page_h_pt = page_size[1]
+        if page_h_pt > 0:
+            y_top_pt = y_top_px * 72.0 / raster_dpi
+            frac = y_top_pt / page_h_pt
+            if frac < _AUXILIARY_HEADER_THRESHOLD:
+                return f'<header class="page-header" data-source-box="{box_id}">{text}</header>'
+            if frac > _AUXILIARY_FOOTER_THRESHOLD:
+                return f'<footer class="page-footer" data-source-box="{box_id}">{text}</footer>'
+        return f'<aside class="auxiliary" data-source-box="{box_id}">{text}</aside>'
+
+    return ""
+
+
 # ── Real MinerU doc parse (production path) ──────────────────────────────────
 
 
@@ -257,7 +406,7 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
     """Return a ParseDocFn that uses the loaded MinerU pipeline model.
 
     Parses the entire PDF once and returns a dict mapping 1-indexed page
-    numbers to lists of ParsedElement.
+    numbers to PageData (page_size + list of ParsedElement).
 
     MinerU's `doc_analyze_streaming` API processes a whole PDF; we capture
     all pages in one pass to avoid the N-page x full-doc-parse blowup that
@@ -268,7 +417,7 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
     except ImportError as exc:
         raise ImportError("MinerU 'core' extra not installed. Install mineru[core].") from exc
 
-    def _parse_doc(pdf_path: Path) -> dict[int, list[ParsedElement]]:
+    def _parse_doc(pdf_path: Path) -> dict[int, PageData]:
         """Parse all pages of a PDF using MinerU streaming pipeline."""
         pdf_bytes = pdf_path.read_bytes()
 
@@ -295,21 +444,22 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
             parse_method="auto",
         )
 
-        pages: dict[int, list[ParsedElement]] = {}
+        pages: dict[int, PageData] = {}
         for page_idx, page_info in enumerate(all_page_infos):
             page_number = page_idx + 1  # 1-indexed
             raw_page_size = page_info.get("page_size")
             try:
-                page_size: tuple[float, float] | None = (
+                page_size: tuple[float, float] = (
                     (
                         float(raw_page_size[0]),
                         float(raw_page_size[1]),
                     )
                     if raw_page_size and len(raw_page_size) >= 2
-                    else None
+                    else (612.0, 792.0)
                 )
             except (TypeError, ValueError, IndexError):
-                page_size = None
+                page_size = (612.0, 792.0)
+
             elements: list[ParsedElement] = []
             for block in page_info.get("para_blocks", []) or []:
                 raw_bbox = block.get("bbox", None)
@@ -319,11 +469,29 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
                     x0, y0, x1, y1 = (float(v) for v in raw_bbox[:4])
                 except (TypeError, ValueError):
                     continue
-                content = _block_to_html(block, page_size=page_size)
-                if not content:
+
+                block_type = block.get("type", "")
+                html_content = _block_to_html(block, page_size=page_size)
+                if not html_content:
                     continue
-                elements.append(ParsedElement(bbox=(x0, y0, x1, y1), html=content))
-            pages[page_number] = elements
+
+                # Extract plain text for text-like blocks
+                if block_type in _VISUAL_BLOCK_TYPES:
+                    text_content = ""
+                else:
+                    try:
+                        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+                            merge_para_with_text,
+                        )
+
+                        text_content = merge_para_with_text(block) or ""
+                    except ImportError:
+                        text_content = ""
+
+                elements.append(
+                    ParsedElement(bbox=(x0, y0, x1, y1), html=html_content, text=text_content)
+                )
+            pages[page_number] = PageData(page_size=page_size, elements=elements)
 
         return pages
 
@@ -343,7 +511,8 @@ def _make_real_parse_page_fn(model: object) -> ParsePageFn:
 
     def _parse_page(pdf_path: Path, page_number: int) -> list[ParsedElement]:
         pages = parse_doc(pdf_path)
-        return pages.get(page_number, [])
+        page_data = pages.get(page_number)
+        return page_data.elements if page_data is not None else []
 
     return _parse_page
 
@@ -403,7 +572,7 @@ class MineruWorker:
         self.results: list[MinerUResult] = []
         # Per-worker doc cache: avoids re-parsing the same PDF across multiple
         # calls to run() / extract_region() within one worker lifetime.
-        self._doc_cache: dict[Path, dict[int, list[ParsedElement]]] = {}
+        self._doc_cache: dict[Path, dict[int, PageData]] = {}
 
     # ── Context manager ───────────────────────────────────────────────────────
 
@@ -449,21 +618,32 @@ class MineruWorker:
         except ImportError:
             pass
 
-    def _get_doc_pages(self, pdf_path: Path) -> dict[int, list[ParsedElement]]:
-        """Return cached per-page elements for `pdf_path`, parsing at most once.
+    def _get_doc_pages(self, pdf_path: Path) -> dict[int, PageData]:
+        """Return cached per-page data for `pdf_path`, parsing at most once.
+
+        Returns dict[int, PageData] where PageData holds page_size and elements.
 
         Preference order:
           1. `parse_doc_fn` injection (new preferred path, parses doc once).
-          2. `parse_page_fn` injection (legacy; pages fetched on demand, not
-             cached here because the caller's loop already deduplicates pages).
-          3. Real model via `_make_real_parse_doc_fn`.
-          4. Fallback: empty dict when no model available.
+          2. Real model via `_make_real_parse_doc_fn`.
+          3. Fallback: empty dict when no model available.
+
+        Note: `parse_page_fn` injection is handled separately in run() /
+        extract_region() for legacy back-compat; it does NOT flow through here.
         """
         if pdf_path in self._doc_cache:
             return self._doc_cache[pdf_path]
 
         if self._parse_doc_fn is not None:
-            pages = self._parse_doc_fn(pdf_path)
+            # Normalise to dict[int, PageData]. Legacy test injections may return
+            # dict[int, list[ParsedElement]] — detect and wrap on the fly.
+            pages: dict[int, PageData] = {}
+            for k, v in self._parse_doc_fn(pdf_path).items():
+                if isinstance(v, PageData):
+                    pages[k] = v
+                else:
+                    # Legacy list[ParsedElement] from old test injections
+                    pages[k] = PageData(page_size=(612.0, 792.0), elements=list(v))
         elif self._model is not None:
             pages = _make_real_parse_doc_fn(self._model)(pdf_path)
         else:
@@ -531,12 +711,29 @@ class MineruWorker:
             for pg in unique_pages:
                 page_cache[pg] = parse_page(pdf_path, pg)
 
+            # Determine h1 promotion candidate (first page, first sorted box)
+            first_page = min({b.page for b in targets}) if targets else 1
+            first_page_boxes = sorted(
+                [b for b in targets if b.page == first_page],
+                key=lambda b: (b.bbox[1], b.bbox[0]),
+            )
+            first_box_id = first_page_boxes[0].box_id if first_page_boxes else None
+            single_heading_on_first_page = (
+                sum(1 for b in first_page_boxes if b.kind == BoxKind.heading) == 1
+            )
+
             for i, box in enumerate(targets, start=1):
                 page_elements = page_cache.get(box.page, [])
-                user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
-                matched = _match_box_to_elements(user_bbox_pts, page_elements)
-                inner = "".join(el.html for el in matched)
-                html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
+                page_size = (612.0, 792.0)  # default for legacy path
+                promote = (
+                    box.kind == BoxKind.heading
+                    and box.box_id == first_box_id
+                    and single_heading_on_first_page
+                    and box.page == first_page
+                )
+                html = _build_one_box_html(
+                    box, page_elements, page_size, self._raster_dpi, promote_to_h1=promote
+                )
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
                 eta_seconds, throughput = eta.estimate(total=total)
@@ -554,12 +751,31 @@ class MineruWorker:
             # Main path: parse entire doc ONCE, look up each page from cache.
             doc_pages = self._get_doc_pages(pdf_path)
 
+            # Determine h1 promotion candidate
+            non_discard = [b for b in targets if b.kind != BoxKind.discard]
+            first_page = min((b.page for b in non_discard), default=1)
+            first_page_boxes = sorted(
+                [b for b in non_discard if b.page == first_page],
+                key=lambda b: (b.bbox[1], b.bbox[0]),
+            )
+            first_box_id = first_page_boxes[0].box_id if first_page_boxes else None
+            single_heading_on_first_page = (
+                sum(1 for b in first_page_boxes if b.kind == BoxKind.heading) == 1
+            )
+
             for i, box in enumerate(targets, start=1):
-                page_elements = doc_pages.get(box.page, [])
-                user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
-                matched = _match_box_to_elements(user_bbox_pts, page_elements)
-                inner = "".join(el.html for el in matched)
-                html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
+                page_data = doc_pages.get(box.page)
+                page_size = page_data.page_size if page_data is not None else (612.0, 792.0)
+                page_elements = page_data.elements if page_data is not None else []
+                promote = (
+                    box.kind == BoxKind.heading
+                    and box.box_id == first_box_id
+                    and single_heading_on_first_page
+                    and box.page == first_page
+                )
+                html = _build_one_box_html(
+                    box, page_elements, page_size, self._raster_dpi, promote_to_h1=promote
+                )
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
                 eta_seconds, throughput = eta.estimate(total=total)
@@ -591,14 +807,14 @@ class MineruWorker:
             # Legacy back-compat path.
             parse_page = self._get_parse_page_fn()
             page_elements = parse_page(pdf_path, box.page)
+            page_size = (612.0, 792.0)
         else:
             doc_pages = self._get_doc_pages(pdf_path)
-            page_elements = doc_pages.get(box.page, [])
+            page_data = doc_pages.get(box.page)
+            page_elements = page_data.elements if page_data is not None else []
+            page_size = page_data.page_size if page_data is not None else (612.0, 792.0)
 
-        user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
-        matched = _match_box_to_elements(user_bbox_pts, page_elements)
-        inner = "".join(el.html for el in matched)
-        html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
+        html = _build_one_box_html(box, page_elements, page_size, self._raster_dpi)
         return MinerUResult(box_id=box.box_id, html=html)
 
     def unload(self) -> Iterator[WorkerEvent]:

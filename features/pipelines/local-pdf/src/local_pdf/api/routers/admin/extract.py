@@ -73,12 +73,33 @@ def _page_from_box_id(box_id: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _group_list_items(section_inner: str) -> str:
+    """Wrap consecutive <li ...>...</li> blocks in a single <ul>...</ul>.
+
+    Adjacent list items emitted by the worker (one ``<li>`` per user box) are
+    grouped so the rendered HTML has proper ``<ul>`` structure.  Non-adjacent
+    list items each get their own ``<ul>``.
+
+    The input is controlled (worker output only), so a regex over the fragment
+    is sufficient — no full HTML parser needed.
+    """
+    return re.sub(
+        r"(<li\b[^>]*>.*?</li>(?:\s*<li\b[^>]*>.*?</li>)*)",
+        r"<ul>\1</ul>",
+        section_inner,
+        flags=re.DOTALL,
+    )
+
+
 def _wrap_html(elements: list[dict]) -> str:
     """Wrap extracted HTML snippets with PDF-like typography and page sections.
 
     Groups elements by page number (derived from box_id prefix ``pN-bM``) and
     wraps each group in ``<section data-page="{N}">`` so the frontend can slice
     by page number instead of relying on brittle hr-count indexing.
+
+    Adjacent ``<li>`` elements within a section are wrapped in a single
+    ``<ul>`` via ``_group_list_items``.
     """
     by_page: dict[int, list[str]] = {}
     page_order: list[int] = []
@@ -91,7 +112,10 @@ def _wrap_html(elements: list[dict]) -> str:
             page_order.append(page)
         by_page[page].append(e["html_snippet"])
 
-    sections = [f'<section data-page="{p}">\n{"".join(by_page[p])}\n</section>' for p in page_order]
+    sections = [
+        f'<section data-page="{p}">\n{_group_list_items("".join(by_page[p]))}\n</section>'
+        for p in page_order
+    ]
     body = "\n".join(sections)
     return f"<!DOCTYPE html>\n<html><head>{_PDF_STYLE}</head><body>\n{body}\n</body></html>\n"
 

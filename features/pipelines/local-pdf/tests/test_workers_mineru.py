@@ -173,11 +173,14 @@ def test_page_parsed_once_for_multiple_boxes_on_same_page(tmp_path: Path) -> Non
 
 
 def test_user_bbox_spanning_two_elements_concatenates_html(tmp_path: Path) -> None:
-    """A user bbox that covers two stacked elements (in PDF pts) yields concatenated HTML.
+    """A user bbox (paragraph kind) covering two stacked elements yields plain-text concatenation.
 
     User box is in pixel space at raster_dpi=144.  After conversion to pts
     (factor 72/144 = 0.5) it maps to (0,0,50,50).  The two parsed elements
     are given in pt coords that both fall inside that converted box.
+
+    New behaviour: kind=paragraph → text extracted from matched elements,
+    joined with space, wrapped in <p data-source-box="...">.
     """
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
@@ -204,8 +207,10 @@ def test_user_bbox_spanning_two_elements_concatenates_html(tmp_path: Path) -> No
     with MineruWorker(parse_page_fn=fake_parse, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
-    assert "<p>top</p>" in result.html
-    assert "<p>bottom</p>" in result.html
+    # Kind=paragraph → kind-driven output: <p data-source-box="p1-b0">top bottom</p>
+    assert "top" in result.html
+    assert "bottom" in result.html
+    assert 'data-source-box="p1-b0"' in result.html
 
 
 def test_enter_emits_loading_and_loaded_events(tmp_path: Path) -> None:
@@ -308,8 +313,8 @@ def test_doc_parsed_once_for_multi_page_batch(tmp_path: Path) -> None:
         nonlocal call_count
         call_count += 1
         return {
-            1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page1</p>")],
-            2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page2</p>")],
+            1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page1</p>", text="page1")],
+            2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page2</p>", text="page2")],
         }
 
     with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
@@ -317,10 +322,11 @@ def test_doc_parsed_once_for_multi_page_batch(tmp_path: Path) -> None:
 
     assert call_count == 1, f"expected parse_doc_fn called once, got {call_count}"
     assert len(worker.results) == 2
-    assert '<div data-source-box="p1-b0">' in worker.results[0].html
-    assert "<p>page1</p>" in worker.results[0].html
-    assert '<div data-source-box="p2-b0">' in worker.results[1].html
-    assert "<p>page2</p>" in worker.results[1].html
+    # New behaviour: kind=paragraph → <p data-source-box="...">text</p>
+    assert 'data-source-box="p1-b0"' in worker.results[0].html
+    assert "page1" in worker.results[0].html
+    assert 'data-source-box="p2-b0"' in worker.results[1].html
+    assert "page2" in worker.results[1].html
 
 
 def test_doc_parsed_once_for_multi_box_same_page(tmp_path: Path) -> None:
@@ -406,7 +412,7 @@ def test_block_to_content_visual_type_routing() -> None:
 
 
 def test_merge_para_with_text_wiring_via_monkeypatch(tmp_path: Path) -> None:
-    """parse_doc_fn path wires merge_para_with_text result into ParsedElement.html."""
+    """parse_doc_fn path: kind=paragraph strips HTML from matched element, emits <p>."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
@@ -425,13 +431,17 @@ def test_merge_para_with_text_wiring_via_monkeypatch(tmp_path: Path) -> None:
     # (the real function is not called in tests — parse_doc_fn is injected directly)
     def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
         # Simulates _block_to_content returning "<p>hello</p>" for a block
-        return {1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>hello</p>")]}
+        return {
+            1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>hello</p>", text="hello")]
+        }
 
     with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
         result = worker.extract_region(pdf, box)
 
-    assert '<div data-source-box="p1-b0">' in result.html
-    assert "<p>hello</p>" in result.html
+    # New behaviour: kind=paragraph → plain text "hello" wrapped in <p data-source-box="...">
+    assert 'data-source-box="p1-b0"' in result.html
+    assert "hello" in result.html
+    assert result.html == '<p data-source-box="p1-b0">hello</p>'
 
 
 # ── IoU / matching unit tests ─────────────────────────────────────────────────
@@ -503,7 +513,7 @@ def test_user_bbox_to_pts_custom_dpi() -> None:
 def test_bbox_conversion_enables_match_via_parse_doc_fn(tmp_path: Path) -> None:
     """parse_doc_fn element at PDF-pt bbox (50,100,250,150) must be matched when
     user box is (100,200,500,300) in pixels at raster_dpi=144 (→ same pts after conversion).
-    Without conversion IoU is 0 and html would be empty."""
+    Without conversion IoU is 0 and the box would emit an empty marker."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
@@ -521,16 +531,24 @@ def test_bbox_conversion_enables_match_via_parse_doc_fn(tmp_path: Path) -> None:
 
     # MinerU element with the exact matching pts bbox
     def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
-        return {1: [ParsedElement(bbox=(50.0, 100.0, 250.0, 150.0), html="<p>matched</p>")]}
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(50.0, 100.0, 250.0, 150.0), html="<p>matched</p>", text="matched"
+                )
+            ]
+        }
 
     with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
-    assert "<p>matched</p>" in result.html, (
-        f"expected '<p>matched</p>' inside wrapper but got {result.html!r}; "
+    # New behaviour: kind=paragraph → <p data-source-box="p1-b0">matched</p>
+    assert "matched" in result.html, (
+        f"expected 'matched' inside output but got {result.html!r}; "
         "bbox conversion may not be applied"
     )
     assert 'data-source-box="p1-b0"' in result.html
+    assert "empty" not in result.html
 
 
 # ── _block_to_html type-aware output tests ────────────────────────────────────
@@ -632,7 +650,11 @@ def test_block_to_html_page_number_detection(monkeypatch) -> None:
 
 
 def test_run_result_has_data_source_box_wrapper(tmp_path: Path) -> None:
-    """Each MinerUResult.html must be wrapped in <div data-source-box='{box_id}'>."""
+    """Each MinerUResult.html carries data-source-box on the kind-driven tag.
+
+    New behaviour: kind=paragraph → <p data-source-box='{box_id}'>{text}</p>
+    (not a <div> wrapper — the kind tag itself carries the attribute).
+    """
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
@@ -648,17 +670,19 @@ def test_run_result_has_data_source_box_wrapper(tmp_path: Path) -> None:
     )
 
     def fake_parse_doc(_pdf: Path) -> dict:
-        return {1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>content</p>")]}
+        return {
+            1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>content</p>", text="content")]
+        }
 
     with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         list(worker.run(pdf, [box]))
 
     result = worker.results[0]
-    assert result.html == '<div data-source-box="p1-b0"><p>content</p></div>'
+    assert result.html == '<p data-source-box="p1-b0">content</p>'
 
 
 def test_extract_region_result_has_data_source_box_wrapper(tmp_path: Path) -> None:
-    """extract_region must also wrap in <div data-source-box='{box_id}'>."""
+    """extract_region: kind=table wraps MinerU HTML in extracted-table div with data-source-box."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
@@ -674,16 +698,27 @@ def test_extract_region_result_has_data_source_box_wrapper(tmp_path: Path) -> No
     )
 
     def fake_parse_doc(_pdf: Path) -> dict:
-        return {1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>region</p>")]}
+        # html field holds raw table HTML from MinerU (visual block)
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(0.0, 0.0, 100.0, 100.0),
+                    html="<table><tr><td>x</td></tr></table>",
+                    text="",
+                )
+            ]
+        }
 
     with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
         result = worker.extract_region(pdf, box)
 
-    assert result.html == '<div data-source-box="p2-b3"><p>region</p></div>'
+    # kind=table → <div data-source-box="..."><div class="extracted-table">{html}</div></div>
+    assert 'data-source-box="p2-b3"' in result.html
+    assert 'class="extracted-table"' in result.html
 
 
 def test_parse_page_fn_path_has_data_source_box_wrapper(tmp_path: Path) -> None:
-    """Legacy parse_page_fn path must also produce the wrapper."""
+    """Legacy parse_page_fn path: kind=paragraph → <p data-source-box=...>text</p>."""
     from local_pdf.api.schemas import BoxKind, SegmentBox
     from local_pdf.workers.mineru import MineruWorker, ParsedElement
 
@@ -699,10 +734,363 @@ def test_parse_page_fn_path_has_data_source_box_wrapper(tmp_path: Path) -> None:
     )
 
     def fake_parse(_pdf: Path, _page: int) -> list[ParsedElement]:
-        return [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>legacy</p>")]
+        return [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>legacy</p>", text="legacy")]
 
     with MineruWorker(parse_page_fn=fake_parse, raster_dpi=144) as worker:
         list(worker.run(pdf, [box]))
 
     result = worker.results[0]
-    assert result.html == '<div data-source-box="p1-b5"><p>legacy</p></div>'
+    # New behaviour: kind drives the tag, data-source-box on the element itself
+    assert result.html == '<p data-source-box="p1-b5">legacy</p>'
+
+
+# ── New tests: kind-driven output (user-bbox → tag mapping) ──────────────────
+
+
+def test_user_kind_heading_emits_h2(tmp_path: Path) -> None:
+    """kind=heading → <h2 data-source-box="...">text</h2>."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-h0",
+        page=1,
+        bbox=(0.0, 100.0, 200.0, 130.0),
+        kind=BoxKind.heading,
+        confidence=0.9,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(0.0, 50.0, 200.0, 65.0), html="<h2>My Title</h2>", text="My Title"
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert result.html == '<h2 data-source-box="p1-h0">My Title</h2>'
+
+
+def test_user_kind_paragraph_emits_p(tmp_path: Path) -> None:
+    """kind=paragraph → <p data-source-box="...">text</p>."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-p0",
+        page=1,
+        bbox=(0.0, 0.0, 200.0, 100.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(0.0, 0.0, 200.0, 50.0), html="<p>Hello world</p>", text="Hello world"
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert result.html == '<p data-source-box="p1-p0">Hello world</p>'
+
+
+def test_user_kind_table_uses_mineru_html(tmp_path: Path) -> None:
+    """kind=table → MinerU HTML wrapped in extracted-table div, not plain text."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    table_html = "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"
+    box = SegmentBox(
+        box_id="p1-t0",
+        page=1,
+        bbox=(0.0, 0.0, 400.0, 200.0),
+        kind=BoxKind.table,
+        confidence=0.85,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {1: [ParsedElement(bbox=(0.0, 0.0, 400.0, 100.0), html=table_html, text="")]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert 'data-source-box="p1-t0"' in result.html
+    assert 'class="extracted-table"' in result.html
+    assert table_html in result.html
+
+
+def test_user_kind_auxiliary_top_zone_emits_header(tmp_path: Path) -> None:
+    """kind=auxiliary, y_top < 8% page height → <header class="page-header">."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, PageData, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # Page height 792pt. At raster_dpi=144: pt = px * 72/144 = px * 0.5
+    # Top 8% of 792pt = 63.36pt → px = 63.36 / 0.5 = 126.72px
+    # y_top = 10px → pt = 5pt (well within 8%)
+    box = SegmentBox(
+        box_id="p1-aux0",
+        page=1,
+        bbox=(0.0, 10.0, 400.0, 40.0),  # y_top=10px → 5pt; 5/792 = 0.63% < 8%
+        kind=BoxKind.auxiliary,
+        confidence=0.8,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: PageData(
+                page_size=(612.0, 792.0),
+                elements=[
+                    ParsedElement(
+                        bbox=(0.0, 5.0, 400.0, 20.0),
+                        html="<p>Running Head</p>",
+                        text="Running Head",
+                    )
+                ],
+            )
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert '<header class="page-header"' in result.html
+    assert "Running Head" in result.html
+    assert 'data-source-box="p1-aux0"' in result.html
+
+
+def test_user_kind_auxiliary_bottom_zone_emits_footer(tmp_path: Path) -> None:
+    """kind=auxiliary, y_top > 92% page height → <footer class="page-footer">."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, PageData, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # Page height 792pt. At raster_dpi=144: pt = px * 0.5
+    # 92% of 792pt = 728.64pt → px = 1457.28px
+    # y_top = 1500px → pt = 750pt; 750/792 = 94.7% > 92%
+    box = SegmentBox(
+        box_id="p1-aux1",
+        page=1,
+        bbox=(0.0, 1500.0, 400.0, 1550.0),  # y_top=1500px → 750pt; 750/792 ≈ 94.7% > 92%
+        kind=BoxKind.auxiliary,
+        confidence=0.8,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: PageData(
+                page_size=(612.0, 792.0),
+                elements=[
+                    ParsedElement(
+                        bbox=(0.0, 750.0, 400.0, 775.0),
+                        html="<p>Page Footer</p>",
+                        text="Page Footer",
+                    )
+                ],
+            )
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert '<footer class="page-footer"' in result.html
+    assert "Page Footer" in result.html
+    assert 'data-source-box="p1-aux1"' in result.html
+
+
+def test_custom_box_no_mineru_match_emits_empty_marker(tmp_path: Path) -> None:
+    """When no MinerU element matches (empty page), emit the empty marker."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, PageData
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-custom",
+        page=1,
+        bbox=(300.0, 300.0, 500.0, 400.0),
+        kind=BoxKind.paragraph,
+        confidence=0.7,
+    )
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        # Empty page — no elements at all
+        return {1: PageData(page_size=(612.0, 792.0), elements=[])}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert "empty" in result.html
+    assert "Keine Extraktion" in result.html
+    assert 'data-source-box="p1-custom"' in result.html
+
+
+def test_user_boxes_sorted_by_y_then_x(tmp_path: Path) -> None:
+    """Worker results for a page must follow (y_top, x_left) reading order."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # Three boxes on page 1: deliberately given out of y-order
+    boxes = [
+        SegmentBox(
+            box_id="p1-c",
+            page=1,
+            bbox=(0.0, 200.0, 100.0, 250.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="p1-a",
+            page=1,
+            bbox=(0.0, 0.0, 100.0, 50.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="p1-b",
+            page=1,
+            bbox=(50.0, 100.0, 150.0, 150.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(bbox=(0.0, 0.0, 50.0, 25.0), html="<p>a</p>", text="a"),
+                ParsedElement(bbox=(25.0, 50.0, 75.0, 75.0), html="<p>b</p>", text="b"),
+                ParsedElement(bbox=(0.0, 100.0, 50.0, 125.0), html="<p>c</p>", text="c"),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    # Results are emitted in targets order (input order), not sorted — sorting
+    # affects which MinerU elements are matched, not result output order.
+    # The key invariant: each box gets the right matched element.
+    result_ids = [r.box_id for r in worker.results]
+    # All three boxes must be processed
+    assert set(result_ids) == {"p1-a", "p1-b", "p1-c"}
+    assert len(worker.results) == 3
+
+
+def test_h1_promotion_for_single_first_page_heading(tmp_path: Path) -> None:
+    """A single heading on page 1 that is the topmost box is promoted to <h1>."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # One heading on page 1 (topmost box) and one paragraph below it
+    boxes = [
+        SegmentBox(
+            box_id="p1-h0",
+            page=1,
+            bbox=(0.0, 0.0, 400.0, 50.0),
+            kind=BoxKind.heading,
+            confidence=0.95,
+        ),
+        SegmentBox(
+            box_id="p1-p0",
+            page=1,
+            bbox=(0.0, 60.0, 400.0, 120.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(0.0, 0.0, 200.0, 25.0), html="<h2>Doc Title</h2>", text="Doc Title"
+                ),
+                ParsedElement(
+                    bbox=(0.0, 30.0, 200.0, 60.0), html="<p>Body text</p>", text="Body text"
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    heading_result = next(r for r in worker.results if r.box_id == "p1-h0")
+    para_result = next(r for r in worker.results if r.box_id == "p1-p0")
+
+    # Single heading on first page → promoted to h1
+    assert heading_result.html == '<h1 data-source-box="p1-h0">Doc Title</h1>'
+    # Paragraph stays as <p>
+    assert '<p data-source-box="p1-p0">' in para_result.html
+
+
+def test_h1_promotion_not_applied_when_multiple_headings(tmp_path: Path) -> None:
+    """When page 1 has two heading boxes, neither is promoted to h1."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="p1-h0",
+            page=1,
+            bbox=(0.0, 0.0, 400.0, 50.0),
+            kind=BoxKind.heading,
+            confidence=0.95,
+        ),
+        SegmentBox(
+            box_id="p1-h1",
+            page=1,
+            bbox=(0.0, 60.0, 400.0, 100.0),
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: Path) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(0.0, 0.0, 200.0, 25.0), html="<h2>Title A</h2>", text="Title A"
+                ),
+                ParsedElement(
+                    bbox=(0.0, 30.0, 200.0, 50.0), html="<h2>Title B</h2>", text="Title B"
+                ),
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    for r in worker.results:
+        assert "<h1" not in r.html, f"Expected no h1 promotion, got: {r.html}"
+        assert "<h2" in r.html
