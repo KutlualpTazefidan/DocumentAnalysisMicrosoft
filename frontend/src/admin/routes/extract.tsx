@@ -2,9 +2,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
+import { getDoc } from "../api/docs";
 import { T } from "../styles/typography";
 
 import { BoxLegend } from "../components/BoxLegend";
@@ -200,10 +202,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const rasterDpi = segments.data?.raster_dpi ?? 144;
   const boxScale = (scale * 72) / rasterDpi;
 
+  // Total page count from DocMeta — present even before segmentation runs,
+  // so the page-grid shows every page in the doc immediately on import.
+  // Falls back to highest page seen in boxes if doc meta isn't loaded yet.
+  const docMeta = useQuery({
+    queryKey: ["doc", slug],
+    queryFn: () => getDoc(slug!, token),
+    enabled: !!slug,
+  });
   const totalPages = useMemo(() => {
+    if (docMeta.data?.pages) return docMeta.data.pages;
     const boxes = segments.data?.boxes ?? [];
     return boxes.length > 0 ? Math.max(...boxes.map((b) => b.page)) : 1;
-  }, [segments.data]);
+  }, [docMeta.data, segments.data]);
 
   // Read per-page conf threshold from the segment-route's localStorage key (display only).
   const confState = useMemo(() => loadConf(slug ?? ""), [slug]);

@@ -43,7 +43,7 @@ def _now_iso() -> str:
 _PDF_STYLE = (
     "<style>"
     "body{font-family:Georgia,'Times New Roman',serif;"
-    "max-width:720px;margin:2rem auto;line-height:1.6;color:#1f2937}"
+    "max-width:720px;margin:2rem auto;padding:0 2rem;line-height:1.6;color:#1f2937}"
     "h1{font-size:2em;font-weight:bold;text-align:center;margin:1.5em 0 0.5em}"
     "h2{font-size:1.5em;font-weight:bold;margin:1.2em 0 0.4em;"
     "border-bottom:1px solid #d1d5db;padding-bottom:0.2em}"
