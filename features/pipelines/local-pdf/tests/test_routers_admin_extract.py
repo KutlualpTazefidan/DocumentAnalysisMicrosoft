@@ -139,3 +139,33 @@ def test_extract_no_page_filter_processes_all(client_with_multipage_segments, mo
     assert r.status_code == 200
     list(r.iter_lines())
     assert sorted(pages_seen) == [1, 2, 2], f"expected boxes from both pages, got: {pages_seen}"
+
+
+def test_diagnose_returns_503_when_mineru_missing(client, monkeypatch) -> None:
+    """GET /extract/diagnose returns 503 when MinerU is not installed."""
+    # Patch the import by raising inside the endpoint's try block.
+    original_import = __import__
+
+    def _raise_on_mineru(name, *args, **kwargs):
+        if name.startswith("mineru.backend.pipeline.pipeline_analyze"):
+            raise ImportError("MinerU not installed (test stub)")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", _raise_on_mineru)
+
+    files = {"file": ("Spec.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    r = client.get(
+        "/api/admin/docs/spec/extract/diagnose?page=1",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 503
+
+
+def test_diagnose_returns_404_for_missing_pdf(client) -> None:
+    """GET /extract/diagnose on a slug with no PDF returns 404."""
+    r = client.get(
+        "/api/admin/docs/nonexistent/extract/diagnose?page=1",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 404
