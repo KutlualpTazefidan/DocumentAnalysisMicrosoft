@@ -130,6 +130,15 @@ def _match_box_to_elements(
 
 # ── Block → HTML/markdown conversion ─────────────────────────────────────────
 
+# Fraction of page height that counts as header/footer zone.
+_HEADER_FOOTER_FRACTION = 0.08
+
+
+def _is_page_number(text: str) -> bool:
+    """Return True if *text* is a bare page number (digits only, short)."""
+    stripped = text.strip()
+    return stripped.isdigit() and len(stripped) <= 5
+
 
 def _block_to_content(block: dict) -> str:
     """Convert a single MinerU para_block to a content string.
@@ -154,6 +163,91 @@ def _block_to_content(block: dict) -> str:
         text = merge_para_with_text(block)
 
     return text or ""
+
+
+def _block_to_html(
+    block: dict,
+    page_size: tuple[float, float] | None = None,
+) -> str:
+    """Convert a MinerU para_block to type-aware HTML.
+
+    Wraps content in semantic elements based on block type.  Detects
+    header/footer zones using bbox position relative to page_size and
+    wraps them in <header>/<footer>.  Pure-digit short blocks in those
+    zones become <span class="page-number">.
+
+    Returns "" when no content can be extracted so callers can skip.
+
+    Args:
+        block: A MinerU para_block dict.
+        page_size: (width_pts, height_pts) of the page, used for
+            header/footer detection.  Pass None to skip zone detection.
+    """
+    try:
+        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+            merge_para_with_text,
+            merge_visual_blocks_to_markdown,
+        )
+    except ImportError:
+        return ""
+
+    block_type = block.get("type", "")
+    raw_bbox = block.get("bbox")
+
+    # Determine zone (header / footer / body) from bbox position.
+    in_header = False
+    in_footer = False
+    if page_size is not None and raw_bbox is not None:
+        try:
+            _x0, y0, _x1, y1 = (float(v) for v in raw_bbox[:4])
+            page_h = page_size[1]
+            if page_h > 0:
+                threshold = page_h * _HEADER_FOOTER_FRACTION
+                if y1 <= threshold:
+                    in_header = True
+                elif y0 >= page_h - threshold:
+                    in_footer = True
+        except (TypeError, ValueError):
+            pass
+
+    if block_type in _VISUAL_BLOCK_TYPES:
+        raw = merge_visual_blocks_to_markdown(block) or ""
+        if not raw:
+            return ""
+        if block_type == "image":
+            inner = f"<figure>{raw}</figure>"
+        elif block_type in ("table",):
+            inner = f'<div class="extracted-table">{raw}</div>'
+        else:
+            inner = f"<pre><code>{raw}</code></pre>"
+    else:
+        raw = merge_para_with_text(block) or ""
+        if not raw:
+            return ""
+        if in_header or in_footer:
+            if _is_page_number(raw):
+                return f'<span class="page-number">{raw.strip()}</span>'
+            zone = "page-header" if in_header else "page-footer"
+            tag = "header" if in_header else "footer"
+            return f'<{tag} class="{zone}">{raw}</{tag}>'
+
+        if block_type == "title":
+            lvl = block.get("level", 2)
+            tag = "h1" if lvl == 1 else "h2"
+            inner = f"<{tag}>{raw}</{tag}>"
+        elif block_type == "text":
+            inner = f"<p>{raw}</p>"
+        elif block_type == "list":
+            inner = f'<div class="md-list">{raw}</div>'
+        elif block_type in ("index",):
+            inner = f'<div class="toc">{raw}</div>'
+        elif block_type in ("code", "equation", "interline_equation"):
+            inner = f"<pre><code>{raw}</code></pre>"
+        else:
+            # abstract, unknown, etc.
+            inner = f"<p>{raw}</p>"
+
+    return inner
 
 
 # ── Real MinerU doc parse (production path) ──────────────────────────────────
@@ -204,6 +298,18 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
         pages: dict[int, list[ParsedElement]] = {}
         for page_idx, page_info in enumerate(all_page_infos):
             page_number = page_idx + 1  # 1-indexed
+            raw_page_size = page_info.get("page_size")
+            try:
+                page_size: tuple[float, float] | None = (
+                    (
+                        float(raw_page_size[0]),
+                        float(raw_page_size[1]),
+                    )
+                    if raw_page_size and len(raw_page_size) >= 2
+                    else None
+                )
+            except (TypeError, ValueError, IndexError):
+                page_size = None
             elements: list[ParsedElement] = []
             for block in page_info.get("para_blocks", []) or []:
                 raw_bbox = block.get("bbox", None)
@@ -213,7 +319,7 @@ def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
                     x0, y0, x1, y1 = (float(v) for v in raw_bbox[:4])
                 except (TypeError, ValueError):
                     continue
-                content = _block_to_content(block)
+                content = _block_to_html(block, page_size=page_size)
                 if not content:
                     continue
                 elements.append(ParsedElement(bbox=(x0, y0, x1, y1), html=content))

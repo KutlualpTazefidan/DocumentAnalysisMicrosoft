@@ -526,3 +526,98 @@ def test_bbox_conversion_enables_match_via_parse_doc_fn(tmp_path: Path) -> None:
     assert result.html == "<p>matched</p>", (
         f"expected '<p>matched</p>' but got {result.html!r}; bbox conversion may not be applied"
     )
+
+
+# ── _block_to_html type-aware output tests ────────────────────────────────────
+
+
+def _make_mock_merge(monkeypatch, return_text: str) -> None:
+    """Inject mock merge_para_with_text so _block_to_html works without MinerU."""
+    import sys
+    import types
+
+    pkg = types.ModuleType("mineru")
+    backend = types.ModuleType("mineru.backend")
+    pipeline_pkg = types.ModuleType("mineru.backend.pipeline")
+    mkcontent = types.ModuleType("mineru.backend.pipeline.pipeline_middle_json_mkcontent")
+    mkcontent.merge_para_with_text = lambda _b: return_text
+    mkcontent.merge_visual_blocks_to_markdown = lambda _b: return_text
+    sys.modules.setdefault("mineru", pkg)
+    sys.modules["mineru.backend"] = backend
+    sys.modules["mineru.backend.pipeline"] = pipeline_pkg
+    sys.modules["mineru.backend.pipeline.pipeline_middle_json_mkcontent"] = mkcontent
+
+
+def test_block_to_html_title_produces_h2(monkeypatch) -> None:
+    """type=title wraps in <h2> by default (no level key)."""
+    _make_mock_merge(monkeypatch, "My Section")
+    from local_pdf.workers.mineru import _block_to_html
+
+    html = _block_to_html({"type": "title", "bbox": [0, 100, 200, 120]})
+    assert html == "<h2>My Section</h2>"
+
+
+def test_block_to_html_title_level1_produces_h1(monkeypatch) -> None:
+    """type=title with level=1 produces <h1>."""
+    _make_mock_merge(monkeypatch, "Document Title")
+    from local_pdf.workers.mineru import _block_to_html
+
+    html = _block_to_html({"type": "title", "level": 1, "bbox": [0, 100, 200, 130]})
+    assert html == "<h1>Document Title</h1>"
+
+
+def test_block_to_html_text_produces_p(monkeypatch) -> None:
+    """type=text wraps in <p>."""
+    _make_mock_merge(monkeypatch, "Some paragraph.")
+    from local_pdf.workers.mineru import _block_to_html
+
+    html = _block_to_html({"type": "text", "bbox": [0, 200, 300, 230]})
+    assert html == "<p>Some paragraph.</p>"
+
+
+def test_block_to_html_image_wraps_in_figure(monkeypatch) -> None:
+    """type=image wraps visual markdown in <figure>."""
+    _make_mock_merge(monkeypatch, "![fig](img.png)")
+    from local_pdf.workers.mineru import _block_to_html
+
+    html = _block_to_html({"type": "image", "bbox": [0, 300, 400, 500]})
+    assert html == "<figure>![fig](img.png)</figure>"
+
+
+def test_block_to_html_header_position_wraps_in_header(monkeypatch) -> None:
+    """A text block in the top 8% of the page becomes <header class='page-header'>."""
+    _make_mock_merge(monkeypatch, "Running Head")
+    from local_pdf.workers.mineru import _block_to_html
+
+    # Page height 1000pts; block y0=0..y1=70 is within top 8% (80 pts)
+    html = _block_to_html(
+        {"type": "text", "bbox": [0, 0, 300, 70]},
+        page_size=(700.0, 1000.0),
+    )
+    assert "<header" in html and "page-header" in html
+
+
+def test_block_to_html_footer_position_wraps_in_footer(monkeypatch) -> None:
+    """A text block in the bottom 8% of the page becomes <footer class='page-footer'>."""
+    _make_mock_merge(monkeypatch, "Page Footer")
+    from local_pdf.workers.mineru import _block_to_html
+
+    # Page height 1000pts; block y0=930 is above bottom threshold (920pts)
+    html = _block_to_html(
+        {"type": "text", "bbox": [0, 930, 300, 960]},
+        page_size=(700.0, 1000.0),
+    )
+    assert "<footer" in html and "page-footer" in html
+
+
+def test_block_to_html_page_number_detection(monkeypatch) -> None:
+    """A short all-digit block in header/footer zone becomes <span class='page-number'>."""
+    _make_mock_merge(monkeypatch, "42")
+    from local_pdf.workers.mineru import _block_to_html
+
+    html = _block_to_html(
+        {"type": "text", "bbox": [300, 950, 400, 970]},
+        page_size=(700.0, 1000.0),
+    )
+    assert 'class="page-number"' in html
+    assert "42" in html

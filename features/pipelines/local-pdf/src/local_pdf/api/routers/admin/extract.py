@@ -38,9 +38,53 @@ def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_PDF_STYLE = (
+    "<style>"
+    "body{font-family:Georgia,'Times New Roman',serif;"
+    "max-width:720px;margin:2rem auto;line-height:1.6;color:#1f2937}"
+    "h1{font-size:2em;font-weight:bold;text-align:center;margin:1.5em 0 0.5em}"
+    "h2{font-size:1.5em;font-weight:bold;margin:1.2em 0 0.4em;"
+    "border-bottom:1px solid #d1d5db;padding-bottom:0.2em}"
+    "h3{font-size:1.2em;font-weight:bold;margin:1em 0 0.3em}"
+    "p{margin:0.6em 0}"
+    ".page-header,.page-footer{font-size:0.75em;color:#6b7280;"
+    "text-align:center;margin:0.5em 0}"
+    ".page-number{display:inline-block;font-size:0.75em;color:#6b7280}"
+    ".extracted-table{margin:1em 0;overflow-x:auto}"
+    ".extracted-table table{border-collapse:collapse;width:100%}"
+    ".extracted-table th,.extracted-table td{"
+    "border:1px solid #d1d5db;padding:0.4em 0.6em}"
+    ".toc{margin:1em 0;padding-left:1em}"
+    ".md-list{margin:0.6em 0;padding-left:1.5em}"
+    "pre{background:#f3f4f6;padding:1em;border-radius:4px;overflow-x:auto}"
+    'code{font-family:"SF Mono",Menlo,monospace}'
+    "hr.page-break{border:none;border-top:2px dashed #d1d5db;margin:2em 0}"
+    "</style>"
+)
+
+
 def _wrap_html(elements: list[dict]) -> str:
-    body = "\n".join(e["html_snippet"] for e in elements)
-    return f"<!DOCTYPE html>\n<html><body>\n{body}\n</body></html>\n"
+    """Wrap extracted HTML snippets with PDF-like typography and page-break separators.
+
+    Inserts ``<hr class="page-break">`` between elements from different pages.
+    The page number is derived from the box_id prefix (``pN-bM`` convention).
+    """
+
+    def _page_from_box_id(box_id: str) -> str:
+        """Return the page prefix (e.g. 'p1') from a box_id like 'p1-b0'."""
+        return box_id.split("-")[0] if box_id else ""
+
+    parts: list[str] = []
+    prev_page = ""
+    for e in elements:
+        cur_page = _page_from_box_id(e.get("box_id", ""))
+        if prev_page and cur_page != prev_page:
+            parts.append('<hr class="page-break">')
+        parts.append(e["html_snippet"])
+        prev_page = cur_page
+
+    body = "\n".join(parts)
+    return f"<!DOCTYPE html>\n<html><head>{_PDF_STYLE}</head><body>\n{body}\n</body></html>\n"
 
 
 @router.post("/api/admin/docs/{slug}/extract")
