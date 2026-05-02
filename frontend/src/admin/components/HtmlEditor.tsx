@@ -5,6 +5,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 import { html as htmlLang } from "@codemirror/lang-html";
+import { T } from "../styles/typography";
 
 // PDF-style typography mirroring extract.py _PDF_STYLE, scoped to ProseMirror.
 // TipTap strips the <style> block from the HTML it parses, but we can style
@@ -107,9 +108,9 @@ export function HtmlEditor({ html, onChange, onClickElement }: Props): JSX.Eleme
       <style>{WYSIWYG_STYLE}</style>
 
       <div className="flex justify-between items-center p-2 border-b">
-        <span className="text-sm font-semibold">HTML editor</span>
+        <span className={`${T.heading}`}>HTML editor</span>
         {/* 3-button segmented control */}
-        <div className="flex rounded overflow-hidden border border-slate-300 text-xs" role="group" aria-label="Editor mode">
+        <div className={`flex rounded overflow-hidden border border-slate-300 ${T.body}`} role="group" aria-label="Editor mode">
           {modeButtons.map(({ key, label }) => (
             <button
               key={key}

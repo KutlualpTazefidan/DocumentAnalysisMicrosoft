@@ -5,6 +5,7 @@ import { useToast } from "../../shared/components/useToast";
 import { assignCurator, listCurators, listDocCurators, unassignCurator } from "../api/docs";
 import type { CuratorRecord } from "../types/domain";
 import { DocStepTabs } from "../components/DocStepTabs";
+import { T } from "../styles/typography";
 
 interface Props {
   /** Override token for testing; in production the component reads it from useAuth(). */
@@ -54,17 +55,17 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
       <div className="p-6 overflow-auto flex-1">
-      <h1 className="text-xl font-semibold mb-6">Curators for doc: {slug}</h1>
+      <h1 className={`${T.cardTitle} mb-6`}>Curators for doc: {slug}</h1>
 
       <div className="flex gap-8">
         {/* Left pane: all curators — click to assign */}
         <div className="flex-1">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase mb-2">All curators</h2>
-          <table className="w-full text-sm">
+          <h2 className={`${T.tinyBold} mb-2`}>All curators</h2>
+          <table className={`w-full ${T.body}`}>
             <thead>
               <tr className="text-left border-b">
                 <th className="p-2">Name</th>
@@ -78,7 +79,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
                   <td className="p-2 text-right">
                     {!assignedIds.has(c.id) && (
                       <button
-                        className="text-blue-600 hover:underline text-xs"
+                        className={`text-blue-600 hover:underline ${T.body}`}
                         onClick={() => assignMut.mutate(c.id)}
                         disabled={assignMut.isPending}
                         aria-label={`assign ${c.name}`}
@@ -91,7 +92,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
               ))}
               {allCuratorsQuery.data?.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="p-4 text-center text-slate-400">No curators yet.</td>
+                  <td colSpan={2} className={`p-4 text-center text-slate-400 ${T.body}`}>No curators yet.</td>
                 </tr>
               )}
             </tbody>
@@ -100,8 +101,8 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
 
         {/* Right pane: doc's assigned curators */}
         <div className="flex-1">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase mb-2">Assigned to this doc</h2>
-          <table className="w-full text-sm">
+          <h2 className={`${T.tinyBold} mb-2`}>Assigned to this doc</h2>
+          <table className={`w-full ${T.body}`}>
             <thead>
               <tr className="text-left border-b">
                 <th className="p-2">Name</th>
@@ -114,7 +115,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
                   <td className="p-2">{c.name}</td>
                   <td className="p-2 text-right">
                     <button
-                      className="text-red-600 hover:underline text-xs"
+                      className={`text-red-600 hover:underline ${T.body}`}
                       onClick={() => unassignMut.mutate(c.id)}
                       disabled={unassignMut.isPending}
                       aria-label={`unassign ${c.name}`}
@@ -126,7 +127,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
               ))}
               {docCuratorsQuery.data?.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="p-4 text-center text-slate-400">No curators assigned.</td>
+                  <td colSpan={2} className={`p-4 text-center text-slate-400 ${T.body}`}>No curators assigned.</td>
                 </tr>
               )}
             </tbody>

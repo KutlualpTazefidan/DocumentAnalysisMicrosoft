@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { SegmentBox } from "../types/domain";
 import "../styles/box-colors.css";
+import { T } from "../styles/typography";
 
 interface Props {
   box: SegmentBox;
@@ -73,7 +74,7 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       {box.continues_from && (
         <span
           data-testid={`continues-from-indicator-${box.box_id}`}
-          className="absolute top-0 right-0 text-xs text-white bg-slate-700 px-1 rounded"
+          className={`absolute top-0 right-0 ${T.tiny} text-white bg-slate-700 px-1 rounded`}
           style={{ fontSize: "0.65rem" }}
         >
           ↑ p{box.page - 1}
@@ -82,7 +83,7 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       {box.continues_to && (
         <span
           data-testid={`continues-to-indicator-${box.box_id}`}
-          className="absolute bottom-0 right-0 text-xs text-white bg-slate-700 px-1 rounded"
+          className={`absolute bottom-0 right-0 ${T.tiny} text-white bg-slate-700 px-1 rounded`}
           style={{ fontSize: "0.65rem" }}
         >
           ↓ p{box.page + 1}

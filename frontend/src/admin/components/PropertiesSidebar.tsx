@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { BoxKind, SegmentBox } from "../types/domain";
+import { T } from "../styles/typography";
 
 const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "auxiliary", "discard"];
 
@@ -19,7 +20,7 @@ function pageStateFor(
 }
 
 function pageButtonClasses(state: PageState, isActive: boolean): string {
-  const base = "w-10 h-10 rounded text-xs font-medium flex items-center justify-center transition-colors";
+  const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center transition-colors`;
   const ring = isActive ? " ring-2 ring-blue-500" : "";
   switch (state) {
     case "approved":
@@ -117,9 +118,9 @@ export function PropertiesSidebar({
   const [gridOpen, setGridOpen] = useState(false);
   const currentState = pageStateFor(currentPage, segmentedPages, approvedPages);
   return (
-    <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
+    <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 bg-white overflow-y-auto">
       {/* ── Legend strip — single line, always visible ──────────────── */}
-      <div className="flex items-center justify-between gap-1 text-[11px] text-slate-600 whitespace-nowrap">
+      <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
         <span className="flex items-center gap-1">
           <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
           Nicht segm.
@@ -139,7 +140,7 @@ export function PropertiesSidebar({
         aria-label={`Seite ${currentPage} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
         aria-expanded={gridOpen}
         onClick={() => setGridOpen((p) => !p)}
-        className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 text-xs transition-colors`}
+        className={`${pageButtonClasses(currentState, true)} w-full !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
         data-testid="seg-page-grid-toggle"
       >
         <span>Seite {currentPage} / {totalPages}</span>
@@ -201,7 +202,7 @@ export function PropertiesSidebar({
             ? "Seite ist gesperrt. Erst entsperren um neu zu segmentieren."
             : undefined
         }
-        className="w-full text-xs px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+        className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
         disabled={running || approvedPages.has(currentPage)}
         onClick={onResegmentPage}
       >
@@ -215,8 +216,8 @@ export function PropertiesSidebar({
         aria-label={approvedPages.has(currentPage) ? "Seite entsperren" : "Seite sperren"}
         className={
           approvedPages.has(currentPage)
-            ? "text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full"
-            : "text-xs px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full"
+            ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
+            : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
         }
         onClick={onToggleApprove}
       >
@@ -225,7 +226,7 @@ export function PropertiesSidebar({
 
       {/* ── Per-page confidence slider ─────────────────────────────────── */}
       <div className="flex flex-col gap-1">
-        <span className="text-xs text-slate-500">Confidence (Seite {currentPage})</span>
+        <span className={T.bodyMuted}>Confidence (Seite {currentPage})</span>
         <div className="flex items-center gap-2">
           <input
             data-testid="per-page-conf-slider"
@@ -238,7 +239,7 @@ export function PropertiesSidebar({
             onChange={(e) => onPerPageChange(parseFloat(e.target.value))}
             className="flex-1 accent-blue-500"
           />
-          <span className="font-mono text-xs text-slate-700 w-8 text-center">{perPageThreshold.toFixed(2)}</span>
+          <span className={`${T.mono} text-slate-700 w-8 text-center`}>{perPageThreshold.toFixed(2)}</span>
           <button
             data-testid="per-page-conf-reset"
             aria-label="Reset per-page confidence override"
@@ -254,7 +255,7 @@ export function PropertiesSidebar({
 
       {/* ── Page action buttons ────────────────────────────────────────── */}
       <button
-        className="w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50"
+        className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50`}
         onClick={onNewBox}
       >
         New box
@@ -262,7 +263,7 @@ export function PropertiesSidebar({
 
       <button
         aria-label="Reset diese Seite"
-        className="w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed`}
         disabled={running}
         onClick={onResetPage}
       >
@@ -273,12 +274,12 @@ export function PropertiesSidebar({
 
       {/* ── Section: Properties ────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Properties</span>
+        <span className={T.tinyBold}>Properties</span>
 
         {selected ? (
           <>
             <div>
-              <label className="block text-xs text-slate-500">Kind</label>
+              <label className={`block ${T.bodyMuted}`}>Kind</label>
               <select
                 className="w-full border rounded p-1 text-slate-900"
                 value={selected.kind}
@@ -292,14 +293,14 @@ export function PropertiesSidebar({
               </select>
             </div>
 
-            <div className="text-xs text-slate-700">
+            <div className={`${T.body} text-slate-700`}>
               Confidence: {selected.confidence.toFixed(2)}
             </div>
 
             {/* Bbox 2x2 grid */}
             <div>
-              <span className="text-xs text-slate-500">bbox</span>
-              <div className="grid grid-cols-2 gap-1 text-xs font-mono mt-1">
+              <span className={T.bodyMuted}>bbox</span>
+              <div className={`grid grid-cols-2 gap-1 ${T.mono} mt-1`}>
                 <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
                   x0: {selected.bbox[0].toFixed(3)}
                 </div>
@@ -396,7 +397,7 @@ export function PropertiesSidebar({
       </div>
 
       <div className="border-t border-slate-200 pt-3 mt-auto">
-        <p className="text-xs text-slate-500">{pageBoxCount} boxes on page</p>
+        <p className={T.bodyMuted}>{pageBoxCount} boxes on page</p>
       </div>
     </aside>
   );

@@ -5,6 +5,7 @@ import { useParams } from "react-router-dom";
 import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
+import { T } from "../styles/typography";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
@@ -70,7 +71,7 @@ function pageStateFor(
 }
 
 function pageButtonClasses(state: PageState, isActive: boolean): string {
-  const base = "w-10 h-10 rounded text-xs font-medium flex items-center justify-center transition-colors";
+  const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center transition-colors`;
   const ring = isActive ? " ring-2 ring-blue-500" : "";
   switch (state) {
     case "approved":
@@ -247,7 +248,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     <div className="flex items-center gap-1.5">
       <button
         aria-label="Re-extract this box"
-        className="text-xs px-3 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+        className={`${T.body} px-3 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed`}
         onClick={handleReExtractBox}
         disabled={!highlight || running}
       >
@@ -255,7 +256,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </button>
       <button
         aria-label="Re-extract this page"
-        className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
         onClick={runExtractThisPage}
         disabled={running}
       >
@@ -263,7 +264,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </button>
       <button
         aria-label="Re-extract all"
-        className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
         onClick={runExtract}
         disabled={running}
       >
@@ -271,7 +272,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </button>
       <button
         aria-label="Export sourceelements.json"
-        className="text-xs px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`${T.body} px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
         onClick={handleExport}
         disabled={exportSrc.isPending}
       >
@@ -279,17 +280,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </button>
       {/* Status dot */}
       {running && (
-        <span className="text-xs text-navy-200 animate-pulse ml-1">Extracting…</span>
+        <span className={`${T.body} text-navy-200 animate-pulse ml-1`}>Extracting…</span>
       )}
       {!running && savingStatus && (
-        <span className="text-xs text-navy-200 ml-1">{savingStatus}</span>
+        <span className={`${T.body} text-navy-200 ml-1`}>{savingStatus}</span>
       )}
     </div>
   );
 
   // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
-    <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
       <DocStepTabs slug={slug!} />
       {actionButtons}
     </div>
@@ -301,8 +302,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         {topBar}
         <div className="flex-1 flex items-center justify-center">
           <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-8 max-w-sm w-full text-center space-y-4">
-            <h2 className="text-lg font-semibold text-slate-800">No extraction yet</h2>
-            <p className="text-sm text-slate-500">
+            <h2 className={`${T.cardTitle} text-slate-800`}>No extraction yet</h2>
+            <p className={T.cardSubtle}>
               Pages: {totalPages}. Click below to run extraction on all pages.
             </p>
             <button
@@ -342,7 +343,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             </button>
             <button
               aria-label="Reset zoom"
-              className="px-1 text-xs text-slate-700 hover:text-slate-900 font-mono w-12 text-center"
+              className={`px-1 ${T.mono} text-slate-700 hover:text-slate-900 w-12 text-center`}
               onClick={() => persistScale(1.2)}
               title="Reset to 120%"
             >
@@ -383,9 +384,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         </div>
 
         {/* Sidebar — colored page-button grid */}
-        <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 text-sm bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
+        <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
           {/* Legend strip — single line, always visible */}
-          <div className="flex items-center justify-between gap-1 text-[11px] text-slate-600 whitespace-nowrap">
+          <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
               Nicht extr.
@@ -405,7 +406,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
             aria-expanded={gridOpen}
             onClick={() => setGridOpen((p) => !p)}
-            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 text-xs transition-colors`}
+            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
             data-testid="extract-page-grid-toggle"
           >
             <span>Seite {page} / {totalPages}</span>
@@ -464,8 +465,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             aria-label={approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
             className={
               approvedPages.has(page)
-                ? "text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full"
-                : "text-xs px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full"
+                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
+                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
             }
             onClick={handleToggleApprove}
           >
@@ -474,13 +475,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
           {/* Conf filter status indicator */}
           <p
-            className="text-xs text-slate-500 text-center"
+            className={`${T.bodyMuted} text-center`}
             data-testid="conf-filter-status"
           >
             Filter aktiv: Conf ≥ {confThresholdForPage.toFixed(2)}
           </p>
 
-          <p className="text-xs text-slate-400 text-center">
+          <p className={`${T.body} text-slate-400 text-center`}>
             {boxesOnPage.length} boxes on page {page}
           </p>
         </aside>

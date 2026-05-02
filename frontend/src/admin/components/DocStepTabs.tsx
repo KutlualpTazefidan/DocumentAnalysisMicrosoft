@@ -1,6 +1,7 @@
 // frontend/src/admin/components/DocStepTabs.tsx
 import { FileText, Folder, Scissors, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
+import { T } from "../styles/typography";
 
 interface Props {
   slug?: string;
@@ -27,7 +28,7 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
   const activeTabClass = "text-white border-b-2 border-blue-400";
   const inactiveTabClass = "text-navy-200 hover:text-white hover:bg-navy-700/40";
   const disabledTabClass = "text-navy-500 opacity-50 cursor-not-allowed";
-  const baseTabClass = "flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors";
+  const baseTabClass = `flex items-center gap-2 px-4 py-2 ${T.body} font-medium transition-colors`;
 
   return (
     <nav role="tablist" className="flex items-center border-b border-navy-700 -mb-px">

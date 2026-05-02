@@ -1,4 +1,5 @@
 import type { WorkerEvent } from "../types/domain";
+import { T } from "../styles/typography";
 
 interface Props {
   events: WorkerEvent[];
@@ -51,7 +52,7 @@ const MARKER_CLASS: Record<string, string> = {
 
 export function StageTimeline({ events }: Props): JSX.Element {
   return (
-    <ul data-testid="stage-timeline" className="text-xs space-y-1 p-2 max-h-64 overflow-auto">
+    <ul data-testid="stage-timeline" className={`${T.body} space-y-1 p-2 max-h-64 overflow-auto`}>
       {events.map((ev, i) => {
         const { marker, text } = describeEvent(ev);
         return (

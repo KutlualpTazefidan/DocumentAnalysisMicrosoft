@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { StreamState } from "../streamReducer";
 import { StageTimeline } from "./StageTimeline";
+import { T } from "../styles/typography";
 
 interface Props {
   state: StreamState;
@@ -40,7 +41,7 @@ export function StageIndicator({ state }: Props): JSX.Element | null {
       <button
         data-testid="stage-toggle"
         onClick={() => setOpen((p) => !p)}
-        className="flex items-center gap-2 bg-white border rounded px-3 py-1 text-xs shadow"
+        className={`flex items-center gap-2 bg-white border rounded px-3 py-1 ${T.body} shadow`}
       >
         <span data-testid="stage-dot" className={`inline-block w-2 h-2 rounded-full ${DOT_CLASS[state.stage] ?? "bg-gray-400"}`} />
         <span className="font-medium">{state.model ?? "—"}</span>

@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { DocStepTabs } from "../components/DocStepTabs";
+import { T } from "../styles/typography";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8001";
 
@@ -52,17 +53,17 @@ function SynthesiseInner({ slug, token }: SynthesiseInnerProps): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-8 w-full max-w-lg space-y-4">
-          <h2 className="text-lg font-semibold text-slate-800">Test LLM</h2>
+          <h2 className={`${T.cardTitle} text-slate-800`}>Test LLM</h2>
 
           <textarea
             aria-label="LLM prompt"
-            className="w-full border border-slate-300 rounded px-3 py-2 text-sm resize-y min-h-[96px] focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className={`w-full border border-slate-300 rounded px-3 py-2 ${T.body} resize-y min-h-[96px] focus:outline-none focus:ring-2 focus:ring-blue-400`}
             placeholder="Summarize the first paragraph of this document"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -71,7 +72,7 @@ function SynthesiseInner({ slug, token }: SynthesiseInnerProps): JSX.Element {
 
           <button
             aria-label="Test LLM"
-            className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium text-sm"
+            className={`w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium ${T.body}`}
             onClick={handleTest}
             disabled={loading || !prompt.trim()}
           >
@@ -80,10 +81,10 @@ function SynthesiseInner({ slug, token }: SynthesiseInnerProps): JSX.Element {
 
           {result && (
             <div aria-label="LLM response" className="space-y-1">
-              <p className="text-xs text-slate-500">
+              <p className={T.bodyMuted}>
                 {result.model} &middot; {result.elapsed_seconds.toFixed(2)}s
               </p>
-              <pre className="whitespace-pre-wrap text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded p-3">
+              <pre className={`whitespace-pre-wrap ${T.body} text-slate-800 bg-slate-50 border border-slate-200 rounded p-3`}>
                 {result.response}
               </pre>
             </div>

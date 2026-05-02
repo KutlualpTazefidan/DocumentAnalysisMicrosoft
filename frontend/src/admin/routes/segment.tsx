@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
+import { T } from "../styles/typography";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
@@ -324,11 +325,11 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug!} />
 
         {/* Right-aligned group: Confidence input + Show deactivated + action buttons */}
-        <div className="flex items-center gap-3 ml-auto text-xs">
+        <div className={`flex items-center gap-3 ml-auto ${T.body}`}>
           <label className="flex items-center gap-1 text-navy-100 whitespace-nowrap">
             Confidence
             <input
@@ -339,7 +340,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
               step={0.05}
               value={confState.default.toFixed(2)}
               onChange={(e) => handleDefaultThresholdChange(parseFloat(e.target.value) || 0)}
-              className="w-14 border border-navy-600 rounded px-1 py-0.5 text-xs bg-navy-700 text-white text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className={`w-14 border border-navy-600 rounded px-1 py-0.5 ${T.body} bg-navy-700 text-white text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
             />
           </label>
           <label className="flex items-center gap-1 text-navy-100 cursor-pointer">
@@ -354,7 +355,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           </label>
           <button
             aria-label="Mehr Seiten segmentieren"
-            className="text-xs px-3 py-1 rounded border border-blue-300 text-blue-200 hover:bg-blue-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`${T.body} px-3 py-1 rounded border border-blue-300 text-blue-200 hover:bg-blue-900 disabled:opacity-40 disabled:cursor-not-allowed`}
             disabled={running}
             onClick={openMoreDialog}
           >
@@ -362,7 +363,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           </button>
           <button
             aria-label="Alle Seiten segmentieren"
-            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
+            className={`${T.body} bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed`}
             disabled={running}
             onClick={() => runSegmentRange()}
           >
@@ -389,7 +390,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
             </button>
             <button
               aria-label="Reset zoom"
-              className="px-1 text-xs text-slate-700 hover:text-slate-900 font-mono w-12 text-center"
+              className={`px-1 ${T.mono} text-slate-700 hover:text-slate-900 w-12 text-center`}
               onClick={() => persistScale(1.5)}
               title="Reset to 150%"
             >
@@ -429,7 +430,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
               className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
             >
               <div className="bg-white/90 backdrop-blur border border-slate-200 rounded-lg shadow-md px-6 py-4 max-w-sm text-center pointer-events-auto">
-                <p className="text-slate-700 text-sm">
+                <p className={`text-slate-700 ${T.body}`}>
                   Noch keine Segmentierung. Wähle Seiten und klicke{" "}
                   <span className="font-medium">'Alle Seiten segmentieren'</span> oben rechts.
                 </p>
@@ -481,7 +482,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           <div className="bg-white rounded shadow-lg p-6 flex flex-col gap-4 min-w-[300px]">
             <h3 className="font-semibold text-slate-900">Seiten-Bereich segmentieren</h3>
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1 text-sm">
+              <label className={`flex items-center gap-1 ${T.body}`}>
                 Von Seite
                 <input
                   aria-label="Mehr von Seite"
@@ -490,10 +491,10 @@ export function SegmentRoute({ token }: Props): JSX.Element {
                   max={totalPages}
                   value={moreStart}
                   onChange={(e) => setMoreStart(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="w-16 border rounded px-1 py-0.5 text-sm"
+                  className={`w-16 border rounded px-1 py-0.5 ${T.body}`}
                 />
               </label>
-              <label className="flex items-center gap-1 text-sm">
+              <label className={`flex items-center gap-1 ${T.body}`}>
                 Bis Seite
                 <input
                   aria-label="Mehr bis Seite"
@@ -502,7 +503,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
                   max={totalPages}
                   value={moreEnd}
                   onChange={(e) => setMoreEnd(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="w-16 border rounded px-1 py-0.5 text-sm"
+                  className={`w-16 border rounded px-1 py-0.5 ${T.body}`}
                 />
               </label>
             </div>
