@@ -36,7 +36,7 @@ export function StageIndicator({ state }: Props): JSX.Element | null {
   const eta = fmtEta(state.eta_seconds);
 
   return (
-    <div className="absolute top-2 right-2 z-30">
+    <div className="fixed bottom-2 left-2 z-30 flex flex-col-reverse">
       <button
         data-testid="stage-toggle"
         onClick={() => setOpen((p) => !p)}
@@ -53,7 +53,7 @@ export function StageIndicator({ state }: Props): JSX.Element | null {
         {state.vram_mb > 0 ? <span>• {state.vram_mb}MB</span> : null}
       </button>
       {open ? (
-        <div className="mt-1 bg-white border rounded shadow w-96">
+        <div className="mb-1 bg-white border rounded shadow w-96 max-h-80 overflow-auto">
           <StageTimeline events={state.timeline} />
         </div>
       ) : null}
