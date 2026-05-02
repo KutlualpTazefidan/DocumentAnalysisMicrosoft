@@ -1,21 +1,68 @@
 import type { BoxKind, SegmentBox } from "../types/domain";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Pagination } from "./Pagination";
 
 const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "auxiliary", "discard"];
 
+// ── Page-state helpers ─────────────────────────────────────────────────────────
+
+type PageState = "no-segmentation" | "segmented" | "approved";
+
+function pageStateFor(
+  pageNum: number,
+  segmentedPages: Set<number>,
+  approvedPages: Set<number>,
+): PageState {
+  if (approvedPages.has(pageNum)) return "approved";
+  if (segmentedPages.has(pageNum)) return "segmented";
+  return "no-segmentation";
+}
+
+function pageButtonClasses(state: PageState, isActive: boolean): string {
+  const base = "w-10 h-10 rounded text-xs font-medium flex items-center justify-center transition-colors";
+  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  switch (state) {
+    case "approved":
+      return `${base} bg-blue-100 hover:bg-blue-200 text-blue-800${ring}`;
+    case "segmented":
+      return `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`;
+    case "no-segmentation":
+    default:
+      return `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
+  }
+}
+
+// ── Approval helpers (v1: localStorage) ───────────────────────────────────────
+
+function approvedPagesKey(slug: string): string {
+  return `segment.approved.${slug}`;
+}
+
+export function loadApprovedSegmentPages(slug: string): Set<number> {
+  try {
+    const raw = localStorage.getItem(approvedPagesKey(slug));
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as number[];
+    return new Set(arr);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveApprovedSegmentPages(slug: string, pages: Set<number>): void {
+  localStorage.setItem(approvedPagesKey(slug), JSON.stringify([...pages]));
+}
+
 interface Props {
+  slug: string;
   selected: SegmentBox | null;
   pageBoxCount: number;
   currentPage: number;
   totalPages: number;
-  confidenceThreshold: number;
-  showDeactivated: boolean;
-  onConfidenceChange: (v: number) => void;
-  onShowDeactivatedChange: (v: boolean) => void;
-  onRunExtractThisPage: () => void;
+  /** Set of page numbers that have at least one segmentation box */
+  segmentedPages: Set<number>;
+  /** Set of page numbers approved by user (controlled externally) */
+  approvedPages: Set<number>;
+  onToggleApprove: () => void;
   onResetPage: () => void;
-  extractEnabled: boolean;
   running: boolean;
   onChangeKind: (k: BoxKind) => void;
   onNewBox: () => void;
@@ -26,22 +73,19 @@ interface Props {
   onMergeDown: () => void;
   onUnmergeUp: () => void;
   onUnmergeDown: () => void;
-  onMorePages?: () => void;
   onPageChange: (page: number) => void;
 }
 
 export function PropertiesSidebar({
+  slug: _slug,
   selected,
   pageBoxCount,
   currentPage,
   totalPages,
-  confidenceThreshold,
-  showDeactivated,
-  onConfidenceChange,
-  onShowDeactivatedChange,
-  onRunExtractThisPage,
+  segmentedPages,
+  approvedPages,
+  onToggleApprove,
   onResetPage,
-  extractEnabled,
   running,
   onChangeKind,
   onNewBox,
@@ -52,86 +96,60 @@ export function PropertiesSidebar({
   onMergeDown,
   onUnmergeUp,
   onUnmergeDown,
-  onMorePages,
   onPageChange,
 }: Props): JSX.Element {
   return (
-    <aside className="w-80 border-l px-8 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
-      {/* ── Pagination ─────────────────────────────────────────────── */}
-      <div className="flex justify-center">
-        <Pagination page={currentPage} totalPages={totalPages} onPageChange={onPageChange} />
+    <aside className="w-80 border-l px-4 py-4 flex flex-col gap-3 text-sm bg-white overflow-y-auto">
+      {/* ── Legend strip ───────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="w-3 h-3 rounded bg-red-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Nicht segmentiert</span>
+        <span className="w-3 h-3 rounded bg-green-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Segmentiert</span>
+        <span className="w-3 h-3 rounded bg-blue-200 inline-block" aria-hidden="true" />
+        <span className="text-xs text-slate-600">Genehmigt</span>
       </div>
 
-      <div className="flex items-center justify-center gap-2">
-        <button
-          aria-label="Previous page"
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage <= 1}
-          className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ChevronLeft className="w-4 h-4 text-slate-700" />
-        </button>
-
-        <h2 className="font-semibold text-slate-900 text-center min-w-[6rem]">
-          Seite {currentPage} / {totalPages}
-        </h2>
-
-        <button
-          aria-label="Next page"
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages}
-          className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ChevronRight className="w-4 h-4 text-slate-700" />
-        </button>
+      {/* ── Page-button grid (5 cols) ───────────────────────────────────── */}
+      <div className="grid grid-cols-5 gap-1" role="group" aria-label="Page navigation">
+        {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+          const state = pageStateFor(p, segmentedPages, approvedPages);
+          return (
+            <button
+              key={p}
+              aria-label={`Page ${p}`}
+              aria-pressed={p === currentPage}
+              className={pageButtonClasses(state, p === currentPage)}
+              onClick={() => onPageChange(p)}
+              data-testid={`seg-page-btn-${p}`}
+            >
+              {p}
+            </button>
+          );
+        })}
       </div>
 
-      <hr className="my-3 border-slate-200" />
+      {/* ── Seite X / Y heading ───────────────────────────────────────── */}
+      <h2 className="font-semibold text-slate-900 text-center min-w-[6rem]">
+        Seite {currentPage} / {totalPages}
+      </h2>
 
-      {/* ── Section: Filter ────────────────────────────────────────── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter</span>
+      <hr className="border-slate-200" />
 
-        <div className="flex items-center gap-2">
-          <label htmlFor="conf-slider" className="text-xs text-slate-700 whitespace-nowrap">
-            Conf ≥ {confidenceThreshold.toFixed(2)}
-          </label>
-          <input
-            id="conf-slider"
-            aria-label="Confidence threshold"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={confidenceThreshold}
-            onChange={(e) => onConfidenceChange(parseFloat(e.target.value))}
-            className="flex-1 accent-blue-600"
-          />
-        </div>
+      {/* ── Approve current page ──────────────────────────────────────── */}
+      <button
+        aria-label={approvedPages.has(currentPage) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+        className={
+          approvedPages.has(currentPage)
+            ? "text-xs px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full"
+            : "text-xs px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full"
+        }
+        onClick={onToggleApprove}
+      >
+        {approvedPages.has(currentPage) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
+      </button>
 
-        <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-          <input
-            aria-label="Show deactivated"
-            type="checkbox"
-            checked={showDeactivated}
-            onChange={(e) => onShowDeactivatedChange(e.target.checked)}
-            className="accent-blue-600"
-          />
-          Show deactivated
-        </label>
-      </div>
-
-      {/* ── Page action buttons ────────────────────────────────────── */}
-      {onMorePages && (
-        <button
-          aria-label="Mehr Seiten segmentieren"
-          className="w-full py-2 rounded border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50"
-          onClick={onMorePages}
-        >
-          + Mehr Seiten segmentieren
-        </button>
-      )}
-
+      {/* ── Page action buttons ────────────────────────────────────────── */}
       <button
         className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
         onClick={onNewBox}
@@ -148,18 +166,9 @@ export function PropertiesSidebar({
         Reset diese Seite
       </button>
 
-      <button
-        aria-label="Nur diese Seite extrahieren"
-        className="w-full py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        disabled={!extractEnabled || running}
-        onClick={onRunExtractThisPage}
-      >
-        {running ? "Running…" : "Nur diese Seite extrahieren"}
-      </button>
+      <hr className="border-slate-200" />
 
-      <hr className="my-3 border-slate-200" />
-
-      {/* ── Section: Properties ────────────────────────────────────── */}
+      {/* ── Section: Properties ────────────────────────────────────────── */}
       <div className="flex flex-col gap-3">
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Properties</span>
 
@@ -249,8 +258,8 @@ export function PropertiesSidebar({
                 aria-label="Deactivate"
                 className={`px-2 py-1 rounded ${
                   selected.kind === "discard"
-                    ? "bg-red-700 text-white border border-red-700"  // chosen → strong red filled
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"  // not chosen → outline
+                    ? "bg-red-700 text-white border border-red-700"
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
                 }`}
                 onClick={onDeactivate}
               >
@@ -260,8 +269,8 @@ export function PropertiesSidebar({
                 aria-label="Activate"
                 className={`px-2 py-1 rounded ${
                   selected.manually_activated
-                    ? "bg-green-700 text-white border border-green-700"  // chosen → strong green filled
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"  // not chosen → outline
+                    ? "bg-green-700 text-white border border-green-700"
+                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
                 }`}
                 onClick={onActivate}
               >

@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { ExtractRoute } from "../../../src/admin/routes/extract";
@@ -14,8 +14,10 @@ vi.mock("../../../src/admin/hooks/usePdfPage", () => ({
 }));
 
 const BOXES = [
-  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0 },
-  { box_id: "p2-b0", page: 2, bbox: [10, 20, 100, 50], kind: "paragraph", confidence: 0.88, reading_order: 0 },
+  { box_id: "p1-b0", page: 1, bbox: [10, 20, 100, 50], kind: "heading", confidence: 0.95, reading_order: 0, manually_activated: false },
+  { box_id: "p2-b0", page: 2, bbox: [10, 20, 100, 50], kind: "paragraph", confidence: 0.88, reading_order: 0, manually_activated: false },
+  // Low-confidence box on page 1 — filtered by default threshold 0.70
+  { box_id: "p1-b1", page: 1, bbox: [10, 60, 100, 200], kind: "paragraph", confidence: 0.50, reading_order: 1, manually_activated: false },
 ];
 
 const MINERU_DATA = {
@@ -240,4 +242,62 @@ describe("ExtractRoute", () => {
       expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument(),
     );
   });
+
+  // ── Confidence filter (from segment.confThreshold localStorage) ────────
+
+  it("conf filter status indicator is always visible", async () => {
+    render(wrap());
+    await waitForEditor();
+    await waitFor(() =>
+      expect(screen.getByTestId("conf-filter-status")).toBeInTheDocument(),
+    );
+  });
+
+  it("conf filter status shows default threshold 0.70 when no localStorage key", async () => {
+    render(wrap());
+    await waitForEditor();
+    await waitFor(() => {
+      const indicator = screen.getByTestId("conf-filter-status");
+      expect(indicator.textContent).toContain("0.70");
+    });
+  });
+
+  it("low-confidence box on page 1 is hidden by default (conf filter applied)", async () => {
+    render(wrap());
+    await waitForEditor();
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // p1-b1 has confidence 0.50 < 0.70 → hidden
+    expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
+  });
+
+  it("conf filter threshold read from localStorage segment.confThreshold.{slug}", async () => {
+    // Set a per-doc default of 0.40 → low-confidence box (0.50) should become visible
+    localStorage.setItem(
+      "segment.confThreshold.rep",
+      JSON.stringify({ default: 0.40, perPage: {} }),
+    );
+    render(wrap());
+    await waitForEditor();
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // p1-b1 has confidence 0.50 >= 0.40 → visible
+    await waitFor(() =>
+      expect(screen.getByTestId("box-p1-b1")).toBeInTheDocument(),
+    );
+  });
+
+  it("conf filter status reflects per-page override when set in localStorage", async () => {
+    localStorage.setItem(
+      "segment.confThreshold.rep",
+      JSON.stringify({ default: 0.70, perPage: { 1: 0.55 } }),
+    );
+    render(wrap());
+    await waitForEditor();
+    await waitFor(() => {
+      const indicator = screen.getByTestId("conf-filter-status");
+      expect(indicator.textContent).toContain("0.55");
+    });
+  });
 });
+
+// suppress unused import warning from vi.MockInstance
+void (undefined as unknown as MockInstance);

@@ -9,7 +9,11 @@ import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { PdfPage } from "../components/PdfPage";
-import { PropertiesSidebar } from "../components/PropertiesSidebar";
+import {
+  PropertiesSidebar,
+  loadApprovedSegmentPages,
+  saveApprovedSegmentPages,
+} from "../components/PropertiesSidebar";
 import { StageIndicator } from "../components/StageIndicator";
 import { useBoxHotkeys } from "../hooks/useBoxHotkeys";
 import {
@@ -26,9 +30,15 @@ import {
   useSplitBox,
   useUpdateBox,
 } from "../hooks/useSegments";
-import { streamSegment, streamExtract } from "../hooks/useExtract";
+import { streamSegment } from "../hooks/useExtract";
 import { getDoc } from "../api/docs";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
+import {
+  loadConf,
+  saveConf,
+  effectiveThreshold,
+  type ConfThresholdState,
+} from "../lib/confThreshold";
 import type { BoxKind, WorkerEvent } from "../types/domain";
 
 interface Props {
@@ -86,10 +96,16 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [moreStart, setMoreStart] = useState(1);
   const [moreEnd, setMoreEnd] = useState(10);
 
-
-  // Filter state
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
+  // Per-page confidence threshold state (from localStorage)
+  const [confState, setConfState] = useState<ConfThresholdState>(() =>
+    loadConf(slug ?? ""),
+  );
   const [showDeactivated, setShowDeactivated] = useState(false);
+
+  // Approved pages (segment-route localStorage key)
+  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
+    loadApprovedSegmentPages(slug ?? ""),
+  );
 
   // Total page count from DocMeta (falls back to highest page seen in boxes)
   const docMeta = useQuery({
@@ -103,6 +119,9 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     return boxes.length > 0 ? Math.max(...boxes.map((b) => b.page)) : 1;
   }, [docMeta.data, segments.data]);
 
+  // Effective threshold for the currently viewed page
+  const currentThreshold = effectiveThreshold(confState, page);
+
   const allBoxesOnPage = useMemo(
     () => (segments.data?.boxes ?? []).filter((b) => b.page === page),
     [segments.data, page],
@@ -113,13 +132,13 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const activeBoxIds = useMemo(
     () => new Set(
       allBoxesOnPage
-        .filter((b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confidenceThreshold))
+        .filter((b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= currentThreshold))
         .map((b) => b.box_id),
     ),
-    [allBoxesOnPage, confidenceThreshold],
+    [allBoxesOnPage, currentThreshold],
   );
 
-  // What the parent sees as "on page" for things like box count and extraction.
+  // What the parent sees as "on page" for things like box count.
   const boxesOnPage = useMemo(
     () => allBoxesOnPage.filter((b) => activeBoxIds.has(b.box_id)),
     [allBoxesOnPage, activeBoxIds],
@@ -130,6 +149,12 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     () => (showDeactivated ? allBoxesOnPage : boxesOnPage),
     [showDeactivated, allBoxesOnPage, boxesOnPage],
   );
+
+  // Compute segmented pages (pages that have at least one box)
+  const segmentedPages = useMemo<Set<number>>(() => {
+    const boxes = segments.data?.boxes ?? [];
+    return new Set(boxes.map((b) => b.page));
+  }, [segments.data]);
 
   const focused = useMemo(
     () => (segments.data?.boxes ?? []).find((b) => b.box_id === selected) ?? null,
@@ -173,36 +198,39 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     await runSegmentRange(moreStart, moreEnd);
   }
 
-  async function onRunExtractAll() {
-    setRunning(true);
-    try {
-      for await (const ev of streamExtract(slug!, token, undefined)) {
-        dispatch(ev);
-        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
-        if (ev.type === "work-failed") error(ev.reason);
-      }
-    } finally {
-      setRunning(false);
-    }
+  // Confidence threshold handlers
+  function handlePageThresholdChange(value: number) {
+    const next = { ...confState, perPage: { ...confState.perPage, [page]: value } };
+    setConfState(next);
+    saveConf(slug ?? "", next);
   }
 
-  async function onRunExtractThisPage() {
-    setRunning(true);
-    try {
-      for await (const ev of streamExtract(slug!, token, page)) {
-        dispatch(ev);
-        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
-        if (ev.type === "work-failed") error(ev.reason);
-      }
-    } finally {
-      setRunning(false);
+  function handleDefaultThresholdChange(value: number) {
+    const next = { ...confState, default: value };
+    setConfState(next);
+    saveConf(slug ?? "", next);
+  }
+
+  function handleClearPageOverride() {
+    const { [page]: _removed, ...rest } = confState.perPage;
+    const next = { ...confState, perPage: rest };
+    setConfState(next);
+    saveConf(slug ?? "", next);
+  }
+
+  function handleToggleApprove() {
+    const next = new Set(approvedPages);
+    if (next.has(page)) {
+      next.delete(page);
+    } else {
+      next.add(page);
     }
+    setApprovedPages(next);
+    saveApprovedSegmentPages(slug ?? "", next);
   }
 
   function handleDeactivate() {
     if (focused) {
-      // Deactivate is mutually exclusive with Activate. Setting kind=discard
-      // also clears manually_activated so the two states can't coexist.
       update.mutate({
         boxId: focused.box_id,
         patch: { kind: "discard", manually_activated: false },
@@ -212,10 +240,6 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 
   function handleActivate() {
     if (focused) {
-      // Activate is mutually exclusive with Deactivate. If the box was
-      // previously discarded, restore kind to "paragraph" (a safe default;
-      // user can re-categorize via the kind dropdown). Then mark manually
-      // activated so it's included regardless of confidence threshold.
       const restoredKind: BoxKind = focused.kind === "discard" ? "paragraph" : focused.kind;
       update.mutate({
         boxId: focused.box_id,
@@ -335,21 +359,85 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     );
   }
 
-  const extractEnabled = (segments.data.boxes ?? []).some((b) => b.kind !== "discard");
+  const hasPageOverride = confState.perPage[page] !== undefined;
 
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug!} />
-        <button
-          aria-label="Alle Seiten extrahieren"
-          className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
-          disabled={!extractEnabled || running}
-          onClick={onRunExtractAll}
-        >
-          {running ? "Running…" : "Alle Seiten extrahieren"}
-        </button>
+
+        {/* Filters: default conf input + page slider */}
+        <div className="flex items-center gap-3 text-xs">
+          <label className="flex items-center gap-1 text-navy-100 whitespace-nowrap">
+            Default ≥
+            <input
+              aria-label="Default confidence threshold"
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={confState.default.toFixed(2)}
+              onChange={(e) => handleDefaultThresholdChange(parseFloat(e.target.value) || 0)}
+              className="w-14 border border-navy-600 rounded px-1 py-0.5 text-xs bg-navy-700 text-white text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-navy-100 whitespace-nowrap">
+            Seite ≥
+            <input
+              id="seg-page-conf-slider"
+              aria-label="Confidence threshold"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={currentThreshold}
+              onChange={(e) => handlePageThresholdChange(parseFloat(e.target.value))}
+              className="w-24 accent-blue-400"
+            />
+            <span className="font-mono w-8 text-center">{currentThreshold.toFixed(2)}</span>
+            {hasPageOverride && (
+              <button
+                aria-label="Reset page confidence override"
+                title="Zurück auf Standard"
+                className="text-navy-300 hover:text-white px-1"
+                onClick={handleClearPageOverride}
+              >
+                ↺
+              </button>
+            )}
+          </label>
+          <label className="flex items-center gap-1 text-navy-100 cursor-pointer">
+            <input
+              aria-label="Show deactivated"
+              type="checkbox"
+              checked={showDeactivated}
+              onChange={(e) => setShowDeactivated(e.target.checked)}
+              className="accent-blue-400"
+            />
+            Show deactivated
+          </label>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1.5">
+          <button
+            aria-label="Mehr Seiten segmentieren"
+            className="text-xs px-3 py-1 rounded border border-blue-300 text-blue-200 hover:bg-blue-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={running}
+            onClick={openMoreDialog}
+          >
+            + Mehr Seiten segmentieren
+          </button>
+          <button
+            aria-label="Alle Seiten segmentieren"
+            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded disabled:bg-gray-500 disabled:cursor-not-allowed"
+            disabled={running}
+            onClick={() => runSegmentRange()}
+          >
+            {running ? "Running…" : "Alle Seiten segmentieren"}
+          </button>
+        </div>
       </div>
 
       {/* ── Content row ─────────────────────────────────────────────── */}
@@ -407,17 +495,15 @@ export function SegmentRoute({ token }: Props): JSX.Element {
 
         {/* Sidebar */}
         <PropertiesSidebar
+          slug={slug ?? ""}
           selected={focused}
           pageBoxCount={boxesOnPage.length}
           currentPage={page}
           totalPages={totalPages}
-          confidenceThreshold={confidenceThreshold}
-          showDeactivated={showDeactivated}
-          onConfidenceChange={setConfidenceThreshold}
-          onShowDeactivatedChange={setShowDeactivated}
-          onRunExtractThisPage={onRunExtractThisPage}
+          segmentedPages={segmentedPages}
+          approvedPages={approvedPages}
+          onToggleApprove={handleToggleApprove}
           onResetPage={handleResetPage}
-          extractEnabled={extractEnabled}
           running={running}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
           onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
@@ -428,7 +514,6 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onMergeDown={handleMergeDown}
           onUnmergeUp={handleUnmergeUp}
           onUnmergeDown={handleUnmergeDown}
-          onMorePages={openMoreDialog}
           onPageChange={setPage}
         />
       </div>

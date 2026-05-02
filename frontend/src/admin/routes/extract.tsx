@@ -21,6 +21,7 @@ import {
   usePutHtml,
 } from "../hooks/useExtract";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
+import { loadConf, effectiveThreshold } from "../lib/confThreshold";
 import type { WorkerEvent } from "../types/domain";
 
 interface Props {
@@ -192,10 +193,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     return boxes.length > 0 ? Math.max(...boxes.map((b) => b.page)) : 1;
   }, [segments.data]);
 
-  const boxesOnPage = useMemo(
-    () => (segments.data?.boxes ?? []).filter((b) => b.page === page),
-    [segments.data, page],
-  );
+  // Read per-page conf threshold from the segment-route's localStorage key (display only).
+  const confState = useMemo(() => loadConf(slug ?? ""), [slug]);
+  const confThresholdForPage = effectiveThreshold(confState, page);
+
+  const boxesOnPage = useMemo(() => {
+    const allOnPage = (segments.data?.boxes ?? []).filter((b) => b.page === page);
+    // Apply the same confidence filter as segment route (display only — extraction is not filtered).
+    return allOnPage.filter(
+      (b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confThresholdForPage),
+    );
+  }, [segments.data, page, confThresholdForPage]);
 
   // ── Compute which pages have extractions ──────────────────────────────
   const extractedPages = useMemo<Set<number>>(() => {
@@ -408,6 +416,14 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           >
             {approvedPages.has(page) ? "Genehmigung aufheben" : "Diese Seite genehmigen"}
           </button>
+
+          {/* Conf filter status indicator */}
+          <p
+            className="text-xs text-slate-500 text-center"
+            data-testid="conf-filter-status"
+          >
+            Filter aktiv: Conf ≥ {confThresholdForPage.toFixed(2)}
+          </p>
 
           <p className="text-xs text-slate-400 text-center">
             {boxesOnPage.length} boxes on page {page}

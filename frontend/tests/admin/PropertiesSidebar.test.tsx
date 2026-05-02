@@ -4,19 +4,17 @@ import userEvent from "@testing-library/user-event";
 import { PropertiesSidebar } from "../../src/admin/components/PropertiesSidebar";
 import type { SegmentBox } from "../../src/admin/types/domain";
 
-describe("PropertiesSidebar arrow buttons", () => {
+describe("PropertiesSidebar page-button grid", () => {
   const defaultProps = {
+    slug: "test-doc",
     selected: null,
     pageBoxCount: 0,
-    currentPage: 5,
-    totalPages: 10,
-    confidenceThreshold: 0.7,
-    showDeactivated: false,
-    onConfidenceChange: vi.fn(),
-    onShowDeactivatedChange: vi.fn(),
-    onRunExtractThisPage: vi.fn(),
+    currentPage: 1,
+    totalPages: 5,
+    segmentedPages: new Set<number>([1, 2]),
+    approvedPages: new Set<number>([3]),
+    onToggleApprove: vi.fn(),
     onResetPage: vi.fn(),
-    extractEnabled: true,
     running: false,
     onChangeKind: vi.fn(),
     onNewBox: vi.fn(),
@@ -30,42 +28,61 @@ describe("PropertiesSidebar arrow buttons", () => {
     onPageChange: vi.fn(),
   };
 
-  it("should disable prev button at page 1", () => {
-    render(<PropertiesSidebar {...defaultProps} currentPage={1} />);
-    const sidebarButtons = screen.getAllByRole("button", { name: "Previous page" });
-    // Get the button from the sidebar (not Pagination component)
-    const prevButton = sidebarButtons.find((btn) => btn.className.includes("w-7"));
-    expect(prevButton).toBeDisabled();
+  it("renders a button for each page", () => {
+    render(<PropertiesSidebar {...defaultProps} />);
+    for (let p = 1; p <= 5; p++) {
+      expect(screen.getByTestId(`seg-page-btn-${p}`)).toBeInTheDocument();
+    }
   });
 
-  it("should disable next button at last page", () => {
-    render(<PropertiesSidebar {...defaultProps} currentPage={10} totalPages={10} />);
-    const sidebarButtons = screen.getAllByRole("button", { name: "Next page" });
-    // Get the button from the sidebar (not Pagination component)
-    const nextButton = sidebarButtons.find((btn) => btn.className.includes("w-7"));
-    expect(nextButton).toBeDisabled();
+  it("active page button has ring class", () => {
+    render(<PropertiesSidebar {...defaultProps} currentPage={2} />);
+    expect(screen.getByTestId("seg-page-btn-2").className).toContain("ring-2");
+    expect(screen.getByTestId("seg-page-btn-1").className).not.toContain("ring-2");
   });
 
-  it("should call onPageChange with currentPage - 1 when prev button clicked", async () => {
+  it("segmented page button is green", () => {
+    render(<PropertiesSidebar {...defaultProps} />);
+    // page 1 and 2 are segmented → green
+    expect(screen.getByTestId("seg-page-btn-1").className).toContain("green");
+    expect(screen.getByTestId("seg-page-btn-2").className).toContain("green");
+  });
+
+  it("unsegmented page button is red", () => {
+    render(<PropertiesSidebar {...defaultProps} />);
+    // page 4 and 5 are neither segmented nor approved → red
+    expect(screen.getByTestId("seg-page-btn-4").className).toContain("red");
+    expect(screen.getByTestId("seg-page-btn-5").className).toContain("red");
+  });
+
+  it("approved page button is blue", () => {
+    render(<PropertiesSidebar {...defaultProps} />);
+    // page 3 is approved → blue
+    expect(screen.getByTestId("seg-page-btn-3").className).toContain("blue");
+  });
+
+  it("clicking a page button calls onPageChange", async () => {
     const onPageChange = vi.fn();
-    render(<PropertiesSidebar {...defaultProps} currentPage={5} onPageChange={onPageChange} />);
-
-    const sidebarButtons = screen.getAllByRole("button", { name: "Previous page" });
-    const prevButton = sidebarButtons.find((btn) => btn.className.includes("w-7"));
-    await userEvent.click(prevButton!);
-
-    expect(onPageChange).toHaveBeenCalledWith(4);
+    render(<PropertiesSidebar {...defaultProps} onPageChange={onPageChange} />);
+    await userEvent.click(screen.getByTestId("seg-page-btn-3"));
+    expect(onPageChange).toHaveBeenCalledWith(3);
   });
 
-  it("should call onPageChange with currentPage + 1 when next button clicked", async () => {
-    const onPageChange = vi.fn();
-    render(<PropertiesSidebar {...defaultProps} currentPage={5} onPageChange={onPageChange} />);
+  it("shows 'Diese Seite genehmigen' when page is not approved", () => {
+    render(<PropertiesSidebar {...defaultProps} currentPage={1} approvedPages={new Set()} />);
+    expect(screen.getByRole("button", { name: /diese seite genehmigen/i })).toBeInTheDocument();
+  });
 
-    const sidebarButtons = screen.getAllByRole("button", { name: "Next page" });
-    const nextButton = sidebarButtons.find((btn) => btn.className.includes("w-7"));
-    await userEvent.click(nextButton!);
+  it("shows 'Genehmigung aufheben' when page is approved", () => {
+    render(<PropertiesSidebar {...defaultProps} currentPage={1} approvedPages={new Set([1])} />);
+    expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument();
+  });
 
-    expect(onPageChange).toHaveBeenCalledWith(6);
+  it("approve button calls onToggleApprove", async () => {
+    const onToggleApprove = vi.fn();
+    render(<PropertiesSidebar {...defaultProps} onToggleApprove={onToggleApprove} />);
+    await userEvent.click(screen.getByRole("button", { name: /diese seite genehmigen/i }));
+    expect(onToggleApprove).toHaveBeenCalled();
   });
 });
 
@@ -83,17 +100,15 @@ describe("PropertiesSidebar merge buttons", () => {
   };
 
   const baseProps = {
+    slug: "test-doc",
     selected: selectedBox,
     pageBoxCount: 1,
     currentPage: 3,
     totalPages: 5,
-    confidenceThreshold: 0.7,
-    showDeactivated: false,
-    onConfidenceChange: vi.fn(),
-    onShowDeactivatedChange: vi.fn(),
-    onRunExtractThisPage: vi.fn(),
+    segmentedPages: new Set<number>([1, 2, 3]),
+    approvedPages: new Set<number>(),
+    onToggleApprove: vi.fn(),
     onResetPage: vi.fn(),
-    extractEnabled: true,
     running: false,
     onChangeKind: vi.fn(),
     onNewBox: vi.fn(),
@@ -137,7 +152,6 @@ describe("PropertiesSidebar merge buttons", () => {
         selected={{ ...selectedBox, continues_from: "p2-abc" }}
       />,
     );
-    // continues_from set → shows "Unmerge ↑" instead of "Merge up"
     expect(screen.getByLabelText("Unmerge up")).toBeInTheDocument();
     expect(screen.queryByLabelText("Merge up")).not.toBeInTheDocument();
   });
@@ -149,7 +163,6 @@ describe("PropertiesSidebar merge buttons", () => {
         selected={{ ...selectedBox, continues_to: "p4-abc" }}
       />,
     );
-    // continues_to set → shows "Unmerge ↓" instead of "Merge down"
     expect(screen.getByLabelText("Unmerge down")).toBeInTheDocument();
     expect(screen.queryByLabelText("Merge down")).not.toBeInTheDocument();
   });

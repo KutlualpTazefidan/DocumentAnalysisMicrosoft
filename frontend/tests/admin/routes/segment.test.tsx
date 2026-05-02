@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "../../../src/shared/components/Toaster";
 import { SegmentRoute } from "../../../src/admin/routes/segment";
@@ -29,12 +29,6 @@ const SEGMENT_NDJSON = [
   { type: "work-complete", model: "DocLayout-YOLO", timestamp_ms: 4, total_seconds: 1.0, items_processed: 2, output_summary: { pages: 1 } },
   { type: "model-unloading", model: "DocLayout-YOLO", timestamp_ms: 5 },
   { type: "model-unloaded", model: "DocLayout-YOLO", timestamp_ms: 6, vram_freed_mb: 612 },
-]
-  .map((l) => JSON.stringify(l))
-  .join("\n");
-
-const EXTRACT_NDJSON = [
-  { type: "work-complete", model: "MinerU", timestamp_ms: 1, total_seconds: 0.5, items_processed: 1, output_summary: {} },
 ]
   .map((l) => JSON.stringify(l))
   .join("\n");
@@ -67,9 +61,6 @@ const server = setupServer(
   http.post("*/api/admin/docs/rep/segment", () =>
     new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
   ),
-  http.post("*/api/admin/docs/rep/extract", () =>
-    new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
-  ),
   http.post("*/api/admin/docs/rep/segments/reset", () =>
     HttpResponse.json({ slug: "rep", boxes: BOXES }),
   ),
@@ -90,6 +81,11 @@ const server = setupServer(
 beforeAll(() => server.listen());
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
+
+// Clear localStorage before each test to reset conf threshold and approval state.
+beforeEach(() => {
+  localStorage.clear();
+});
 
 function wrap() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -121,11 +117,10 @@ describe("SegmentRoute", () => {
     expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
   });
 
-  it("show-deactivated checkbox (in sidebar) reveals low-confidence box with data-deactivated attribute", async () => {
+  it("show-deactivated checkbox (in top bar) reveals low-confidence box with data-deactivated attribute", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // Checkbox is now in the sidebar
     const checkbox = screen.getByLabelText("Show deactivated");
     fireEvent.click(checkbox);
 
@@ -135,76 +130,107 @@ describe("SegmentRoute", () => {
     expect(screen.getByTestId("box-p1-b0")).not.toHaveAttribute("data-deactivated");
   });
 
-  it("confidence threshold slider is in the sidebar", async () => {
+  it("confidence threshold slider is in the top bar", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Slider is now in the sidebar — found by aria-label
+    // Slider is in the top bar — found by aria-label
     const slider = screen.getByLabelText("Confidence threshold") as HTMLInputElement;
     expect(slider).toBeInTheDocument();
     expect(slider.value).toBe("0.7");
   });
 
-  it("run extraction (all pages) button is on the top bar", async () => {
+  it("Alle Seiten segmentieren button is on the top bar and calls segment (no page param)", async () => {
     const calls: string[] = [];
     server.use(
-      http.post("*/api/admin/docs/rep/extract", ({ request }) => {
+      http.post("*/api/admin/docs/rep/segment", ({ request }) => {
         calls.push(new URL(request.url).search);
-        return new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
+        return new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
       }),
     );
 
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // "Alle Seiten extrahieren" is on the top bar — no page param
-    fireEvent.click(screen.getByLabelText("Alle Seiten extrahieren"));
+    fireEvent.click(screen.getByLabelText("Alle Seiten segmentieren"));
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    // No page param — full-doc segmentation
     expect(calls[0]).toBe("");
   });
 
-  it("run extraction (this page) button is in the sidebar and sends ?page=1", async () => {
-    const calls: string[] = [];
-    server.use(
-      http.post("*/api/admin/docs/rep/extract", ({ request }) => {
-        calls.push(new URL(request.url).search);
-        return new HttpResponse(EXTRACT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } });
-      }),
+  it("Mehr Seiten segmentieren button is on the top bar", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    const btn = screen.getByLabelText("Mehr Seiten segmentieren");
+    expect(btn).toBeInTheDocument();
+  });
+
+  it("sidebar has page-button grid (no Pagination component)", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // Page-button grid buttons exist in the sidebar
+    expect(screen.getByTestId("seg-page-btn-1")).toBeInTheDocument();
+    // No "Jump to page" input (that was Pagination)
+    expect(screen.queryByLabelText("Jump to page")).not.toBeInTheDocument();
+  });
+
+  it("sidebar shows colored page buttons (green for segmented page 1)", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    // page 1 has boxes → segmented → green
+    await waitFor(() =>
+      expect(screen.getByTestId("seg-page-btn-1").className).toContain("green"),
+    );
+  });
+
+  it("clicking segment page button navigates to that page", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
+
+    // Initially page 1 is active
+    expect(screen.getByTestId("seg-page-btn-1")).toHaveAttribute("aria-pressed", "true");
+
+    // Click page 3 button
+    fireEvent.click(screen.getByTestId("seg-page-btn-3"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("seg-page-btn-3")).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByTestId("seg-page-btn-1")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("sidebar approve button toggles page to blue state", async () => {
+    render(wrap());
+    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
+
+    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
+    fireEvent.click(approveBtn);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("seg-page-btn-1").className).toContain("blue"),
     );
 
-    render(wrap());
-    await waitFor(() => screen.getByTestId("box-p1-b0"));
-
-    // "Nur diese Seite extrahieren" is now in the sidebar — sends page=1
-    fireEvent.click(screen.getByLabelText("Nur diese Seite extrahieren"));
-    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
-    expect(calls[0]).toContain("page=1");
+    // localStorage should contain the approved page
+    const stored = JSON.parse(localStorage.getItem("segment.approved.rep") ?? "[]") as number[];
+    expect(stored).toContain(1);
   });
 
-  it("pagination is in the sidebar (not the top bar)", async () => {
+  it("sidebar approve button label toggles to 'Genehmigung aufheben' after approval", async () => {
     render(wrap());
-    await waitFor(() => screen.getByTestId("box-p1-b0"));
+    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
 
-    // Jump-to-page input is inside the aside (sidebar)
-    const input = screen.getByLabelText("Jump to page") as HTMLInputElement;
-    expect(input.closest("aside")).not.toBeNull();
+    const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
+    fireEvent.click(approveBtn);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /genehmigung aufheben/i })).toBeInTheDocument(),
+    );
   });
 
-  it("pagination jump-to-page navigates correctly", async () => {
+  it("sidebar shows Seite X / Y heading", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-
-    const input = screen.getByLabelText("Jump to page") as HTMLInputElement;
-    const goBtn = screen.getByRole("button", { name: "Go" });
-
-    fireEvent.change(input, { target: { value: "3" } });
-    fireEvent.click(goBtn);
-
-    // After jumping to page 3, react-paginate marks the active link with
-    // aria-current="page" and aria-label="Page 3 is your current page".
-    await waitFor(() => {
-      const pageLink = screen.getByRole("button", { name: /Page 3/i });
-      expect(pageLink).toHaveAttribute("aria-current", "page");
-    });
+    // Sidebar heading shows current page / total pages (1 / 5 from docMeta mock)
+    expect(screen.getByRole("heading", { level: 2, name: /Seite 1 \/ 5/i })).toBeInTheDocument();
   });
 
   it("changes selected box kind via hotkey 'l'", async () => {
@@ -224,22 +250,13 @@ describe("SegmentRoute", () => {
     expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
   });
 
-  it("sidebar shows Seite X / Y heading", async () => {
-    render(wrap());
-    await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Sidebar heading shows current page / total pages (1 / 5 from docMeta mock)
-    expect(screen.getByRole("heading", { level: 2, name: /Seite 1 \/ 5/i })).toBeInTheDocument();
-  });
-
   it("Deactivate button is in the sidebar (not the top bar)", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // Select a box to enable the button
     fireEvent.click(screen.getByTestId("box-p1-b0"));
     await waitFor(() => screen.getByLabelText("Deactivate"));
     const btn = screen.getByLabelText("Deactivate");
     expect(btn).toBeInTheDocument();
-    // It lives inside the aside (sidebar), not in the top nav bar
     expect(btn.closest("aside")).not.toBeNull();
   });
 
@@ -292,7 +309,6 @@ describe("SegmentRoute", () => {
   it("box below threshold is hidden when manually_activated is false", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // p1-b1 has confidence 0.6 < 0.7 and manually_activated=false → hidden
     expect(screen.queryByTestId("box-p1-b1")).not.toBeInTheDocument();
   });
 
@@ -308,7 +324,6 @@ describe("SegmentRoute", () => {
     );
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // p1-b1 has confidence 0.6 but manually_activated=true → shown
     expect(screen.getByTestId("box-p1-b1")).toBeInTheDocument();
   });
 
@@ -322,7 +337,6 @@ describe("SegmentRoute", () => {
       }),
     );
 
-    // Serve p1-b1 visible via showDeactivated so we can select it
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
@@ -330,11 +344,9 @@ describe("SegmentRoute", () => {
     fireEvent.click(screen.getByLabelText("Show deactivated"));
     await waitFor(() => screen.getByTestId("box-p1-b1"));
 
-    // Select p1-b1
     fireEvent.click(screen.getByTestId("box-p1-b1"));
     await waitFor(() => screen.getByLabelText("Activate"));
 
-    // Click Activate
     fireEvent.click(screen.getByLabelText("Activate"));
     await waitFor(() => expect(putBodies.length).toBeGreaterThanOrEqual(1));
     expect(putBodies[0]).toMatchObject({ manually_activated: true });
@@ -351,7 +363,6 @@ describe("SegmentRoute", () => {
   it("Merge down button is enabled on page 1 (not last page) when no continues_to", async () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
-    // page 1 of 5 — Merge down should be enabled when box has no continues_to
     fireEvent.click(screen.getByTestId("box-p1-b0"));
     await waitFor(() => screen.getByLabelText("Merge down"));
     expect(screen.getByLabelText("Merge down")).not.toBeDisabled();
@@ -370,7 +381,6 @@ describe("SegmentRoute", () => {
     await waitFor(() => screen.getByTestId("box-p1-b0"));
     fireEvent.click(screen.getByTestId("box-p1-b0"));
     await waitFor(() => screen.getByLabelText("Merge down"));
-    // On page 1 (not last page), Merge down should be enabled
     const mergeDownBtn = screen.getByLabelText("Merge down");
     expect(mergeDownBtn).not.toBeDisabled();
     fireEvent.click(mergeDownBtn);
@@ -387,12 +397,6 @@ describe("SegmentRoute", () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
     expect(screen.getByTestId("continues-to-indicator-p1-b0")).toBeInTheDocument();
-  });
-
-  it("sidebar shows + Mehr Seiten segmentieren button when segments are loaded", async () => {
-    render(wrap());
-    await waitFor(() => screen.getByTestId("box-p1-b0"));
-    expect(screen.getByLabelText("Mehr Seiten segmentieren")).toBeInTheDocument();
   });
 
   it("clicking Mehr Seiten segmentieren opens a dialog", async () => {
@@ -427,7 +431,6 @@ describe("SegmentRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "Segmentieren" }));
 
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
-    // URL must contain start= and end= params
     expect(calls[0]).toMatch(/start=\d+/);
     expect(calls[0]).toMatch(/end=3/);
   });
@@ -447,14 +450,11 @@ describe("SegmentRoute", () => {
     render(wrap());
     await waitFor(() => screen.getByTestId("box-p1-b0"));
 
-    // Select the box
     fireEvent.click(screen.getByTestId("box-p1-b0"));
 
-    // With continues_to set, the button should now show "Unmerge ↓"
     await waitFor(() => screen.getByLabelText("Unmerge down"));
     expect(screen.queryByLabelText("Merge down")).not.toBeInTheDocument();
 
-    // Click Unmerge ↓ → dispatches POST to unmerge-down
     fireEvent.click(screen.getByLabelText("Unmerge down"));
     await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     expect(calls[0]).toBe("p1-b0");
