@@ -8,15 +8,12 @@ import { BoxLegend } from "../components/BoxLegend";
 import { BoxOverlay } from "../components/BoxOverlay";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
-import { Pagination } from "../components/Pagination";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
 import { useSegments } from "../hooks/useSegments";
 import { streamExtract, useExportSourceElements, useExtractRegion, useHtml, usePutHtml } from "../hooks/useExtract";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import type { WorkerEvent } from "../types/domain";
-
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Props {
   token: string;
@@ -133,16 +130,56 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     ? "Saved"
     : null;
 
-  // ── Top bar is shared by both empty and normal states ────────────────────
+  // ── Action buttons — right-aligned in top bar ─────────────────────────
+  const actionButtons = (
+    <div className="flex items-center gap-1.5">
+      <button
+        aria-label="Re-extract this box"
+        className="text-xs px-3 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+        onClick={handleReExtractBox}
+        disabled={!highlight || running}
+      >
+        Re-extract this box
+      </button>
+      <button
+        aria-label="Re-extract this page"
+        className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+        onClick={runExtractThisPage}
+        disabled={running}
+      >
+        {running ? "Running…" : "Re-extract this page"}
+      </button>
+      <button
+        aria-label="Re-extract all"
+        className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+        onClick={runExtract}
+        disabled={running}
+      >
+        Re-extract all
+      </button>
+      <button
+        aria-label="Export sourceelements.json"
+        className="text-xs px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={handleExport}
+        disabled={exportSrc.isPending}
+      >
+        Export sourceelements.json
+      </button>
+      {/* Status dot */}
+      {running && (
+        <span className="text-xs text-navy-200 animate-pulse ml-1">Extracting…</span>
+      )}
+      {!running && savingStatus && (
+        <span className="text-xs text-navy-200 ml-1">{savingStatus}</span>
+      )}
+    </div>
+  );
+
+  // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
     <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-sm border-b border-navy-700 flex-shrink-0">
       <DocStepTabs slug={slug!} />
-      {running && (
-        <span className="text-xs text-navy-200 animate-pulse">Extracting…</span>
-      )}
-      {!running && savingStatus && (
-        <span className="text-xs text-navy-200">{savingStatus}</span>
-      )}
+      {actionButtons}
     </div>
   );
 
@@ -233,75 +270,11 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <HtmlEditor html={html.data} onChange={handleHtmlChange} onClickElement={handleClickElement} />
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar — page grid (populated in Phase 4) */}
         <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 text-sm bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
-          {/* ── Pagination ─────────────────────────────────────────────── */}
-          <div className="flex justify-center">
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </div>
-          <div className="flex items-center justify-center gap-2">
-            <button
-              aria-label="Previous page"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="w-4 h-4 text-slate-700" />
-            </button>
-            <span className="font-semibold text-slate-900 text-center min-w-[6rem] text-center">
-              Seite {page} / {totalPages}
-            </span>
-            <button
-              aria-label="Next page"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="w-7 h-7 rounded hover:bg-slate-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="w-4 h-4 text-slate-700" />
-            </button>
-          </div>
-
-          <hr className="border-slate-200" />
-
-          {/* ── Actions ─────────────────────────────────────────────────── */}
-          <button
-            aria-label="Re-extract this page"
-            className="w-full py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            onClick={runExtractThisPage}
-            disabled={running}
-          >
-            {running ? "Running…" : "Re-extract this page"}
-          </button>
-
-          <button
-            aria-label="Re-extract all"
-            className="w-full py-2 rounded border border-blue-300 text-blue-700 text-sm font-medium hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={runExtract}
-            disabled={running}
-          >
-            Re-extract all
-          </button>
-
-          <button
-            aria-label="Re-extract this box"
-            className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={handleReExtractBox}
-            disabled={!highlight || running}
-          >
-            Re-extract this box
-          </button>
-
-          <button
-            aria-label="Export sourceelements.json"
-            className="w-full py-2 rounded border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleExport}
-            disabled={exportSrc.isPending}
-          >
-            Export sourceelements.json
-          </button>
-
-          <hr className="border-slate-200 mt-auto" />
-          <p className="text-xs text-slate-500">{boxesOnPage.length} boxes on page</p>
+          <p className="text-xs text-slate-400 text-center">
+            {boxesOnPage.length} boxes on page {page}
+          </p>
         </aside>
       </div>
 
