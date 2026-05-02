@@ -54,5 +54,32 @@ echo "    GOLDENS_API_TOKEN     = ${GOLDENS_API_TOKEN}"
 echo "    LOCAL_PDF_DATA_ROOT   = ${LOCAL_PDF_DATA_ROOT}"
 echo "    LOCAL_PDF_YOLO_WEIGHTS= ${LOCAL_PDF_YOLO_WEIGHTS}"
 echo
+echo "    Ctrl-C tries a graceful shutdown (frees VLM + CUDA memory)."
+echo "    If the backend stays busy >10s, the script SIGKILLs the whole"
+echo "    process group so threads/subprocs spawned by MinerU also die."
+echo
 
-exec query-eval segment serve --port 8001 --host 127.0.0.1
+# Run in its own process group so we can signal the whole tree.
+setsid query-eval segment serve --port 8001 --host 127.0.0.1 &
+BACKEND_PID=$!
+BACKEND_PGID=$(ps -o pgid= "$BACKEND_PID" | tr -d ' ')
+
+cleanup() {
+  echo
+  echo "==> graceful shutdown (SIGTERM to pgid $BACKEND_PGID)…"
+  kill -TERM "-$BACKEND_PGID" 2>/dev/null || true
+  # Wait up to 10s for the lifespan handler to release MinerU + CUDA.
+  for _ in $(seq 1 20); do
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+      echo "    backend exited cleanly"
+      exit 0
+    fi
+    sleep 0.5
+  done
+  echo "==> still alive, SIGKILL…"
+  kill -KILL "-$BACKEND_PGID" 2>/dev/null || true
+  exit 1
+}
+
+trap cleanup INT TERM
+wait "$BACKEND_PID"

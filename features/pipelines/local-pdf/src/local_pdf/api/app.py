@@ -2,12 +2,43 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from local_pdf.api.auth import install_auth_middleware
 from local_pdf.api.config import ApiConfig
 from local_pdf.api.schemas import HealthResponse
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """App lifespan — release MinerU VLM weights + CUDA memory on shutdown.
+
+    Without this, Ctrl-C on the dev server can leave the process hanging
+    on PyTorch worker threads / cached predictor singletons. We call
+    MinerU's own shutdown helper plus torch.cuda.empty_cache() so
+    uvicorn's shutdown signal can finish.
+    """
+    yield
+    try:
+        from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
+
+        shutdown_cached_models()
+    except Exception:
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def create_app() -> FastAPI:
@@ -17,7 +48,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="local-pdf-api",
         version="0.2.0",
-        description="Local PDF pipeline API (DocLayout-YOLO + MinerU 3).",
+        description="Local PDF pipeline API (DocLayout-YOLO + MinerU VLM).",
+        lifespan=_lifespan,
     )
     app.state.config = cfg
 
