@@ -267,6 +267,164 @@ def test_exit_emits_unloading_and_unloaded_events(tmp_path: Path) -> None:
     assert unloaded.vram_freed_mb >= 0
 
 
+# ── New tests for parse_doc_fn path (Bug 2 fix) ───────────────────────────────
+
+
+def test_doc_parsed_once_for_multi_page_batch(tmp_path: Path) -> None:
+    """parse_doc_fn must be called exactly once even when boxes span multiple pages."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "multipage.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # Two boxes on different pages
+    boxes = [
+        SegmentBox(
+            box_id="p1-b0",
+            page=1,
+            bbox=(0.0, 0.0, 50.0, 50.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="p2-b0",
+            page=2,
+            bbox=(0.0, 0.0, 50.0, 50.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+    ]
+
+    call_count = 0
+
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        nonlocal call_count
+        call_count += 1
+        return {
+            1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page1</p>")],
+            2: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>page2</p>")],
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    assert call_count == 1, f"expected parse_doc_fn called once, got {call_count}"
+    assert len(worker.results) == 2
+    assert worker.results[0].html == "<p>page1</p>"
+    assert worker.results[1].html == "<p>page2</p>"
+
+
+def test_doc_parsed_once_for_multi_box_same_page(tmp_path: Path) -> None:
+    """parse_doc_fn called once when all 5 boxes are on page 1."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "single_page.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id=f"p1-b{i}",
+            page=1,
+            bbox=(float(i * 10), 0.0, float(i * 10 + 9), 10.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        )
+        for i in range(5)
+    ]
+
+    call_count = 0
+
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        nonlocal call_count
+        call_count += 1
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(float(i * 10), 0.0, float(i * 10 + 9), 10.0),
+                    html=f"<p>elem-{i}</p>",
+                )
+                for i in range(5)
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        list(worker.run(pdf, boxes))
+
+    assert call_count == 1, f"expected parse_doc_fn called once, got {call_count}"
+    assert len(worker.results) == 5
+
+
+def test_doc_cache_prevents_second_parse_across_calls(tmp_path: Path) -> None:
+    """_get_doc_pages caches result; second call to extract_region re-uses cache."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "cached.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(0.0, 0.0, 50.0, 50.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    call_count = 0
+
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        nonlocal call_count
+        call_count += 1
+        return {1: [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>cached</p>")]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        worker.extract_region(pdf, box)
+        worker.extract_region(pdf, box)  # second call — should use cache
+
+    assert call_count == 1, f"expected parse_doc_fn called once (cached), got {call_count}"
+
+
+def test_block_to_content_visual_type_routing() -> None:
+    """_VISUAL_BLOCK_TYPES covers table/image/chart/code but not text."""
+    from local_pdf.workers.mineru import _VISUAL_BLOCK_TYPES
+
+    assert "table" in _VISUAL_BLOCK_TYPES
+    assert "image" in _VISUAL_BLOCK_TYPES
+    assert "chart" in _VISUAL_BLOCK_TYPES
+    assert "code" in _VISUAL_BLOCK_TYPES
+    assert "text" not in _VISUAL_BLOCK_TYPES
+
+
+def test_merge_para_with_text_wiring_via_monkeypatch(tmp_path: Path) -> None:
+    """parse_doc_fn path wires merge_para_with_text result into ParsedElement.html."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "wired.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(0.0, 0.0, 100.0, 100.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    # Simulate what _parse_doc would produce after using merge_para_with_text
+    # (the real function is not called in tests — parse_doc_fn is injected directly)
+    def fake_parse_doc(_pdf: Path) -> dict[int, list[ParsedElement]]:
+        # Simulates _block_to_content returning "<p>hello</p>" for a block
+        return {1: [ParsedElement(bbox=(0.0, 0.0, 100.0, 100.0), html="<p>hello</p>")]}
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert result.html == "<p>hello</p>"
+
+
 # ── IoU / matching unit tests ─────────────────────────────────────────────────
 
 

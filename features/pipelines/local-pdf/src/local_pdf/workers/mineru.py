@@ -4,18 +4,21 @@
 
 - `__enter__`: instantiate the MinerU pipeline model and load weights.
   Emits `ModelLoadingEvent` then `ModelLoadedEvent` with real `load_seconds`
-  and `vram_actual_mb`.  If `extract_fn` or `parse_page_fn` is injected (test
-  path) the real model is skipped entirely.
+  and `vram_actual_mb`.  If `extract_fn`, `parse_page_fn`, or `parse_doc_fn`
+  is injected (test path) the real model is skipped entirely.
 - `__exit__`: del model, gc.collect(), torch.cuda.empty_cache().
-- `run(pdf, boxes)`: collect unique pages, parse each page ONCE (cached),
-  match each user bbox to parsed elements via IoU / center-containment, yield
-  one `WorkProgressEvent` per box, one `WorkCompleteEvent` at the end.
+- `run(pdf, boxes)`: parse the full doc ONCE (cached), match each user bbox
+  to parsed elements via IoU / center-containment, yield one
+  `WorkProgressEvent` per box, one `WorkCompleteEvent` at the end.
 - `extract_region(pdf, box)`: single-bbox path — same match logic, no stream.
 
 Injection points (tests):
   `extract_fn`: overrides the entire per-box extraction path.
-  `parse_page_fn`: overrides only the per-page parse step; matching still
-  uses the real `_match_box_to_elements` helper.
+  `parse_doc_fn`: overrides the per-doc parse step (preferred new path);
+    signature (pdf_path: Path) -> dict[int, list[ParsedElement]].
+  `parse_page_fn`: legacy per-page injection; still honoured for back-compat.
+    If only `parse_page_fn` is injected, pages are parsed on demand (slower,
+    but existing tests don't care about speed).
 
 No subprocess.  No sidecar.  No HTTP.  Pure in-process Python.
 """
@@ -62,6 +65,10 @@ class MinerUResult:
 
 ExtractFn = Callable[[Path, SegmentBox], MinerUResult]
 ParsePageFn = Callable[[Path, int], list[ParsedElement]]
+ParseDocFn = Callable[[Path], dict[int, list[ParsedElement]]]
+
+# Visual block types that require merge_visual_blocks_to_markdown
+_VISUAL_BLOCK_TYPES = {"image", "table", "chart", "code"}
 
 
 # ── IoU + reading-order helpers ───────────────────────────────────────────────
@@ -121,32 +128,57 @@ def _match_box_to_elements(
     return matches
 
 
-# ── Real MinerU page parse (production path) ─────────────────────────────────
+# ── Block → HTML/markdown conversion ─────────────────────────────────────────
 
 
-def _make_real_parse_page_fn(model: object) -> ParsePageFn:
-    """Return a ParsePageFn that uses the loaded MinerU pipeline model.
+def _block_to_content(block: dict) -> str:
+    """Convert a single MinerU para_block to a content string.
 
-    The function parses one PDF page and returns a list of ParsedElement.
+    Uses merge_visual_blocks_to_markdown for visual/code blocks and
+    merge_para_with_text for all text-based blocks.  Returns "" for blocks
+    that produce no text so callers can skip them.
+    """
+    try:
+        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+            merge_para_with_text,
+            merge_visual_blocks_to_markdown,
+        )
+    except ImportError:
+        # MinerU not installed — return empty.
+        return ""
 
-    MinerU's `doc_analyze_streaming` API is batch-oriented and requires
-    image writers, middle-JSON plumbing, and a streaming callback — wiring
-    that correctly is non-trivial and version-sensitive.
+    block_type = block.get("type", "")
+    if block_type in _VISUAL_BLOCK_TYPES:
+        text = merge_visual_blocks_to_markdown(block)
+    else:
+        text = merge_para_with_text(block)
 
-    TODO(mineru-api): bind directly to MineruPipelineModel.predict_page or
-    equivalent when a stable single-page API is exposed.  For now we use
-    the same PDF-bytes → batch path.
+    return text or ""
+
+
+# ── Real MinerU doc parse (production path) ──────────────────────────────────
+
+
+def _make_real_parse_doc_fn(model: object) -> ParseDocFn:
+    """Return a ParseDocFn that uses the loaded MinerU pipeline model.
+
+    Parses the entire PDF once and returns a dict mapping 1-indexed page
+    numbers to lists of ParsedElement.
+
+    MinerU's `doc_analyze_streaming` API processes a whole PDF; we capture
+    all pages in one pass to avoid the N-page x full-doc-parse blowup that
+    the old per-page approach caused.
     """
     try:
         from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming
     except ImportError as exc:
         raise ImportError("MinerU 'core' extra not installed. Install mineru[core].") from exc
 
-    def _parse_page(pdf_path: Path, page_number: int) -> list[ParsedElement]:
-        """Parse a single 1-indexed page using MinerU streaming pipeline."""
+    def _parse_doc(pdf_path: Path) -> dict[int, list[ParsedElement]]:
+        """Parse all pages of a PDF using MinerU streaming pipeline."""
         pdf_bytes = pdf_path.read_bytes()
 
-        results: list[dict] = []
+        all_page_infos: list[dict] = []
 
         class _NullWriter:
             def write(self, *_a: object, **_kw: object) -> None:
@@ -159,10 +191,7 @@ def _make_real_parse_page_fn(model: object) -> ParsePageFn:
             ocr_enable: bool,
         ) -> None:
             pdf_info = middle_json.get("pdf_info", [])
-            # page_number is 1-indexed; pdf_info is 0-indexed.
-            idx = page_number - 1
-            if idx < len(pdf_info):
-                results.append(pdf_info[idx])
+            all_page_infos.extend(pdf_info)
 
         doc_analyze_streaming(
             pdf_bytes_list=[pdf_bytes],
@@ -172,24 +201,43 @@ def _make_real_parse_page_fn(model: object) -> ParsePageFn:
             parse_method="auto",
         )
 
-        if not results:
-            return []
+        pages: dict[int, list[ParsedElement]] = {}
+        for page_idx, page_info in enumerate(all_page_infos):
+            page_number = page_idx + 1  # 1-indexed
+            elements: list[ParsedElement] = []
+            for block in page_info.get("para_blocks", []) or []:
+                raw_bbox = block.get("bbox", None)
+                if raw_bbox is None:
+                    continue
+                try:
+                    x0, y0, x1, y1 = (float(v) for v in raw_bbox[:4])
+                except (TypeError, ValueError):
+                    continue
+                content = _block_to_content(block)
+                if not content:
+                    continue
+                elements.append(ParsedElement(bbox=(x0, y0, x1, y1), html=content))
+            pages[page_number] = elements
 
-        page_info = results[0]
-        elements: list[ParsedElement] = []
-        for block in page_info.get("para_blocks", []) or []:
-            raw_bbox = block.get("bbox", None)
-            if raw_bbox is None:
-                continue
-            # bbox may be [x0, y0, x1, y1] or a list of 4 numbers
-            try:
-                x0, y0, x1, y1 = (float(v) for v in raw_bbox[:4])
-            except (TypeError, ValueError):
-                continue
-            html_content = block.get("html", block.get("content", ""))
-            elements.append(ParsedElement(bbox=(x0, y0, x1, y1), html=str(html_content)))
+        return pages
 
-        return elements
+    return _parse_doc
+
+
+def _make_real_parse_page_fn(model: object) -> ParsePageFn:
+    """Return a ParsePageFn wrapping _make_real_parse_doc_fn for single-page calls.
+
+    This is a compatibility shim: it re-parses the full doc on every call.
+    Production code should use _get_doc_pages / ParseDocFn instead.
+
+    TODO(mineru-api): bind directly to MineruPipelineModel.predict_page or
+    equivalent when a stable single-page API is exposed.
+    """
+    parse_doc = _make_real_parse_doc_fn(model)
+
+    def _parse_page(pdf_path: Path, page_number: int) -> list[ParsedElement]:
+        pages = parse_doc(pdf_path)
+        return pages.get(page_number, [])
 
     return _parse_page
 
@@ -201,8 +249,8 @@ class MineruWorker:
     """Context-managed MinerU 3 extraction worker.
 
     Production use — real model loaded in __enter__, unloaded in __exit__ /
-    unload().  Tests inject `extract_fn` or `parse_page_fn` to avoid loading
-    any real weights.
+    unload().  Tests inject `extract_fn`, `parse_doc_fn`, or `parse_page_fn`
+    to avoid loading any real weights.
     """
 
     name: str = "MinerU 3"
@@ -212,20 +260,29 @@ class MineruWorker:
         self,
         *,
         extract_fn: ExtractFn | None = None,
+        parse_doc_fn: ParseDocFn | None = None,
         parse_page_fn: ParsePageFn | None = None,
     ) -> None:
         self._extract_fn = extract_fn
+        self._parse_doc_fn = parse_doc_fn
         self._parse_page_fn = parse_page_fn
         self._model: object = None
         self._loaded_vram_mb = 0
         self._load_seconds = 0.0
         self._unloaded = False
         self.results: list[MinerUResult] = []
+        # Per-worker doc cache: avoids re-parsing the same PDF across multiple
+        # calls to run() / extract_region() within one worker lifetime.
+        self._doc_cache: dict[Path, dict[int, list[ParsedElement]]] = {}
 
     # ── Context manager ───────────────────────────────────────────────────────
 
     def __enter__(self) -> Self:
-        if self._extract_fn is not None or self._parse_page_fn is not None:
+        if (
+            self._extract_fn is not None
+            or self._parse_doc_fn is not None
+            or self._parse_page_fn is not None
+        ):
             # Injected test path — skip real model load.
             return self
 
@@ -262,7 +319,31 @@ class MineruWorker:
         except ImportError:
             pass
 
+    def _get_doc_pages(self, pdf_path: Path) -> dict[int, list[ParsedElement]]:
+        """Return cached per-page elements for `pdf_path`, parsing at most once.
+
+        Preference order:
+          1. `parse_doc_fn` injection (new preferred path, parses doc once).
+          2. `parse_page_fn` injection (legacy; pages fetched on demand, not
+             cached here because the caller's loop already deduplicates pages).
+          3. Real model via `_make_real_parse_doc_fn`.
+          4. Fallback: empty dict when no model available.
+        """
+        if pdf_path in self._doc_cache:
+            return self._doc_cache[pdf_path]
+
+        if self._parse_doc_fn is not None:
+            pages = self._parse_doc_fn(pdf_path)
+        elif self._model is not None:
+            pages = _make_real_parse_doc_fn(self._model)(pdf_path)
+        else:
+            pages = {}
+
+        self._doc_cache[pdf_path] = pages
+        return pages
+
     def _get_parse_page_fn(self) -> ParsePageFn:
+        """Legacy accessor for the per-page parse function (back-compat)."""
         if self._parse_page_fn is not None:
             return self._parse_page_fn
         if self._model is not None:
@@ -311,8 +392,8 @@ class MineruWorker:
                     throughput_per_sec=throughput,
                     vram_current_mb=_vram_used_mb(),
                 )
-        else:
-            # In-process page parse path: parse each unique page ONCE.
+        elif self._parse_page_fn is not None:
+            # Legacy parse_page_fn injection: parse each unique page once (back-compat).
             parse_page = self._get_parse_page_fn()
             page_cache: dict[int, list[ParsedElement]] = {}
 
@@ -322,6 +403,27 @@ class MineruWorker:
 
             for i, box in enumerate(targets, start=1):
                 page_elements = page_cache.get(box.page, [])
+                matched = _match_box_to_elements(box.bbox, page_elements)
+                html = "".join(el.html for el in matched)
+                self.results.append(MinerUResult(box_id=box.box_id, html=html))
+                eta.observe(i, time.monotonic())
+                eta_seconds, throughput = eta.estimate(total=total)
+                yield WorkProgressEvent(
+                    model=self.name,
+                    timestamp_ms=now_ms(),
+                    stage="box",
+                    current=i,
+                    total=total,
+                    eta_seconds=eta_seconds,
+                    throughput_per_sec=throughput,
+                    vram_current_mb=_vram_used_mb(),
+                )
+        else:
+            # Main path: parse entire doc ONCE, look up each page from cache.
+            doc_pages = self._get_doc_pages(pdf_path)
+
+            for i, box in enumerate(targets, start=1):
+                page_elements = doc_pages.get(box.page, [])
                 matched = _match_box_to_elements(box.bbox, page_elements)
                 html = "".join(el.html for el in matched)
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
@@ -350,8 +452,15 @@ class MineruWorker:
         """Single-bbox extraction path.  Caller wraps in `with MineruWorker(...) as w:`."""
         if self._extract_fn is not None:
             return self._extract_fn(pdf_path, box)
-        parse_page = self._get_parse_page_fn()
-        page_elements = parse_page(pdf_path, box.page)
+
+        if self._parse_page_fn is not None:
+            # Legacy back-compat path.
+            parse_page = self._get_parse_page_fn()
+            page_elements = parse_page(pdf_path, box.page)
+        else:
+            doc_pages = self._get_doc_pages(pdf_path)
+            page_elements = doc_pages.get(box.page, [])
+
         matched = _match_box_to_elements(box.bbox, page_elements)
         html = "".join(el.html for el in matched)
         return MinerUResult(box_id=box.box_id, html=html)
