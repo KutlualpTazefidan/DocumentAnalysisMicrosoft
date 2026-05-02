@@ -4,9 +4,23 @@ import { apiBase } from "../api/adminClient";
 import { readNdjsonLines } from "../api/ndjson";
 import type { WorkerEvent } from "../types/domain";
 
+/** One assignment-time diagnostic emitted by the backend worker. */
+export interface ExtractDiagnostic {
+  page: number;
+  /** "split" — block was decomposed into sub-elements; "no_decomposition" —
+   *  block overlaps multiple user-bboxes but no decomposition possible. */
+  kind: "split" | "no_decomposition";
+  block_bbox: number[];           // (x0, y0, x1, y1) in PDF pts
+  block_type: string;             // MinerU type ("text", "title", ...)
+  user_bboxes: string[];          // overlapping user-bbox ids
+  n_sub_elements: number;
+  text_preview: string;
+}
+
 /** Shape returned by GET /api/admin/docs/{slug}/mineru */
 export interface MineruFile {
   elements: Array<{ box_id: string; html_snippet: string }>;
+  diagnostics?: ExtractDiagnostic[];
 }
 
 async function getMineru(slug: string, token: string): Promise<MineruFile | null> {

@@ -10,6 +10,7 @@ import { getDoc } from "../api/docs";
 import { T } from "../styles/typography";
 
 import { BoxLegend } from "../components/BoxLegend";
+import { ExtractDiagnose } from "../components/ExtractDiagnose";
 import { BoxOverlay } from "../components/BoxOverlay";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
@@ -502,6 +503,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <p className={`${T.body} text-slate-400 text-center`}>
             {boxesOnPage.length} boxes on page {page}
           </p>
+
+          {/* Diagnose section — what the worker decided for THIS page. */}
+          <ExtractDiagnose
+            diagnostics={mineru.data?.diagnostics ?? []}
+            currentPage={page}
+          />
         </aside>
       </div>
 

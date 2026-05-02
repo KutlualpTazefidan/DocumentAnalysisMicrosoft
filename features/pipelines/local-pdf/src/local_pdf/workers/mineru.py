@@ -230,6 +230,7 @@ def _kind_compat(user_kind: BoxKind, block_type: str) -> float:
 def _assign_elements_to_boxes(
     boxes_with_kinds: list[tuple[str, tuple[float, float, float, float], BoxKind]],
     page_elements: list[ParsedElement],
+    diagnostics: list[dict] | None = None,
 ) -> dict[str, list[ParsedElement]]:
     """Assign each MinerU element to at most ONE user box.
 
@@ -277,25 +278,45 @@ def _assign_elements_to_boxes(
                 overlapping_ids.append(bid)
         if len(overlapping_ids) > 1:
             if el.lines:
-                print(
+                msg = (
                     f"[mineru] block bbox={el.bbox} overlaps {len(overlapping_ids)} "
                     f"user-bboxes ({overlapping_ids[:5]}); splitting into "
-                    f"{len(el.lines)} line sub-elements",
-                    file=sys.stderr,
-                    flush=True,
+                    f"{len(el.lines)} line sub-elements"
                 )
+                print(msg, file=sys.stderr, flush=True)
+                if diagnostics is not None:
+                    diagnostics.append(
+                        {
+                            "kind": "split",
+                            "block_bbox": list(el.bbox),
+                            "block_type": el.block_type,
+                            "user_bboxes": overlapping_ids,
+                            "n_sub_elements": len(el.lines),
+                            "text_preview": el.text[:120],
+                        }
+                    )
                 refined_elements.extend(el.lines)
             else:
                 # No precomputed lines available — element will go to one bbox
                 # via best-match, others stay empty. Surface the situation.
-                print(
+                msg = (
                     f"[mineru] block bbox={el.bbox} type={el.block_type} overlaps "
                     f"{len(overlapping_ids)} user-bboxes ({overlapping_ids[:5]}) "
                     f"but has NO line sub-elements — only one user-bbox will get "
-                    f"the content. text_preview={el.text[:80]!r}",
-                    file=sys.stderr,
-                    flush=True,
+                    f"the content. text_preview={el.text[:80]!r}"
                 )
+                print(msg, file=sys.stderr, flush=True)
+                if diagnostics is not None:
+                    diagnostics.append(
+                        {
+                            "kind": "no_decomposition",
+                            "block_bbox": list(el.bbox),
+                            "block_type": el.block_type,
+                            "user_bboxes": overlapping_ids,
+                            "n_sub_elements": 0,
+                            "text_preview": el.text[:120],
+                        }
+                    )
                 refined_elements.append(el)
         else:
             refined_elements.append(el)
@@ -1235,6 +1256,11 @@ class MineruWorker:
         self._load_seconds = 0.0
         self._unloaded = False
         self.results: list[MinerUResult] = []
+        # Per-run diagnostics. Reset on each run() call. Each entry is a dict
+        # describing a notable assignment event (split / no_decomposition).
+        # Surfaced to the frontend via mineru.json so the user can inspect
+        # what the worker decided per-page in the extract sidebar.
+        self.diagnostics: list[dict] = []
         # Per-worker doc cache: avoids re-parsing the same PDF across multiple
         # calls to run() / extract_region() within one worker lifetime.
         # Cache key: (pdf_path, frozenset of requested pages | None for full doc).
@@ -1388,6 +1414,8 @@ class MineruWorker:
             load_seconds=self._load_seconds,
         )
 
+        # Reset per-run diagnostics so each new run() starts clean.
+        self.diagnostics = []
         run_t0 = time.monotonic()
         eta = EtaCalculator()
         self.results = []
@@ -1440,11 +1468,17 @@ class MineruWorker:
                     (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
                     for b in page_boxes
                 ]
+                pg_diags: list[dict] = []
                 page_assignments_legacy[pg] = _rescue_captions_from_visual_boxes(
-                    _assign_elements_to_boxes(boxes_with_pts_pg, page_elements_pg),
+                    _assign_elements_to_boxes(
+                        boxes_with_pts_pg, page_elements_pg, diagnostics=pg_diags
+                    ),
                     page_boxes,
                     self._raster_dpi,
                 )
+                for d in pg_diags:
+                    d["page"] = pg
+                self.diagnostics.extend(pg_diags)
 
             for i, box in enumerate(targets, start=1):
                 page_size = (612.0, 792.0)  # default for legacy path
@@ -1504,11 +1538,15 @@ class MineruWorker:
                     (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
                     for b in page_boxes
                 ]
+                pg_diags = []
                 page_assignments[pg] = _rescue_captions_from_visual_boxes(
-                    _assign_elements_to_boxes(boxes_with_pts, page_elements),
+                    _assign_elements_to_boxes(boxes_with_pts, page_elements, diagnostics=pg_diags),
                     page_boxes,
                     self._raster_dpi,
                 )
+                for d in pg_diags:
+                    d["page"] = pg
+                self.diagnostics.extend(pg_diags)
 
             for i, box in enumerate(targets, start=1):
                 page_data = doc_pages.get(box.page)

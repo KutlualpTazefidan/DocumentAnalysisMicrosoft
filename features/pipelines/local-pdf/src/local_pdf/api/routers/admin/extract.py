@@ -186,15 +186,26 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                 new_elements = [
                     {"box_id": r.box_id, "html_snippet": r.html} for r in worker.results
                 ]
+                # Per-run diagnostics from the assignment helper (split / no-decomposition events).
+                new_diagnostics = list(worker.diagnostics or [])
                 if page is not None:
                     # Partial extraction: merge new page's elements into the
                     # existing on-disk mineru data so other pages are preserved.
                     existing_data = read_mineru(cfg.data_root, slug)
                     existing_elements = existing_data["elements"] if existing_data else []
                     merged = _merge_elements(existing_elements, new_elements)
+                    # Merge diagnostics: keep entries for pages NOT in the new run, append new ones.
+                    existing_diags = existing_data.get("diagnostics", []) if existing_data else []
+                    kept_diags = [d for d in existing_diags if d.get("page") != page]
+                    merged_diagnostics = kept_diags + new_diagnostics
                 else:
                     merged = new_elements
-                write_mineru(cfg.data_root, slug, {"elements": merged})
+                    merged_diagnostics = new_diagnostics
+                write_mineru(
+                    cfg.data_root,
+                    slug,
+                    {"elements": merged, "diagnostics": merged_diagnostics},
+                )
                 write_html(cfg.data_root, slug, _wrap_html(merged))
                 for ev in worker.unload():
                     yield ev.model_dump_json() + "\n"
