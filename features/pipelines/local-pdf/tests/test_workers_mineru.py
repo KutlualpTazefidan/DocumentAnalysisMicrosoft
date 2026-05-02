@@ -1429,3 +1429,247 @@ def test_table_user_bbox_rejects_text_block_when_heading_overlaps(tmp_path: Path
     assert caption_text not in by_id["table"]
     # Table user-bbox still gets its own table block.
     assert "col1" in by_id["table"]
+
+
+# ── New tests: caption rescue ─────────────────────────────────────────────────
+
+
+def test_caption_tag_rescued_from_table_block(tmp_path: Path) -> None:
+    """A <caption> tag inside a table element's HTML is rescued to an empty heading bbox.
+
+    Setup (raster_dpi=144, so px = pts * 2):
+      MinerU element: table block at pts (40, 40, 300, 300) with
+        html = '<caption>Tab. 1 example caption</caption><table>...</table>'
+      User boxes:
+        heading at px (90, 90, 610, 170) → pts (45, 45, 305, 85) — center inside table bbox
+        table   at px (80, 80, 620, 620) → pts (40, 40, 310, 310)
+
+    After run():
+      - heading box html contains "Tab. 1 example caption"
+      - table box html does NOT contain the <caption> tag or its text
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "caption_rescue.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 90.0, 610.0, 170.0),  # → pts (45, 45, 305, 85)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(80.0, 80.0, 620.0, 620.0),  # → pts (40, 40, 310, 310)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    _cap_html = "<caption>Tab. 1 example caption</caption><table><tr><td>cell</td></tr></table>"
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(40.0, 40.0, 300.0, 300.0),
+                    html=_cap_html,
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading bbox should now contain the rescued caption text.
+    assert "Tab. 1 example caption" in by_id["heading"], (
+        f"heading should contain caption, got: {by_id['heading']!r}"
+    )
+    assert "Keine Extraktion" not in by_id["heading"], (
+        f"heading must not be empty, got: {by_id['heading']!r}"
+    )
+    # Table bbox should have the caption stripped.
+    assert "<caption>" not in by_id["table"], (
+        f"table should not contain <caption> tag, got: {by_id['table']!r}"
+    )
+    assert "Tab. 1 example caption" not in by_id["table"], (
+        f"table should not contain caption text, got: {by_id['table']!r}"
+    )
+    # Table cell data still present.
+    assert "cell" in by_id["table"], (
+        f"table should still contain cell data, got: {by_id['table']!r}"
+    )
+
+
+def test_leading_text_rescued_when_no_caption_tag(tmp_path: Path) -> None:
+    """Leading text before <table> is rescued when there is no <caption> tag.
+
+    Element html = 'Some lead-in text\\n<table>...</table>'
+    Heading bbox center is inside the table user-bbox → rescue fires.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "leading_text.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 90.0, 610.0, 170.0),  # → pts (45, 45, 305, 85)
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(80.0, 80.0, 620.0, 620.0),  # → pts (40, 40, 310, 310)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(40.0, 40.0, 300.0, 300.0),
+                    html="Some lead-in text\n<table><tr><td>cell</td></tr></table>",
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Heading gets the leading text.
+    assert "Some lead-in text" in by_id["heading"], (
+        f"heading should contain leading text, got: {by_id['heading']!r}"
+    )
+    assert "Keine Extraktion" not in by_id["heading"]
+    # Table no longer has the leading text.
+    assert "Some lead-in text" not in by_id["table"], (
+        f"table should not contain leading text after rescue, got: {by_id['table']!r}"
+    )
+    assert "cell" in by_id["table"]
+
+
+def test_no_rescue_when_no_caption_or_leading_text(tmp_path: Path) -> None:
+    """When the table element has no caption tag and no leading text, heading stays empty."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "no_caption.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="heading",
+            page=1,
+            bbox=(90.0, 90.0, 610.0, 170.0),
+            kind=BoxKind.heading,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(80.0, 80.0, 620.0, 620.0),
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(40.0, 40.0, 300.0, 300.0),
+                    html="<table><tr><td>cell</td></tr></table>",
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # No caption extractable → heading stays empty.
+    assert "Keine Extraktion" in by_id["heading"], (
+        f"heading should stay empty, got: {by_id['heading']!r}"
+    )
+    # Table unchanged.
+    assert "cell" in by_id["table"]
+
+
+def test_rescue_only_when_text_kind_center_inside_visual_bbox(tmp_path: Path) -> None:
+    """A kind=paragraph user-bbox NOT enclosed by the table bbox gets no rescue.
+
+    The paragraph bbox sits to the right of the table user-bbox so its center
+    is outside.  No rescue should happen; paragraph box stays empty.
+    """
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "no_enclosure.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    boxes = [
+        SegmentBox(
+            box_id="paragraph",
+            page=1,
+            # → pts (320, 45, 500, 85): center x=410, y=65 — x=410 > 310 so outside table box
+            bbox=(640.0, 90.0, 1000.0, 170.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        ),
+        SegmentBox(
+            box_id="table",
+            page=1,
+            bbox=(80.0, 80.0, 620.0, 620.0),  # → pts (40, 40, 310, 310)
+            kind=BoxKind.table,
+            confidence=0.9,
+        ),
+    ]
+
+    _cap_html2 = "<caption>Tab. 1 example caption</caption><table><tr><td>cell</td></tr></table>"
+
+    def fake_parse_doc(_pdf: object) -> dict:
+        return {
+            1: [
+                ParsedElement(
+                    bbox=(40.0, 40.0, 300.0, 300.0),
+                    html=_cap_html2,
+                    text="",
+                    block_type="table",
+                )
+            ]
+        }
+
+    with MineruWorker(parse_doc_fn=fake_parse_doc, raster_dpi=144) as worker:
+        list(worker.run(pdf, boxes))
+
+    by_id = {r.box_id: r.html for r in worker.results}
+
+    # Paragraph bbox center is outside the table user-bbox → no rescue.
+    assert "Keine Extraktion" in by_id["paragraph"], (
+        f"paragraph should stay empty (no enclosure), got: {by_id['paragraph']!r}"
+    )
+    # Table box gets the element (caption still in html since no rescue occurred).
+    assert "cell" in by_id["table"]

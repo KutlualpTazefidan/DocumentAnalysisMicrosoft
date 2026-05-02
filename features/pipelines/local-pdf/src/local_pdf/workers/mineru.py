@@ -268,6 +268,111 @@ def _html_to_text(html: str) -> str:
     return html_lib.unescape(stripped)
 
 
+# ── Caption rescue helpers ────────────────────────────────────────────────────
+
+_CAPTION_RE = re.compile(r"<caption[^>]*>(.*?)</caption>", re.DOTALL | re.IGNORECASE)
+_LEADING_TEXT_RE = re.compile(r"^(.*?)(?=<(?:table|figure)\b)", re.DOTALL | re.IGNORECASE)
+
+
+def _try_extract_caption(html: str) -> tuple[str, str] | None:
+    """Return (caption_text, html_without_caption) if a caption can be extracted.
+
+    Tries <caption> tag first, then leading text before <table>/<figure>.
+    Returns None if no caption text is found.
+    """
+    if not html:
+        return None
+    m = _CAPTION_RE.search(html)
+    if m:
+        cap = m.group(1).strip()
+        if cap:
+            return cap, _CAPTION_RE.sub("", html, count=1)
+    m = _LEADING_TEXT_RE.match(html)
+    if m:
+        leading = m.group(1).strip()
+        # Only treat leading text as caption if it's non-trivial and not just
+        # whitespace/html-noise.
+        clean = re.sub(r"<[^>]+>", "", leading).strip()
+        if len(clean) >= 5:  # avoid grabbing single-char artifacts
+            return clean, html[m.end(1) :]  # strip leading text from html
+    return None
+
+
+def _rescue_captions_from_visual_boxes(
+    assignments: dict[str, list[ParsedElement]],
+    user_boxes: list[SegmentBox],
+    raster_dpi: int,
+) -> dict[str, list[ParsedElement]]:
+    """Post-process page assignments: route captions hidden inside table/figure
+    blocks to nearby empty heading/caption/paragraph user-boxes.
+
+    For each empty text-like user-bbox whose center is enclosed by a winning
+    visual user-bbox (table/figure), tries to extract the caption text from
+    the visual element's HTML.  When found, a synthetic ParsedElement is added
+    to the empty box and the caption is stripped from the visual element so it
+    does not appear twice.
+
+    Returns a new dict (copy of assignments with rescue edits applied).
+    """
+    by_id = {b.box_id: b for b in user_boxes}
+    text_kinds = {BoxKind.heading, BoxKind.caption, BoxKind.paragraph}
+    visual_kinds = {BoxKind.table, BoxKind.figure}
+
+    # Build a mutable copy.
+    new_assignments: dict[str, list[ParsedElement]] = {
+        bid: list(els) for bid, els in assignments.items()
+    }
+
+    for empty_id, els in assignments.items():
+        if els:
+            continue
+        empty_box = by_id.get(empty_id)
+        if not empty_box or empty_box.kind not in text_kinds:
+            continue
+        empty_pts = _user_bbox_to_pts(empty_box.bbox, raster_dpi)
+        cx = (empty_pts[0] + empty_pts[2]) / 2.0
+        cy = (empty_pts[1] + empty_pts[3]) / 2.0
+
+        # Find a winning visual user-bbox that contains the empty box's center.
+        for win_id, win_els in assignments.items():
+            if win_id == empty_id or not win_els:
+                continue
+            win_box = by_id.get(win_id)
+            if not win_box or win_box.kind not in visual_kinds:
+                continue
+            win_pts = _user_bbox_to_pts(win_box.bbox, raster_dpi)
+            if not _center_in((cx, cy), win_pts):
+                continue
+            # Try to rescue caption from each element in the winning box.
+            for idx, el in enumerate(win_els):
+                rescue = _try_extract_caption(el.html)
+                if rescue is None:
+                    continue
+                cap_text, cleaned_html = rescue
+                # Synthesise a ParsedElement for the empty box.
+                synthetic = ParsedElement(
+                    bbox=empty_pts,
+                    html=f"<p>{cap_text}</p>",
+                    text=cap_text,
+                    block_type="caption_rescue",
+                )
+                new_assignments[empty_id].append(synthetic)
+                # Replace the winning element with caption-stripped version.
+                cleaned_el = ParsedElement(
+                    bbox=el.bbox,
+                    html=cleaned_html,
+                    text=el.text,
+                    block_type=el.block_type,
+                )
+                new_assignments[win_id][idx] = cleaned_el
+                break  # one rescue per empty box
+            else:
+                continue
+            break  # rescue done — don't check other winners
+
+    return new_assignments
+
+
 # ── Block → HTML/markdown conversion ─────────────────────────────────────────
 
 # Fraction of page height that counts as header/footer zone.
@@ -941,8 +1046,10 @@ class MineruWorker:
                     (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
                     for b in page_boxes
                 ]
-                page_assignments_legacy[pg] = _assign_elements_to_boxes(
-                    boxes_with_pts_pg, page_elements_pg
+                page_assignments_legacy[pg] = _rescue_captions_from_visual_boxes(
+                    _assign_elements_to_boxes(boxes_with_pts_pg, page_elements_pg),
+                    page_boxes,
+                    self._raster_dpi,
                 )
 
             for i, box in enumerate(targets, start=1):
@@ -1003,7 +1110,11 @@ class MineruWorker:
                     (b.box_id, _user_bbox_to_pts(b.bbox, self._raster_dpi), b.kind)
                     for b in page_boxes
                 ]
-                page_assignments[pg] = _assign_elements_to_boxes(boxes_with_pts, page_elements)
+                page_assignments[pg] = _rescue_captions_from_visual_boxes(
+                    _assign_elements_to_boxes(boxes_with_pts, page_elements),
+                    page_boxes,
+                    self._raster_dpi,
+                )
 
             for i, box in enumerate(targets, start=1):
                 page_data = doc_pages.get(box.page)
