@@ -535,7 +535,8 @@ class MineruWorker:
                 page_elements = page_cache.get(box.page, [])
                 user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
                 matched = _match_box_to_elements(user_bbox_pts, page_elements)
-                html = "".join(el.html for el in matched)
+                inner = "".join(el.html for el in matched)
+                html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
                 eta_seconds, throughput = eta.estimate(total=total)
@@ -557,7 +558,8 @@ class MineruWorker:
                 page_elements = doc_pages.get(box.page, [])
                 user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
                 matched = _match_box_to_elements(user_bbox_pts, page_elements)
-                html = "".join(el.html for el in matched)
+                inner = "".join(el.html for el in matched)
+                html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
                 self.results.append(MinerUResult(box_id=box.box_id, html=html))
                 eta.observe(i, time.monotonic())
                 eta_seconds, throughput = eta.estimate(total=total)
@@ -595,7 +597,8 @@ class MineruWorker:
 
         user_bbox_pts = _user_bbox_to_pts(box.bbox, self._raster_dpi)
         matched = _match_box_to_elements(user_bbox_pts, page_elements)
-        html = "".join(el.html for el in matched)
+        inner = "".join(el.html for el in matched)
+        html = f'<div data-source-box="{box.box_id}">{inner}</div>' if inner else ""
         return MinerUResult(box_id=box.box_id, html=html)
 
     def unload(self) -> Iterator[WorkerEvent]:

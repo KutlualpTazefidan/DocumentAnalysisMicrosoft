@@ -10,6 +10,7 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
+import { sliceHtmlByPage } from "../lib/extractHtml";
 import { useSegments } from "../hooks/useSegments";
 import {
   streamExtract,
@@ -208,6 +209,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     return pages;
   }, [mineru.data]);
 
+  // ── Slice the full-doc HTML to only the current page ──────────────────
+  // TODO: backend per-page persistence (v1: display-only slice; full doc is authoritative)
+  const visibleHtml = useMemo(
+    () => sliceHtmlByPage(html.data ?? "", page),
+    [html.data, page],
+  );
+
   // ── Saving status derived from putHtml mutation state ─────────────────
   const savingStatus = putHtml.isPending
     ? "Saving…"
@@ -350,9 +358,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           </div>
         </div>
 
-        {/* HTML editor pane */}
+        {/* HTML editor pane — shows only the current page's content */}
         <div className="flex-[2] flex flex-col border-l border-slate-200 min-w-0">
-          <HtmlEditor html={html.data} onChange={handleHtmlChange} onClickElement={handleClickElement} />
+          <HtmlEditor html={visibleHtml} onChange={handleHtmlChange} onClickElement={handleClickElement} />
         </div>
 
         {/* Sidebar — colored page-button grid */}

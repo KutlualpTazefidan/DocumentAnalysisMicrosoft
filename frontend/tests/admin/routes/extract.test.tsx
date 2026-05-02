@@ -24,12 +24,22 @@ const MINERU_DATA = {
   ],
 };
 
+// Full HTML document so sliceHtmlByPage can find <head> and <body>.
+const FULL_HTML = [
+  "<!DOCTYPE html>",
+  "<html><head><style>body{font-family:serif}</style></head><body>",
+  '<h1 data-source-box="p1-b0">Hi</h1>',
+  '<hr class="page-break">',
+  '<p data-source-box="p2-b0">Page two</p>',
+  "</body></html>",
+].join("\n");
+
 const server = setupServer(
   http.get("*/api/admin/docs/rep/segments", () =>
     HttpResponse.json({ slug: "rep", boxes: BOXES }),
   ),
   http.get("*/api/admin/docs/rep/html", () =>
-    HttpResponse.json({ html: '<h1 data-source-box="p1-b0">Hi</h1>' }),
+    HttpResponse.json({ html: FULL_HTML }),
   ),
   http.put("*/api/admin/docs/rep/html", () => HttpResponse.json({ ok: true })),
   http.post("*/api/admin/docs/rep/export", () =>
@@ -82,15 +92,21 @@ function wrapNoHtml() {
   );
 }
 
+// Helper: wait until the HTML editor is mounted (preview iframe visible).
+async function waitForEditor() {
+  await waitFor(() => expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument());
+}
+
 describe("ExtractRoute", () => {
-  it("loads html and shows it in editor", async () => {
+  it("loads html and shows preview iframe in editor", async () => {
     render(wrap());
-    await waitFor(() => expect(screen.getByText("Hi")).toBeInTheDocument());
+    await waitForEditor();
+    expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument();
   });
 
   it("Export button posts and toasts", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     fireEvent.click(screen.getByRole("button", { name: /export sourceelements/i }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /export sourceelements/i })).not.toBeDisabled(),
@@ -99,7 +115,7 @@ describe("ExtractRoute", () => {
 
   it("StageIndicator is not present in idle, html-only render", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
   });
 
@@ -107,7 +123,7 @@ describe("ExtractRoute", () => {
 
   it("top bar shows DocStepTabs with Extract tab active", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     // The Extract tab must be present and marked active (aria-current=page)
     const extractTab = screen.getByRole("tab", { name: /extract/i });
     expect(extractTab).toHaveAttribute("aria-current", "page");
@@ -118,7 +134,7 @@ describe("ExtractRoute", () => {
 
   it("Re-extract this box is disabled when no box is highlighted, enabled after clicking one", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
 
     const reExtractBtn = screen.getByRole("button", { name: /re-extract this box/i });
 
@@ -150,7 +166,7 @@ describe("ExtractRoute", () => {
 
   it("renders page buttons for each page in the segment data", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
 
     // Two pages from BOXES (page 1 and page 2)
     await waitFor(() => screen.getByTestId("page-btn-1"));
@@ -160,7 +176,7 @@ describe("ExtractRoute", () => {
 
   it("page 1 button is green (extracted) because mineru has an element for p1-b0", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     await waitFor(() => screen.getByTestId("page-btn-1"));
 
     const btn1 = screen.getByTestId("page-btn-1");
@@ -170,7 +186,7 @@ describe("ExtractRoute", () => {
 
   it("page 2 button is red (no extraction) when mineru has no element for page 2", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     await waitFor(() => screen.getByTestId("page-btn-2"));
 
     const btn2 = screen.getByTestId("page-btn-2");
@@ -180,7 +196,7 @@ describe("ExtractRoute", () => {
 
   it("clicking a page button navigates to that page", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     await waitFor(() => screen.getByTestId("page-btn-2"));
 
     // Active page 1 initially; btn-1 has aria-pressed=true
@@ -197,7 +213,7 @@ describe("ExtractRoute", () => {
 
   it("approve button toggles page to blue (approved) state and persists to localStorage", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
     await waitFor(() => screen.getByTestId("page-btn-1"));
 
     const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
@@ -215,7 +231,7 @@ describe("ExtractRoute", () => {
 
   it("approve button label toggles to 'Genehmigung aufheben' after approval", async () => {
     render(wrap());
-    await waitFor(() => screen.getByText("Hi"));
+    await waitForEditor();
 
     const approveBtn = screen.getByRole("button", { name: /diese seite genehmigen/i });
     fireEvent.click(approveBtn);
