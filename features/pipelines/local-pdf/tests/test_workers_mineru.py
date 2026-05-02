@@ -566,20 +566,33 @@ def test_bbox_conversion_enables_match_via_parse_doc_fn(tmp_path: Path) -> None:
 
 
 def _make_mock_merge(monkeypatch, return_text: str) -> None:
-    """Inject mock merge_para_with_text so _block_to_html works without MinerU."""
+    """Inject mock merge_para_with_text so _block_to_html works without MinerU.
+
+    Patches BOTH the VLM and the pipeline mkcontent helpers — the worker's
+    safe wrappers prefer the VLM helper, falling back to pipeline.
+    """
     import sys
     import types
 
     pkg = types.ModuleType("mineru")
     backend = types.ModuleType("mineru.backend")
+
     pipeline_pkg = types.ModuleType("mineru.backend.pipeline")
-    mkcontent = types.ModuleType("mineru.backend.pipeline.pipeline_middle_json_mkcontent")
-    mkcontent.merge_para_with_text = lambda _b: return_text
-    mkcontent.merge_visual_blocks_to_markdown = lambda _b: return_text
+    pipe_mkcontent = types.ModuleType("mineru.backend.pipeline.pipeline_middle_json_mkcontent")
+    pipe_mkcontent.merge_para_with_text = lambda _b: return_text
+    pipe_mkcontent.merge_visual_blocks_to_markdown = lambda _b: return_text
+
+    vlm_pkg = types.ModuleType("mineru.backend.vlm")
+    vlm_mkcontent = types.ModuleType("mineru.backend.vlm.vlm_middle_json_mkcontent")
+    vlm_mkcontent.merge_para_with_text = lambda _b: return_text
+    vlm_mkcontent.merge_visual_blocks_to_markdown = lambda _b: return_text
+
     sys.modules.setdefault("mineru", pkg)
     sys.modules["mineru.backend"] = backend
     sys.modules["mineru.backend.pipeline"] = pipeline_pkg
-    sys.modules["mineru.backend.pipeline.pipeline_middle_json_mkcontent"] = mkcontent
+    sys.modules["mineru.backend.pipeline.pipeline_middle_json_mkcontent"] = pipe_mkcontent
+    sys.modules["mineru.backend.vlm"] = vlm_pkg
+    sys.modules["mineru.backend.vlm.vlm_middle_json_mkcontent"] = vlm_mkcontent
 
 
 def test_block_to_html_title_produces_h2(monkeypatch) -> None:

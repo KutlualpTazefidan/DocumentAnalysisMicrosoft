@@ -413,29 +413,93 @@ def _is_page_number(text: str) -> bool:
     return stripped.isdigit() and len(stripped) <= 5
 
 
+def _walk_block_for_text(block: object) -> str:
+    """Best-effort recursive walk of a block dict to collect any text.
+
+    Used as a fallback when MinerU's own ``merge_para_with_text`` raises
+    (e.g. VLM blocks that lack the expected ``lines`` key).  Looks at common
+    text-bearing fields (``content``, ``text``) and recurses into nested
+    structures (``lines``/``spans``/``blocks``) when present.
+    """
+    if not isinstance(block, dict):
+        return ""
+    pieces: list[str] = []
+    for key in ("content", "text"):
+        v = block.get(key)
+        if isinstance(v, str) and v.strip():
+            pieces.append(v)
+    for key in ("lines", "spans", "blocks"):
+        children = block.get(key)
+        if isinstance(children, list):
+            for child in children:
+                txt = _walk_block_for_text(child) if isinstance(child, dict) else ""
+                if txt:
+                    pieces.append(txt)
+    return " ".join(pieces).strip()
+
+
+def _safe_merge_para_text(block: dict) -> str:
+    """Call MinerU's ``merge_para_with_text``; fall back to ``_walk_block_for_text``
+    if the block schema doesn't match what MinerU expects (e.g. missing ``lines``).
+    """
+    # Prefer the VLM-backend helper since we run the VLM backend, but fall
+    # back to the pipeline helper if VLM helpers aren't available.
+    merge = None
+    try:
+        from mineru.backend.vlm.vlm_middle_json_mkcontent import (
+            merge_para_with_text as _vlm_merge,
+        )
+
+        merge = _vlm_merge
+    except ImportError:
+        try:
+            from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+                merge_para_with_text as _pipe_merge,
+            )
+
+            merge = _pipe_merge
+        except ImportError:
+            return _walk_block_for_text(block)
+    try:
+        return (merge(block) or "") or _walk_block_for_text(block)
+    except (KeyError, TypeError, AttributeError):
+        return _walk_block_for_text(block)
+
+
+def _safe_merge_visual(block: dict) -> str:
+    """Call MinerU's ``merge_visual_blocks_to_markdown`` defensively."""
+    merge = None
+    try:
+        from mineru.backend.vlm.vlm_middle_json_mkcontent import (
+            merge_visual_blocks_to_markdown as _vlm_merge,
+        )
+
+        merge = _vlm_merge
+    except ImportError:
+        try:
+            from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+                merge_visual_blocks_to_markdown as _pipe_merge,
+            )
+
+            merge = _pipe_merge
+        except ImportError:
+            return _walk_block_for_text(block)
+    try:
+        return (merge(block) or "") or _walk_block_for_text(block)
+    except (KeyError, TypeError, AttributeError):
+        return _walk_block_for_text(block)
+
+
 def _block_to_content(block: dict) -> str:
     """Convert a single MinerU para_block to a content string.
 
-    Uses merge_visual_blocks_to_markdown for visual/code blocks and
-    merge_para_with_text for all text-based blocks.  Returns "" for blocks
-    that produce no text so callers can skip them.
+    Uses ``_safe_merge_visual`` for visual/code blocks and ``_safe_merge_para_text``
+    for all text-based blocks.  Returns "" when nothing extractable.
     """
-    try:
-        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-            merge_para_with_text,
-            merge_visual_blocks_to_markdown,
-        )
-    except ImportError:
-        # MinerU not installed — return empty.
-        return ""
-
     block_type = block.get("type", "")
     if block_type in _VISUAL_BLOCK_TYPES:
-        text = merge_visual_blocks_to_markdown(block)
-    else:
-        text = merge_para_with_text(block)
-
-    return text or ""
+        return _safe_merge_visual(block)
+    return _safe_merge_para_text(block)
 
 
 def _block_to_html(
@@ -456,14 +520,6 @@ def _block_to_html(
         page_size: (width_pts, height_pts) of the page, used for
             header/footer detection.  Pass None to skip zone detection.
     """
-    try:
-        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-            merge_para_with_text,
-            merge_visual_blocks_to_markdown,
-        )
-    except ImportError:
-        return ""
-
     block_type = block.get("type", "")
     raw_bbox = block.get("bbox")
 
@@ -484,7 +540,7 @@ def _block_to_html(
             pass
 
     if block_type in _VISUAL_BLOCK_TYPES:
-        raw = merge_visual_blocks_to_markdown(block) or ""
+        raw = _safe_merge_visual(block)
         if not raw:
             return ""
         if block_type == "image":
@@ -494,7 +550,7 @@ def _block_to_html(
         else:
             inner = f"<pre><code>{raw}</code></pre>"
     else:
-        raw = merge_para_with_text(block) or ""
+        raw = _safe_merge_para_text(block)
         if not raw:
             return ""
         if in_header or in_footer:
@@ -780,18 +836,12 @@ def _make_real_parse_doc_fn(
                 if not html_content:
                     continue
 
-                # Extract plain text for text-like blocks
+                # Extract plain text for text-like blocks (defensive against
+                # blocks without the expected 'lines' key — see _safe_merge_para_text).
                 if block_type in _VISUAL_BLOCK_TYPES:
                     text_content = ""
                 else:
-                    try:
-                        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-                            merge_para_with_text,
-                        )
-
-                        text_content = merge_para_with_text(block) or ""
-                    except ImportError:
-                        text_content = ""
+                    text_content = _safe_merge_para_text(block)
 
                 elements.append(
                     ParsedElement(
