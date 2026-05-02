@@ -497,3 +497,82 @@ describe("SegmentRoute", () => {
     expect(calls[0]).toBe("p1-b0");
   });
 });
+
+describe("SegmentRoute — empty state (no segments yet)", () => {
+  beforeEach(() => {
+    // Override the segments endpoint to return an empty boxes array
+    server.use(
+      http.get("*/api/admin/docs/rep/segments", () =>
+        HttpResponse.json({ slug: "rep", boxes: [] }),
+      ),
+    );
+    localStorage.clear();
+  });
+
+  it("DocStepTabs is visible in the top bar", async () => {
+    render(wrap());
+    // Wait for query to resolve (empty boxes)
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).toBeInTheDocument());
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
+  });
+
+  it("top bar action buttons are visible: Alle Seiten and Mehr Seiten", async () => {
+    render(wrap());
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).toBeInTheDocument());
+    expect(screen.getByLabelText("Alle Seiten segmentieren")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mehr Seiten segmentieren")).toBeInTheDocument();
+  });
+
+  it("top bar Confidence input and Show deactivated checkbox are visible", async () => {
+    render(wrap());
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).toBeInTheDocument());
+    expect(screen.getByLabelText("Confidence")).toBeInTheDocument();
+    expect(screen.getByLabelText("Show deactivated")).toBeInTheDocument();
+  });
+
+  it("sidebar page-grid toggle is visible and pages render as red (not segmented)", async () => {
+    render(wrap());
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).toBeInTheDocument());
+    const toggle = screen.getByTestId("seg-page-grid-toggle");
+    expect(toggle).toBeInTheDocument();
+    // Open the grid
+    fireEvent.click(toggle);
+    await waitFor(() => screen.getByTestId("seg-page-btn-1"));
+    expect(screen.getByTestId("seg-page-btn-1").className).toContain("red");
+  });
+
+  it("sidebar shows 'Nur diese Seite segmentieren' (not 'neu') when page has no segments", async () => {
+    render(wrap());
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).toBeInTheDocument());
+    expect(screen.getByLabelText("Nur diese Seite segmentieren")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Diese Seite neu segmentieren")).not.toBeInTheDocument();
+  });
+
+  it("hint card is present in the PDF pane", async () => {
+    render(wrap());
+    await waitFor(() => expect(screen.getByTestId("empty-state-hint")).toBeInTheDocument());
+  });
+
+  it("hint card disappears once segments are loaded", async () => {
+    // First render with empty segments
+    render(wrap());
+    await waitFor(() => expect(screen.getByTestId("empty-state-hint")).toBeInTheDocument());
+
+    // Restore segments
+    server.use(
+      http.get("*/api/admin/docs/rep/segments", () =>
+        HttpResponse.json({ slug: "rep", boxes: BOXES }),
+      ),
+    );
+
+    // Trigger a refetch via Alle Seiten button
+    server.use(
+      http.post("*/api/admin/docs/rep/segment", () =>
+        new HttpResponse(SEGMENT_NDJSON, { headers: { "Content-Type": "application/x-ndjson" } }),
+      ),
+    );
+    fireEvent.click(screen.getByLabelText("Alle Seiten segmentieren"));
+
+    await waitFor(() => expect(screen.queryByTestId("empty-state-hint")).not.toBeInTheDocument(), { timeout: 3000 });
+  });
+});

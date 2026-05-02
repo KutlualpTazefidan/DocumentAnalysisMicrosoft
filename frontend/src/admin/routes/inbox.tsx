@@ -7,6 +7,7 @@ import { Plus } from "../../shared/icons";
 
 import { useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
 import { StatusBadge } from "../components/StatusBadge";
+import { DocStepTabs } from "../components/DocStepTabs";
 
 interface Props {
   token: string;
@@ -37,7 +38,11 @@ export function InboxRoute({ token }: Props): JSX.Element {
   const rows = (docs.data ?? []).filter((d) => d.filename.toLowerCase().includes(filter.toLowerCase()) || d.slug.includes(filter.toLowerCase()));
 
   return (
-    <div className="p-6 h-full overflow-auto">
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white text-xs border-b border-navy-700 flex-shrink-0">
+        <DocStepTabs />
+      </div>
+      <div className="p-6 flex-1 overflow-auto">
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-xl font-semibold">Local-PDF Inbox</h1>
         <input
@@ -94,6 +99,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
         </tbody>
       </table>
       <p className="text-xs text-gray-400 mt-4">Drop PDFs into <code>data/raw-pdfs/</code> or use Add PDF.</p>
+    </div>
     </div>
   );
 }

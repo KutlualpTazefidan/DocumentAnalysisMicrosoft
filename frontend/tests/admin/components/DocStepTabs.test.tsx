@@ -5,11 +5,21 @@ import { describe, expect, it } from "vitest";
 
 import { DocStepTabs } from "../../../src/admin/components/DocStepTabs";
 
-function wrap(initialPath: string) {
+function wrap(initialPath: string, slug?: string) {
   return (
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
-        <Route path="*" element={<DocStepTabs slug="foo" />} />
+        <Route path="*" element={<DocStepTabs slug={slug ?? "foo"} />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+function wrapNoSlug(initialPath: string) {
+  return (
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route path="*" element={<DocStepTabs />} />
       </Routes>
     </MemoryRouter>
   );
@@ -71,9 +81,51 @@ describe("DocStepTabs", () => {
     expect(synthesiseTab).toHaveAttribute("href", "/admin/doc/foo/synthesise");
   });
 
-  it("no tab is marked active when on an unrelated path", () => {
+  it("marks Files tab active on /admin/inbox (with slug)", () => {
     render(wrap("/admin/inbox"));
-    const tabs = screen.getAllByRole("tab");
-    tabs.forEach((tab) => expect(tab).not.toHaveAttribute("aria-current"));
+    expect(screen.getByRole("tab", { name: /files/i })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("tab", { name: /segment/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("tab", { name: /extract/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
+  });
+
+  // ── No-slug (inbox) mode ────────────────────────────────────────────────────
+
+  it("no-slug: Files tab is a link to /admin/inbox and is active", () => {
+    render(wrapNoSlug("/admin/inbox"));
+    const filesTab = screen.getByRole("tab", { name: /files/i });
+    expect(filesTab.tagName).toBe("A");
+    expect(filesTab).toHaveAttribute("href", "/admin/inbox");
+    expect(filesTab).toHaveAttribute("aria-current", "page");
+  });
+
+  it("no-slug: Segment tab is rendered as an aria-disabled span (not a link)", () => {
+    render(wrapNoSlug("/admin/inbox"));
+    const segmentTab = screen.getByRole("tab", { name: /segment/i });
+    expect(segmentTab.tagName).toBe("SPAN");
+    expect(segmentTab).toHaveAttribute("aria-disabled", "true");
+    expect(segmentTab).not.toHaveAttribute("href");
+  });
+
+  it("no-slug: Extract tab is rendered as an aria-disabled span", () => {
+    render(wrapNoSlug("/admin/inbox"));
+    const extractTab = screen.getByRole("tab", { name: /extract/i });
+    expect(extractTab.tagName).toBe("SPAN");
+    expect(extractTab).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("no-slug: Synthesise tab is rendered as an aria-disabled span", () => {
+    render(wrapNoSlug("/admin/inbox"));
+    const synthesiseTab = screen.getByRole("tab", { name: /synthesise/i });
+    expect(synthesiseTab.tagName).toBe("SPAN");
+    expect(synthesiseTab).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("no-slug: all four tabs are still rendered", () => {
+    render(wrapNoSlug("/admin/inbox"));
+    expect(screen.getByRole("tab", { name: /files/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /segment/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /synthesise/i })).toBeInTheDocument();
   });
 });

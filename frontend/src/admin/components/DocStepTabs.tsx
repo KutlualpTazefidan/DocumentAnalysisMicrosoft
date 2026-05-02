@@ -3,7 +3,7 @@ import { FileText, Folder, Scissors, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 
 interface Props {
-  slug: string;
+  slug?: string;
 }
 
 const TABS = [
@@ -17,30 +17,48 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
   const { pathname } = useLocation();
 
   function isActive(key: string): boolean {
-    if (key === "files") return false;
+    if (key === "files") return pathname.endsWith("/inbox");
     if (key === "segment") return pathname.endsWith("/segment");
     if (key === "extract") return pathname.endsWith("/extract");
     if (key === "synthesise") return pathname.endsWith("/synthesise");
     return false;
   }
 
+  const activeTabClass = "text-white border-b-2 border-blue-400";
+  const inactiveTabClass = "text-navy-200 hover:text-white hover:bg-navy-700/40";
+  const disabledTabClass = "text-navy-500 opacity-50 cursor-not-allowed";
+  const baseTabClass = "flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors";
+
   return (
     <nav role="tablist" className="flex items-center border-b border-navy-700 -mb-px">
       {TABS.map((tab) => {
         const active = isActive(tab.key);
         const Icon = tab.icon;
+        const needsSlug = tab.key !== "files";
+        const disabled = needsSlug && !slug;
+
+        if (disabled) {
+          return (
+            <span
+              key={tab.key}
+              role="tab"
+              aria-disabled="true"
+              title="Bitte zuerst ein Dokument öffnen."
+              className={`${baseTabClass} ${disabledTabClass}`}
+            >
+              <Icon className="w-4 h-4" aria-hidden />
+              {tab.label}
+            </span>
+          );
+        }
+
         return (
           <Link
             key={tab.key}
-            to={tab.href(slug)}
+            to={tab.href(slug ?? "")}
             role="tab"
             aria-current={active ? "page" : undefined}
-            className={[
-              "flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors",
-              active
-                ? "text-white border-b-2 border-blue-400"
-                : "text-navy-200 hover:text-white hover:bg-navy-700/40",
-            ].join(" ")}
+            className={`${baseTabClass} ${active ? activeTabClass : inactiveTabClass}`}
           >
             <Icon className="w-4 h-4" aria-hidden />
             {tab.label}

@@ -96,10 +96,6 @@ export function SegmentRoute({ token }: Props): JSX.Element {
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
   const { success, error } = useToast();
 
-  // Range inputs for no-segments-yet view
-  const [rangeStart, setRangeStart] = useState(1);
-  const [rangeEnd, setRangeEnd] = useState(10);
-
   // Mehr-Seiten dialog state
   const [moreDialogOpen, setMoreDialogOpen] = useState(false);
   const [moreStart, setMoreStart] = useState(1);
@@ -186,10 +182,6 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     } finally {
       setRunning(false);
     }
-  }
-
-  function runSegment() {
-    return runSegmentRange(rangeStart, rangeEnd);
   }
 
   const openMoreDialog = useCallback(() => {
@@ -326,48 +318,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
     deactivate: handleDeactivate,
   });
 
-  if (!segments.data) {
-    return (
-      <div className="p-6 relative">
-        <p>No segmentation yet.</p>
-        <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <label className="flex items-center gap-1 text-sm">
-            Von Seite
-            <input
-              aria-label="Von Seite"
-              type="number"
-              min={1}
-              max={totalPages}
-              value={rangeStart}
-              onChange={(e) => setRangeStart(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-16 border rounded px-1 py-0.5 text-sm"
-            />
-          </label>
-          <label className="flex items-center gap-1 text-sm">
-            Bis Seite
-            <input
-              aria-label="Bis Seite"
-              type="number"
-              min={1}
-              max={totalPages}
-              value={rangeEnd}
-              onChange={(e) => setRangeEnd(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-16 border rounded px-1 py-0.5 text-sm"
-            />
-          </label>
-          <button
-            className="bg-blue-600 text-white px-3 py-1 rounded disabled:bg-gray-400"
-            onClick={runSegment}
-            disabled={running}
-          >
-            {running ? "Segmenting…" : "Run segmentation"}
-          </button>
-        </div>
-        <StageIndicator state={streamState} />
-      </div>
-    );
-  }
-
+  const hasSegments = !!segments.data;
   const hasPageOverride = confState.perPage[page] !== undefined;
 
   return (
@@ -471,6 +422,20 @@ export function SegmentRoute({ token }: Props): JSX.Element {
               </PdfPage>
             </div>
           </div>
+          {/* Empty-state hint card — overlays PDF pane when no segments loaded yet */}
+          {!hasSegments && (
+            <div
+              data-testid="empty-state-hint"
+              className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+            >
+              <div className="bg-white/90 backdrop-blur border border-slate-200 rounded-lg shadow-md px-6 py-4 max-w-sm text-center pointer-events-auto">
+                <p className="text-slate-700 text-sm">
+                  Noch keine Segmentierung. Wähle Seiten und klicke{" "}
+                  <span className="font-medium">'Alle Seiten segmentieren'</span> oben rechts.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
