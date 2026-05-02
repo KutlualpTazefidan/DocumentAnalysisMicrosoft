@@ -30,6 +30,14 @@ export function useDeleteDoc(token: string) {
       // Wipe per-doc localStorage (page locks, conf thresholds, current page).
       clearLocalStorageForSlug(slug);
       qc.invalidateQueries({ queryKey: ["docs"] });
+      // Drop ALL React Query caches whose key includes the deleted slug.
+      // unique_slug recycles slugs once their dir is gone, so re-uploading
+      // the same filename collides with the cached ["segments", slug] /
+      // ["mineru", slug] / ["html", slug] / ["doc", slug] entries — without
+      // this, the user sees ghost results from the previous doc.
+      qc.removeQueries({
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes(slug),
+      });
     },
   });
 }
