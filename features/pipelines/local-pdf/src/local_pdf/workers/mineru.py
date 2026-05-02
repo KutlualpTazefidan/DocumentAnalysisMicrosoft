@@ -651,12 +651,19 @@ def _rescue_captions_from_visual_boxes(
     assignments: dict[str, list[ParsedElement]],
     user_boxes: list[SegmentBox],
     raster_dpi: int,
+    diagnostics: list[dict] | None = None,
 ) -> dict[str, list[ParsedElement]]:
     """Post-process page assignments: route captions hidden inside table/figure
     blocks to nearby empty heading/caption/paragraph user-boxes.
 
     Selection is by spatial adjacency (same column + small vertical gap),
     not containment — caption-above-table is the canonical layout.
+
+    When ``diagnostics`` is provided, appends one entry per attempted rescue:
+      - kind="caption_rescue" on success (caption text routed to the empty bbox
+        AND data-source-box rewritten on the <caption>/leading text)
+      - kind="caption_rescue_failed" when the visual element's HTML had no
+        extractable caption (no <caption> tag and no leading text before <table>).
     """
     by_id = {b.box_id: b for b in user_boxes}
     text_kinds = {BoxKind.heading, BoxKind.caption, BoxKind.paragraph}
@@ -692,12 +699,7 @@ def _rescue_captions_from_visual_boxes(
         win_els = new_assignments[win_id]
 
         # Try rescue against the best candidate's elements.
-        # We keep the caption WHERE MinerU put it (inside the table block) so
-        # the table renders naturally with its caption.  The empty user-bbox
-        # gets a synthetic copy of the caption text — which `_build_one_box_html`
-        # detects via block_type="caption_rescue" and renders in a muted,
-        # smaller style (the heading slot becomes a reference, not a duplicate
-        # primary heading).
+        rescued = False
         for idx, el in enumerate(win_els):
             rescue = _try_extract_caption(el.html)
             if rescue is None:
@@ -721,7 +723,32 @@ def _rescue_captions_from_visual_boxes(
                     text=el.text,
                     block_type=el.block_type,
                 )
+            if diagnostics is not None:
+                diagnostics.append(
+                    {
+                        "kind": "caption_rescue",
+                        "source_bbox": empty_id,
+                        "target_visual_bbox": win_id,
+                        "caption_text": cap_text[:200],
+                        "click_remap": tagged_html != el.html,
+                    }
+                )
+            rescued = True
             break
+
+        if not rescued and diagnostics is not None:
+            # We had a candidate visual neighbor but no extractable caption text.
+            # Surface the situation so the user knows the heading bbox stayed empty.
+            preview = (win_els[0].text or "")[:200] if win_els else ""
+            diagnostics.append(
+                {
+                    "kind": "caption_rescue_failed",
+                    "source_bbox": empty_id,
+                    "target_visual_bbox": win_id,
+                    "caption_text": "",
+                    "text_preview": preview,
+                }
+            )
 
     return new_assignments
 
@@ -1475,6 +1502,7 @@ class MineruWorker:
                     ),
                     page_boxes,
                     self._raster_dpi,
+                    diagnostics=pg_diags,
                 )
                 for d in pg_diags:
                     d["page"] = pg
@@ -1543,6 +1571,7 @@ class MineruWorker:
                     _assign_elements_to_boxes(boxes_with_pts, page_elements, diagnostics=pg_diags),
                     page_boxes,
                     self._raster_dpi,
+                    diagnostics=pg_diags,
                 )
                 for d in pg_diags:
                     d["page"] = pg

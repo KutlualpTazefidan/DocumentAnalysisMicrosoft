@@ -9,13 +9,15 @@ interface Props {
 }
 
 /**
- * Sidebar diagnostic block — surfaces the worker's per-page assignment
- * decisions (when a MinerU block was split into sub-elements, when an
- * overlap couldn't be decomposed, etc.). Reads `mineru.json.diagnostics`
- * which the backend writes alongside the elements list.
+ * Sidebar diagnostic block — surfaces per-page assignment + rescue events:
+ *   • split:                  block decomposed into sub-elements
+ *   • no_decomposition:       block overlaps multiple bboxes, no split
+ *   • caption_rescue:         caption inside a table routed to a heading bbox
+ *   • caption_rescue_failed:  adjacent neighbor existed but no caption text
+ *                             could be extracted from its HTML
  *
- * Shows only entries for the current page, with a count summary in the
- * collapsed header. Expanding reveals one row per event.
+ * Reads `mineru.json.diagnostics`. Filters to the current page; shows nothing
+ * when the page has no events.
  */
 export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Element | null {
   const [open, setOpen] = useState(false);
@@ -24,6 +26,8 @@ export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Elemen
 
   const splits = onPage.filter((d) => d.kind === "split").length;
   const warnings = onPage.filter((d) => d.kind === "no_decomposition").length;
+  const captions = onPage.filter((d) => d.kind === "caption_rescue").length;
+  const capFails = onPage.filter((d) => d.kind === "caption_rescue_failed").length;
 
   return (
     <div className="flex flex-col gap-1 border-t border-slate-200 pt-2">
@@ -40,9 +44,19 @@ export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Elemen
               ✓ {splits}
             </span>
           )}
+          {captions > 0 && (
+            <span className="text-blue-700" title={`${captions} caption rescued`}>
+              ⤴ {captions}
+            </span>
+          )}
           {warnings > 0 && (
             <span className="text-amber-700" title={`${warnings} no-decomposition`}>
               ⚠ {warnings}
+            </span>
+          )}
+          {capFails > 0 && (
+            <span className="text-red-700" title={`${capFails} caption rescue failed`}>
+              ✗ {capFails}
             </span>
           )}
           <motion.span
@@ -66,31 +80,83 @@ export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Elemen
           >
             <ul className="flex flex-col gap-1.5 mt-1">
               {onPage.map((d, i) => (
-                <li
-                  key={i}
-                  className={`${T.tiny} rounded border px-2 py-1 ${
-                    d.kind === "split"
-                      ? "border-green-200 bg-green-50 text-green-900"
-                      : "border-amber-200 bg-amber-50 text-amber-900"
-                  }`}
-                >
-                  <div className="font-semibold">
-                    {d.kind === "split"
-                      ? `Block aufgeteilt in ${d.n_sub_elements} Elemente`
-                      : "Block überlappt mehrere Bboxen, keine Aufteilung"}
-                  </div>
-                  <div className={`${T.tinyMuted} mt-0.5`}>
-                    Type: {d.block_type || "—"} · Boxes: {d.user_bboxes.join(", ")}
-                  </div>
-                  <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
-                    {d.text_preview || "(no text)"}
-                  </div>
-                </li>
+                <DiagItem key={i} d={d} />
               ))}
             </ul>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function DiagItem({ d }: { d: ExtractDiagnostic }): JSX.Element {
+  const cls =
+    d.kind === "split"
+      ? "border-green-200 bg-green-50 text-green-900"
+      : d.kind === "caption_rescue"
+      ? "border-blue-200 bg-blue-50 text-blue-900"
+      : d.kind === "caption_rescue_failed"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : "border-amber-200 bg-amber-50 text-amber-900";
+
+  if (d.kind === "split") {
+    return (
+      <li className={`${T.tiny} rounded border px-2 py-1 ${cls}`}>
+        <div className="font-semibold">
+          Block aufgeteilt in {d.n_sub_elements} Elemente
+        </div>
+        <div className={`${T.tinyMuted} mt-0.5`}>
+          Type: {d.block_type || "—"} · Boxes: {(d.user_bboxes || []).join(", ")}
+        </div>
+        <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+          {d.text_preview || "(no text)"}
+        </div>
+      </li>
+    );
+  }
+  if (d.kind === "no_decomposition") {
+    return (
+      <li className={`${T.tiny} rounded border px-2 py-1 ${cls}`}>
+        <div className="font-semibold">
+          Block überlappt mehrere Bboxen, keine Aufteilung
+        </div>
+        <div className={`${T.tinyMuted} mt-0.5`}>
+          Type: {d.block_type || "—"} · Boxes: {(d.user_bboxes || []).join(", ")}
+        </div>
+        <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+          {d.text_preview || "(no text)"}
+        </div>
+      </li>
+    );
+  }
+  if (d.kind === "caption_rescue") {
+    return (
+      <li className={`${T.tiny} rounded border px-2 py-1 ${cls}`}>
+        <div className="font-semibold">
+          Caption von {d.target_visual_bbox} → {d.source_bbox}
+        </div>
+        <div className={`${T.tinyMuted} mt-0.5`}>
+          {d.click_remap ? "Klick auf Caption → Heading-Bbox" : "Klick-Mapping nicht angepasst"}
+        </div>
+        <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+          {d.caption_text || "(no caption text)"}
+        </div>
+      </li>
+    );
+  }
+  // caption_rescue_failed
+  return (
+    <li className={`${T.tiny} rounded border px-2 py-1 ${cls}`}>
+      <div className="font-semibold">
+        Caption-Rescue fehlgeschlagen für {d.source_bbox}
+      </div>
+      <div className={`${T.tinyMuted} mt-0.5`}>
+        Nachbar: {d.target_visual_bbox} · keine Caption im HTML gefunden
+      </div>
+      <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+        {d.text_preview || "(no preview)"}
+      </div>
+    </li>
   );
 }

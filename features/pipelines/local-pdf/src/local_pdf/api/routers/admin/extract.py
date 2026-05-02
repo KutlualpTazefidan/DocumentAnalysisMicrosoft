@@ -56,6 +56,11 @@ _PDF_STYLE = (
     ".extracted-table table{border-collapse:collapse;width:100%}"
     ".extracted-table th,.extracted-table td{"
     "border:1px solid #d1d5db;padding:0.4em 0.6em}"
+    # User preference: render <caption> below the table (caption-side:bottom)
+    # with a Tab-1-style typography. Click-mapping on the <caption> still
+    # routes to the heading user-bbox via _attach_source_box_to_caption.
+    ".extracted-table caption{caption-side:bottom;text-align:left;"
+    "font-size:0.9em;color:#374151;margin-top:0.4em;font-style:italic}"
     ".toc{margin:1em 0;padding-left:1em}"
     ".md-list{margin:0.6em 0;padding-left:1.5em}"
     "pre{background:#f3f4f6;padding:1em;border-radius:4px;overflow-x:auto}"
