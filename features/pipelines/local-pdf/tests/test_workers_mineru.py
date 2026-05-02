@@ -8,6 +8,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+# ── Existing tests (updated to keep extract_fn injection path working) ────────
+
+
 def test_mineru_worker_advertises_name_and_estimated_vram() -> None:
     from local_pdf.workers.mineru import MineruWorker
 
@@ -123,3 +126,187 @@ def test_mineru_worker_extract_region_one_call(tmp_path: Path) -> None:
 
     assert calls == ["p2-b3"]
     assert out.html.startswith("<table>")
+
+
+# ── New tests for in-process parse_page_fn path ───────────────────────────────
+
+
+def test_page_parsed_once_for_multiple_boxes_on_same_page(tmp_path: Path) -> None:
+    """parse_page_fn must be called exactly once per unique page, not once per box."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # 5 boxes all on page 1
+    boxes = [
+        SegmentBox(
+            box_id=f"p1-b{i}",
+            page=1,
+            bbox=(float(i * 10), 0.0, float(i * 10 + 9), 10.0),
+            kind=BoxKind.paragraph,
+            confidence=0.9,
+        )
+        for i in range(5)
+    ]
+
+    call_count = 0
+
+    def fake_parse(_pdf: Path, page: int) -> list[ParsedElement]:
+        nonlocal call_count
+        call_count += 1
+        # Return one element per box position so matching can succeed
+        return [
+            ParsedElement(
+                bbox=(float(i * 10), 0.0, float(i * 10 + 9), 10.0),
+                html=f"<p>elem-{i}</p>",
+            )
+            for i in range(5)
+        ]
+
+    with MineruWorker(parse_page_fn=fake_parse) as worker:
+        list(worker.run(pdf, boxes))
+
+    assert call_count == 1, f"expected parse_page called once, got {call_count}"
+    assert len(worker.results) == 5
+
+
+def test_user_bbox_spanning_two_elements_concatenates_html(tmp_path: Path) -> None:
+    """A user bbox that covers two parsed elements yields concatenated HTML."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    # User box spans the full width and height of two stacked elements
+    box = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(0.0, 0.0, 100.0, 100.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    def fake_parse(_pdf: Path, page: int) -> list[ParsedElement]:
+        return [
+            ParsedElement(bbox=(0.0, 0.0, 100.0, 50.0), html="<p>top</p>"),
+            ParsedElement(bbox=(0.0, 50.0, 100.0, 100.0), html="<p>bottom</p>"),
+        ]
+
+    with MineruWorker(parse_page_fn=fake_parse) as worker:
+        result = worker.extract_region(pdf, box)
+
+    assert "<p>top</p>" in result.html
+    assert "<p>bottom</p>" in result.html
+
+
+def test_enter_emits_loading_and_loaded_events(tmp_path: Path) -> None:
+    """__enter__ with parse_page_fn injection: lifecycle events ModelLoading + ModelLoaded."""
+    from local_pdf.api.schemas import BoxKind, SegmentBox
+    from local_pdf.workers.base import ModelLoadedEvent, ModelLoadingEvent
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    box = SegmentBox(
+        box_id="p1-b0",
+        page=1,
+        bbox=(0.0, 0.0, 50.0, 50.0),
+        kind=BoxKind.paragraph,
+        confidence=0.9,
+    )
+
+    def fake_parse(_pdf: Path, page: int) -> list[ParsedElement]:
+        return [ParsedElement(bbox=(0.0, 0.0, 50.0, 50.0), html="<p>hi</p>")]
+
+    events = []
+    with MineruWorker(parse_page_fn=fake_parse) as worker:
+        for ev in worker.run(pdf, [box]):
+            events.append(ev)
+        for ev in worker.unload():
+            events.append(ev)
+
+    types = [e.type for e in events]
+    assert "model-loading" in types
+    assert "model-loaded" in types
+    assert "model-unloading" in types
+    assert "model-unloaded" in types
+
+    loaded_ev = next(e for e in events if isinstance(e, ModelLoadedEvent))
+    assert loaded_ev.load_seconds >= 0
+
+    loading_ev = next(e for e in events if isinstance(e, ModelLoadingEvent))
+    assert loading_ev.vram_estimate_mb >= 1000
+
+
+def test_exit_emits_unloading_and_unloaded_events(tmp_path: Path) -> None:
+    """unload() yields ModelUnloading then ModelUnloaded."""
+    from local_pdf.workers.base import ModelUnloadedEvent
+    from local_pdf.workers.mineru import MineruWorker, ParsedElement
+
+    pdf = tmp_path / "fake.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    def fake_parse(_pdf: Path, page: int) -> list[ParsedElement]:
+        return []
+
+    events = []
+    worker = MineruWorker(parse_page_fn=fake_parse)
+    worker.__enter__()
+    for ev in worker.unload():
+        events.append(ev)
+
+    types = [e.type for e in events]
+    assert types[0] == "model-unloading"
+    assert types[1] == "model-unloaded"
+
+    unloaded = next(e for e in events if isinstance(e, ModelUnloadedEvent))
+    assert unloaded.vram_freed_mb >= 0
+
+
+# ── IoU / matching unit tests ─────────────────────────────────────────────────
+
+
+def test_iou_exact_overlap() -> None:
+    from local_pdf.workers.mineru import _iou
+
+    box = (0.0, 0.0, 10.0, 10.0)
+    assert _iou(box, box) == 1.0
+
+
+def test_iou_no_overlap() -> None:
+    from local_pdf.workers.mineru import _iou
+
+    assert _iou((0.0, 0.0, 5.0, 5.0), (10.0, 10.0, 20.0, 20.0)) == 0.0
+
+
+def test_match_fallback_to_best_when_no_threshold_met() -> None:
+    """If no element meets IoU > 0.3 or center-in, return the one with highest IoU."""
+    from local_pdf.workers.mineru import ParsedElement, _match_box_to_elements
+
+    user_box = (0.0, 0.0, 10.0, 10.0)
+    elements = [
+        ParsedElement(bbox=(20.0, 20.0, 30.0, 30.0), html="<p>far</p>"),  # IoU = 0
+        ParsedElement(bbox=(5.0, 5.0, 15.0, 15.0), html="<p>near</p>"),  # partial overlap
+    ]
+    result = _match_box_to_elements(user_box, elements)
+    assert len(result) == 1
+    assert result[0].html == "<p>near</p>"
+
+
+def test_match_reading_order_sort() -> None:
+    """Matched elements are sorted by (top, left)."""
+    from local_pdf.workers.mineru import ParsedElement, _match_box_to_elements
+
+    # Both elements fully inside user_box → both match, sorted by y then x
+    user_box = (0.0, 0.0, 100.0, 100.0)
+    elements = [
+        ParsedElement(bbox=(0.0, 60.0, 50.0, 80.0), html="<p>lower</p>"),
+        ParsedElement(bbox=(0.0, 10.0, 50.0, 40.0), html="<p>upper</p>"),
+    ]
+    result = _match_box_to_elements(user_box, elements)
+    assert result[0].html == "<p>upper</p>"
+    assert result[1].html == "<p>lower</p>"
