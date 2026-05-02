@@ -504,9 +504,11 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             {boxesOnPage.length} boxes on page {page}
           </p>
 
-          {/* Diagnose section — what the worker decided for THIS page. */}
+          {/* Diagnose section — what the worker decided for THIS page.
+              Pass undefined (not []) when the field is absent so the component
+              can distinguish "stale data, re-extract" from "no events". */}
           <ExtractDiagnose
-            diagnostics={mineru.data?.diagnostics ?? []}
+            diagnostics={mineru.data?.diagnostics}
             currentPage={page}
           />
         </aside>

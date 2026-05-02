@@ -4,7 +4,10 @@ import { T } from "../styles/typography";
 import type { ExtractDiagnostic } from "../hooks/useExtract";
 
 interface Props {
-  diagnostics: ExtractDiagnostic[];
+  /** undefined = mineru.json has no diagnostics field (stale data, written
+   *  by code older than commit df94505). Empty array = doc was extracted with
+   *  the new code but no notable events fired. Non-empty = events to display. */
+  diagnostics: ExtractDiagnostic[] | undefined;
   currentPage: number;
 }
 
@@ -16,13 +19,37 @@ interface Props {
  *   • caption_rescue_failed:  adjacent neighbor existed but no caption text
  *                             could be extracted from its HTML
  *
- * Reads `mineru.json.diagnostics`. Filters to the current page; shows nothing
- * when the page has no events.
+ * Three header states surface the situation to the user:
+ *   - "Diagnostics nicht verfügbar — Seite neu extrahieren" when the field
+ *     is absent from mineru.json (stale data).
+ *   - "Diagnose · Seite N — keine Ereignisse" when the doc has diagnostics
+ *     but the current page had no notable events.
+ *   - "Diagnose · Seite N · ✓ ⤴ ⚠ ✗" when there are events to expand.
  */
-export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Element | null {
+export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Element {
   const [open, setOpen] = useState(false);
+
+  if (diagnostics === undefined) {
+    return (
+      <div className="flex flex-col gap-1 border-t border-slate-200 pt-2">
+        <div className={`${T.tinyBold} text-slate-500`}>Diagnose</div>
+        <p className={`${T.tiny} text-slate-500 italic`}>
+          Diagnostics nicht verfügbar — diese Seite neu extrahieren, dann erscheinen
+          Aufteilungs- und Caption-Rescue-Events hier.
+        </p>
+      </div>
+    );
+  }
+
   const onPage = diagnostics.filter((d) => d.page === currentPage);
-  if (onPage.length === 0) return null;
+  if (onPage.length === 0) {
+    return (
+      <div className="flex flex-col gap-1 border-t border-slate-200 pt-2">
+        <div className={`${T.tinyBold} text-slate-500`}>Diagnose · Seite {currentPage}</div>
+        <p className={`${T.tiny} text-slate-500 italic`}>Keine Ereignisse auf dieser Seite.</p>
+      </div>
+    );
+  }
 
   const splits = onPage.filter((d) => d.kind === "split").length;
   const warnings = onPage.filter((d) => d.kind === "no_decomposition").length;
