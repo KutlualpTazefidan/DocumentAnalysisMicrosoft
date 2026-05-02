@@ -437,17 +437,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
           <hr className="border-slate-200" />
 
-          {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
+          {/* Per-page extract */}
           <button
-            aria-label={approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"}
-            className={
+            aria-label="Re-extract this page"
+            title={
               approvedPages.has(page)
-                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
-                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
+                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
+                : undefined
             }
-            onClick={handleToggleApprove}
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={runExtractThisPage}
+            disabled={running || approvedPages.has(page)}
           >
-            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+            {running ? "Läuft…" : "Diese Seite extrahieren"}
           </button>
 
           {/* Per-box extract — only when a box is selected */}
@@ -467,19 +469,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             Diese Box extrahieren
           </button>
 
-          {/* Per-page extract */}
+          {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
           <button
-            aria-label="Re-extract this page"
-            title={
+            aria-label={approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"}
+            className={
               approvedPages.has(page)
-                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
-                : undefined
+                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
+                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
             }
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-            onClick={runExtractThisPage}
-            disabled={running || approvedPages.has(page)}
+            onClick={handleToggleApprove}
           >
-            {running ? "Läuft…" : "Diese Seite extrahieren"}
+            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
           </button>
 
           {/* Conf filter status indicator */}
