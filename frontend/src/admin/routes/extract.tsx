@@ -244,31 +244,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     : null;
 
   // ── Action buttons — right-aligned in top bar ─────────────────────────
+  // Re-extract-this-box and Re-extract-this-page live in the side pane now;
+  // the top bar holds only the doc-level actions (Alle Seiten / Export).
   const actionButtons = (
     <div className="flex items-center gap-1.5">
-      <button
-        aria-label="Re-extract this box"
-        className={`${T.body} px-3 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-40 disabled:cursor-not-allowed`}
-        onClick={handleReExtractBox}
-        disabled={!highlight || running}
-      >
-        Re-extract this box
-      </button>
-      <button
-        aria-label="Re-extract this page"
-        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
-        onClick={runExtractThisPage}
-        disabled={running}
-      >
-        {running ? "Running…" : "Re-extract this page"}
-      </button>
       <button
         aria-label="Re-extract all"
         className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
         onClick={runExtract}
         disabled={running}
       >
-        Re-extract all
+        Alle Seiten extrahieren
       </button>
       <button
         aria-label="Export sourceelements.json"
@@ -276,7 +262,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         onClick={handleExport}
         disabled={exportSrc.isPending}
       >
-        Export sourceelements.json
+        Export
       </button>
       {/* Status dot */}
       {running && (
@@ -362,7 +348,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-lg shadow-sm p-4 max-w-xs text-center space-y-1 pointer-events-auto">
                 <p className={`${T.body} text-slate-700 font-medium`}>Noch keine Extraktion.</p>
                 <p className={T.cardSubtle}>
-                  Klicke „Re-extract all" oben rechts, oder „Re-extract this page" für die aktuelle Seite.
+                  Klicke „Alle Seiten extrahieren" oben rechts, oder „Diese Seite extrahieren" in der Seitenleiste.
                 </p>
               </div>
             </div>
@@ -450,6 +436,27 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           </AnimatePresence>
 
           <hr className="border-slate-200" />
+
+          {/* Per-page extract */}
+          <button
+            aria-label="Re-extract this page"
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={runExtractThisPage}
+            disabled={running}
+          >
+            {running ? "Läuft…" : "Diese Seite extrahieren"}
+          </button>
+
+          {/* Per-box extract — only when a box is selected */}
+          <button
+            aria-label="Re-extract this box"
+            title={!highlight ? "Klicke zuerst eine Box im PDF an" : undefined}
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+            onClick={handleReExtractBox}
+            disabled={!highlight || running}
+          >
+            Diese Box extrahieren
+          </button>
 
           {/* Approve current page — v1: localStorage */}
           <button
