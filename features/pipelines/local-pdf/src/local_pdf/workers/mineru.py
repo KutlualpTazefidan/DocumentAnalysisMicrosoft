@@ -530,10 +530,12 @@ def _superscript_unit_exponents(s: str) -> str:
 # Pattern A: digit) immediately after a closing paren — "(GGG)2)" → "(GGG)<sup>2)</sup>".
 _FOOTNOTE_AFTER_PAREN_RE = re.compile(r"(\))(\d{1,2})\)(?=[\s<,;]|$)")
 # Pattern B: decimal number ending with a single-digit footnote that got
-# OCR'd onto the value — "0.44)" → "0.4<sup>4)</sup>". Requires ≥2 decimal
-# digits so we don't chop a 1-decimal value like "1.5)". Excludes numbers
-# preceded by ``(`` so a balanced "(0.44)" stays unchanged.
-_FOOTNOTE_AFTER_DECIMAL_RE = re.compile(r"(?<!\()(\d+\.\d+)(\d)\)(?=[\s<,;]|$)")
+# OCR'd onto the value — "0.44)" → "0.4<sup>4)</sup>". Accepts dot or
+# German decimal comma. Caps both halves to 1-2 digits so 1-decimal
+# values like "1.5)" are left alone and German thousand-separator
+# values like "1,234)" don't accidentally split (rare in tables).
+# Excludes numbers preceded by ``(`` so balanced "(0.44)" stays put.
+_FOOTNOTE_AFTER_DECIMAL_RE = re.compile(r"(?<!\()(\d{1,2}[.,]\d{1,2})(\d)\)(?=[\s<,;]|$)")
 # Pattern C: word ending with digit) — "Moderatorzone8)" → "Moderatorzone<sup>8)</sup>".
 # Requires ≥4 letters so we don't grab short units like "m2)" or single-
 # letter variables like "Q8)" where the meaning is ambiguous.
