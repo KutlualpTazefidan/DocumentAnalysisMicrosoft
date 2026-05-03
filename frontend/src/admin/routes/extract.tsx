@@ -417,24 +417,30 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* Sidebar — colored page-button grid */}
         <aside className="w-[280px] border-l border-slate-200 flex flex-col gap-3 bg-white overflow-y-auto px-4 py-4 flex-shrink-0">
-          {/* Legend strip — single line, always visible */}
-          <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
-              Nicht extr.
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded bg-green-200 shrink-0" aria-hidden="true" />
-              Extrahiert
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
-              Gesperrt
-            </span>
-          </div>
+          {/* Legend + page-nav stay sticky at the top of the (scrollable)
+              sidebar. Without this, selecting a figure expands BoxProperties
+              + Quelltext below; the user has to scroll back up to find the
+              page-toggle button, and the expanding grid disappears below
+              the visible area. */}
+          <div className="sticky top-0 z-10 bg-white -mx-4 px-4 pb-2 -mt-4 pt-4 border-b border-slate-100 flex flex-col gap-3">
+            {/* Legend strip — single line, always visible */}
+            <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
+                Nicht extr.
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-green-200 shrink-0" aria-hidden="true" />
+                Extrahiert
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
+                Gesperrt
+              </span>
+            </div>
 
-          {/* Page navigation: prev | toggle-grid | next */}
-          <div className="flex items-stretch gap-1">
+            {/* Page navigation: prev | toggle-grid | next */}
+            <div className="flex items-stretch gap-1">
             <button
               aria-label="Vorherige Seite"
               disabled={page <= 1}
@@ -509,6 +515,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               </motion.div>
             )}
           </AnimatePresence>
+          </div>
+          {/* ── End sticky page-nav header ───────────────────────────── */}
 
           <hr className="border-slate-200" />
 
