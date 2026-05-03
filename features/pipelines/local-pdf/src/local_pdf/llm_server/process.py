@@ -38,9 +38,11 @@ import httpx
 # Paths
 
 # The vllm-server/ folder lives at the repo root. We resolve it relative
-# to this file: features/pipelines/local-pdf/src/local_pdf/llm_server/process.py
-# → ../../../../../../vllm-server/
-_REPO_ROOT = Path(__file__).resolve().parents[5]
+# to this file:
+#   features/pipelines/local-pdf/src/local_pdf/llm_server/process.py
+#   parents: [0]=llm_server [1]=local_pdf [2]=src [3]=local-pdf
+#            [4]=pipelines  [5]=features  [6]=<repo-root>
+_REPO_ROOT = Path(__file__).resolve().parents[6]
 VLLM_SERVER_DIR = _REPO_ROOT / "vllm-server"
 START_SCRIPT = VLLM_SERVER_DIR / "start.sh"
 CONFIG_PATH = VLLM_SERVER_DIR / "config.toml"
