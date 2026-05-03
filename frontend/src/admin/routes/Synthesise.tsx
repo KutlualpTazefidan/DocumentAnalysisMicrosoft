@@ -109,6 +109,30 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
     ? (questions.data?.[highlight] ?? [])
     : [];
 
+  // Metadata about the highlighted box, derived from mineru.json.
+  // Element type comes from the first tag in the snippet (h1, p,
+  // table, figure, …); page + box index come from the box_id format
+  // pN-bM. Position from data-x/data-y attrs the extractor stamped.
+  const highlightMeta = useMemo(() => {
+    if (!highlight) return null;
+    const el = mineru.data?.elements.find((e) => e.box_id === highlight);
+    if (!el) return null;
+    const pageMatch = highlight.match(/^p(\d+)-b(\d+)/);
+    const tagMatch = el.html_snippet.match(/<\s*([a-zA-Z][\w-]*)/);
+    const xMatch = el.html_snippet.match(/data-x="(-?\d+)"/);
+    const yMatch = el.html_snippet.match(/data-y="(-?\d+)"/);
+    // Strip tags for a short text preview.
+    const text = el.html_snippet.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    return {
+      page: pageMatch ? parseInt(pageMatch[1], 10) : null,
+      boxIndex: pageMatch ? parseInt(pageMatch[2], 10) : null,
+      tag: tagMatch ? tagMatch[1].toLowerCase() : null,
+      x: xMatch ? parseInt(xMatch[1], 10) : null,
+      y: yMatch ? parseInt(yMatch[1], 10) : null,
+      preview: text.slice(0, 90) + (text.length > 90 ? "…" : ""),
+    };
+  }, [highlight, mineru.data]);
+
   function handleStreamEvent(ev: StreamEvent) {
     if (ev.event === "completed") {
       setStreaming((s) =>
@@ -338,6 +362,63 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
           <hr className="border-slate-200" />
 
+          {/* Generate buttons — broad → narrow scope, top to bottom. */}
+          <button
+            type="button"
+            disabled={streaming !== null || generateBox.isPending}
+            onClick={() => {
+              if (window.confirm("Fuer das ganze Dokument generieren?")) {
+                startStream("doc");
+              }
+            }}
+            className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            ⚡ Fuer die Datei generieren
+          </button>
+          <button
+            type="button"
+            disabled={streaming !== null || generateBox.isPending}
+            onClick={() => startStream("page")}
+            className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            ⚡ Fuer die Seite generieren
+          </button>
+
+          {/* Box metadata — what "diese Box" refers to. Sits between
+              the page-scope button and the box-scope button so the
+              user sees the target before clicking. */}
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-1">
+            <span className={T.tinyBold}>Ausgewaehlte Box</span>
+            {highlightMeta ? (
+              <>
+                <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 ${T.body}`}>
+                  <span className="font-mono text-slate-800">{highlight}</span>
+                  {highlightMeta.tag && (
+                    <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] uppercase tracking-wide">
+                      {highlightMeta.tag}
+                    </span>
+                  )}
+                </div>
+                <span className={T.bodyMuted}>
+                  Seite {highlightMeta.page ?? "?"} · Box {highlightMeta.boxIndex ?? "?"}
+                  {highlightMeta.x != null && highlightMeta.y != null
+                    ? ` · ${highlightMeta.x},${highlightMeta.y}`
+                    : ""}
+                </span>
+                <span className={`${T.bodyMuted} italic line-clamp-2`}>
+                  {highlightMeta.preview || <em>(leer)</em>}
+                </span>
+                <span className={`${T.bodyMuted} mt-0.5`}>
+                  {questionsForBox.length} bestehende Frage(n)
+                </span>
+              </>
+            ) : (
+              <span className={`${T.bodyMuted} italic`}>
+                Klicke ein Element im HTML-Bereich, um es auszuwaehlen.
+              </span>
+            )}
+          </div>
+
           <button
             type="button"
             aria-label="Fuer diese Box generieren"
@@ -347,29 +428,6 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           >
             {generateBox.isPending ? "…" : "⚡ Fuer diese Box generieren"}
           </button>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={streaming !== null || generateBox.isPending}
-              onClick={() => startStream("page")}
-              className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              ⚡ Seite
-            </button>
-            <button
-              type="button"
-              disabled={streaming !== null || generateBox.isPending}
-              onClick={() => {
-                if (window.confirm("Fuer das ganze Dokument generieren?")) {
-                  startStream("doc");
-                }
-              }}
-              className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              ⚡ Datei
-            </button>
-          </div>
 
           {streaming && (
             <div className="rounded border border-blue-200 bg-blue-50 p-2 flex flex-col gap-1">

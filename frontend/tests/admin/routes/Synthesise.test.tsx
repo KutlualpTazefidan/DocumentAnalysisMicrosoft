@@ -80,11 +80,14 @@ describe("Synthesise", () => {
     const sidebar = await screen.findByTestId("synthesise-sidebar");
     expect(sidebar).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Fuer diese Box generieren/i }),
+      within(sidebar).getByRole("button", { name: /Fuer die Datei generieren/i }),
     ).toBeInTheDocument();
-    // Restrict to the sidebar so we don't match the page-nav arrows.
-    expect(within(sidebar).getByText("⚡ Seite")).toBeInTheDocument();
-    expect(within(sidebar).getByText("⚡ Datei")).toBeInTheDocument();
+    expect(
+      within(sidebar).getByRole("button", { name: /Fuer die Seite generieren/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(sidebar).getByRole("button", { name: /Fuer diese Box generieren/i }),
+    ).toBeInTheDocument();
   });
 
   it("Per-box Generate button is disabled when no box highlighted", async () => {
@@ -99,10 +102,12 @@ describe("Synthesise", () => {
 
   it("shows the no-selection placeholder before any click", async () => {
     render(wrap());
+    // Placeholder shows in two places now: the questions pane and the
+    // sidebar's "Ausgewaehlte Box" metadata block. Both are valid.
     await waitFor(() =>
       expect(
-        screen.getByText(/Klicke ein Element im HTML-Bereich/i),
-      ).toBeInTheDocument(),
+        screen.getAllByText(/Klicke ein Element im HTML-Bereich/i).length,
+      ).toBeGreaterThanOrEqual(1),
     );
   });
 
