@@ -84,6 +84,9 @@ _PDF_STYLE = (
     # side so the figure visibly sits inside the section, not edge-to-edge.
     "figure{margin:1.5em auto;text-align:center}"
     "figure img{max-width:90%;height:auto;display:block;margin:0 auto}"
+    # Visible MinerU description (Beschreibung: ...) between image and caption.
+    "figure .figure-desc{font-size:0.85em;color:#4b5563;text-align:left;"
+    "margin:0.6em auto 0;max-width:90%;line-height:1.4}"
     # Body row: vertically-overlapping body items (e.g. two paragraphs at
     # the same y in a 2-column layout) sit side-by-side, sorted by x0.
     ".body-row{display:flex;align-items:flex-start;gap:1rem;margin:0.6em 0}"

@@ -2092,11 +2092,28 @@ def _render_visual_sub_block_html(sub_block: dict, sub_type: str) -> str:
                 if img_path:
                     # Worker emits a relative ``mineru-images/{file}`` path;
                     # frontend rewrites it to the absolute API URL before
-                    # passing the html to the iframe srcdoc (where relative
-                    # paths against about:srcdoc don't resolve).
-                    alt = (span.get("content") or "").strip()
-                    alt_attr = f' alt="{alt}"' if alt else ' alt=""'
-                    return f'<figure><img src="mineru-images/{img_path}"{alt_attr}></figure>'
+                    # passing the html to the iframe srcdoc.
+                    raw_desc = (span.get("content") or "").strip()
+                    alt_attr = (
+                        f' alt="{html_lib.escape(raw_desc, quote=True)}"' if raw_desc else ' alt=""'
+                    )
+                    # Surface MinerU's VLM description as visible metadata
+                    # between the image and the caption (caption is its own
+                    # SegmentBox below). Flatten newlines so it reads as
+                    # prose, not a column of OCR'd labels.
+                    desc_html = ""
+                    if raw_desc:
+                        flat = " ".join(raw_desc.split())
+                        desc_html = (
+                            f'<p class="figure-desc">'
+                            f"<strong>Beschreibung:</strong> "
+                            f"{html_lib.escape(flat)}"
+                            f"</p>"
+                        )
+                    return (
+                        f'<figure><img src="mineru-images/{img_path}"{alt_attr}>'
+                        f"{desc_html}</figure>"
+                    )
         return ""
 
     if sub_type == "code_body":
