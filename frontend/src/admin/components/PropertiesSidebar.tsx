@@ -77,6 +77,8 @@ interface Props {
   onMergeDown: () => void;
   onUnmergeUp: () => void;
   onUnmergeDown: () => void;
+  /** True while a box-mutation request is in flight (e.g. Activate/Deactivate). */
+  pending?: boolean;
   onPageChange: (page: number) => void;
   /** Effective threshold for the current page (default or per-page override) */
   perPageThreshold: number;
@@ -110,6 +112,7 @@ export function PropertiesSidebar({
   onMergeDown,
   onUnmergeUp,
   onUnmergeDown,
+  pending = false,
   onPageChange,
   perPageThreshold,
   hasOverride,
@@ -296,6 +299,7 @@ export function PropertiesSidebar({
         onMergeDown={onMergeDown}
         onUnmergeUp={onUnmergeUp}
         onUnmergeDown={onUnmergeDown}
+        pending={pending}
       />
 
       <div className="border-t border-slate-200 pt-3 mt-auto">

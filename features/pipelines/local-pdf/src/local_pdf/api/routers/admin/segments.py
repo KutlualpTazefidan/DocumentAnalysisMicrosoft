@@ -368,6 +368,8 @@ def _re_extract_box(
     # Use visual hint only on kind-change re-extracts (old_kind is set).
     use_visual_hint = old_kind is not None
 
+    elements = list(existing_mineru.get("elements", []))
+    diagnostics = list(existing_mineru.get("diagnostics") or [])
     try:
         pdf_bytes = pdf_path.read_bytes()
         # bbox stored in pixel space at raster_dpi; convert to PDF points.
@@ -398,7 +400,6 @@ def _re_extract_box(
             )
 
         # Replace / insert this element in the existing elements list.
-        elements = list(existing_mineru.get("elements", []))
         found = False
         for i, el in enumerate(elements):
             if el.get("box_id") == box.box_id:
@@ -408,7 +409,6 @@ def _re_extract_box(
         if not found:
             elements.append({"box_id": box.box_id, "html_snippet": new_html})
 
-        diagnostics = list(existing_mineru.get("diagnostics") or [])
         if old_kind is not None:
             # Strip HTML tags for the text preview.
             import re as _re
@@ -425,14 +425,19 @@ def _re_extract_box(
                     "text_preview": plain[:120],
                 }
             )
-        write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
-        seg_now = read_segments(cfg.data_root, slug)
-        boxes_now = list(seg_now.boxes) if seg_now is not None else []
-        write_html(cfg.data_root, slug, _render_active_html(elements, boxes_now))
     except Exception:
         logging.getLogger(__name__).exception(
             "vlm_extract_bbox failed for %s/%s — keeping old html_snippet", slug, box.box_id
         )
+
+    # Always refresh mineru.json + html.html, even if VLM failed: a
+    # reactivated box (kind=discard → not-discard) still needs to reappear
+    # via its cached snippet, and a kind change with VLM down should at
+    # least update the active-filter state.
+    write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
+    seg_now = read_segments(cfg.data_root, slug)
+    boxes_now = list(seg_now.boxes) if seg_now is not None else []
+    write_html(cfg.data_root, slug, _render_active_html(elements, boxes_now))
 
 
 @router.put("/api/admin/docs/{slug}/segments/{box_id}")

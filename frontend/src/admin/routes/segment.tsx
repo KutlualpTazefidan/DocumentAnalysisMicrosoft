@@ -472,6 +472,7 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           onMergeDown={handleMergeDown}
           onUnmergeUp={handleUnmergeUp}
           onUnmergeDown={handleUnmergeDown}
+          pending={update.isPending}
           onPageChange={setPage}
           perPageThreshold={currentThreshold}
           hasOverride={hasPageOverride}

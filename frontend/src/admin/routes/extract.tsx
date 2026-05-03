@@ -601,6 +601,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                   error(e instanceof Error ? e.message : "Unmerge down fehlgeschlagen"),
               });
             }}
+            pending={updateBoxMut.isPending}
           />
 
           {/* Diagnose section — what the worker decided for THIS page.

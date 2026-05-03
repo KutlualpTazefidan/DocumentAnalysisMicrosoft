@@ -25,6 +25,9 @@ interface Props {
   onMergeDown: () => void;
   onUnmergeUp: () => void;
   onUnmergeDown: () => void;
+  /** True while a box-mutation request is in flight — disables Activate /
+   *  Deactivate and surfaces a loading indicator on the active button. */
+  pending?: boolean;
 }
 
 /**
@@ -49,7 +52,9 @@ export function BoxPropertiesPanel({
   onMergeDown,
   onUnmergeUp,
   onUnmergeDown,
+  pending = false,
 }: Props): JSX.Element {
+  const isActive = selected ? selected.kind !== "discard" : false;
   return (
     <div className="flex flex-col gap-3">
       <span className={T.tinyBold}>Properties</span>
@@ -133,29 +138,37 @@ export function BoxPropertiesPanel({
             )}
           </div>
 
-          {/* Deactivate | Activate */}
+          {/* Deactivate | Activate — Activated highlight = currently active
+              (kind != discard); pending state on either button shows the
+              html refresh is in flight. */}
           <div className="grid grid-cols-2 gap-2">
             <button
               aria-label="Deactivate"
-              className={`px-2 py-1 rounded ${
+              disabled={pending}
+              className={`px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
                 selected.kind === "discard"
                   ? "bg-red-700 text-white border border-red-700"
                   : "border border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={onDeactivate}
             >
-              {selected.kind === "discard" ? "✓ Deactivated" : "Deactivate"}
+              {pending && !isActive
+                ? "…"
+                : selected.kind === "discard"
+                  ? "✓ Deactivated"
+                  : "Deactivate"}
             </button>
             <button
               aria-label="Activate"
-              className={`px-2 py-1 rounded ${
-                selected.manually_activated
+              disabled={pending}
+              className={`px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+                isActive
                   ? "bg-green-700 text-white border border-green-700"
                   : "border border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={onActivate}
             >
-              {selected.manually_activated ? "✓ Activated" : "Activate"}
+              {pending && isActive ? "…" : isActive ? "✓ Activated" : "Activate"}
             </button>
           </div>
 

@@ -1868,6 +1868,46 @@ def test_vlm_segment_kind_change_to_discard_hides_box_from_html(
     assert 'data-source-box="p1-b1"' not in html_after  # hidden
 
 
+def test_vlm_segment_reactivate_restores_box_in_html_even_if_vlm_fails(
+    client_vlm_segment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Going kind=discard → kind=paragraph must bring the box back in html.html.
+
+    Snippet stays in mineru.json on deactivate, so reactivate doesn't need a
+    successful VLM re-extract — html.html refresh runs even if VLM throws.
+    """
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    # Deactivate p1-b1.
+    client_vlm_segment.delete("/api/admin/docs/doc/segments/p1-b1", headers={"X-Auth-Token": "tok"})
+    html_off = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert 'data-source-box="p1-b1"' not in html_off
+
+    # Force the VLM hook to raise — simulates "VLM down" / model unavailable.
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    def fail_vlm(*_args, **_kwargs):
+        raise RuntimeError("vlm unavailable")
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", fail_vlm)
+
+    # Reactivate by switching kind to paragraph.
+    r = client_vlm_segment.put(
+        "/api/admin/docs/doc/segments/p1-b1",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "paragraph"},
+    )
+    assert r.status_code == 200
+
+    # Box must reappear in html.html (cached snippet from mineru.json).
+    html_on = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert 'data-source-box="p1-b1"' in html_on
+
+
 def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
     """DELETE /segments/{box_id} marks discard AND refreshes html."""
     _run_segment_vlm(client_vlm_segment, "doc")
