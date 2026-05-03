@@ -84,7 +84,7 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                     type="button"
                     title="Frage bearbeiten"
                     aria-label="Frage bearbeiten"
-                    className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                    className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-40"
                     disabled={disabled}
                     onClick={() =>
                       setEditing({ id: q.entry_id, draft: q.text })
@@ -96,7 +96,7 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                     type="button"
                     title="Frage loeschen"
                     aria-label="Frage loeschen"
-                    className="p-1 rounded text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"
+                    className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-40"
                     disabled={disabled}
                     onClick={() => {
                       if (window.confirm(`Diese Frage wirklich loeschen?`)) {
