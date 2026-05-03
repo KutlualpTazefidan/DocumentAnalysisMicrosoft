@@ -195,7 +195,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           className="flex-1 flex flex-col border-r border-slate-200 min-w-0 bg-white"
           data-testid="synthesise-questions"
         >
-          <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+          <div className="flex items-center gap-2 px-8 py-2 border-b border-slate-200 bg-slate-50">
             <span className={T.tinyBold}>Ausgewaehlte Box:</span>
             <span className={`${T.body} font-mono`}>
               {highlight ?? <em className="text-slate-400">keine</em>}
