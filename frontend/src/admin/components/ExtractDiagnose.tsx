@@ -55,6 +55,7 @@ export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Elemen
   const warnings = onPage.filter((d) => d.kind === "no_decomposition").length;
   const captions = onPage.filter((d) => d.kind === "caption_rescue").length;
   const capFails = onPage.filter((d) => d.kind === "caption_rescue_failed").length;
+  const kindChanges = onPage.filter((d) => d.kind === "kind_change").length;
 
   return (
     <div className="flex flex-col gap-1 border-t border-slate-200 pt-2">
@@ -84,6 +85,11 @@ export function ExtractDiagnose({ diagnostics, currentPage }: Props): JSX.Elemen
           {capFails > 0 && (
             <span className="text-red-700" title={`${capFails} caption rescue failed`}>
               ✗ {capFails}
+            </span>
+          )}
+          {kindChanges > 0 && (
+            <span className="text-slate-500" title={`${kindChanges} kind change re-extract`}>
+              ⟳ {kindChanges}
             </span>
           )}
           <motion.span
@@ -125,6 +131,8 @@ function DiagItem({ d }: { d: ExtractDiagnostic }): JSX.Element {
       ? "border-blue-200 bg-blue-50 text-blue-900"
       : d.kind === "caption_rescue_failed"
       ? "border-red-200 bg-red-50 text-red-900"
+      : d.kind === "kind_change"
+      ? "border-slate-200 bg-slate-50 text-slate-700"
       : "border-amber-200 bg-amber-50 text-amber-900";
 
   if (d.kind === "split") {
@@ -169,6 +177,23 @@ function DiagItem({ d }: { d: ExtractDiagnostic }): JSX.Element {
         <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
           {d.caption_text || "(no caption text)"}
         </div>
+      </li>
+    );
+  }
+  if (d.kind === "kind_change") {
+    return (
+      <li className={`${T.tiny} rounded border px-2 py-1 ${cls}`}>
+        <div className="font-semibold">
+          Kind geändert · {d.old_kind} → {d.new_kind}
+        </div>
+        <div className={`${T.tinyMuted} mt-0.5`}>
+          Box: {d.box_id || "—"} · Visual hint: {d.visual_hint_used ? "ja" : "nein"}
+        </div>
+        {d.text_preview && (
+          <div className="font-mono text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+            {d.text_preview}
+          </div>
+        )}
       </li>
     );
   }

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import gc
 import html as html_lib
+import logging
 import os
 import re
 import time
@@ -1672,6 +1673,109 @@ class MineruWorker:
 
 # ── Crop + VLM re-extract (per-bbox edit path) ───────────────────────────────
 
+_logger = logging.getLogger(__name__)
+
+# Per-kind visual hint specification.
+# Colours match BoxLegend.tsx so the burned-in rectangle matches the UI overlay.
+_KIND_HINT_SPEC: dict[BoxKind, tuple[str, str]] = {
+    BoxKind.heading: ("HEADING", "#2563eb"),  # blue
+    BoxKind.paragraph: ("PARAGRAPH", "#16a34a"),  # green
+    BoxKind.list_item: ("LIST", "#4f46e5"),  # indigo
+    BoxKind.table: ("TABLE", "#ea580c"),  # orange  (BoxLegend)
+    BoxKind.figure: ("FIGURE", "#0d9488"),  # teal    (BoxLegend)
+    BoxKind.caption: ("CAPTION", "#9333ea"),  # purple  (BoxLegend)
+    BoxKind.formula: ("FORMULA", "#db2777"),  # pink
+    BoxKind.auxiliary: ("AUX", "#06b6d4"),  # cyan    (BoxLegend)
+}
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _crop_pdf_with_visual_hint(
+    pdf_bytes: bytes,
+    page: int,
+    bbox_pts: tuple[float, float, float, float],
+    user_kind: BoxKind,
+    *,
+    padding_pts: float = 8.0,
+    raster_dpi: int = 200,
+) -> bytes:
+    """Render the bbox region as a PNG, draw a rectangle + label hint onto the
+    image, then wrap the annotated image in a one-page PDF for the VLM.
+
+    Falls back silently to ``_crop_pdf_to_bbox`` if any required library is
+    missing or if the render step fails.
+    """
+    import io as _io
+
+    try:
+        import pdfplumber
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        _logger.warning("visual hint unavailable (missing lib: %s); using plain crop", exc)
+        return _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+
+    x0, y0, x1, y1 = bbox_pts
+
+    # pdfplumber uses top-down PDF coordinates for crop() when using a
+    # page that has been converted — we expand by padding first.
+    import pypdf as _pypdf
+
+    # Get page height in points so we can convert to pdfplumber's coordinate
+    # convention (top-down from the page top = same as our storage convention).
+    reader = _pypdf.PdfReader(_io.BytesIO(pdf_bytes))
+    page_obj = reader.pages[page - 1]
+    mb = page_obj.mediabox
+    page_h_pt = float(mb.height)
+    page_w_pt = float(mb.width)
+
+    # Padded crop box — clamped to page dimensions.
+    cx0 = max(0.0, x0 - padding_pts)
+    cy0 = max(0.0, y0 - padding_pts)
+    cx1 = min(page_w_pt, x1 + padding_pts)
+    cy1 = min(page_h_pt, y1 + padding_pts)
+
+    # pdfplumber crop() takes (x0, top, x1, bottom) in top-down coords.
+    try:
+        with pdfplumber.open(_io.BytesIO(pdf_bytes)) as pdf:
+            plumber_page = pdf.pages[page - 1]
+            cropped = plumber_page.crop((cx0, cy0, cx1, cy1))
+            img_obj = cropped.to_image(resolution=raster_dpi)
+            pil_img: Image.Image = img_obj.original.convert("RGB")
+    except Exception as exc:
+        _logger.warning("pdfplumber crop/render failed (%s); using plain crop", exc)
+        return _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+
+    spec = _KIND_HINT_SPEC.get(user_kind)
+    if spec is not None:
+        label_text, hex_color = spec
+        rgb = _hex_to_rgb(hex_color)
+
+        draw = ImageDraw.Draw(pil_img)
+        w, h = pil_img.size
+
+        # Outer rectangle — 4-pixel-wide border around the full image.
+        border = 4
+        for i in range(border):
+            draw.rectangle([i, i, w - 1 - i, h - 1 - i], outline=rgb)
+
+        # Label badge — filled rectangle in top-left corner (80 x 20 px).
+        badge_w, badge_h = 80, 20
+        draw.rectangle([0, 0, badge_w, badge_h], fill=rgb)
+        try:
+            font = ImageFont.load_default()
+        except Exception:
+            font = None
+        draw.text((4, 3), label_text, fill=(255, 255, 255), font=font)
+
+    # Wrap as a 1-page PDF using PIL's PDF save capability.
+    buf = _io.BytesIO()
+    pil_img.save(buf, format="PDF")
+    return buf.getvalue()
+
 
 def _crop_pdf_to_bbox(
     pdf_bytes: bytes,
@@ -1735,11 +1839,13 @@ def vlm_extract_bbox(
     parse_doc_fn: Callable[[bytes], dict] | None = None,
     predictor: object | None = None,
     padding_pts: float = 8.0,
+    visual_hint: bool = True,
 ) -> str:
     """Crop the PDF page to *bbox_pts*, run MinerU VLM on the crop, and return
     the rendered HTML fragment for *user_kind*.
 
-    1. Crop the single page to a padded region via ``_crop_pdf_to_bbox``.
+    1. Crop the single page to a padded region via ``_crop_pdf_to_bbox`` (or
+       ``_crop_pdf_with_visual_hint`` when *visual_hint* is True — default).
     2. Call the VLM (or the injected *parse_doc_fn* in tests) on the one-page
        PDF.
     3. Walk ``para_blocks + discarded_blocks`` of the first (only) page result.
@@ -1748,7 +1854,16 @@ def vlm_extract_bbox(
     Returns the final HTML fragment with ``data-source-box`` attribute.
     Returns "" when no content was found in the crop.
     """
-    crop_bytes = _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+    if visual_hint:
+        try:
+            crop_bytes = _crop_pdf_with_visual_hint(
+                pdf_bytes, page, bbox_pts, user_kind, padding_pts=padding_pts
+            )
+        except Exception as exc:
+            _logger.warning("visual hint failed (%s); falling back to plain crop", exc)
+            crop_bytes = _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+    else:
+        crop_bytes = _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
 
     if parse_doc_fn is not None:
         middle_json = parse_doc_fn(crop_bytes)

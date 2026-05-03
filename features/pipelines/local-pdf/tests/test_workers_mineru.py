@@ -2197,3 +2197,156 @@ def test_multiple_visual_boxes_picks_closest(tmp_path: Path) -> None:
 
     # tableB is unchanged (gap=250 > max_gap, no rescue from tableB).
     assert "cellB" in by_id["tableB"], f"tableB should be unchanged, got: {by_id['tableB']!r}"
+
+
+# ── Visual hint tests ─────────────────────────────────────────────────────────
+
+
+def test_visual_hint_used_for_kind_change(monkeypatch) -> None:
+    """_crop_pdf_with_visual_hint is called (not plain crop) when visual_hint=True."""
+    import local_pdf.workers.mineru as mineru_mod
+    from local_pdf.api.schemas import BoxKind
+
+    calls: list[tuple] = []
+
+    def fake_hint(pdf_bytes, page, bbox_pts, user_kind, *, padding_pts=8.0, raster_dpi=200):
+        calls.append((page, user_kind, padding_pts))
+        # Return minimal 1-page PDF bytes (plain crop output is fine here).
+        return mineru_mod._crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+
+    monkeypatch.setattr(mineru_mod, "_crop_pdf_with_visual_hint", fake_hint)
+
+    # parse_doc_fn returns empty so vlm_extract_bbox returns "" quickly.
+    def fake_parse(crop_bytes):
+        return {"pdf_info": []}
+
+    import io
+
+    from pypdf import PdfWriter
+
+    buf = io.BytesIO()
+    w = PdfWriter()
+    w.add_blank_page(width=612, height=792)
+    w.write(buf)
+    pdf_bytes = buf.getvalue()
+
+    mineru_mod.vlm_extract_bbox(
+        pdf_bytes,
+        1,
+        (50.0, 50.0, 200.0, 200.0),
+        BoxKind.table,
+        box_id="p1-test",
+        parse_doc_fn=fake_parse,
+        visual_hint=True,
+    )
+
+    assert len(calls) == 1, "hint helper must be called exactly once"
+    assert calls[0][1] == BoxKind.table
+
+    # Verify the colour spec for table matches BoxLegend orange.
+    from local_pdf.workers.mineru import _KIND_HINT_SPEC
+
+    assert _KIND_HINT_SPEC[BoxKind.table] == ("TABLE", "#ea580c")
+
+
+def test_visual_hint_false_skips_hint_helper(monkeypatch) -> None:
+    """When visual_hint=False the hint helper is never called."""
+    import local_pdf.workers.mineru as mineru_mod
+    from local_pdf.api.schemas import BoxKind
+
+    called = []
+
+    def fake_hint(*_a, **_kw):
+        called.append(True)
+        return b"fakepdf"
+
+    monkeypatch.setattr(mineru_mod, "_crop_pdf_with_visual_hint", fake_hint)
+
+    def fake_parse(crop_bytes):
+        return {"pdf_info": []}
+
+    import io
+
+    from pypdf import PdfWriter
+
+    buf = io.BytesIO()
+    w = PdfWriter()
+    w.add_blank_page(width=612, height=792)
+    w.write(buf)
+
+    mineru_mod.vlm_extract_bbox(
+        buf.getvalue(),
+        1,
+        (50.0, 50.0, 200.0, 200.0),
+        BoxKind.paragraph,
+        box_id="p1-test",
+        parse_doc_fn=fake_parse,
+        visual_hint=False,
+    )
+
+    assert called == [], "hint helper must NOT be called when visual_hint=False"
+
+
+def test_visual_hint_falls_back_when_pil_missing(monkeypatch) -> None:
+    """If PIL is unavailable, _crop_pdf_with_visual_hint falls back to plain crop."""
+    import sys
+    import types
+
+    import local_pdf.workers.mineru as mineru_mod
+
+    # Simulate PIL missing by temporarily shadowing it with a broken import.
+    orig_pil = sys.modules.get("PIL")
+    orig_pil_image = sys.modules.get("PIL.Image")
+    orig_pil_draw = sys.modules.get("PIL.ImageDraw")
+    orig_pil_font = sys.modules.get("PIL.ImageFont")
+
+    broken = types.ModuleType("PIL")
+
+    def _broken_import(*_a, **_kw):
+        raise ImportError("PIL not available (simulated)")
+
+    broken.__import__ = _broken_import  # type: ignore[attr-defined]
+
+    # Patch pdfplumber to raise ImportError so the early guard in the helper fires.
+    orig_pdfplumber = sys.modules.get("pdfplumber")
+
+    try:
+        # Remove PIL from sys.modules so the import inside the helper fails.
+        for k in list(sys.modules.keys()):
+            if k == "PIL" or k.startswith("PIL."):
+                sys.modules.pop(k)
+        # Also remove pdfplumber so the bare import triggers ImportError.
+        if "pdfplumber" in sys.modules:
+            sys.modules.pop("pdfplumber")
+
+        import io
+
+        from local_pdf.api.schemas import BoxKind
+        from pypdf import PdfWriter
+
+        buf = io.BytesIO()
+        w = PdfWriter()
+        w.add_blank_page(width=612, height=792)
+        w.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        # Should not raise — falls back to plain crop.
+        result = mineru_mod._crop_pdf_with_visual_hint(
+            pdf_bytes,
+            1,
+            (50.0, 50.0, 200.0, 200.0),
+            BoxKind.table,
+        )
+        assert isinstance(result, bytes) and len(result) > 0
+    finally:
+        # Restore sys.modules.
+        if orig_pdfplumber is not None:
+            sys.modules["pdfplumber"] = orig_pdfplumber
+        if orig_pil is not None:
+            sys.modules["PIL"] = orig_pil
+        if orig_pil_image is not None:
+            sys.modules["PIL.Image"] = orig_pil_image
+        if orig_pil_draw is not None:
+            sys.modules["PIL.ImageDraw"] = orig_pil_draw
+        if orig_pil_font is not None:
+            sys.modules["PIL.ImageFont"] = orig_pil_font

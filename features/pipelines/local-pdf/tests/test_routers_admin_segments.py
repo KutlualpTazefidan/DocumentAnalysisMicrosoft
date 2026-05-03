@@ -1051,3 +1051,57 @@ def test_post_new_box_triggers_reextract(tmp_path, monkeypatch) -> None:
     assert new_box_id in ids
     el = next(e for e in data["elements"] if e["box_id"] == new_box_id)
     assert el["html_snippet"] == stub_html
+
+
+def test_kind_change_appends_kind_change_diagnostic(tmp_path, monkeypatch) -> None:
+    """PUT with kind change must append a kind_change diagnostic to mineru.json."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    stub_html = "<h2>re-extracted as heading</h2>"
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _stub_extract(stub_html))
+
+    client, root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.put(
+        "/api/admin/docs/doc/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "heading"},
+    )
+    assert r.status_code == 200
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    data = read_mineru(root, "doc")
+    assert data is not None
+    diags = data.get("diagnostics", [])
+    kind_change_diags = [d for d in diags if d.get("kind") == "kind_change"]
+    assert len(kind_change_diags) == 1, f"expected 1 kind_change diagnostic, got: {diags}"
+    kd = kind_change_diags[0]
+    assert kd["box_id"] == "p1-aaa"
+    assert kd["old_kind"] == "paragraph"
+    assert kd["new_kind"] == "heading"
+    assert kd["page"] == 1
+    assert "visual_hint_used" in kd
+
+
+def test_bbox_change_does_not_append_kind_change_diagnostic(tmp_path, monkeypatch) -> None:
+    """PUT with only bbox change must NOT append a kind_change diagnostic."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _stub_extract("<p>x</p>"))
+
+    client, root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    client.put(
+        "/api/admin/docs/doc/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"bbox": [20.0, 20.0, 210.0, 90.0]},
+    )
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    data = read_mineru(root, "doc")
+    assert data is not None
+    diags = data.get("diagnostics", [])
+    kind_change_diags = [d for d in diags if d.get("kind") == "kind_change"]
+    assert kind_change_diags == [], f"unexpected kind_change diagnostics: {diags}"

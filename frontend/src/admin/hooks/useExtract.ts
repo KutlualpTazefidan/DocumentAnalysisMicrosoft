@@ -11,7 +11,8 @@ export interface ExtractDiagnostic {
     | "split"
     | "no_decomposition"
     | "caption_rescue"
-    | "caption_rescue_failed";
+    | "caption_rescue_failed"
+    | "kind_change";
   // Fields populated for "split" / "no_decomposition":
   block_bbox?: number[];
   block_type?: string;
@@ -27,6 +28,11 @@ export interface ExtractDiagnostic {
    *  caption_rescue_failed so we can see what shape MinerU produced
    *  (helps diagnose where the caption text actually lives). */
   target_html_preview?: string;
+  // Fields populated for "kind_change":
+  box_id?: string;
+  old_kind?: string;
+  new_kind?: string;
+  visual_hint_used?: boolean;
 }
 
 /** Shape returned by GET /api/admin/docs/{slug}/mineru */

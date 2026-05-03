@@ -304,7 +304,14 @@ def _load_boxes_or_404(data_root, slug: str) -> list[SegmentBox]:
     return list(seg.boxes)
 
 
-def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
+def _re_extract_box(
+    cfg,
+    slug: str,
+    box: SegmentBox,
+    raster_dpi: int,
+    *,
+    old_kind: BoxKind | None = None,
+) -> None:
     """Crop the PDF page to box.bbox, run VLM, and write the new html_snippet
     into mineru.json + html.html.
 
@@ -312,6 +319,9 @@ def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
     through the VLM segmentation pass).  Any exception is logged and swallowed
     so callers (bbox edits, kind changes) always succeed even when VLM is
     unavailable.
+
+    When *old_kind* is provided (kind-change path), appends a ``kind_change``
+    diagnostic entry and enables the visual hint for the VLM crop.
     """
     import logging
 
@@ -323,6 +333,9 @@ def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
     pdf_path = doc_dir(cfg.data_root, slug) / "source.pdf"
     if not pdf_path.exists():
         return
+
+    # Use visual hint only on kind-change re-extracts (old_kind is set).
+    use_visual_hint = old_kind is not None
 
     try:
         pdf_bytes = pdf_path.read_bytes()
@@ -350,6 +363,7 @@ def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
                 bbox_pts,
                 box.kind,
                 box_id=box.box_id,
+                visual_hint=use_visual_hint,
             )
 
         # Replace / insert this element in the existing elements list.
@@ -363,7 +377,23 @@ def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
         if not found:
             elements.append({"box_id": box.box_id, "html_snippet": new_html})
 
-        diagnostics = existing_mineru.get("diagnostics", [])
+        diagnostics = list(existing_mineru.get("diagnostics") or [])
+        if old_kind is not None:
+            # Strip HTML tags for the text preview.
+            import re as _re
+
+            plain = _re.sub(r"<[^>]+>", "", new_html or "").strip()
+            diagnostics.append(
+                {
+                    "page": box.page,
+                    "kind": "kind_change",
+                    "box_id": box.box_id,
+                    "old_kind": old_kind.value,
+                    "new_kind": box.kind.value,
+                    "visual_hint_used": _VLM_EXTRACT_BBOX_FN is None,
+                    "text_preview": plain[:120],
+                }
+            )
         write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
         write_html(cfg.data_root, slug, _wrap_html(elements))
     except Exception:
@@ -388,6 +418,7 @@ async def update_box(
         if b.box_id == box_id:
             bbox_changed = body.bbox is not None and tuple(body.bbox) != tuple(b.bbox)
             kind_changed = body.kind is not None and body.kind != b.kind
+            prev_kind = b.kind
             updates: dict[str, Any] = {}
             if body.kind is not None:
                 updates["kind"] = body.kind
@@ -400,7 +431,13 @@ async def update_box(
             boxes[i] = b.model_copy(update=updates)
             _replace_segments(cfg.data_root, slug, boxes)
             if reextract and (bbox_changed or kind_changed):
-                _re_extract_box(cfg, slug, boxes[i], raster_dpi)
+                _re_extract_box(
+                    cfg,
+                    slug,
+                    boxes[i],
+                    raster_dpi,
+                    old_kind=prev_kind if kind_changed else None,
+                )
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
