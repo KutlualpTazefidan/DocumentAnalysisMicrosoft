@@ -73,6 +73,15 @@ _PDF_STYLE = (
     # reference smaller + italic + muted so it reads as a marker, not a heading.
     ".caption-ref{font-size:0.85em;color:#6b7280;font-style:italic;"
     "margin:0.3em 0;border:none;padding:0}"
+    # Aux row: page-headers/footers/numbers laid out side-by-side, sorted
+    # left-to-right by their original PDF x0 (worker-tagged via data-aux-x).
+    ".aux-row{display:flex;justify-content:space-between;align-items:baseline;"
+    "gap:1rem;flex-wrap:wrap}"
+    ".aux-row > *{margin:0}"
+    ".aux-row--top{margin-bottom:1em;padding-bottom:0.4em;"
+    "border-bottom:1px solid #e5e7eb}"
+    ".aux-row--bottom{margin-top:1em;padding-top:0.4em;"
+    "border-top:1px solid #e5e7eb}"
     "</style>"
 )
 
@@ -81,6 +90,40 @@ def _page_from_box_id(box_id: str) -> int | None:
     """Return the page number from a box_id like 'p8-b3' → 8."""
     m = re.match(r"p(\d+)-", box_id or "")
     return int(m.group(1)) if m else None
+
+
+_AUX_ZONE_RE = re.compile(r'data-aux-zone="(header|footer)"')
+_AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
+
+
+def _partition_aux(snippets: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Split per-page snippets into (header_aux, content, footer_aux).
+
+    Aux snippets carry a ``data-aux-zone`` attribute (worker-tagged on
+    is_discarded blocks). Each aux group is sorted left-to-right by
+    ``data-aux-x`` so multi-item rows lay out in original column order.
+    """
+    header_aux: list[tuple[int, str]] = []
+    footer_aux: list[tuple[int, str]] = []
+    content: list[str] = []
+    for s in snippets:
+        zm = _AUX_ZONE_RE.search(s)
+        if not zm:
+            content.append(s)
+            continue
+        xm = _AUX_X_RE.search(s)
+        x = int(xm.group(1)) if xm else 0
+        (header_aux if zm.group(1) == "header" else footer_aux).append((x, s))
+    header_aux.sort(key=lambda p: p[0])
+    footer_aux.sort(key=lambda p: p[0])
+    return [s for _, s in header_aux], content, [s for _, s in footer_aux]
+
+
+def _wrap_aux_row(aux: list[str], position: str) -> str:
+    """Wrap a list of aux snippets in a flex-row container, or empty string."""
+    if not aux:
+        return ""
+    return f'<div class="aux-row aux-row--{position}">{"".join(aux)}</div>'
 
 
 def _group_list_items(section_inner: str) -> str:
@@ -122,10 +165,15 @@ def _wrap_html(elements: list[dict]) -> str:
             page_order.append(page)
         by_page[page].append(e["html_snippet"])
 
-    sections = [
-        f'<section data-page="{p}">\n{_group_list_items("".join(by_page[p]))}\n</section>'
-        for p in page_order
-    ]
+    sections = []
+    for p in page_order:
+        header_aux, content, footer_aux = _partition_aux(by_page[p])
+        inner = (
+            _wrap_aux_row(header_aux, "top")
+            + _group_list_items("".join(content))
+            + _wrap_aux_row(footer_aux, "bottom")
+        )
+        sections.append(f'<section data-page="{p}">\n{inner}\n</section>')
     body = "\n".join(sections)
     return f"<!DOCTYPE html>\n<html><head>{_PDF_STYLE}</head><body>\n{body}\n</body></html>\n"
 

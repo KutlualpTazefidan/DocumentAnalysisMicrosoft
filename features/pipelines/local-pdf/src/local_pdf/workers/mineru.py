@@ -1994,19 +1994,26 @@ _OUTER_TAG_RE = re.compile(r"^(<\w+)([\s>])")
 _BULLET_PREFIX_RE = re.compile(r"^[\s\-·•*]+")
 
 
-def _inject_source_box(html: str, box_id: str) -> str:
-    """Add ``data-source-box="..."`` to the outermost tag in ``html``.
+def _inject_outer_attrs(html: str, attrs: dict[str, str]) -> str:
+    """Add the given attributes to the outermost tag in ``html``.
 
-    Click-to-highlight in the frontend HtmlEditor keys off this attribute, so
-    every emitted snippet must carry it. No-op if ``html`` doesn't start with
-    a tag (already-styled fragments pass through unchanged).
+    Skips any attribute already present in the outer tag. No-op if ``html``
+    doesn't start with a tag (already-styled fragments pass through unchanged).
+    Used for ``data-source-box`` (click-to-highlight) and ``data-aux-zone`` /
+    ``data-aux-x`` (page-aux row layout in ``_wrap_html``).
     """
-    if 'data-source-box="' in html:
-        return html
     m = _OUTER_TAG_RE.match(html)
     if not m:
         return html
-    return f'{m.group(1)} data-source-box="{box_id}"{m.group(2)}{html[m.end() :]}'
+    end_outer = html.find(">", m.end())
+    if end_outer < 0:
+        return html
+    outer_open = html[: end_outer + 1]
+    new_attrs = [f'{k}="{v}"' for k, v in attrs.items() if f" {k}=" not in outer_open]
+    if not new_attrs:
+        return html
+    attr_str = " ".join(new_attrs)
+    return f"{m.group(1)} {attr_str}{m.group(2)}{html[m.end() :]}"
 
 
 def _strip_bullet_marker(text: str) -> str:
@@ -2242,7 +2249,16 @@ def vlm_segment_doc(
 
             html_snippet = _block_to_html(block, page_size=page_size_pts)
             html_snippet = _convert_inline_latex(html_snippet)
-            html_snippet = _inject_source_box(html_snippet, box_id)
+            attrs: dict[str, str] = {"data-source-box": box_id}
+            if is_discarded:
+                # Tag aux blocks with their visual zone + x-position so
+                # _wrap_html can pull them into a top/bottom flex row sorted
+                # left-to-right by x0.
+                page_h = page_size_pts[1]
+                y_mid = (py0 + py1) / 2
+                attrs["data-aux-zone"] = "header" if y_mid < page_h / 2 else "footer"
+                attrs["data-aux-x"] = str(int(px0))
+            html_snippet = _inject_outer_attrs(html_snippet, attrs)
 
             yield VlmSegmentBlock(
                 kind="block",

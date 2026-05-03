@@ -964,6 +964,156 @@ def test_vlm_segment_injects_data_source_box_into_non_list_blocks(
         )
 
 
+def _fake_middle_json_with_aux_row() -> dict:
+    """One page with a paragraph, two header-zone aux blocks, two footer-zone aux."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 200.0, 400.0, 300.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 200.0, 400.0, 300.0],
+                                "spans": [{"content": "Body paragraph."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    # Two header-zone aux: emit RIGHT-side first to test x-sort.
+                    {
+                        "type": "text",
+                        "bbox": [400.0, 30.0, 550.0, 50.0],
+                        "lines": [
+                            {
+                                "bbox": [400.0, 30.0, 550.0, 50.0],
+                                "spans": [{"content": "Page 7"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 30.0, 200.0, 50.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 30.0, 200.0, 50.0],
+                                "spans": [{"content": "Section A"}],
+                            }
+                        ],
+                    },
+                    # Two footer-zone aux: emit RIGHT-side first.
+                    {
+                        "type": "text",
+                        "bbox": [400.0, 750.0, 550.0, 780.0],
+                        "lines": [
+                            {
+                                "bbox": [400.0, 750.0, 550.0, 780.0],
+                                "spans": [{"content": "Rev. 1"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 750.0, 200.0, 780.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 750.0, 200.0, 780.0],
+                                "spans": [{"content": "1 of 42"}],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_aux_blocks_get_zone_attrs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """is_discarded blocks must carry data-aux-zone and data-aux-x."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_with_aux_row()
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    r = client.get("/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"})
+    snippets_by_id = {e["box_id"]: e["html_snippet"] for e in r.json()["elements"]}
+
+    # Body paragraph: no aux-zone
+    assert "data-aux-zone" not in snippets_by_id["p1-b0"]
+    # Aux blocks: header-zone for the two near top, footer-zone for the two near bottom.
+    aux_snippets = [s for k, s in snippets_by_id.items() if k != "p1-b0"]
+    headers = [s for s in aux_snippets if 'data-aux-zone="header"' in s]
+    footers = [s for s in aux_snippets if 'data-aux-zone="footer"' in s]
+    assert len(headers) == 2
+    assert len(footers) == 2
+
+
+def test_vlm_segment_html_aux_row_top_and_bottom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """html.html must wrap aux blocks into top/bottom flex rows."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_with_aux_row()
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+    assert '<div class="aux-row aux-row--top">' in html
+    assert '<div class="aux-row aux-row--bottom">' in html
+
+    # Within each row, items must be sorted left-to-right by x0.
+    # Use the full open-tag string so we don't accidentally match the
+    # class name inside the embedded <style> block.
+    top_tag = '<div class="aux-row aux-row--top">'
+    bot_tag = '<div class="aux-row aux-row--bottom">'
+    top_open = html.index(top_tag)
+    top_block = html[top_open : html.index("</div>", top_open)]
+    assert top_block.index("Section A") < top_block.index("Page 7")
+
+    bot_open = html.index(bot_tag)
+    bot_block = html[bot_open : html.index("</div>", bot_open)]
+    assert bot_block.index("1 of 42") < bot_block.index("Rev. 1")
+
+    # Aux rows sit OUTSIDE the body paragraph (top before, bottom after).
+    body_pos = html.index("Body paragraph")
+    assert top_open < body_pos < bot_open
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"
