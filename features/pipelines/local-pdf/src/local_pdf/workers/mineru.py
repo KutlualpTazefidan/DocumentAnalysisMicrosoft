@@ -431,7 +431,8 @@ def _convert_inline_latex(s: str) -> str:
             try:
                 from latex2mathml.converter import convert as _l2mml
 
-                return str(_l2mml(_normalize_text_subscripts(body)))
+                normalized = _normalize_text_subscripts(_normalize_latex_primes(body))
+                return str(_l2mml(normalized))
             except Exception as exc:
                 _logger.debug("inline latex2mathml failed for %r: %s", body[:80], exc)
                 return html_lib.escape(body)
@@ -451,10 +452,33 @@ def _convert_inline_latex(s: str) -> str:
 
 
 # Matches a single bare LaTeX expression: command + optional {arg} + any
-# number of trailing ^{...} / _{...} / ^X / _X parts. Constrained to
-# non-nested braces and ASCII names so we don't accidentally chew through
-# code blocks or paths like C:\Users\foo (which lack the {arg} pattern).
-_BARE_LATEX_RE = re.compile(r"\\[a-zA-Z]+\{[^{}]*\}(?:[\^_](?:\{[^{}]*\}|\w))*")
+# number of trailing ^{...} / _{...} / ^X / _X parts, plus optional trailing
+# primes (literal or HTML-entity form, since mineru.json stores ' as the
+# numeric entity &#x27;). Constrained to non-nested braces and ASCII names
+# so we don't accidentally chew through code blocks or paths like
+# C:\Users\foo (which lack the {arg} pattern).
+_BARE_LATEX_RE = re.compile(
+    r"\\[a-zA-Z]+\{[^{}]*\}"
+    r"(?:[\^_](?:\{[^{}]*\}|\w))*"
+    r"(?:'|&#x27;|&#39;|&apos;)*"
+)
+
+# After a subscript, a run of primes typesets above-right of the subscript
+# instead of on the variable. Move them to before the subscript so
+# latex2mathml emits a clean <msubsup> with the prime on the base.
+_TRAILING_PRIMES_AFTER_SUBSCRIPT_RE = re.compile(r"(_\{[^{}]*\}|_\w)('+)$")
+_PRIME_ENTITY_RE = re.compile(r"&#x27;|&#39;|&apos;")
+
+
+def _normalize_latex_primes(latex: str) -> str:
+    """Decode prime entities and move trailing primes ahead of subscripts.
+
+    ``\\dot{q}_{max,X}&#x27;&#x27;`` → ``\\dot{q}''_{max,X}`` so primes
+    stack on the variable, not on the subscripted expression.
+    """
+    decoded = _PRIME_ENTITY_RE.sub("'", latex)
+    return _TRAILING_PRIMES_AFTER_SUBSCRIPT_RE.sub(r"\2\1", decoded)
+
 
 # Sub/sup bodies that look like text labels (multi-letter words such as
 # "max", "Brennstab") render as a string of italic <mi>'s in MathML — like
@@ -494,7 +518,8 @@ def _convert_bare_latex(s: str) -> str:
         return s
 
     def _replace(m: re.Match[str]) -> str:
-        body = _normalize_text_subscripts(m.group(0))
+        body = _normalize_latex_primes(m.group(0))
+        body = _normalize_text_subscripts(body)
         try:
             return str(_l2mml(body))
         except Exception as exc:
@@ -552,7 +577,8 @@ def _convert_display_math(s: str) -> str:
         if not body:
             return ""
         try:
-            mathml = _l2mml(_normalize_text_subscripts(body))
+            normalized = _normalize_text_subscripts(_normalize_latex_primes(body))
+            mathml = _l2mml(normalized)
         except Exception as exc:  # latex2mathml raises various exception types
             _logger.debug("latex2mathml failed for %r: %s", body[:80], exc)
             escaped = html_lib.escape(body)
