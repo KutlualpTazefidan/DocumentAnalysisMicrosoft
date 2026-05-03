@@ -44,7 +44,7 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
             {isEditing ? (
               <>
                 <textarea
-                  className={`${T.body} w-full border border-slate-300 rounded p-1 resize-y`}
+                  className="text-[14px] leading-snug w-full border border-slate-300 rounded p-1 resize-y"
                   rows={3}
                   value={editing!.draft}
                   onChange={(e) =>
@@ -76,7 +76,7 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
               </>
             ) : (
               <>
-                <p className={`${T.body} text-slate-800 whitespace-pre-wrap`}>
+                <p className="text-[14px] leading-snug text-slate-800 whitespace-pre-wrap">
                   {q.text}
                 </p>
                 <div className="flex gap-1 justify-end">
