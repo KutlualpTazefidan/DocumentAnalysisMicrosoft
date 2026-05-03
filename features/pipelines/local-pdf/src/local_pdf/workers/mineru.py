@@ -1990,6 +1990,30 @@ class VlmSegmentBlock:
     page_size_pts: tuple[float, float] = (612.0, 792.0)
 
 
+_OUTER_TAG_RE = re.compile(r"^(<\w+)([\s>])")
+_BULLET_PREFIX_RE = re.compile(r"^[\s\-·•*]+")
+
+
+def _inject_source_box(html: str, box_id: str) -> str:
+    """Add ``data-source-box="..."`` to the outermost tag in ``html``.
+
+    Click-to-highlight in the frontend HtmlEditor keys off this attribute, so
+    every emitted snippet must carry it. No-op if ``html`` doesn't start with
+    a tag (already-styled fragments pass through unchanged).
+    """
+    if 'data-source-box="' in html:
+        return html
+    m = _OUTER_TAG_RE.match(html)
+    if not m:
+        return html
+    return f'{m.group(1)} data-source-box="{box_id}"{m.group(2)}{html[m.end() :]}'
+
+
+def _strip_bullet_marker(text: str) -> str:
+    """Remove leading bullet markers (``-``, ``•``, ``·``, ``*``) and whitespace."""
+    return _BULLET_PREFIX_RE.sub("", text).strip()
+
+
 def vlm_segment_doc(
     pdf_bytes: bytes,
     *,
@@ -2124,9 +2148,15 @@ def vlm_segment_doc(
         para_blocks = page_info.get("para_blocks") or []
         discarded_blocks = page_info.get("discarded_blocks") or []
 
-        for local_idx, (block, is_discarded) in enumerate(
-            [(b, False) for b in para_blocks] + [(b, True) for b in discarded_blocks]
-        ):
+        # Per-page counter for emitted SegmentBoxes. List blocks decompose into
+        # multiple boxes (one per bullet), so this can outrun the source-block
+        # index. Box IDs and reading_order both derive from this counter to
+        # keep them sequential within a page.
+        box_counter = 0
+
+        for block, is_discarded in [(b, False) for b in para_blocks] + [
+            (b, True) for b in discarded_blocks
+        ]:
             raw_bbox = block.get("bbox")
             if raw_bbox is None:
                 block_idx += 1
@@ -2137,28 +2167,82 @@ def vlm_segment_doc(
                 block_idx += 1
                 continue
 
-            # Convert PDF pts → pixel space at raster_dpi.
-            bbox_px = (px0 * scale, py0 * scale, px1 * scale, py1 * scale)
-
             block_type = block.get("type", "")
             if is_discarded:
                 kind = BoxKind.auxiliary
             else:
                 kind = _VLM_TYPE_TO_KIND.get(block_type, BoxKind.paragraph)
 
-            box_id = f"p{page_number}-b{local_idx}"
+            # ── Lists: decompose into one SegmentBox per bullet ─────────────
+            # MinerU emits a list block as a single bbox covering all bullets,
+            # so a naive 1:1 mapping renders the whole list as one inline <li>.
+            # Splitting via _block_to_line_elements gives each bullet its own
+            # bbox + <li>; the router's _group_list_items wraps consecutive
+            # <li> siblings in a <ul> for proper bulleted rendering.
+            if block_type == "list" and not is_discarded:
+                sub_elements = _block_to_line_elements(block, "list")
+                if len(sub_elements) >= 2:
+                    for sub in sub_elements:
+                        sx0, sy0, sx1, sy1 = sub.bbox
+                        sub_bbox_px = (
+                            sx0 * scale,
+                            sy0 * scale,
+                            sx1 * scale,
+                            sy1 * scale,
+                        )
+                        sub_box_id = f"p{page_number}-b{box_counter}"
+                        sub_text = _strip_bullet_marker(sub.text)
+                        sub_html = f'<li data-source-box="{sub_box_id}">{sub_text}</li>'
+                        sub_box = SegmentBox(
+                            box_id=sub_box_id,
+                            page=page_number,
+                            bbox=sub_bbox_px,
+                            kind=BoxKind.list_item,
+                            confidence=1.0,
+                            reading_order=box_counter,
+                            manually_activated=False,
+                        )
+                        yield VlmSegmentBlock(
+                            kind="block",
+                            box=sub_box,
+                            html_snippet=sub_html,
+                            page_size_pts=page_size_pts,
+                        )
+                        box_counter += 1
+
+                    block_idx += 1
+                    eta.observe(block_idx, time.monotonic())
+                    eta_seconds, throughput = eta.estimate(total=max(total_blocks, 1))
+                    yield WorkProgressEvent(
+                        model=worker_name,
+                        timestamp_ms=now_ms(),
+                        stage="block",
+                        current=block_idx,
+                        total=total_blocks,
+                        eta_seconds=eta_seconds,
+                        throughput_per_sec=throughput,
+                        vram_current_mb=_vram_used_mb(),
+                    )
+                    continue
+                # Fall through: list block with no usable decomposition →
+                # emit it as one list_item box (existing behaviour).
+
+            # ── Default path: one SegmentBox per source block ───────────────
+            bbox_px = (px0 * scale, py0 * scale, px1 * scale, py1 * scale)
+            box_id = f"p{page_number}-b{box_counter}"
             box = SegmentBox(
                 box_id=box_id,
                 page=page_number,
                 bbox=bbox_px,
                 kind=kind,
                 confidence=1.0,
-                reading_order=local_idx,
+                reading_order=box_counter,
                 manually_activated=False,
             )
 
             html_snippet = _block_to_html(block, page_size=page_size_pts)
             html_snippet = _convert_inline_latex(html_snippet)
+            html_snippet = _inject_source_box(html_snippet, box_id)
 
             yield VlmSegmentBlock(
                 kind="block",
@@ -2167,6 +2251,7 @@ def vlm_segment_doc(
                 page_size_pts=page_size_pts,
             )
 
+            box_counter += 1
             block_idx += 1
             eta.observe(block_idx, time.monotonic())
             eta_seconds, throughput = eta.estimate(total=max(total_blocks, 1))

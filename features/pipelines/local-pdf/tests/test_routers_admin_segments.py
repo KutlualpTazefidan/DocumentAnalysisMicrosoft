@@ -832,6 +832,138 @@ def test_vlm_segment_partial_preserves_other_pages(tmp_path, monkeypatch) -> Non
     assert page1_ids == partial_ids
 
 
+def _fake_middle_json_with_list() -> dict:
+    """Single page with one list block containing 3 line entries."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "title",
+                        "bbox": [50.0, 50.0, 300.0, 80.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 50.0, 300.0, 80.0],
+                                "spans": [{"content": "Heading"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "list",
+                        "bbox": [50.0, 100.0, 400.0, 250.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 100.0, 400.0, 130.0],
+                                "spans": [{"content": "First bullet"}],
+                            },
+                            {
+                                "bbox": [50.0, 140.0, 400.0, 170.0],
+                                "spans": [{"content": "Second bullet"}],
+                            },
+                            {
+                                "bbox": [50.0, 180.0, 400.0, 210.0],
+                                "spans": [{"content": "Third bullet"}],
+                            },
+                        ],
+                    },
+                ],
+                "discarded_blocks": [],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_list_decomposes_into_per_bullet_boxes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A MinerU list block with N lines must produce N list_item SegmentBoxes."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_with_list())
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    r = client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+
+    boxes = client.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"}).json()[
+        "boxes"
+    ]
+    # 1 heading + 3 list_item bullets = 4 boxes total
+    assert len(boxes) == 4
+
+    by_id = {b["box_id"]: b for b in boxes}
+    # heading at p1-b0, then three list_items at p1-b1, p1-b2, p1-b3
+    assert by_id["p1-b0"]["kind"] == "heading"
+    assert by_id["p1-b1"]["kind"] == "list_item"
+    assert by_id["p1-b2"]["kind"] == "list_item"
+    assert by_id["p1-b3"]["kind"] == "list_item"
+
+    # Bullet bboxes must match the line bboxes (scaled 4x).
+    assert by_id["p1-b1"]["bbox"][1] == pytest.approx(100.0 * 4)
+    assert by_id["p1-b1"]["bbox"][3] == pytest.approx(130.0 * 4)
+    assert by_id["p1-b2"]["bbox"][1] == pytest.approx(140.0 * 4)
+    assert by_id["p1-b3"]["bbox"][3] == pytest.approx(210.0 * 4)
+
+
+def test_vlm_segment_list_emits_li_html_per_bullet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each per-bullet element in mineru.json must be <li data-source-box=...>."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_with_list())
+
+    from pathlib import Path as _Path
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.storage.sidecar import read_mineru
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    data = read_mineru(_Path(tmp_path / "raw-pdfs"), "doc")
+    assert data is not None
+    by_id = {e["box_id"]: e["html_snippet"] for e in data["elements"]}
+    assert by_id["p1-b1"] == '<li data-source-box="p1-b1">First bullet</li>'
+    assert by_id["p1-b2"] == '<li data-source-box="p1-b2">Second bullet</li>'
+    assert by_id["p1-b3"] == '<li data-source-box="p1-b3">Third bullet</li>'
+
+
+def test_vlm_segment_injects_data_source_box_into_non_list_blocks(
+    client_vlm_segment,
+) -> None:
+    """Every emitted snippet must carry data-source-box for click-to-highlight."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"})
+    elements = r.json()["elements"]
+    for el in elements:
+        assert f'data-source-box="{el["box_id"]}"' in el["html_snippet"], (
+            f"missing data-source-box in {el['box_id']}: {el['html_snippet'][:120]!r}"
+        )
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"
