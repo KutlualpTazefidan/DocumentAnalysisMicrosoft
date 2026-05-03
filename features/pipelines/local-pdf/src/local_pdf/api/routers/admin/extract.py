@@ -73,6 +73,12 @@ _PDF_STYLE = (
     # reference smaller + italic + muted so it reads as a marker, not a heading.
     ".caption-ref{font-size:0.85em;color:#6b7280;font-style:italic;"
     "margin:0.3em 0;border:none;padding:0}"
+    # Visual sub-block captions/footnotes: rendered as <p class="caption">
+    # (or "footnote") right next to the table/figure, in their own
+    # SegmentBox so they're independently editable.
+    "p.caption{font-size:0.9em;color:#374151;font-style:italic;"
+    "margin:0.4em 0}"
+    "p.footnote{font-size:0.8em;color:#6b7280;margin:0.3em 0}"
     # Aux stack: page-headers/footers grouped into rows by y-position. Within
     # each row, items land in a 3-column grid (left/center/right) keyed off
     # data-aux-align — so an item left-aligned in the PDF stays left, etc.

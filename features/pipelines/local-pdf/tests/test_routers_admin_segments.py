@@ -1710,6 +1710,129 @@ def test_vlm_segment_aux_two_stacked_pairs_become_two_rows(
     assert "GNB B 148/2001" not in row2_block
 
 
+def _fake_middle_json_with_table_and_caption() -> dict:
+    """Single table parent block with table_body + table_caption sub-blocks."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "table",
+                        "bbox": [50.0, 100.0, 550.0, 400.0],
+                        "blocks": [
+                            {
+                                "type": "table_body",
+                                "bbox": [50.0, 100.0, 550.0, 350.0],
+                                "lines": [
+                                    {
+                                        "bbox": [50.0, 100.0, 550.0, 350.0],
+                                        "spans": [
+                                            {
+                                                "type": "table",
+                                                "html": (
+                                                    "<table><tr><td>A</td><td>B</td></tr></table>"
+                                                ),
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                            {
+                                "type": "table_caption",
+                                "bbox": [50.0, 360.0, 550.0, 380.0],
+                                "lines": [
+                                    {
+                                        "bbox": [50.0, 360.0, 550.0, 380.0],
+                                        "spans": [{"content": "Tab. 1 The caption"}],
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+                "discarded_blocks": [],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_table_decomposes_body_and_caption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Table parent must produce one box for body + one for caption."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_table_and_caption(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    boxes = client.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"}).json()[
+        "boxes"
+    ]
+    # 1 table body + 1 caption = 2 boxes
+    assert len(boxes) == 2
+
+    by_id = {b["box_id"]: b for b in boxes}
+    assert by_id["p1-b0"]["kind"] == "table"
+    assert by_id["p1-b1"]["kind"] == "caption"
+
+    # Caption bbox follows the sub-block bbox (scaled 4x): y0=360*4=1440, y1=380*4=1520
+    assert by_id["p1-b1"]["bbox"][1] == pytest.approx(1440.0)
+    assert by_id["p1-b1"]["bbox"][3] == pytest.approx(1520.0)
+
+
+def test_vlm_segment_table_caption_rendered_as_separate_paragraph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Caption renders as <p class="caption"> with its own data-source-box."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_table_and_caption(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # Caption is its own <p class="caption"> with its own data-source-box.
+    assert '<p data-source-box="p1-b1" class="caption">Tab. 1 The caption</p>' in html
+    # Table body is its own <div class="extracted-table"> with own data-source-box.
+    assert '<div data-source-box="p1-b0" class="extracted-table">' in html
+    # Table body comes BEFORE the caption (caption is below table in PDF).
+    assert html.index('data-source-box="p1-b0"') < html.index('data-source-box="p1-b1"')
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"

@@ -2038,6 +2038,66 @@ def _aux_alignment(x0: float, x1: float, page_width: float) -> str:
     return "center"
 
 
+# Visual parent block types whose `blocks` array carries body/caption/footnote.
+_VLM_VISUAL_PARENT_TYPES: frozenset[str] = frozenset({"table", "image", "chart", "code"})
+
+# Sub-block type → SegmentBox kind. Charts treated as tables (same rendering
+# story); code captions/footnotes share the caption/auxiliary kinds.
+_VLM_VISUAL_SUB_KIND: dict[str, BoxKind] = {
+    "table_body": BoxKind.table,
+    "chart_body": BoxKind.table,
+    "image_body": BoxKind.figure,
+    "code_body": BoxKind.formula,
+    "table_caption": BoxKind.caption,
+    "image_caption": BoxKind.caption,
+    "chart_caption": BoxKind.caption,
+    "code_caption": BoxKind.caption,
+    "table_footnote": BoxKind.auxiliary,
+    "image_footnote": BoxKind.auxiliary,
+    "chart_footnote": BoxKind.auxiliary,
+    "code_footnote": BoxKind.auxiliary,
+}
+
+
+def _render_visual_sub_block_html(sub_block: dict, sub_type: str) -> str:
+    """Render one visual sub-block to standalone HTML.
+
+    Body sub-blocks pull their HTML/image from line spans; caption and
+    footnote sub-blocks pull merged text via _safe_merge_para_text.
+    Returns "" when nothing renderable is found.
+    """
+    if sub_type.endswith("_caption") or sub_type.endswith("_footnote"):
+        text = _safe_merge_para_text(sub_block) or _walk_block_for_text(sub_block)
+        if not text.strip():
+            return ""
+        cls = "caption" if sub_type.endswith("_caption") else "footnote"
+        return f'<p class="{cls}">{text.strip()}</p>'
+
+    if sub_type == "table_body":
+        for line in sub_block.get("lines", []):
+            for span in line.get("spans", []):
+                html = span.get("html", "")
+                if html:
+                    return f'<div class="extracted-table">{html}</div>'
+        return ""
+
+    if sub_type in ("image_body", "chart_body"):
+        for line in sub_block.get("lines", []):
+            for span in line.get("spans", []):
+                img_path = span.get("image_path", "")
+                if img_path:
+                    return f'<figure><img src="{img_path}" alt=""></figure>'
+        return ""
+
+    if sub_type == "code_body":
+        text = _safe_merge_para_text(sub_block) or _walk_block_for_text(sub_block)
+        if not text.strip():
+            return ""
+        return f"<pre><code>{text}</code></pre>"
+
+    return ""
+
+
 def _aux_line_html(text: str, *, in_top_zone: bool) -> str:
     """Wrap a single aux line in <header>, <footer>, or <span class="page-number">.
 
@@ -2211,6 +2271,77 @@ def vlm_segment_doc(
                 kind = BoxKind.auxiliary
             else:
                 kind = _VLM_TYPE_TO_KIND.get(block_type, BoxKind.paragraph)
+
+            # ── Visual blocks: decompose into body + caption + footnote ─────
+            # MinerU emits a table/image/chart/code parent with a `blocks`
+            # array of typed sub-blocks (table_body, table_caption,
+            # table_footnote, etc.), each with its own bbox. Split each into
+            # its own SegmentBox so captions are independently editable and
+            # the user can click them to highlight just that region.
+            if not is_discarded and block_type in _VLM_VISUAL_PARENT_TYPES:
+                sub_blocks = block.get("blocks") or []
+                emitted_any = False
+                for sub in sub_blocks:
+                    if not isinstance(sub, dict):
+                        continue
+                    sub_type = sub.get("type", "")
+                    sub_kind = _VLM_VISUAL_SUB_KIND.get(sub_type)
+                    if sub_kind is None:
+                        continue
+                    sub_bbox = sub.get("bbox")
+                    if not sub_bbox:
+                        continue
+                    try:
+                        sx0, sy0, sx1, sy1 = (float(v) for v in sub_bbox[:4])
+                    except (TypeError, ValueError):
+                        continue
+                    sub_html = _render_visual_sub_block_html(sub, sub_type)
+                    if not sub_html:
+                        continue
+                    sub_html = _convert_inline_latex(sub_html)
+                    sub_box_id = f"p{page_number}-b{box_counter}"
+                    sub_html = _inject_outer_attrs(sub_html, {"data-source-box": sub_box_id})
+                    sub_bbox_px = (
+                        sx0 * scale,
+                        sy0 * scale,
+                        sx1 * scale,
+                        sy1 * scale,
+                    )
+                    sub_box = SegmentBox(
+                        box_id=sub_box_id,
+                        page=page_number,
+                        bbox=sub_bbox_px,
+                        kind=sub_kind,
+                        confidence=1.0,
+                        reading_order=box_counter,
+                        manually_activated=False,
+                    )
+                    yield VlmSegmentBlock(
+                        kind="block",
+                        box=sub_box,
+                        html_snippet=sub_html,
+                        page_size_pts=page_size_pts,
+                    )
+                    box_counter += 1
+                    emitted_any = True
+
+                if emitted_any:
+                    block_idx += 1
+                    eta.observe(block_idx, time.monotonic())
+                    eta_seconds, throughput = eta.estimate(total=max(total_blocks, 1))
+                    yield WorkProgressEvent(
+                        model=worker_name,
+                        timestamp_ms=now_ms(),
+                        stage="block",
+                        current=block_idx,
+                        total=total_blocks,
+                        eta_seconds=eta_seconds,
+                        throughput_per_sec=throughput,
+                        vram_current_mb=_vram_used_mb(),
+                    )
+                    continue
+                # Fall through: visual block with no usable sub-blocks →
+                # emit as one box via the default path.
 
             # ── Multi-line auxiliaries: decompose into per-line boxes ───────
             # Aux blocks (page headers/footers) often cover multiple visual
