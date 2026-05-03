@@ -73,17 +73,15 @@ _PDF_STYLE = (
     # reference smaller + italic + muted so it reads as a marker, not a heading.
     ".caption-ref{font-size:0.85em;color:#6b7280;font-style:italic;"
     "margin:0.3em 0;border:none;padding:0}"
-    # Aux stack: page-headers/footers laid out as one or more flex rows,
-    # left-to-right by PDF x0, top-to-bottom by y-band. The stack carries
-    # the separator border so multi-band stacks don't accumulate borders.
+    # Aux stack: page-headers/footers rendered in (y0, x0) order so an aux
+    # underneath another in the PDF appears below it in HTML. No grouping,
+    # no flex rows — each aux is a block element in its natural order.
     ".aux-stack--top{margin-bottom:1em;padding-bottom:0.4em;"
     "border-bottom:1px solid #e5e7eb}"
     ".aux-stack--bottom{margin-top:1em;padding-top:0.4em;"
     "border-top:1px solid #e5e7eb}"
-    ".aux-row{display:flex;justify-content:space-between;align-items:baseline;"
-    "gap:1rem;flex-wrap:wrap}"
-    ".aux-row > *{margin:0}"
-    ".aux-row + .aux-row{margin-top:0.2em}"
+    ".aux-stack > *{margin:0.1em 0}"
+    ".aux-stack .page-number{display:block}"
     "</style>"
 )
 
@@ -98,40 +96,14 @@ _AUX_ZONE_RE = re.compile(r'data-aux-zone="(header|footer)"')
 _AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
 _AUX_Y_RE = re.compile(r'data-aux-y="(\d+)"')
 
-# Two aux items whose y0 differs by ≤ this many pts are treated as the same
-# visual row. ~25pt covers a single line of body text at typical PDF DPI.
-_AUX_ROW_BAND_PTS = 25
 
-
-def _group_aux_by_y_band(items: list[tuple[int, int, str]]) -> list[list[str]]:
-    """Group aux items by y0-band, sort each band left-to-right by x0.
-
-    Items: list of ``(y0, x0, snippet)``. Walks y0-sorted items and starts a
-    new band whenever y0 jumps by more than ``_AUX_ROW_BAND_PTS``. Returns
-    one list of snippets per band — each band becomes its own flex row so
-    stacked-line aux (e.g. multi-line headers) stay stacked.
-    """
-    if not items:
-        return []
-    sorted_items = sorted(items, key=lambda t: (t[0], t[1]))
-    bands: list[list[tuple[int, int, str]]] = [[sorted_items[0]]]
-    for entry in sorted_items[1:]:
-        if entry[0] - bands[-1][-1][0] > _AUX_ROW_BAND_PTS:
-            bands.append([entry])
-        else:
-            bands[-1].append(entry)
-    return [[s for _, _, s in sorted(band, key=lambda t: t[1])] for band in bands]
-
-
-def _partition_aux(
-    snippets: list[str],
-) -> tuple[list[list[str]], list[str], list[list[str]]]:
-    """Split per-page snippets into (header_bands, content, footer_bands).
+def _partition_aux(snippets: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Split per-page snippets into (header_aux, content, footer_aux).
 
     Aux snippets carry ``data-aux-zone`` (header/footer), ``data-aux-x``
     (left edge), and ``data-aux-y`` (top edge) — worker-tagged on
-    is_discarded blocks. Bands are y0-grouped so multi-line aux renders as
-    multiple stacked flex rows.
+    is_discarded blocks. Each aux group is sorted by ``(y0, x0)`` so an
+    aux underneath another in the PDF appears below it in HTML order.
     """
     header_aux: list[tuple[int, int, str]] = []
     footer_aux: list[tuple[int, int, str]] = []
@@ -146,15 +118,20 @@ def _partition_aux(
         x = int(xm.group(1)) if xm else 0
         y = int(ym.group(1)) if ym else 0
         (header_aux if zm.group(1) == "header" else footer_aux).append((y, x, s))
-    return _group_aux_by_y_band(header_aux), content, _group_aux_by_y_band(footer_aux)
+    header_aux.sort(key=lambda t: (t[0], t[1]))
+    footer_aux.sort(key=lambda t: (t[0], t[1]))
+    return (
+        [s for _, _, s in header_aux],
+        content,
+        [s for _, _, s in footer_aux],
+    )
 
 
-def _wrap_aux_rows(bands: list[list[str]], position: str) -> str:
-    """Wrap aux bands in a single stack with one flex row per band."""
-    if not bands:
+def _wrap_aux_stack(aux: list[str], position: str) -> str:
+    """Wrap aux items in a single stack container; each item renders inline-block."""
+    if not aux:
         return ""
-    rows = "".join(f'<div class="aux-row">{"".join(band)}</div>' for band in bands)
-    return f'<div class="aux-stack aux-stack--{position}">{rows}</div>'
+    return f'<div class="aux-stack aux-stack--{position}">{"".join(aux)}</div>'
 
 
 def _group_list_items(section_inner: str) -> str:
@@ -198,11 +175,11 @@ def _wrap_html(elements: list[dict]) -> str:
 
     sections = []
     for p in page_order:
-        header_bands, content, footer_bands = _partition_aux(by_page[p])
+        header_aux, content, footer_aux = _partition_aux(by_page[p])
         inner = (
-            _wrap_aux_rows(header_bands, "top")
+            _wrap_aux_stack(header_aux, "top")
             + _group_list_items("".join(content))
-            + _wrap_aux_rows(footer_bands, "bottom")
+            + _wrap_aux_stack(footer_aux, "bottom")
         )
         sections.append(f'<section data-page="{p}">\n{inner}\n</section>')
     body = "\n".join(sections)

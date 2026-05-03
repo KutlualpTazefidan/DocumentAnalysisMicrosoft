@@ -1093,24 +1093,23 @@ def test_vlm_segment_html_aux_row_top_and_bottom(
     client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
 
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
-    # Stack wrappers carry the zone class; flex rows sit inside.
+    # Stack wrappers carry the zone class; aux items sit directly inside,
+    # sorted by (y0, x0) — no row sub-grouping.
     top_stack_tag = '<div class="aux-stack aux-stack--top">'
     bot_stack_tag = '<div class="aux-stack aux-stack--bottom">'
     assert top_stack_tag in html
     assert bot_stack_tag in html
+    # No row sub-grouping anymore.
+    assert '<div class="aux-row">' not in html
 
-    # Within each row, items must be sorted left-to-right by x0.
+    # Same-y items: order by x0 ascending.
     top_open = html.index(top_stack_tag)
-    top_block = html[top_open : html.index("</div></div>", top_open)]
+    top_block = html[top_open : html.index("</div>", top_open)]
     assert top_block.index("Section A") < top_block.index("Page 7")
 
     bot_open = html.index(bot_stack_tag)
-    bot_block = html[bot_open : html.index("</div></div>", bot_open)]
+    bot_block = html[bot_open : html.index("</div>", bot_open)]
     assert bot_block.index("1 of 42") < bot_block.index("Rev. 1")
-
-    # Same-y items collapse into one row inside the stack (band grouping).
-    assert top_block.count('<div class="aux-row">') == 1
-    assert bot_block.count('<div class="aux-row">') == 1
 
     # Stacks sit OUTSIDE the body paragraph (top before, bottom after).
     body_pos = html.index("Body paragraph")
@@ -1228,18 +1227,17 @@ def test_vlm_segment_multiline_aux_renders_as_stacked_rows(
 
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
 
-    # One top stack, no bottom stack.
+    # One top stack, no bottom stack, no row sub-grouping.
     assert '<div class="aux-stack aux-stack--top">' in html
     assert '<div class="aux-stack aux-stack--bottom">' not in html
+    assert '<div class="aux-row">' not in html
 
     top_open = html.index('<div class="aux-stack aux-stack--top">')
-    top_close = html.index("</div></div>", top_open) + len("</div></div>")
+    top_close = html.index("</div>", top_open)
     top_block = html[top_open:top_close]
 
-    # Three stacked rows for the three lines (y0 differ by 30pts > 25 band).
-    assert top_block.count('<div class="aux-row">') == 3
-
-    # Top-down ordering (sorted by y0 ascending).
+    # Top-down ordering (sorted by y0 ascending) — items underneath others
+    # appear later in HTML.
     pos_customer = top_block.index("Customer ACME")
     pos_project = top_block.index("Project Alpha")
     pos_revision = top_block.index("Revision 1.2")
