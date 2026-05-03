@@ -28,6 +28,10 @@ interface Props {
   /** True while a box-mutation request is in flight — disables Activate /
    *  Deactivate and surfaces a loading indicator on the active button. */
   pending?: boolean;
+  /** Raw html_snippet from mineru.json for the selected box. Shown in a
+   *  collapsible "Quelltext" panel so the user can verify what MinerU
+   *  actually produced (vs. what the renderer/transformations show). */
+  rawSnippet?: string;
 }
 
 /**
@@ -53,6 +57,7 @@ export function BoxPropertiesPanel({
   onUnmergeUp,
   onUnmergeDown,
   pending = false,
+  rawSnippet,
 }: Props): JSX.Element {
   const isActive = selected ? selected.kind !== "discard" : false;
   return (
@@ -179,6 +184,27 @@ export function BoxPropertiesPanel({
           >
             Reset
           </button>
+
+          {rawSnippet !== undefined && (
+            <details className="mt-2 group">
+              <summary className={`${T.tinyBold} cursor-pointer text-slate-700 select-none`}>
+                Quelltext (mineru.json)
+              </summary>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-slate-50 p-2 text-[11px] leading-snug font-mono text-slate-700">
+                {rawSnippet || "(leer)"}
+              </pre>
+              <button
+                type="button"
+                className="mt-1 text-xs text-blue-600 hover:underline disabled:text-slate-400"
+                disabled={!rawSnippet}
+                onClick={() => {
+                  if (rawSnippet) navigator.clipboard?.writeText(rawSnippet);
+                }}
+              >
+                kopieren
+              </button>
+            </details>
+          )}
         </>
       ) : (
         <p className="text-slate-400">Wähle eine Box aus</p>
