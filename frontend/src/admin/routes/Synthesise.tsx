@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { DocStepTabs } from "../components/DocStepTabs";
@@ -33,6 +34,14 @@ import { T } from "../styles/typography";
  * See spec: docs/superpowers/specs/2026-05-03-synthesise-ui-design.md
  */
 
+function synthPageBtnClasses(hasQuestions: boolean, isActive: boolean): string {
+  const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center`;
+  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  return hasQuestions
+    ? `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`
+    : `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
+}
+
 interface InnerProps {
   slug: string;
   token: string;
@@ -49,6 +58,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
   const [page, setPage] = useState<number>(() => loadCurrentPage(slug));
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [pageGridOpen, setPageGridOpen] = useState(false);
 
   // Streaming state.
   const streamRef = useRef<StreamHandles | null>(null);
@@ -82,6 +92,18 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
     }
     return pages.size > 0 ? Math.max(...pages) : 1;
   }, [mineru.data]);
+
+  // Pages that already have at least one (non-deprecated) question.
+  // Drives the green/red colouring in the page-grid widget.
+  const pagesWithQuestions = useMemo<Set<number>>(() => {
+    const out = new Set<number>();
+    for (const [boxId, qs] of Object.entries(questions.data ?? {})) {
+      if (!qs || qs.length === 0) continue;
+      const m = boxId.match(/^p(\d+)-/);
+      if (m) out.add(parseInt(m[1], 10));
+    }
+    return out;
+  }, [questions.data]);
 
   const questionsForBox = highlight
     ? (questions.data?.[highlight] ?? [])
@@ -155,31 +177,10 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
       {/* ── Three-pane content: HTML | Questions | Controls ─────────── */}
       <div className="flex flex-1 min-h-0">
-        {/* Left: HTML preview pane — read-only */}
+        {/* Left: HTML preview pane — read-only. Page nav lives in the
+            right controls strip; no toolbar here so the preview gets
+            maximum vertical space. */}
         <div className="flex-1 flex flex-col border-r border-slate-200 min-w-0">
-          <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
-            <button
-              type="button"
-              aria-label="Vorherige Seite"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-              className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ◀
-            </button>
-            <span className={T.body}>
-              Seite {page} / {totalPages}
-            </span>
-            <button
-              type="button"
-              aria-label="Naechste Seite"
-              disabled={page >= totalPages}
-              onClick={() => setPage(page + 1)}
-              className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ▶
-            </button>
-          </div>
           <div className="flex-1 bg-white">
             <HtmlPreview
               html={visibleHtml}
@@ -233,11 +234,106 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           </div>
         </div>
 
-        {/* Right: thin controls strip — vLLM lifecycle + Generate buttons */}
+        {/* Right: thin controls strip — page nav + vLLM + Generate */}
         <aside
           className="w-[280px] flex flex-col gap-3 bg-white px-4 py-4 overflow-y-auto flex-shrink-0"
           data-testid="synthesise-sidebar"
         >
+          {/* Page navigation, modelled after Extract's sidebar widget.
+              Prev | "Seite X / Y" toggle | Next; toggle expands a grid
+              of every page coloured by whether it already has any
+              generated questions. */}
+          <div className="flex flex-col gap-2">
+            <div className={`flex items-center justify-between gap-2 ${T.tiny} text-slate-600 whitespace-nowrap`}>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
+                Keine Fragen
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-green-200 shrink-0" aria-hidden="true" />
+                Mit Fragen
+              </span>
+            </div>
+
+            <div className="flex items-stretch gap-1">
+              <button
+                type="button"
+                aria-label="Vorherige Seite"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="synth-page-prev"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                aria-label={`Seite ${page} von ${totalPages}, ${pageGridOpen ? "Liste schliessen" : "Liste oeffnen"}`}
+                aria-expanded={pageGridOpen}
+                onClick={() => setPageGridOpen((p) => !p)}
+                className={`${synthPageBtnClasses(pagesWithQuestions.has(page), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
+                data-testid="synth-page-grid-toggle"
+              >
+                <span>Seite {page} / {totalPages}</span>
+                <motion.span
+                  aria-hidden="true"
+                  animate={{ rotate: pageGridOpen ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  ▾
+                </motion.span>
+              </button>
+              <button
+                type="button"
+                aria-label="Naechste Seite"
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="synth-page-next"
+              >
+                ▶
+              </button>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {pageGridOpen && (
+                <motion.div
+                  key="synth-page-grid"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div
+                    className="grid grid-cols-5 gap-1 pt-1 max-h-64 overflow-y-auto pr-1"
+                    role="group"
+                    aria-label="Page navigation"
+                  >
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        aria-label={`Seite ${p}`}
+                        aria-pressed={p === page}
+                        className={`${synthPageBtnClasses(pagesWithQuestions.has(p), p === page)} transition-colors`}
+                        onClick={() => {
+                          setPage(p);
+                          setPageGridOpen(false);
+                        }}
+                        data-testid={`synth-page-btn-${p}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <hr className="border-slate-200" />
+
           <LlmServerPanel token={token} />
 
           <hr className="border-slate-200" />
