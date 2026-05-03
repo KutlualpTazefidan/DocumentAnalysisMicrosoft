@@ -1,0 +1,32 @@
+# vllm-server config — read by both start.sh and the FastAPI backend's
+# /api/admin/llm/start endpoint. Edit to swap models or change ports.
+
+[server]
+# Bind only to loopback by default — vLLM has no auth, so exposing it
+# externally is the user's responsibility.
+host = "127.0.0.1"
+port = 8000
+
+[model]
+# Default fits ~8 GB VRAM at bf16 with 4096-context. Multilingual incl.
+# German. No Hugging Face auth required.
+name = "Qwen/Qwen2.5-3B-Instruct"
+
+# Optional: override the dtype. vLLM auto-detects, but bf16 is a safe
+# explicit pick for modern Ampere+/RDNA3+ GPUs. Comment out to let vLLM
+# decide.
+# dtype = "bfloat16"
+
+# Cap context window. Lower values reduce KV-cache memory.
+max_model_len = 4096
+
+[runtime]
+# Fraction of GPU memory vLLM is allowed to occupy. Lower if you share
+# the GPU with another process (browser GPU compositing, screen
+# recorder, etc.).
+gpu_memory_utilization = 0.85
+
+# How long to wait for the OpenAI-compatible /v1/models endpoint to
+# respond before declaring "started" (seconds). Model loading can take
+# 30-300 s on first run because weights are downloaded.
+startup_health_timeout_s = 600

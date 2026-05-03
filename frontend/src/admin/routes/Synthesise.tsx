@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlPreview } from "../components/HtmlPreview";
+import { LlmServerPanel } from "../components/LlmServerPanel";
 import { QuestionList } from "../components/QuestionList";
 import { useHtml } from "../hooks/useExtract";
 import {
@@ -193,6 +194,13 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           className="w-[360px] flex flex-col gap-3 bg-white px-4 py-4 overflow-y-auto flex-shrink-0"
           data-testid="synthesise-sidebar"
         >
+          {/* vLLM lifecycle panel — Start/Stop the local model server.
+              Sits at the top of the sidebar so its state is visible
+              before the admin clicks any Generate button. */}
+          <LlmServerPanel token={token} />
+
+          <hr className="border-slate-200" />
+
           <div className="flex flex-col gap-1">
             <span className={T.tinyBold}>Ausgewaehlte Box</span>
             <span className={`${T.body} font-mono`}>

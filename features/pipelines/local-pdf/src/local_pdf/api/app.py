@@ -18,14 +18,24 @@ from local_pdf.api.schemas import HealthResponse
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """App lifespan — release MinerU VLM weights + CUDA memory on shutdown.
+    """App lifespan — release MinerU VLM weights + CUDA memory + SIGTERM
+    any managed vLLM subprocess on shutdown.
 
     Without this, Ctrl-C on the dev server can leave the process hanging
     on PyTorch worker threads / cached predictor singletons. We call
     MinerU's own shutdown helper plus torch.cuda.empty_cache() so
-    uvicorn's shutdown signal can finish.
+    uvicorn's shutdown signal can finish. We also tell the local vLLM
+    process manager to terminate any subprocess it owns — so an admin
+    who Ctrl-C's the backend doesn't end up with an orphan vLLM holding
+    GPU memory.
     """
     yield
+    try:
+        from local_pdf.llm_server.process import terminate_on_app_shutdown
+
+        terminate_on_app_shutdown()
+    except Exception:
+        pass
     try:
         from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
 
@@ -71,6 +81,7 @@ def create_app() -> FastAPI:
     from local_pdf.api.routers.admin.curators import router as admin_curators_router
     from local_pdf.api.routers.admin.docs import router as admin_docs_router
     from local_pdf.api.routers.admin.extract import router as extract_router
+    from local_pdf.api.routers.admin.llm_server import router as llm_server_router
     from local_pdf.api.routers.admin.segments import router as segments_router
     from local_pdf.api.routers.admin.synthesise import router as synthesise_router
     from local_pdf.api.routers.auth import router as auth_router
@@ -84,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(segments_router)
     app.include_router(extract_router)
     app.include_router(synthesise_router)
+    app.include_router(llm_server_router)
     app.include_router(admin_curators_router)
     app.include_router(curate_docs_router)
     app.include_router(curate_elements_router)

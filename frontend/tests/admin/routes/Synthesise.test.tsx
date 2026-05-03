@@ -39,6 +39,20 @@ const server = setupServer(
     }),
   ),
   http.get("*/api/admin/docs/spec/questions", () => HttpResponse.json({})),
+  // The mounted LlmServerPanel polls /api/admin/llm/status — return a
+  // stopped state so the panel renders without errors.
+  http.get("*/api/admin/llm/status", () =>
+    HttpResponse.json({
+      state: "stopped",
+      pid: null,
+      model: "Qwen/Qwen2.5-3B-Instruct",
+      base_url: "http://127.0.0.1:8000/v1",
+      healthy: false,
+      error: null,
+      log_tail: [],
+      vllm_cli_available: true,
+    }),
+  ),
 );
 
 beforeAll(() => server.listen());
