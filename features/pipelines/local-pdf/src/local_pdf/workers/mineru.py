@@ -408,19 +408,31 @@ def _convert_inline_latex(s: str) -> str:
 
     def _math_replace(m: re.Match[str]) -> str:
         body = m.group(1)
-        body = _replace_latex_symbols(body)
+        body_mapped = _replace_latex_symbols(body)
         # Superscript: ^{X} or ^X
-        sup = re.fullmatch(r"\^(?:\{([^}]*)\}|(\S))", body)
+        sup = re.fullmatch(r"\^(?:\{([^}]*)\}|(\S))", body_mapped)
         if sup:
             inner = sup.group(1) if sup.group(1) is not None else sup.group(2)
             return f"<sup>{inner}</sup>"
         # Subscript: _{X} or _X
-        sub = re.fullmatch(r"_(?:\{([^}]*)\}|(\S))", body)
+        sub = re.fullmatch(r"_(?:\{([^}]*)\}|(\S))", body_mapped)
         if sub:
             inner = sub.group(1) if sub.group(1) is not None else sub.group(2)
             return f"<sub>{inner}</sub>"
-        # Plain math span — strip the dollar signs
-        return body
+        # Anything more complex (\dot{Q}_{max, BE}, fractions, etc.) — feed
+        # to latex2mathml in inline mode so it renders properly inside table
+        # cells / paragraphs.  Use the original LaTeX (not symbol-mapped)
+        # because latex2mathml understands the LaTeX commands directly.
+        if "\\" in body or "{" in body:
+            try:
+                from latex2mathml.converter import convert as _l2mml
+
+                return str(_l2mml(body))
+            except Exception as exc:
+                _logger.debug("inline latex2mathml failed for %r: %s", body[:80], exc)
+                return html_lib.escape(body)
+        # Plain math span — strip the dollar signs.
+        return body_mapped
 
     # Display math first: $$...$$ → MathML via latex2mathml. Replace with a
     # marker before processing inline so the inline regex doesn't see the
