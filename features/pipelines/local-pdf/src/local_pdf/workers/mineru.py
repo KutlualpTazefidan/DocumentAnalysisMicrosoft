@@ -400,10 +400,6 @@ def _convert_inline_latex(s: str) -> str:
     """
     if not s:
         return s
-    # Cells with bare LaTeX (no $ delimiters) still need the final pass; only
-    # short-circuit when neither dollars nor backslashes are present.
-    if "$" not in s and "\\" not in s:
-        return s
 
     def _replace_latex_symbols(content: str) -> str:
         for pattern, replacement in _LATEX_SYMBOL_MAP.items():
@@ -448,7 +444,9 @@ def _convert_inline_latex(s: str) -> str:
     s = re.sub(r"(?<!\$)\$([^$]+)\$(?!\$)", _math_replace, s)
     # Final pass: catch bare LaTeX expressions (no $..$ delimiters) that
     # MinerU sometimes leaves in table cells, e.g. ``\dot{Q}_{max, BE}``.
-    return _convert_bare_latex(s)
+    s = _convert_bare_latex(s)
+    # Promote bare unit exponents like "W/m2" → "W/m²".
+    return _superscript_unit_exponents(s)
 
 
 # Matches a single bare LaTeX expression: command + optional {arg} + any
@@ -501,6 +499,28 @@ def _normalize_text_subscripts(latex: str) -> str:
         return f"{op}{{\\mathrm{{{body}}}}}"
 
     return _SUB_SUP_BODY_RE.sub(_replace, latex)
+
+
+# Unit exponents typeset as bare digits ("W/m2", "kg/m3", "mm-1") — promote
+# the digit run to Unicode superscript so it reads as "W/m²", "kg/m³",
+# "mm⁻¹". Constrained: digit run must follow a unit-like letter sequence
+# AND start after a slash or whitespace, to avoid catching things like
+# H2O or filename-12 that happen to contain letter+digit.
+# Token boundaries: not preceded by an alnum/underscore (so we don't grab
+# the trailing chars of a longer word) and followed by punctuation, an
+# HTML tag, or end-of-string (so "Foo3.0" or "version2.5" don't match).
+_UNIT_EXPONENT_RE = re.compile(r"(?<![A-Za-z\d_])([A-Za-zµμ°]{1,3})(-?\d{1,3})(?=[\s<,;:)\]/]|$)")
+_SUPERSCRIPT_DIGITS = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def _superscript_unit_exponents(s: str) -> str:
+    """Convert ``m2`` → ``m²``, ``m-1`` → ``m⁻¹`` after ``/`` or whitespace."""
+
+    def _r(m: re.Match[str]) -> str:
+        unit, exp = m.group(1), m.group(2)
+        return f"{unit}{exp.translate(_SUPERSCRIPT_DIGITS)}"
+
+    return _UNIT_EXPONENT_RE.sub(_r, s)
 
 
 def _convert_bare_latex(s: str) -> str:
