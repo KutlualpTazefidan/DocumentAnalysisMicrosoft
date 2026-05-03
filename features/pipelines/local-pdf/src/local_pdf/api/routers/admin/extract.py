@@ -89,6 +89,9 @@ _PDF_STYLE = (
     # locked-down (no allow-scripts needed for KaTeX/MathJax).
     ".math-display{margin:1em 0;text-align:center;overflow-x:auto}"
     ".math-display math{font-size:1.1em}"
+    # Prime marks attached after a math element when the underlying LaTeX
+    # placed them after a subscript (\\dot{q}_{x}'').
+    "sup.prime{font-size:0.85em;margin-left:0.05em;line-height:0}"
     ".math-error{display:block;background:#fef2f2;color:#991b1b;"
     "padding:0.4em 0.6em;font-size:0.85em;border-left:3px solid #ef4444}"
     # Visible MinerU description (Beschreibung: ...) between image and caption.

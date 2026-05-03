@@ -501,7 +501,30 @@ def _convert_bare_latex(s: str) -> str:
             _logger.debug("bare latex2mathml failed for %r: %s", body[:80], exc)
             return html_lib.escape(body)
 
-    return _BARE_LATEX_RE.sub(_replace, s)
+    out = _BARE_LATEX_RE.sub(_replace, s)
+    # Trailing primes that latex2mathml didn't absorb (because the LaTeX
+    # placed them after a subscript) leak through as literal "''" text.
+    # Wrap them in <sup class="prime"> using the proper Unicode prime
+    # characters so they read as typography, not stray apostrophes.
+    return _PRIMES_AFTER_MATH_RE.sub(_wrap_prime_run, out)
+
+
+_PRIMES_AFTER_MATH_RE = re.compile(r"(</math>)('+)")
+# \u escapes for the prime glyphs so ruff RUF001 doesn't flag the literal
+# chars as ambiguous with the grave accent.
+_PRIME_CHAR = "\u2032"  # PRIME
+_PRIME_GLYPH_BY_COUNT = {
+    1: _PRIME_CHAR,
+    2: "\u2033",  # DOUBLE PRIME
+    3: "\u2034",  # TRIPLE PRIME
+    4: "\u2057",  # QUADRUPLE PRIME
+}
+
+
+def _wrap_prime_run(m: re.Match[str]) -> str:
+    closing, primes = m.group(1), m.group(2)
+    glyph = _PRIME_GLYPH_BY_COUNT.get(len(primes), _PRIME_CHAR * len(primes))
+    return f'{closing}<sup class="prime">{glyph}</sup>'
 
 
 _DISPLAY_MATH_RE = re.compile(r"\$\$\s*(.*?)\s*\$\$", re.DOTALL)
