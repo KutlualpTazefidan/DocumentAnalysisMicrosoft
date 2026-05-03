@@ -1093,25 +1093,157 @@ def test_vlm_segment_html_aux_row_top_and_bottom(
     client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
 
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
-    assert '<div class="aux-row aux-row--top">' in html
-    assert '<div class="aux-row aux-row--bottom">' in html
+    # Stack wrappers carry the zone class; flex rows sit inside.
+    top_stack_tag = '<div class="aux-stack aux-stack--top">'
+    bot_stack_tag = '<div class="aux-stack aux-stack--bottom">'
+    assert top_stack_tag in html
+    assert bot_stack_tag in html
 
     # Within each row, items must be sorted left-to-right by x0.
-    # Use the full open-tag string so we don't accidentally match the
-    # class name inside the embedded <style> block.
-    top_tag = '<div class="aux-row aux-row--top">'
-    bot_tag = '<div class="aux-row aux-row--bottom">'
-    top_open = html.index(top_tag)
-    top_block = html[top_open : html.index("</div>", top_open)]
+    top_open = html.index(top_stack_tag)
+    top_block = html[top_open : html.index("</div></div>", top_open)]
     assert top_block.index("Section A") < top_block.index("Page 7")
 
-    bot_open = html.index(bot_tag)
-    bot_block = html[bot_open : html.index("</div>", bot_open)]
+    bot_open = html.index(bot_stack_tag)
+    bot_block = html[bot_open : html.index("</div></div>", bot_open)]
     assert bot_block.index("1 of 42") < bot_block.index("Rev. 1")
 
-    # Aux rows sit OUTSIDE the body paragraph (top before, bottom after).
+    # Same-y items collapse into one row inside the stack (band grouping).
+    assert top_block.count('<div class="aux-row">') == 1
+    assert bot_block.count('<div class="aux-row">') == 1
+
+    # Stacks sit OUTSIDE the body paragraph (top before, bottom after).
     body_pos = html.index("Body paragraph")
     assert top_open < body_pos < bot_open
+
+
+def _fake_middle_json_with_multiline_header() -> dict:
+    """Single page with a multi-line header aux block (3 lines stacked)."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 250.0, 400.0, 350.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 250.0, 400.0, 350.0],
+                                "spans": [{"content": "Body paragraph."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    # ONE discarded block covering 3 stacked header lines.
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 30.0, 550.0, 110.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 30.0, 550.0, 50.0],
+                                "spans": [{"content": "Customer ACME"}],
+                            },
+                            {
+                                "bbox": [50.0, 60.0, 550.0, 80.0],
+                                "spans": [{"content": "Project Alpha"}],
+                            },
+                            {
+                                "bbox": [50.0, 90.0, 550.0, 110.0],
+                                "spans": [{"content": "Revision 1.2"}],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_multiline_aux_decomposes_into_per_line_boxes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A discarded block with multiple lines must produce one aux box per line."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_multiline_header(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    boxes = client.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"}).json()[
+        "boxes"
+    ]
+    # 1 paragraph + 3 per-line aux = 4 boxes total
+    assert len(boxes) == 4
+    aux_boxes = [b for b in boxes if b["kind"] == "auxiliary"]
+    assert len(aux_boxes) == 3
+
+    # Per-line bboxes follow the line bboxes (scaled 4x).
+    aux_y0s = sorted(int(b["bbox"][1]) for b in aux_boxes)
+    assert aux_y0s == [120, 240, 360]  # 30*4, 60*4, 90*4
+
+
+def test_vlm_segment_multiline_aux_renders_as_stacked_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Multi-line aux must render as multiple stacked aux-row inside one stack."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_multiline_header(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # One top stack, no bottom stack.
+    assert '<div class="aux-stack aux-stack--top">' in html
+    assert '<div class="aux-stack aux-stack--bottom">' not in html
+
+    top_open = html.index('<div class="aux-stack aux-stack--top">')
+    top_close = html.index("</div></div>", top_open) + len("</div></div>")
+    top_block = html[top_open:top_close]
+
+    # Three stacked rows for the three lines (y0 differ by 30pts > 25 band).
+    assert top_block.count('<div class="aux-row">') == 3
+
+    # Top-down ordering (sorted by y0 ascending).
+    pos_customer = top_block.index("Customer ACME")
+    pos_project = top_block.index("Project Alpha")
+    pos_revision = top_block.index("Revision 1.2")
+    assert pos_customer < pos_project < pos_revision
 
 
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:

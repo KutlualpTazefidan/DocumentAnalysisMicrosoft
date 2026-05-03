@@ -2021,6 +2021,21 @@ def _strip_bullet_marker(text: str) -> str:
     return _BULLET_PREFIX_RE.sub("", text).strip()
 
 
+def _aux_line_html(text: str, *, in_top_zone: bool) -> str:
+    """Wrap a single aux line in <header>, <footer>, or <span class="page-number">.
+
+    Mirrors the zone-driven branch in ``_block_to_html`` but operates on one
+    decomposed line at a time so multi-line discarded blocks render with
+    proper per-line semantics.
+    """
+    text = text.strip()
+    if _is_page_number(text):
+        return f'<span class="page-number">{text}</span>'
+    tag = "header" if in_top_zone else "footer"
+    cls = "page-header" if in_top_zone else "page-footer"
+    return f'<{tag} class="{cls}">{text}</{tag}>'
+
+
 def vlm_segment_doc(
     pdf_bytes: bytes,
     *,
@@ -2180,6 +2195,71 @@ def vlm_segment_doc(
             else:
                 kind = _VLM_TYPE_TO_KIND.get(block_type, BoxKind.paragraph)
 
+            # ── Multi-line auxiliaries: decompose into per-line boxes ───────
+            # Aux blocks (page headers/footers) often cover multiple visual
+            # lines; without splitting they render as one <header>/<footer>
+            # with all text mashed inline. Split via _block_to_line_elements
+            # so each line gets its own bbox + zone + x/y tagging, then the
+            # renderer's y-band grouping stacks them visually.
+            if is_discarded:
+                sub_elements = _block_to_line_elements(block, block_type)
+                if len(sub_elements) >= 2:
+                    page_h = page_size_pts[1]
+                    for sub in sub_elements:
+                        sx0, sy0, sx1, sy1 = sub.bbox
+                        sub_bbox_px = (
+                            sx0 * scale,
+                            sy0 * scale,
+                            sx1 * scale,
+                            sy1 * scale,
+                        )
+                        sub_box_id = f"p{page_number}-b{box_counter}"
+                        sub_y_mid = (sy0 + sy1) / 2
+                        in_top = sub_y_mid < page_h / 2
+                        sub_html = _aux_line_html(sub.text, in_top_zone=in_top)
+                        sub_html = _convert_inline_latex(sub_html)
+                        sub_html = _inject_outer_attrs(
+                            sub_html,
+                            {
+                                "data-source-box": sub_box_id,
+                                "data-aux-zone": "header" if in_top else "footer",
+                                "data-aux-x": str(int(sx0)),
+                                "data-aux-y": str(int(sy0)),
+                            },
+                        )
+                        sub_box = SegmentBox(
+                            box_id=sub_box_id,
+                            page=page_number,
+                            bbox=sub_bbox_px,
+                            kind=BoxKind.auxiliary,
+                            confidence=1.0,
+                            reading_order=box_counter,
+                            manually_activated=False,
+                        )
+                        yield VlmSegmentBlock(
+                            kind="block",
+                            box=sub_box,
+                            html_snippet=sub_html,
+                            page_size_pts=page_size_pts,
+                        )
+                        box_counter += 1
+
+                    block_idx += 1
+                    eta.observe(block_idx, time.monotonic())
+                    eta_seconds, throughput = eta.estimate(total=max(total_blocks, 1))
+                    yield WorkProgressEvent(
+                        model=worker_name,
+                        timestamp_ms=now_ms(),
+                        stage="block",
+                        current=block_idx,
+                        total=total_blocks,
+                        eta_seconds=eta_seconds,
+                        throughput_per_sec=throughput,
+                        vram_current_mb=_vram_used_mb(),
+                    )
+                    continue
+                # Fall through: single-line aux → emit as one box.
+
             # ── Lists: decompose into one SegmentBox per bullet ─────────────
             # MinerU emits a list block as a single bbox covering all bullets,
             # so a naive 1:1 mapping renders the whole list as one inline <li>.
@@ -2251,13 +2331,14 @@ def vlm_segment_doc(
             html_snippet = _convert_inline_latex(html_snippet)
             attrs: dict[str, str] = {"data-source-box": box_id}
             if is_discarded:
-                # Tag aux blocks with their visual zone + x-position so
+                # Tag aux blocks with their visual zone + x/y position so
                 # _wrap_html can pull them into a top/bottom flex row sorted
-                # left-to-right by x0.
+                # left-to-right by x0, with rows grouped by y-band.
                 page_h = page_size_pts[1]
                 y_mid = (py0 + py1) / 2
                 attrs["data-aux-zone"] = "header" if y_mid < page_h / 2 else "footer"
                 attrs["data-aux-x"] = str(int(px0))
+                attrs["data-aux-y"] = str(int(py0))
             html_snippet = _inject_outer_attrs(html_snippet, attrs)
 
             yield VlmSegmentBlock(
