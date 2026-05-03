@@ -19,7 +19,7 @@ import { StageIndicator } from "../components/StageIndicator";
 import { sliceHtmlByPage } from "../lib/extractHtml";
 import { useSegments } from "../hooks/useSegments";
 import {
-  streamExtract,
+  streamSegment,
   useExportSourceElements,
   useExtractRegion,
   useHtml,
@@ -137,14 +137,18 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
   }, []);
 
+  // After Step 1, segmentation = extraction (single VLM pass produces both
+  // bboxes and content). The buttons that used to call /extract now call
+  // /segment so a fresh run regenerates segments.json + mineru.json + html.
   async function runExtract() {
     setRunning(true);
     try {
-      for await (const ev of streamExtract(slug!, token)) {
+      for await (const ev of streamSegment(slug!, token)) {
         dispatch(ev);
-        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
+        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} blocks`);
         if (ev.type === "work-failed") error(ev.reason);
       }
+      await segments.refetch();
       await html.refetch();
       await mineru.refetch();
     } catch (e) {
@@ -157,11 +161,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   async function runExtractThisPage() {
     setRunning(true);
     try {
-      for await (const ev of streamExtract(slug!, token, page)) {
+      for await (const ev of streamSegment(slug!, token, page, page)) {
         dispatch(ev);
-        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} boxes`);
+        if (ev.type === "work-complete") success(`extracted ${ev.items_processed} blocks`);
         if (ev.type === "work-failed") error(ev.reason);
       }
+      await segments.refetch();
       await html.refetch();
       await mineru.refetch();
     } catch (e) {

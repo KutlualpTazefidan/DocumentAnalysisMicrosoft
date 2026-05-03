@@ -94,6 +94,16 @@ export async function* streamSegment(
       headers: { "X-Auth-Token": token },
     },
   );
+  if (!r.ok) {
+    let detail = `${r.status} ${r.statusText}`;
+    try {
+      const body = await r.json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* keep status-line fallback */
+    }
+    throw new Error(`segment failed: ${detail}`);
+  }
   if (!r.body) throw new Error("no body");
   yield* readNdjsonLines<WorkerEvent>(r.body);
 }
