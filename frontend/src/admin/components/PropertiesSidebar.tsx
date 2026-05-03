@@ -70,6 +70,7 @@ interface Props {
   running: boolean;
   onChangeKind: (k: BoxKind) => void;
   onNewBox: () => void;
+  onDeleteBox: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
   onResetBox: () => void;
@@ -102,6 +103,7 @@ export function PropertiesSidebar({
   running,
   onChangeKind,
   onNewBox,
+  onDeleteBox,
   onDeactivate,
   onActivate,
   onResetBox,
@@ -259,6 +261,16 @@ export function PropertiesSidebar({
         onClick={onNewBox}
       >
         New box
+      </button>
+
+      <button
+        aria-label="Delete box"
+        title={!selected ? "Wähle zuerst eine Box aus" : `Box ${selected.box_id} löschen`}
+        className={`w-full px-3 py-1.5 rounded border border-red-300 text-red-700 ${T.bodyMedium} hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+        disabled={!selected}
+        onClick={onDeleteBox}
+      >
+        Delete box
       </button>
 
       <button

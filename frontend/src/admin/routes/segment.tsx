@@ -454,6 +454,17 @@ export function SegmentRoute({ token }: Props): JSX.Element {
           running={running}
           onChangeKind={(k) => focused && update.mutate({ boxId: focused.box_id, patch: { kind: k } })}
           onNewBox={() => newBox.mutate({ page, bbox: [50, 50, 200, 200], kind: "paragraph" })}
+          onDeleteBox={() => {
+            if (!focused) return;
+            if (!window.confirm(`Box ${focused.box_id} löschen?`)) return;
+            del.mutate(focused.box_id, {
+              onError: (e) => error(e instanceof Error ? e.message : "Löschen fehlgeschlagen"),
+              onSuccess: () => {
+                setSelected(null);
+                success(`gelöscht: ${focused.box_id}`);
+              },
+            });
+          }}
           onDeactivate={handleDeactivate}
           onActivate={handleActivate}
           onResetBox={handleResetBox}
