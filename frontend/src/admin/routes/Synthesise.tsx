@@ -153,9 +153,9 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
         <DocStepTabs slug={slug} />
       </div>
 
-      {/* ── Three-pane content ─────────────────────────────────────── */}
+      {/* ── Three-pane content: HTML | Questions | Controls ─────────── */}
       <div className="flex flex-1 min-h-0">
-        {/* HTML preview pane — read-only */}
+        {/* Left: HTML preview pane — read-only */}
         <div className="flex-1 flex flex-col border-r border-slate-200 min-w-0">
           <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
             <button
@@ -189,24 +189,58 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           </div>
         </div>
 
-        {/* Sidebar — questions panel */}
-        <aside
-          className="w-[360px] flex flex-col gap-3 bg-white px-4 py-4 overflow-y-auto flex-shrink-0"
-          data-testid="synthesise-sidebar"
+        {/* Middle: Questions pane — full size, mirrors Extract's HTML pane */}
+        <div
+          className="flex-1 flex flex-col border-r border-slate-200 min-w-0 bg-white"
+          data-testid="synthesise-questions"
         >
-          {/* vLLM lifecycle panel — Start/Stop the local model server.
-              Sits at the top of the sidebar so its state is visible
-              before the admin clicks any Generate button. */}
-          <LlmServerPanel token={token} />
-
-          <hr className="border-slate-200" />
-
-          <div className="flex flex-col gap-1">
-            <span className={T.tinyBold}>Ausgewaehlte Box</span>
+          <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+            <span className={T.tinyBold}>Ausgewaehlte Box:</span>
             <span className={`${T.body} font-mono`}>
               {highlight ?? <em className="text-slate-400">keine</em>}
             </span>
+            <span className={`${T.bodyMuted} ml-auto`}>
+              {highlight ? `${questionsForBox.length} Frage(n)` : ""}
+            </span>
           </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            {!highlight ? (
+              <p className={`${T.bodyMuted} italic`}>
+                Klicke ein Element im HTML-Bereich, um die Fragen zu sehen.
+              </p>
+            ) : (
+              <QuestionList
+                questions={questionsForBox}
+                onRefine={async (entryId, text) => {
+                  try {
+                    await refine.mutateAsync({ questionId: entryId, text });
+                    success("Frage aktualisiert");
+                  } catch (e) {
+                    error(e instanceof Error ? e.message : "Aktualisieren fehlgeschlagen");
+                  }
+                }}
+                onDeprecate={async (entryId) => {
+                  try {
+                    await deprecate.mutateAsync(entryId);
+                    success("Frage geloescht");
+                  } catch (e) {
+                    error(e instanceof Error ? e.message : "Loeschen fehlgeschlagen");
+                  }
+                }}
+                disabled={refine.isPending || deprecate.isPending}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Right: thin controls strip — vLLM lifecycle + Generate buttons */}
+        <aside
+          className="w-[280px] flex flex-col gap-3 bg-white px-4 py-4 overflow-y-auto flex-shrink-0"
+          data-testid="synthesise-sidebar"
+        >
+          <LlmServerPanel token={token} />
+
+          <hr className="border-slate-200" />
 
           <button
             type="button"
@@ -262,40 +296,6 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               </button>
             </div>
           )}
-
-          <hr className="border-slate-200" />
-
-          <div className="flex flex-col gap-2">
-            <span className={T.tinyBold}>
-              Fragen ({questionsForBox.length})
-            </span>
-            {!highlight ? (
-              <p className={`${T.bodyMuted} italic`}>
-                Klicke ein Element im HTML-Bereich, um die Fragen zu sehen.
-              </p>
-            ) : (
-              <QuestionList
-                questions={questionsForBox}
-                onRefine={async (entryId, text) => {
-                  try {
-                    await refine.mutateAsync({ questionId: entryId, text });
-                    success("Frage aktualisiert");
-                  } catch (e) {
-                    error(e instanceof Error ? e.message : "Aktualisieren fehlgeschlagen");
-                  }
-                }}
-                onDeprecate={async (entryId) => {
-                  try {
-                    await deprecate.mutateAsync(entryId);
-                    success("Frage geloescht");
-                  } catch (e) {
-                    error(e instanceof Error ? e.message : "Loeschen fehlgeschlagen");
-                  }
-                }}
-                disabled={refine.isPending || deprecate.isPending}
-              />
-            )}
-          </div>
         </aside>
       </div>
     </div>
