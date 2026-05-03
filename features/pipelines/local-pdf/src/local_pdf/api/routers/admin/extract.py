@@ -84,6 +84,13 @@ _PDF_STYLE = (
     # side so the figure visibly sits inside the section, not edge-to-edge.
     "figure{margin:1.5em auto;text-align:center}"
     "figure img{max-width:90%;height:auto;display:block;margin:0 auto}"
+    # Display math: <div class="math-display"><math display="block">…</math></div>.
+    # Modern browsers render MathML natively so the iframe sandbox stays
+    # locked-down (no allow-scripts needed for KaTeX/MathJax).
+    ".math-display{margin:1em 0;text-align:center;overflow-x:auto}"
+    ".math-display math{font-size:1.1em}"
+    ".math-error{display:block;background:#fef2f2;color:#991b1b;"
+    "padding:0.4em 0.6em;font-size:0.85em;border-left:3px solid #ef4444}"
     # Visible MinerU description (Beschreibung: ...) between image and caption.
     "figure .figure-desc{font-size:0.85em;color:#4b5563;text-align:left;"
     "margin:0.6em auto 0;max-width:90%;line-height:1.4}"

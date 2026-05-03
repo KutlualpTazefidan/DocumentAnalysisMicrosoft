@@ -422,8 +422,47 @@ def _convert_inline_latex(s: str) -> str:
         # Plain math span — strip the dollar signs
         return body
 
-    # Match $...$ but not $$...$$ (display mode left alone)
+    # Display math first: $$...$$ → MathML via latex2mathml. Replace with a
+    # marker before processing inline so the inline regex doesn't see the
+    # generated MathML. Fall back to <code class="math-error">…</code> if
+    # latex2mathml can't parse the body.
+    s = _convert_display_math(s)
+    # Match $...$ but not $$...$$ (display mode handled above)
     return re.sub(r"(?<!\$)\$([^$]+)\$(?!\$)", _math_replace, s)
+
+
+_DISPLAY_MATH_RE = re.compile(r"\$\$\s*(.*?)\s*\$\$", re.DOTALL)
+
+
+def _convert_display_math(s: str) -> str:
+    """Render ``$$...$$`` blocks as inline MathML so the iframe shows them."""
+    if "$$" not in s:
+        return s
+    try:
+        from latex2mathml.converter import convert as _l2mml
+    except ImportError:
+        return s
+
+    def _replace(m: re.Match[str]) -> str:
+        body = m.group(1).strip()
+        if not body:
+            return ""
+        try:
+            mathml = _l2mml(body)
+        except Exception as exc:  # latex2mathml raises various exception types
+            _logger.debug("latex2mathml failed for %r: %s", body[:80], exc)
+            escaped = html_lib.escape(body)
+            return f'<code class="math-error">{escaped}</code>'
+        # latex2mathml emits an inline <math display="inline"> element; flip
+        # to display="block" so equations get their own line + center align.
+        mathml = (
+            mathml.replace('display="inline"', 'display="block"', 1)
+            if 'display="inline"' in mathml
+            else mathml.replace("<math ", '<math display="block" ', 1)
+        )
+        return f'<div class="math-display">{mathml}</div>'
+
+    return _DISPLAY_MATH_RE.sub(_replace, s)
 
 
 # ── Caption rescue helpers ────────────────────────────────────────────────────

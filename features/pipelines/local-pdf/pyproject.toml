@@ -20,6 +20,10 @@ dependencies = [
     # HybridDependencyError when extraction kicks off. See PR #26 follow-up.
     "mineru[core]>=3.0,<4",
     "python-multipart>=0.0.9",
+    # LaTeX → MathML for rendering display equations ($$...$$) in the
+    # sandboxed preview iframe. Modern browsers render MathML natively,
+    # so we don't need to lift the sandbox to load KaTeX/MathJax JS.
+    "latex2mathml>=3.77,<4",
     "goldens",
 ]
 
