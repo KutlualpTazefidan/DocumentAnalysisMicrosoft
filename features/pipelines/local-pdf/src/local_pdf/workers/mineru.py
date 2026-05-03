@@ -1999,8 +1999,10 @@ def _inject_outer_attrs(html: str, attrs: dict[str, str]) -> str:
 
     Skips any attribute already present in the outer tag. No-op if ``html``
     doesn't start with a tag (already-styled fragments pass through unchanged).
-    Used for ``data-source-box`` (click-to-highlight) and ``data-aux-zone`` /
-    ``data-aux-x`` (page-aux row layout in ``_wrap_html``).
+    Used for ``data-source-box`` (click-to-highlight), positional attributes
+    ``data-x`` / ``data-y`` / ``data-y1`` (used for both aux and body row
+    grouping in ``_wrap_html``), and ``data-aux-zone`` / ``data-aux-align``
+    (aux-specific layout cues).
     """
     m = _OUTER_TAG_RE.match(html)
     if not m:
@@ -2300,7 +2302,15 @@ def vlm_segment_doc(
                         continue
                     sub_html = _convert_inline_latex(sub_html)
                     sub_box_id = f"p{page_number}-b{box_counter}"
-                    sub_html = _inject_outer_attrs(sub_html, {"data-source-box": sub_box_id})
+                    sub_html = _inject_outer_attrs(
+                        sub_html,
+                        {
+                            "data-source-box": sub_box_id,
+                            "data-x": str(int(sx0)),
+                            "data-y": str(int(sy0)),
+                            "data-y1": str(int(sy1)),
+                        },
+                    )
                     sub_bbox_px = (
                         sx0 * scale,
                         sy0 * scale,
@@ -2371,10 +2381,10 @@ def vlm_segment_doc(
                             {
                                 "data-source-box": sub_box_id,
                                 "data-aux-zone": "header" if in_top else "footer",
-                                "data-aux-x": str(int(sx0)),
-                                "data-aux-y": str(int(sy0)),
-                                "data-aux-y1": str(int(sy1)),
                                 "data-aux-align": _aux_alignment(sx0, sx1, page_size_pts[0]),
+                                "data-x": str(int(sx0)),
+                                "data-y": str(int(sy0)),
+                                "data-y1": str(int(sy1)),
                             },
                         )
                         sub_box = SegmentBox(
@@ -2429,7 +2439,11 @@ def vlm_segment_doc(
                         )
                         sub_box_id = f"p{page_number}-b{box_counter}"
                         sub_text = _strip_bullet_marker(sub.text)
-                        sub_html = f'<li data-source-box="{sub_box_id}">{sub_text}</li>'
+                        sub_html = (
+                            f'<li data-source-box="{sub_box_id}" '
+                            f'data-x="{int(sx0)}" data-y="{int(sy0)}" '
+                            f'data-y1="{int(sy1)}">{sub_text}</li>'
+                        )
                         sub_box = SegmentBox(
                             box_id=sub_box_id,
                             page=page_number,
@@ -2479,17 +2493,19 @@ def vlm_segment_doc(
 
             html_snippet = _block_to_html(block, page_size=page_size_pts)
             html_snippet = _convert_inline_latex(html_snippet)
-            attrs: dict[str, str] = {"data-source-box": box_id}
+            # Positional attrs (data-x/y/y1) go on every snippet so _wrap_html
+            # can group same-y items into rows regardless of kind. Aux items
+            # also carry zone (header/footer) + align (left/center/right).
+            attrs: dict[str, str] = {
+                "data-source-box": box_id,
+                "data-x": str(int(px0)),
+                "data-y": str(int(py0)),
+                "data-y1": str(int(py1)),
+            }
             if is_discarded:
-                # Tag aux blocks with zone, full y-range, and horizontal
-                # alignment so _wrap_html can group items by vertical-bbox
-                # overlap and place each in its left/center/right grid column.
                 page_w, page_h = page_size_pts
                 y_mid = (py0 + py1) / 2
                 attrs["data-aux-zone"] = "header" if y_mid < page_h / 2 else "footer"
-                attrs["data-aux-x"] = str(int(px0))
-                attrs["data-aux-y"] = str(int(py0))
-                attrs["data-aux-y1"] = str(int(py1))
                 attrs["data-aux-align"] = _aux_alignment(px0, px1, page_w)
             html_snippet = _inject_outer_attrs(html_snippet, attrs)
 

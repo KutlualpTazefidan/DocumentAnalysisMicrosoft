@@ -946,9 +946,16 @@ def test_vlm_segment_list_emits_li_html_per_bullet(
     data = read_mineru(_Path(tmp_path / "raw-pdfs"), "doc")
     assert data is not None
     by_id = {e["box_id"]: e["html_snippet"] for e in data["elements"]}
-    assert by_id["p1-b1"] == '<li data-source-box="p1-b1">First bullet</li>'
-    assert by_id["p1-b2"] == '<li data-source-box="p1-b2">Second bullet</li>'
-    assert by_id["p1-b3"] == '<li data-source-box="p1-b3">Third bullet</li>'
+    # Each bullet emits an <li> with click-mapping + positional attrs.
+    for bid, text in [
+        ("p1-b1", "First bullet"),
+        ("p1-b2", "Second bullet"),
+        ("p1-b3", "Third bullet"),
+    ]:
+        snip = by_id[bid]
+        assert snip.startswith("<li ")
+        assert f'data-source-box="{bid}"' in snip
+        assert f">{text}</li>" in snip
 
 
 def test_vlm_segment_injects_data_source_box_into_non_list_blocks(
@@ -1826,9 +1833,12 @@ def test_vlm_segment_table_caption_rendered_as_separate_paragraph(
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
 
     # Caption is its own <p class="caption"> with its own data-source-box.
-    assert '<p data-source-box="p1-b1" class="caption">Tab. 1 The caption</p>' in html
+    assert "<p " in html
+    assert 'data-source-box="p1-b1"' in html
+    assert 'class="caption">Tab. 1 The caption</p>' in html
     # Table body is its own <div class="extracted-table"> with own data-source-box.
-    assert '<div data-source-box="p1-b0" class="extracted-table">' in html
+    assert 'data-source-box="p1-b0"' in html
+    assert 'class="extracted-table">' in html
     # Table body comes BEFORE the caption (caption is below table in PDF).
     assert html.index('data-source-box="p1-b0"') < html.index('data-source-box="p1-b1"')
 
@@ -1923,6 +1933,96 @@ def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
     ).json()["html"]
     assert 'data-source-box="p1-b0"' in html_after
     assert 'data-source-box="p1-b1"' not in html_after
+
+
+def _fake_middle_json_with_side_by_side_paragraphs() -> dict:
+    """Two paragraphs at overlapping y but different x — multi-column layout.
+
+    User-reported pixel coords (raster_dpi=288, scale=4):
+      p1: x0=280, y0=636, x1=416, y1=668
+      p2: x0=1108, y0=632, x1=1308, y1=664
+
+    In pts (÷4):
+      p1: x0=70, y0=159, x1=104, y1=167
+      p2: x0=277, y0=158, x1=327, y1=166
+
+    Same vertical band → must share one body-row.
+    """
+    return {
+        "pdf_info": [
+            {
+                "page_size": [650.0, 800.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [70.0, 159.0, 104.0, 167.0],
+                        "lines": [
+                            {
+                                "bbox": [70.0, 159.0, 104.0, 167.0],
+                                "spans": [{"content": "Left column."}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [277.0, 158.0, 327.0, 166.0],
+                        "lines": [
+                            {
+                                "bbox": [277.0, 158.0, 327.0, 166.0],
+                                "spans": [{"content": "Right column."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_body_paragraphs_same_y_share_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two body paragraphs at overlapping y must render in one body-row."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_side_by_side_paragraphs(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    assert html.count('<div class="body-row">') == 1
+    row_open = html.index('<div class="body-row">')
+    row_block = html[row_open : html.index("</div>", row_open)]
+    assert "Left column." in row_block
+    assert "Right column." in row_block
+    # Sort within row by x0 ascending → left first.
+    assert row_block.index("Left column.") < row_block.index("Right column.")
+
+
+def test_vlm_segment_body_single_column_no_row_wrapper(client_vlm_segment) -> None:
+    """Single-column body (one item per y) must NOT get .body-row wrappers."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    html = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert '<div class="body-row">' not in html
 
 
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:

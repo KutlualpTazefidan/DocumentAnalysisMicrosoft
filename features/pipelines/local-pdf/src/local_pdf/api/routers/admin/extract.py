@@ -79,6 +79,10 @@ _PDF_STYLE = (
     "p.caption{font-size:0.9em;color:#374151;font-style:italic;"
     "margin:0.4em 0}"
     "p.footnote{font-size:0.8em;color:#6b7280;margin:0.3em 0}"
+    # Body row: vertically-overlapping body items (e.g. two paragraphs at
+    # the same y in a 2-column layout) sit side-by-side, sorted by x0.
+    ".body-row{display:flex;align-items:flex-start;gap:1rem;margin:0.6em 0}"
+    ".body-row > *{flex:1 1 0;min-width:0;margin:0}"
     # Aux stack: page-headers/footers grouped into rows by y-position. Within
     # each row, items land in a 3-column grid (left/center/right) keyed off
     # data-aux-align — so an item left-aligned in the PDF stays left, etc.
@@ -107,9 +111,9 @@ def _page_from_box_id(box_id: str) -> int | None:
 
 
 _AUX_ZONE_RE = re.compile(r'data-aux-zone="(header|footer)"')
-_AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
-_AUX_Y_RE = re.compile(r'data-aux-y="(\d+)"')
-_AUX_Y1_RE = re.compile(r'data-aux-y1="(\d+)"')
+_X_RE = re.compile(r'data-x="(\d+)"')
+_Y_RE = re.compile(r'data-y="(\d+)"')
+_Y1_RE = re.compile(r'data-y1="(\d+)"')
 
 # Vertical-overlap test requires GENUINE overlap (>0pt). A tolerance >0
 # chains stacked-but-touching lines into one row, e.g. row1 ends y1=48
@@ -151,10 +155,9 @@ def _partition_aux(
 ) -> tuple[list[list[str]], list[str], list[list[str]]]:
     """Split per-page snippets into (header_rows, content, footer_rows).
 
-    Aux snippets carry ``data-aux-zone``, ``data-aux-x``, ``data-aux-y``
-    (top edge), ``data-aux-y1`` (bottom edge), and ``data-aux-align``.
-    Items whose vertical ranges overlap share a row; non-overlapping items
-    stack.
+    Aux snippets carry ``data-aux-zone`` plus the universal positional
+    attrs ``data-x`` / ``data-y`` / ``data-y1``. Items whose vertical
+    ranges overlap share a row; non-overlapping items stack.
     """
     header_aux: list[tuple[int, int, int, str]] = []
     footer_aux: list[tuple[int, int, int, str]] = []
@@ -164,15 +167,54 @@ def _partition_aux(
         if not zm:
             content.append(s)
             continue
-        xm = _AUX_X_RE.search(s)
-        ym0 = _AUX_Y_RE.search(s)
-        ym1 = _AUX_Y1_RE.search(s)
+        xm = _X_RE.search(s)
+        ym0 = _Y_RE.search(s)
+        ym1 = _Y1_RE.search(s)
         x = int(xm.group(1)) if xm else 0
         y0 = int(ym0.group(1)) if ym0 else 0
         y1 = int(ym1.group(1)) if ym1 else y0
         target = header_aux if zm.group(1) == "header" else footer_aux
         target.append((y0, y1, x, s))
     return _group_aux_into_rows(header_aux), content, _group_aux_into_rows(footer_aux)
+
+
+def _group_body_into_rows(snippets: list[str]) -> list[list[str]]:
+    """Group body snippets by vertical-bbox overlap, sort each row by x0.
+
+    Reuses ``_group_aux_into_rows`` after extracting positional attrs.
+    Snippets without ``data-y``/``data-y1`` (e.g. legacy elements) get a
+    single-item row preserving their original order.
+    """
+    items: list[tuple[int, int, int, str]] = []
+    fallback_idx = 0
+    for s in snippets:
+        ym0 = _Y_RE.search(s)
+        ym1 = _Y1_RE.search(s)
+        xm = _X_RE.search(s)
+        if ym0 is None:
+            # No positional metadata — keep in original order, treat as
+            # standalone row by giving it a unique ascending y key.
+            fallback_idx += 1
+            items.append((10_000_000 + fallback_idx, 10_000_000 + fallback_idx, 0, s))
+            continue
+        y0 = int(ym0.group(1))
+        y1 = int(ym1.group(1)) if ym1 else y0
+        x = int(xm.group(1)) if xm else 0
+        items.append((y0, y1, x, s))
+    return _group_aux_into_rows(items)
+
+
+def _wrap_body_rows(rows: list[list[str]]) -> str:
+    """Render body rows: single-item rows emit their snippet raw, multi-item
+    rows wrap in a flex ``<div class="body-row">`` so vertically-overlapping
+    items lay out left-to-right by x0."""
+    parts: list[str] = []
+    for row in rows:
+        if len(row) == 1:
+            parts.append(row[0])
+        else:
+            parts.append(f'<div class="body-row">{"".join(row)}</div>')
+    return "".join(parts)
 
 
 def _wrap_aux_stack(rows: list[list[str]], position: str) -> str:
@@ -225,10 +267,14 @@ def _wrap_html(elements: list[dict]) -> str:
     sections = []
     for p in page_order:
         header_aux, content, footer_aux = _partition_aux(by_page[p])
+        # Group body content by vertical bbox overlap so multi-column layouts
+        # (or any same-y items) lay out side-by-side. _group_list_items must
+        # run on the full body string AFTER row wrapping so consecutive <li>
+        # are still wrapped in <ul> when they fall in the same row.
+        body_rows = _group_body_into_rows(content)
+        body_html = _group_list_items(_wrap_body_rows(body_rows))
         inner = (
-            _wrap_aux_stack(header_aux, "top")
-            + _group_list_items("".join(content))
-            + _wrap_aux_stack(footer_aux, "bottom")
+            _wrap_aux_stack(header_aux, "top") + body_html + _wrap_aux_stack(footer_aux, "bottom")
         )
         sections.append(f'<section data-page="{p}">\n{inner}\n</section>')
     body = "\n".join(sections)
