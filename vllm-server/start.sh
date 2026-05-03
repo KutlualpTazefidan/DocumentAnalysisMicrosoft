@@ -30,16 +30,31 @@ if [[ -z "${PY}" ]]; then
     exit 1
 fi
 
+# Resolve the vllm binary the same way: prefer this folder's .venv, fall
+# back to PATH. Doing this here means the FastAPI backend can launch
+# start.sh without inheriting vllm-server/.venv/bin in its PATH.
+if [[ -x "${HERE}/.venv/bin/vllm" ]]; then
+    VLLM_BIN="${HERE}/.venv/bin/vllm"
+else
+    VLLM_BIN="$(command -v vllm || true)"
+fi
+
+if [[ -z "${VLLM_BIN}" ]]; then
+    echo "error: vllm CLI not found — run 'uv sync' in ${HERE}" >&2
+    exit 1
+fi
+
 # Parse config.toml via stdlib tomllib and emit a vllm CLI argv.
 # Stays in a single python -c so we don't add tomli as a bash dep.
-mapfile -t CMD < <("${PY}" - "$CONFIG" <<'EOF'
+mapfile -t CMD < <("${PY}" - "$CONFIG" "$VLLM_BIN" <<'EOF'
 import sys, tomllib, shlex
 cfg = tomllib.loads(open(sys.argv[1]).read())
+vllm_bin = sys.argv[2]
 server = cfg.get("server", {})
 model = cfg.get("model", {})
 runtime = cfg.get("runtime", {})
 
-argv = ["vllm", "serve", model.get("name", "Qwen/Qwen2.5-3B-Instruct")]
+argv = [vllm_bin, "serve", model.get("name", "Qwen/Qwen2.5-3B-Instruct")]
 argv += ["--host", str(server.get("host", "127.0.0.1"))]
 argv += ["--port", str(server.get("port", 8000))]
 if "max_model_len" in model:
