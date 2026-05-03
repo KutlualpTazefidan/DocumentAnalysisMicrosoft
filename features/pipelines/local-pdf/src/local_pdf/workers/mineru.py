@@ -534,19 +534,24 @@ _FOOTNOTE_AFTER_PAREN_RE = re.compile(r"(\))(\d{1,2})\)(?=[\s<,;]|$)")
 # digits so we don't chop a 1-decimal value like "1.5)". Excludes numbers
 # preceded by ``(`` so a balanced "(0.44)" stays unchanged.
 _FOOTNOTE_AFTER_DECIMAL_RE = re.compile(r"(?<!\()(\d+\.\d+)(\d)\)(?=[\s<,;]|$)")
+# Pattern C: word ending with digit) — "Moderatorzone8)" → "Moderatorzone<sup>8)</sup>".
+# Requires ≥4 letters so we don't grab short units like "m2)" or single-
+# letter variables like "Q8)" where the meaning is ambiguous.
+_FOOTNOTE_AFTER_WORD_RE = re.compile(r"(?<![A-Za-z\d])([A-Za-z]{4,})(\d{1,2})\)(?=[\s<,;]|$)")
 
 
 def _promote_footnote_markers(s: str) -> str:
     """Wrap trailing footnote-like ``digit)`` in ``<sup>``.
 
     MinerU sometimes loses the typographic distinction between baseline
-    text and a footnote-reference superscript, emitting ``W/(m·K)1)`` or
-    ``0.44)`` where the ``1)`` / trailing ``4)`` should sit above the line.
-    Two conservative heuristics catch the common shapes without false-
-    tripping on regular numeric values.
+    text and a footnote-reference superscript, emitting ``W/(m·K)1)``,
+    ``0.44)``, or ``Moderatorzone8)`` where the trailing ``digit)`` should
+    sit above the line. Three conservative heuristics catch the common
+    shapes without false-tripping on regular numeric values or short units.
     """
     s = _FOOTNOTE_AFTER_PAREN_RE.sub(r"\1<sup>\2)</sup>", s)
     s = _FOOTNOTE_AFTER_DECIMAL_RE.sub(r"\1<sup>\2)</sup>", s)
+    s = _FOOTNOTE_AFTER_WORD_RE.sub(r"\1<sup>\2)</sup>", s)
     return s
 
 
