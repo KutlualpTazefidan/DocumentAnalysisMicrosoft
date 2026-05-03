@@ -39,7 +39,12 @@ from local_pdf.storage.sidecar import (
     write_yolo,
 )
 from local_pdf.workers.base import now_ms
-from local_pdf.workers.mineru import VlmSegmentBlock, vlm_extract_bbox, vlm_segment_doc
+from local_pdf.workers.mineru import (
+    VlmSegmentBlock,
+    _inject_outer_attrs,
+    vlm_extract_bbox,
+    vlm_segment_doc,
+)
 from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
@@ -401,15 +406,32 @@ def _re_extract_box(
                 visual_hint=use_visual_hint,
             )
 
-        # Replace / insert this element in the existing elements list.
-        found = False
-        for i, el in enumerate(elements):
-            if el.get("box_id") == box.box_id:
-                elements[i] = {"box_id": box.box_id, "html_snippet": new_html}
-                found = True
-                break
-        if not found:
-            elements.append({"box_id": box.box_id, "html_snippet": new_html})
+        # Inject positional attrs so the renderer's row grouping places
+        # this box at its correct y-position. vlm_extract_bbox returns
+        # HTML with data-source-box only — without data-y/y1 the box
+        # falls into the "no metadata" fallback at the end of the page.
+        if new_html:
+            new_html = _inject_outer_attrs(
+                new_html,
+                {
+                    "data-x": str(int(bbox_pts[0])),
+                    "data-y": str(int(bbox_pts[1])),
+                    "data-y1": str(int(bbox_pts[3])),
+                },
+            )
+
+        # Replace / insert this element. If VLM returned nothing usable,
+        # keep the previous snippet — losing the old html on a no-op
+        # re-extract makes the box "vanish" from the rendered page.
+        if new_html:
+            found = False
+            for i, el in enumerate(elements):
+                if el.get("box_id") == box.box_id:
+                    elements[i] = {"box_id": box.box_id, "html_snippet": new_html}
+                    found = True
+                    break
+            if not found:
+                elements.append({"box_id": box.box_id, "html_snippet": new_html})
 
         if old_kind is not None:
             # Strip HTML tags for the text preview.

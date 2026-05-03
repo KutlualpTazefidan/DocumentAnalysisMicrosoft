@@ -1950,6 +1950,75 @@ def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
     assert 'data-source-box="p1-b1"' not in html_after
 
 
+def test_vlm_segment_kind_change_preserves_position_metadata(
+    client_vlm_segment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a kind change, the re-extracted snippet must carry data-y/y1
+    so the renderer places it at the original y-position (not at the end
+    of the page in the no-metadata fallback)."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    # Hook the bbox-extract to a deterministic snippet so we can assert
+    # what gets written. Returns a <p> with only data-source-box.
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    def fake_extract(_pdf, _page, _bbox_pts, _kind, *, box_id):
+        return f'<p data-source-box="{box_id}">Reclassified text</p>'
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", fake_extract)
+
+    # Trigger a kind change on p1-b0 (was heading) → paragraph.
+    r = client_vlm_segment.put(
+        "/api/admin/docs/doc/segments/p1-b0",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "paragraph"},
+    )
+    assert r.status_code == 200
+
+    mineru = client_vlm_segment.get(
+        "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
+    ).json()
+    snippet = next(e["html_snippet"] for e in mineru["elements"] if e["box_id"] == "p1-b0")
+
+    # Snippet must now include positional attrs so row grouping works.
+    assert 'data-y="' in snippet
+    assert 'data-y1="' in snippet
+    assert 'data-source-box="p1-b0"' in snippet
+    assert "Reclassified text" in snippet
+
+
+def test_vlm_segment_kind_change_keeps_old_snippet_when_vlm_empty(
+    client_vlm_segment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the VLM re-extract returns empty, the OLD snippet must stay so
+    the box doesn't vanish from html.html."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    # Capture the original snippet for p1-b0.
+    mineru0 = client_vlm_segment.get(
+        "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
+    ).json()
+    original = next(e["html_snippet"] for e in mineru0["elements"] if e["box_id"] == "p1-b0")
+    assert original  # sanity
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", lambda *a, **k: "")
+
+    r = client_vlm_segment.put(
+        "/api/admin/docs/doc/segments/p1-b0",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "paragraph"},
+    )
+    assert r.status_code == 200
+
+    mineru1 = client_vlm_segment.get(
+        "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
+    ).json()
+    snippet = next(e["html_snippet"] for e in mineru1["elements"] if e["box_id"] == "p1-b0")
+    assert snippet == original
+
+
 def _fake_middle_json_with_side_by_side_paragraphs() -> dict:
     """Two paragraphs at overlapping y but different x — multi-column layout.
 
@@ -2157,7 +2226,11 @@ def test_put_bbox_change_triggers_reextract(tmp_path, monkeypatch) -> None:
     data = read_mineru(root, "doc")
     assert data is not None
     el = next(e for e in data["elements"] if e["box_id"] == "p1-aaa")
-    assert el["html_snippet"] == stub_html
+    # Re-extracted snippet now carries data-x/y/y1 positional attrs so the
+    # renderer's row grouping places it correctly. Check substrings.
+    assert "fresh bbox content" in el["html_snippet"]
+    assert el["html_snippet"].startswith("<p ")
+    assert 'data-y="' in el["html_snippet"]
 
 
 def test_put_kind_change_triggers_reextract(tmp_path, monkeypatch) -> None:
@@ -2181,7 +2254,9 @@ def test_put_kind_change_triggers_reextract(tmp_path, monkeypatch) -> None:
     data = read_mineru(root, "doc")
     assert data is not None
     el = next(e for e in data["elements"] if e["box_id"] == "p1-aaa")
-    assert el["html_snippet"] == stub_html
+    assert "heading content" in el["html_snippet"]
+    assert el["html_snippet"].startswith("<h2 ")
+    assert 'data-y="' in el["html_snippet"]
 
 
 def test_put_no_geometry_no_kind_change_skips_reextract(tmp_path, monkeypatch) -> None:
@@ -2258,7 +2333,9 @@ def test_post_new_box_triggers_reextract(tmp_path, monkeypatch) -> None:
     ids = {e["box_id"] for e in data["elements"]}
     assert new_box_id in ids
     el = next(e for e in data["elements"] if e["box_id"] == new_box_id)
-    assert el["html_snippet"] == stub_html
+    assert "brand new box content" in el["html_snippet"]
+    assert el["html_snippet"].startswith("<p ")
+    assert 'data-y="' in el["html_snippet"]
 
 
 def test_kind_change_appends_kind_change_diagnostic(tmp_path, monkeypatch) -> None:
