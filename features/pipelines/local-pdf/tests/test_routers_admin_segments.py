@@ -1383,6 +1383,114 @@ def test_vlm_segment_aux_three_alignments_share_one_row(
     assert row_block.index("Section A") < row_block.index("Title") < row_block.index("Page 7")
 
 
+def _fake_middle_json_with_overlap_rows() -> dict:
+    """Two header aux at the same VISUAL line but different y0 (different heights).
+
+    Item A: y0=30, y1=70 (40pt tall — e.g. a 2-line title block).
+    Item B: y0=55, y1=75 (20pt tall — short tag positioned to its right).
+
+    y0 differs by 25pt — the old y0-band heuristic (≤20pt) would have split
+    them into separate rows. But their bboxes vertically overlap, so they
+    should share a row.
+    """
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 200.0, 400.0, 300.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 200.0, 400.0, 300.0],
+                                "spans": [{"content": "Body."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 30.0, 200.0, 70.0],  # tall, left
+                        "lines": [
+                            {
+                                "bbox": [50.0, 30.0, 200.0, 70.0],
+                                "spans": [{"content": "Tall Title"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [460.0, 55.0, 560.0, 75.0],  # short, right
+                        "lines": [
+                            {
+                                "bbox": [460.0, 55.0, 560.0, 75.0],
+                                "spans": [{"content": "Page 7"}],
+                            }
+                        ],
+                    },
+                    # A truly stacked second-line aux below — should NOT merge.
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 100.0, 200.0, 120.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 100.0, 200.0, 120.0],
+                                "spans": [{"content": "Subtitle"}],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_aux_grouping_uses_vertical_bbox_overlap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Items whose y-ranges overlap share a row even with different y0."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_overlap_rows(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # Two rows: row 1 = Tall Title + Page 7 (overlap), row 2 = Subtitle (stacked below).
+    assert html.count('<div class="aux-row">') == 2
+
+    # Tall Title and Page 7 share row 1 (y-ranges 30-70 and 55-75 overlap).
+    row1_open = html.index('<div class="aux-row">')
+    row1_block = html[row1_open : html.index("</div>", row1_open)]
+    assert "Tall Title" in row1_block
+    assert "Page 7" in row1_block
+    assert "Subtitle" not in row1_block
+
+    # Subtitle is alone in row 2 (y0=100 > Tall Title's y1=70 → no overlap).
+    row2_open = html.index('<div class="aux-row">', row1_open + 1)
+    row2_block = html[row2_open : html.index("</div>", row2_open)]
+    assert "Subtitle" in row2_block
+    assert "Tall Title" not in row2_block
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"

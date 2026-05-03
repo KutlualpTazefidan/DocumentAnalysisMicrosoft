@@ -103,30 +103,38 @@ def _page_from_box_id(box_id: str) -> int | None:
 _AUX_ZONE_RE = re.compile(r'data-aux-zone="(header|footer)"')
 _AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
 _AUX_Y_RE = re.compile(r'data-aux-y="(\d+)"')
+_AUX_Y1_RE = re.compile(r'data-aux-y1="(\d+)"')
 
-# Two aux items whose y0 differs by ≤ this many pts share a visual row.
-# ~20pt covers a single line of body text at typical PDF DPI without
-# accidentally collapsing genuinely-stacked lines.
-_AUX_ROW_BAND_PTS = 20
+# Tolerance (pts) for the vertical-overlap test — absorbs small OCR jitter
+# without collapsing genuinely-stacked lines.
+_AUX_OVERLAP_TOL_PTS = 2
 
 
-def _group_aux_into_rows(items: list[tuple[int, int, str]]) -> list[list[str]]:
-    """Group aux items into rows by y0 proximity, sorted top-down then left-right.
+def _group_aux_into_rows(
+    items: list[tuple[int, int, int, str]],
+) -> list[list[str]]:
+    """Group aux items into rows whose vertical bboxes overlap.
 
-    Items within ≤ ``_AUX_ROW_BAND_PTS`` of each other (by y0) share a row;
-    a larger jump opens a new row. Within each row, sort by x0 ascending so
-    DOM order matches PDF column order. Returns one snippet list per row.
+    Items: ``(y0, y1, x0, snippet)``. Two items share a row iff their
+    ``[y0, y1]`` ranges overlap (with ``_AUX_OVERLAP_TOL_PTS`` jitter slack).
+    Each row's effective range grows to the union of its members, so a
+    chain of overlapping items collapses into one row even if the first
+    and last don't directly overlap. Within each row, sort by x0 so DOM
+    order matches PDF column order.
     """
     if not items:
         return []
-    sorted_items = sorted(items, key=lambda t: (t[0], t[1]))
-    rows: list[list[tuple[int, int, str]]] = [[sorted_items[0]]]
-    for entry in sorted_items[1:]:
-        if entry[0] - rows[-1][-1][0] > _AUX_ROW_BAND_PTS:
-            rows.append([entry])
+    sorted_items = sorted(items, key=lambda t: (t[0], t[2]))
+    rows: list[list[tuple[int, int, int, str]]] = [[sorted_items[0]]]
+    for y0, y1, x, snippet in sorted_items[1:]:
+        row_y0 = min(e[0] for e in rows[-1])
+        row_y1 = max(e[1] for e in rows[-1])
+        overlaps = y0 < row_y1 + _AUX_OVERLAP_TOL_PTS and row_y0 < y1 + _AUX_OVERLAP_TOL_PTS
+        if overlaps:
+            rows[-1].append((y0, y1, x, snippet))
         else:
-            rows[-1].append(entry)
-    return [[s for _, _, s in sorted(row, key=lambda t: t[1])] for row in rows]
+            rows.append([(y0, y1, x, snippet)])
+    return [[s for _, _, _, s in sorted(row, key=lambda t: t[2])] for row in rows]
 
 
 def _partition_aux(
@@ -134,12 +142,13 @@ def _partition_aux(
 ) -> tuple[list[list[str]], list[str], list[list[str]]]:
     """Split per-page snippets into (header_rows, content, footer_rows).
 
-    Aux snippets carry ``data-aux-zone`` (header/footer), ``data-aux-x``,
-    ``data-aux-y``, and ``data-aux-align`` — worker-tagged on is_discarded
-    blocks. Same-y items are grouped into a row; different-y items stack.
+    Aux snippets carry ``data-aux-zone``, ``data-aux-x``, ``data-aux-y``
+    (top edge), ``data-aux-y1`` (bottom edge), and ``data-aux-align``.
+    Items whose vertical ranges overlap share a row; non-overlapping items
+    stack.
     """
-    header_aux: list[tuple[int, int, str]] = []
-    footer_aux: list[tuple[int, int, str]] = []
+    header_aux: list[tuple[int, int, int, str]] = []
+    footer_aux: list[tuple[int, int, int, str]] = []
     content: list[str] = []
     for s in snippets:
         zm = _AUX_ZONE_RE.search(s)
@@ -147,10 +156,13 @@ def _partition_aux(
             content.append(s)
             continue
         xm = _AUX_X_RE.search(s)
-        ym = _AUX_Y_RE.search(s)
+        ym0 = _AUX_Y_RE.search(s)
+        ym1 = _AUX_Y1_RE.search(s)
         x = int(xm.group(1)) if xm else 0
-        y = int(ym.group(1)) if ym else 0
-        (header_aux if zm.group(1) == "header" else footer_aux).append((y, x, s))
+        y0 = int(ym0.group(1)) if ym0 else 0
+        y1 = int(ym1.group(1)) if ym1 else y0
+        target = header_aux if zm.group(1) == "header" else footer_aux
+        target.append((y0, y1, x, s))
     return _group_aux_into_rows(header_aux), content, _group_aux_into_rows(footer_aux)
 
 

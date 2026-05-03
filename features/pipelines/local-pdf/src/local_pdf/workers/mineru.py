@@ -2242,6 +2242,7 @@ def vlm_segment_doc(
                                 "data-aux-zone": "header" if in_top else "footer",
                                 "data-aux-x": str(int(sx0)),
                                 "data-aux-y": str(int(sy0)),
+                                "data-aux-y1": str(int(sy1)),
                                 "data-aux-align": _aux_alignment(sx0, sx1, page_size_pts[0]),
                             },
                         )
@@ -2349,14 +2350,15 @@ def vlm_segment_doc(
             html_snippet = _convert_inline_latex(html_snippet)
             attrs: dict[str, str] = {"data-source-box": box_id}
             if is_discarded:
-                # Tag aux blocks with zone, position, and horizontal alignment
-                # so _wrap_html can group same-y items into a row and place
-                # each item in its correct left/center/right grid column.
+                # Tag aux blocks with zone, full y-range, and horizontal
+                # alignment so _wrap_html can group items by vertical-bbox
+                # overlap and place each in its left/center/right grid column.
                 page_w, page_h = page_size_pts
                 y_mid = (py0 + py1) / 2
                 attrs["data-aux-zone"] = "header" if y_mid < page_h / 2 else "footer"
                 attrs["data-aux-x"] = str(int(px0))
                 attrs["data-aux-y"] = str(int(py0))
+                attrs["data-aux-y1"] = str(int(py1))
                 attrs["data-aux-align"] = _aux_alignment(px0, px1, page_w)
             html_snippet = _inject_outer_attrs(html_snippet, attrs)
 
