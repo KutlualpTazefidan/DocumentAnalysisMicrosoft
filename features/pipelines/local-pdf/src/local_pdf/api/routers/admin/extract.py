@@ -79,6 +79,11 @@ _PDF_STYLE = (
     "p.caption{font-size:0.9em;color:#374151;font-style:italic;"
     "margin:0.4em 0}"
     "p.footnote{font-size:0.8em;color:#6b7280;margin:0.3em 0}"
+    # Figures: constrain image width to the page content area and add
+    # vertical breathing room. max-width:90% leaves a small inset on each
+    # side so the figure visibly sits inside the section, not edge-to-edge.
+    "figure{margin:1.5em auto;text-align:center}"
+    "figure img{max-width:90%;height:auto;display:block;margin:0 auto}"
     # Body row: vertically-overlapping body items (e.g. two paragraphs at
     # the same y in a 2-column layout) sit side-by-side, sorted by x0.
     ".body-row{display:flex;align-items:flex-start;gap:1rem;margin:0.6em 0}"
