@@ -509,7 +509,12 @@ def _convert_bare_latex(s: str) -> str:
     return _PRIMES_AFTER_MATH_RE.sub(_wrap_prime_run, out)
 
 
-_PRIMES_AFTER_MATH_RE = re.compile(r"(</math>)('+)")
+# Trailing primes show up in three forms in MinerU output:
+#   ''                \u2014 literal apostrophes (single byte each)
+#   &#x27;&#x27;      \u2014 HTML-numeric entity (what mineru.json typically stores)
+#   &apos;&apos;     \u2014 HTML-named entity
+# Any mix of these immediately after </math> becomes a styled <sup>.
+_PRIMES_AFTER_MATH_RE = re.compile(r"(</math>)((?:'|&#x27;|&#39;|&apos;)+)")
 # \u escapes for the prime glyphs so ruff RUF001 doesn't flag the literal
 # chars as ambiguous with the grave accent.
 _PRIME_CHAR = "\u2032"  # PRIME
@@ -519,11 +524,14 @@ _PRIME_GLYPH_BY_COUNT = {
     3: "\u2034",  # TRIPLE PRIME
     4: "\u2057",  # QUADRUPLE PRIME
 }
+# Counts each prime token (literal or any entity form) once.
+_PRIME_TOKEN_RE = re.compile(r"'|&#x27;|&#39;|&apos;")
 
 
 def _wrap_prime_run(m: re.Match[str]) -> str:
-    closing, primes = m.group(1), m.group(2)
-    glyph = _PRIME_GLYPH_BY_COUNT.get(len(primes), _PRIME_CHAR * len(primes))
+    closing, primes_run = m.group(1), m.group(2)
+    n = len(_PRIME_TOKEN_RE.findall(primes_run))
+    glyph = _PRIME_GLYPH_BY_COUNT.get(n, _PRIME_CHAR * n)
     return f'{closing}<sup class="prime">{glyph}</sup>'
 
 
