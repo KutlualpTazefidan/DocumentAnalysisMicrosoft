@@ -167,7 +167,7 @@ export function HtmlEditor({
       <div
         ref={hostRef}
         data-testid="html-editor-host"
-        className="flex-1 overflow-auto bg-white"
+        className="flex-1 overflow-auto bg-white p-8"
       />
     </div>
   );
