@@ -1491,6 +1491,100 @@ def test_vlm_segment_aux_grouping_uses_vertical_bbox_overlap(
     assert "Tall Title" not in row2_block
 
 
+def _fake_middle_json_with_user_reported_pair() -> dict:
+    """User-reported example: tall aux on left, shorter aux on right, same y0.
+
+    Pixel-space coords from the UI properties panel (raster_dpi=288, scale=4):
+      aux 1: x0=268, y0=148, x1=580, y1=192
+      aux 2: x0=1888, y0=148, x1=2156, y1=188
+
+    Convert to pts (÷ 4) for the middle_json fixture:
+      aux 1: x0=67, y0=37, x1=145, y1=48  (height 11)
+      aux 2: x0=472, y0=37, x1=539, y1=47 (height 10)
+
+    Both in the header zone, vertically overlapping → must share one row.
+    Wider page (650pts) so aux 2's x_center falls clearly into the right third.
+    """
+    return {
+        "pdf_info": [
+            {
+                "page_size": [650.0, 800.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 200.0, 600.0, 250.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 200.0, 600.0, 250.0],
+                                "spans": [{"content": "Body."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [67.0, 37.0, 145.0, 48.0],
+                        "lines": [
+                            {
+                                "bbox": [67.0, 37.0, 145.0, 48.0],
+                                "spans": [{"content": "Left aux"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [472.0, 37.0, 539.0, 47.0],
+                        "lines": [
+                            {
+                                "bbox": [472.0, 37.0, 539.0, 47.0],
+                                "spans": [{"content": "Right aux"}],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_aux_user_reported_pair_shares_one_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: same-y aux with mismatched heights must collapse into one row."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_user_reported_pair(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # Exactly one aux row, containing both items, with proper alignment.
+    assert html.count('<div class="aux-row">') == 1
+    row_open = html.index('<div class="aux-row">')
+    row_block = html[row_open : html.index("</div>", row_open)]
+    assert "Left aux" in row_block
+    assert "Right aux" in row_block
+    assert 'data-aux-align="left"' in row_block
+    assert 'data-aux-align="right"' in row_block
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"
