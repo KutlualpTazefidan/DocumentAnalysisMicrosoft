@@ -13,7 +13,7 @@ vi.mock("../../../src/local-pdf/hooks/usePdfPage", () => ({
 }));
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/docs/rep/segments", () =>
+  http.get("*/api/docs/rep/segments", () =>
     HttpResponse.json({
       slug: "rep",
       boxes: [
@@ -21,11 +21,11 @@ const server = setupServer(
       ],
     }),
   ),
-  http.get("http://127.0.0.1:8001/api/docs/rep/html", () =>
+  http.get("*/api/docs/rep/html", () =>
     HttpResponse.json({ html: '<h1 data-source-box="p1-b0">Hi</h1>' }),
   ),
-  http.put("http://127.0.0.1:8001/api/docs/rep/html", () => HttpResponse.json({ ok: true })),
-  http.post("http://127.0.0.1:8001/api/docs/rep/export", () =>
+  http.put("*/api/docs/rep/html", () => HttpResponse.json({ ok: true })),
+  http.post("*/api/docs/rep/export", () =>
     HttpResponse.json({ doc_slug: "rep", source_pipeline: "local-pdf", elements: [] }),
   ),
 );

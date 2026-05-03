@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { InboxRoute } from "../../../src/local-pdf/routes/inbox";
 
 const server = setupServer(
-  http.get("http://127.0.0.1:8001/api/docs", () =>
+  http.get("*/api/docs", () =>
     HttpResponse.json([
       { slug: "rep", filename: "Rep.pdf", pages: 4, status: "raw", last_touched_utc: "2026-04-30T10:00:00Z", box_count: 0 },
       { slug: "spec", filename: "Spec.pdf", pages: 12, status: "done", last_touched_utc: "2026-04-30T11:00:00Z", box_count: 35 },
