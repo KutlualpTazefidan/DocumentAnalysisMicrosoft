@@ -73,15 +73,23 @@ _PDF_STYLE = (
     # reference smaller + italic + muted so it reads as a marker, not a heading.
     ".caption-ref{font-size:0.85em;color:#6b7280;font-style:italic;"
     "margin:0.3em 0;border:none;padding:0}"
-    # Aux stack: page-headers/footers rendered in (y0, x0) order so an aux
-    # underneath another in the PDF appears below it in HTML. No grouping,
-    # no flex rows — each aux is a block element in its natural order.
+    # Aux stack: page-headers/footers grouped into rows by y-position. Within
+    # each row, items land in a 3-column grid (left/center/right) keyed off
+    # data-aux-align — so an item left-aligned in the PDF stays left, etc.
     ".aux-stack--top{margin-bottom:1em;padding-bottom:0.4em;"
     "border-bottom:1px solid #e5e7eb}"
     ".aux-stack--bottom{margin-top:1em;padding-top:0.4em;"
     "border-top:1px solid #e5e7eb}"
-    ".aux-stack > *{margin:0.1em 0}"
-    ".aux-stack .page-number{display:block}"
+    ".aux-row{display:grid;grid-template-columns:1fr 1fr 1fr;"
+    "align-items:baseline;column-gap:0.5rem}"
+    ".aux-row + .aux-row{margin-top:0.2em}"
+    ".aux-row > *{margin:0}"
+    '.aux-row > [data-aux-align="left"]{grid-column:1;justify-self:start;'
+    "text-align:left}"
+    '.aux-row > [data-aux-align="center"]{grid-column:2;justify-self:center;'
+    "text-align:center}"
+    '.aux-row > [data-aux-align="right"]{grid-column:3;justify-self:end;'
+    "text-align:right}"
     "</style>"
 )
 
@@ -96,14 +104,39 @@ _AUX_ZONE_RE = re.compile(r'data-aux-zone="(header|footer)"')
 _AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
 _AUX_Y_RE = re.compile(r'data-aux-y="(\d+)"')
 
+# Two aux items whose y0 differs by ≤ this many pts share a visual row.
+# ~20pt covers a single line of body text at typical PDF DPI without
+# accidentally collapsing genuinely-stacked lines.
+_AUX_ROW_BAND_PTS = 20
 
-def _partition_aux(snippets: list[str]) -> tuple[list[str], list[str], list[str]]:
-    """Split per-page snippets into (header_aux, content, footer_aux).
 
-    Aux snippets carry ``data-aux-zone`` (header/footer), ``data-aux-x``
-    (left edge), and ``data-aux-y`` (top edge) — worker-tagged on
-    is_discarded blocks. Each aux group is sorted by ``(y0, x0)`` so an
-    aux underneath another in the PDF appears below it in HTML order.
+def _group_aux_into_rows(items: list[tuple[int, int, str]]) -> list[list[str]]:
+    """Group aux items into rows by y0 proximity, sorted top-down then left-right.
+
+    Items within ≤ ``_AUX_ROW_BAND_PTS`` of each other (by y0) share a row;
+    a larger jump opens a new row. Within each row, sort by x0 ascending so
+    DOM order matches PDF column order. Returns one snippet list per row.
+    """
+    if not items:
+        return []
+    sorted_items = sorted(items, key=lambda t: (t[0], t[1]))
+    rows: list[list[tuple[int, int, str]]] = [[sorted_items[0]]]
+    for entry in sorted_items[1:]:
+        if entry[0] - rows[-1][-1][0] > _AUX_ROW_BAND_PTS:
+            rows.append([entry])
+        else:
+            rows[-1].append(entry)
+    return [[s for _, _, s in sorted(row, key=lambda t: t[1])] for row in rows]
+
+
+def _partition_aux(
+    snippets: list[str],
+) -> tuple[list[list[str]], list[str], list[list[str]]]:
+    """Split per-page snippets into (header_rows, content, footer_rows).
+
+    Aux snippets carry ``data-aux-zone`` (header/footer), ``data-aux-x``,
+    ``data-aux-y``, and ``data-aux-align`` — worker-tagged on is_discarded
+    blocks. Same-y items are grouped into a row; different-y items stack.
     """
     header_aux: list[tuple[int, int, str]] = []
     footer_aux: list[tuple[int, int, str]] = []
@@ -118,20 +151,15 @@ def _partition_aux(snippets: list[str]) -> tuple[list[str], list[str], list[str]
         x = int(xm.group(1)) if xm else 0
         y = int(ym.group(1)) if ym else 0
         (header_aux if zm.group(1) == "header" else footer_aux).append((y, x, s))
-    header_aux.sort(key=lambda t: (t[0], t[1]))
-    footer_aux.sort(key=lambda t: (t[0], t[1]))
-    return (
-        [s for _, _, s in header_aux],
-        content,
-        [s for _, _, s in footer_aux],
-    )
+    return _group_aux_into_rows(header_aux), content, _group_aux_into_rows(footer_aux)
 
 
-def _wrap_aux_stack(aux: list[str], position: str) -> str:
-    """Wrap aux items in a single stack container; each item renders inline-block."""
-    if not aux:
+def _wrap_aux_stack(rows: list[list[str]], position: str) -> str:
+    """Wrap aux rows in a stack container; each row is its own grid container."""
+    if not rows:
         return ""
-    return f'<div class="aux-stack aux-stack--{position}">{"".join(aux)}</div>'
+    inner = "".join(f'<div class="aux-row">{"".join(row)}</div>' for row in rows)
+    return f'<div class="aux-stack aux-stack--{position}">{inner}</div>'
 
 
 def _group_list_items(section_inner: str) -> str:

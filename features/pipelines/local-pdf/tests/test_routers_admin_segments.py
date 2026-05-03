@@ -1093,23 +1093,29 @@ def test_vlm_segment_html_aux_row_top_and_bottom(
     client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
 
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
-    # Stack wrappers carry the zone class; aux items sit directly inside,
-    # sorted by (y0, x0) — no row sub-grouping.
+    # Stack wrappers carry the zone class; same-y items sit in one .aux-row.
     top_stack_tag = '<div class="aux-stack aux-stack--top">'
     bot_stack_tag = '<div class="aux-stack aux-stack--bottom">'
     assert top_stack_tag in html
     assert bot_stack_tag in html
-    # No row sub-grouping anymore.
-    assert '<div class="aux-row">' not in html
 
-    # Same-y items: order by x0 ascending.
+    # Each zone has exactly ONE row (both aux items at the same y).
+    assert html.count('<div class="aux-row">') == 2  # 1 top + 1 bottom
+
+    # Within the row, items must be sorted left-to-right by x0.
     top_open = html.index(top_stack_tag)
-    top_block = html[top_open : html.index("</div>", top_open)]
+    top_block = html[top_open : html.index("</div></div>", top_open)]
     assert top_block.index("Section A") < top_block.index("Page 7")
 
+    # Alignment: x0=50 → left, x0=400 → right (page width 612pts).
+    assert 'data-aux-align="left"' in top_block
+    assert 'data-aux-align="right"' in top_block
+
     bot_open = html.index(bot_stack_tag)
-    bot_block = html[bot_open : html.index("</div>", bot_open)]
+    bot_block = html[bot_open : html.index("</div></div>", bot_open)]
     assert bot_block.index("1 of 42") < bot_block.index("Rev. 1")
+    assert 'data-aux-align="left"' in bot_block
+    assert 'data-aux-align="right"' in bot_block
 
     # Stacks sit OUTSIDE the body paragraph (top before, bottom after).
     body_pos = html.index("Body paragraph")
@@ -1227,21 +1233,154 @@ def test_vlm_segment_multiline_aux_renders_as_stacked_rows(
 
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
 
-    # One top stack, no bottom stack, no row sub-grouping.
+    # One top stack, no bottom stack. Three lines at different y → 3 rows.
     assert '<div class="aux-stack aux-stack--top">' in html
     assert '<div class="aux-stack aux-stack--bottom">' not in html
-    assert '<div class="aux-row">' not in html
+    assert html.count('<div class="aux-row">') == 3
 
     top_open = html.index('<div class="aux-stack aux-stack--top">')
-    top_close = html.index("</div>", top_open)
-    top_block = html[top_open:top_close]
+    # End of stack: closing </div> after the last </div> of inner rows.
+    # We use rindex on a window that covers the stack.
+    top_block = html[top_open : html.index("</section>", top_open)]
 
-    # Top-down ordering (sorted by y0 ascending) — items underneath others
-    # appear later in HTML.
+    # Top-down ordering (y0 ascending) — items underneath others come later.
     pos_customer = top_block.index("Customer ACME")
     pos_project = top_block.index("Project Alpha")
     pos_revision = top_block.index("Revision 1.2")
     assert pos_customer < pos_project < pos_revision
+
+
+def _fake_middle_json_with_three_alignments() -> dict:
+    """Page with three header aux at same y, one each in left/center/right."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 200.0, 400.0, 300.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 200.0, 400.0, 300.0],
+                                "spans": [{"content": "Body."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    # Center aux at x_center ≈ 306 (50% of 612) → "center"
+                    {
+                        "type": "text",
+                        "bbox": [256.0, 30.0, 356.0, 50.0],
+                        "lines": [
+                            {
+                                "bbox": [256.0, 30.0, 356.0, 50.0],
+                                "spans": [{"content": "Title"}],
+                            }
+                        ],
+                    },
+                    # Left aux at x_center ≈ 100 (16% of 612) → "left"
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 30.0, 150.0, 50.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 30.0, 150.0, 50.0],
+                                "spans": [{"content": "Section A"}],
+                            }
+                        ],
+                    },
+                    # Right aux at x_center ≈ 510 (83% of 612) → "right"
+                    {
+                        "type": "text",
+                        "bbox": [460.0, 30.0, 560.0, 50.0],
+                        "lines": [
+                            {
+                                "bbox": [460.0, 30.0, 560.0, 50.0],
+                                "spans": [{"content": "Page 7"}],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_aux_horizontal_alignment_left_center_right(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each aux must carry data-aux-align matching its bbox center vs page width."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_three_alignments(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+
+    snippets_by_text = {}
+    for el in client.get("/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}).json()[
+        "elements"
+    ]:
+        for label in ("Section A", "Title", "Page 7"):
+            if label in el["html_snippet"]:
+                snippets_by_text[label] = el["html_snippet"]
+                break
+
+    assert 'data-aux-align="left"' in snippets_by_text["Section A"]
+    assert 'data-aux-align="center"' in snippets_by_text["Title"]
+    assert 'data-aux-align="right"' in snippets_by_text["Page 7"]
+
+
+def test_vlm_segment_aux_three_alignments_share_one_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Three same-y aux items collapse into one row, in left→center→right DOM order."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_three_alignments(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # All three at same y → exactly one .aux-row.
+    assert html.count('<div class="aux-row">') == 1
+    row_open = html.index('<div class="aux-row">')
+    row_block = html[row_open : html.index("</div>", row_open)]
+    # Sort within row is by x0 ascending → Section A (50), Title (256), Page 7 (460).
+    assert row_block.index("Section A") < row_block.index("Title") < row_block.index("Page 7")
 
 
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:

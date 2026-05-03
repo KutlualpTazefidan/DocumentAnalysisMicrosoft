@@ -2021,6 +2021,23 @@ def _strip_bullet_marker(text: str) -> str:
     return _BULLET_PREFIX_RE.sub("", text).strip()
 
 
+def _aux_alignment(x0: float, x1: float, page_width: float) -> str:
+    """Classify aux horizontal alignment based on bbox center vs page width.
+
+    Returns "left" (center < 40%), "right" (center > 60%), or "center".
+    Used to place same-row aux items in a 3-column grid so left/center/right
+    items land where they sat in the original PDF.
+    """
+    if page_width <= 0:
+        return "center"
+    ratio = ((x0 + x1) / 2) / page_width
+    if ratio < 0.4:
+        return "left"
+    if ratio > 0.6:
+        return "right"
+    return "center"
+
+
 def _aux_line_html(text: str, *, in_top_zone: bool) -> str:
     """Wrap a single aux line in <header>, <footer>, or <span class="page-number">.
 
@@ -2225,6 +2242,7 @@ def vlm_segment_doc(
                                 "data-aux-zone": "header" if in_top else "footer",
                                 "data-aux-x": str(int(sx0)),
                                 "data-aux-y": str(int(sy0)),
+                                "data-aux-align": _aux_alignment(sx0, sx1, page_size_pts[0]),
                             },
                         )
                         sub_box = SegmentBox(
@@ -2331,14 +2349,15 @@ def vlm_segment_doc(
             html_snippet = _convert_inline_latex(html_snippet)
             attrs: dict[str, str] = {"data-source-box": box_id}
             if is_discarded:
-                # Tag aux blocks with their visual zone + x/y position so
-                # _wrap_html can pull them into a top/bottom flex row sorted
-                # left-to-right by x0, with rows grouped by y-band.
-                page_h = page_size_pts[1]
+                # Tag aux blocks with zone, position, and horizontal alignment
+                # so _wrap_html can group same-y items into a row and place
+                # each item in its correct left/center/right grid column.
+                page_w, page_h = page_size_pts
                 y_mid = (py0 + py1) / 2
                 attrs["data-aux-zone"] = "header" if y_mid < page_h / 2 else "footer"
                 attrs["data-aux-x"] = str(int(px0))
                 attrs["data-aux-y"] = str(int(py0))
+                attrs["data-aux-align"] = _aux_alignment(px0, px1, page_w)
             html_snippet = _inject_outer_attrs(html_snippet, attrs)
 
             yield VlmSegmentBlock(
