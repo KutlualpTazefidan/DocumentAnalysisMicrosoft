@@ -6,7 +6,10 @@ import os
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -36,7 +39,7 @@ from local_pdf.storage.sidecar import (
     write_yolo,
 )
 from local_pdf.workers.base import now_ms
-from local_pdf.workers.mineru import VlmSegmentBlock, vlm_segment_doc
+from local_pdf.workers.mineru import VlmSegmentBlock, vlm_extract_bbox, vlm_segment_doc
 from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
@@ -47,6 +50,11 @@ _YOLO_PREDICT_FN = None
 # Test hook: inject a fake parse_doc_fn for the VLM path.
 # Signature: (pdf_bytes: bytes) -> dict  (middle_json with pdf_info)
 _VLM_PARSE_DOC_FN = None
+
+# Test hook: inject a fake crop+VLM function for the per-bbox re-extract path.
+# Signature: (pdf_bytes, page, bbox_pts, user_kind, *, box_id, parse_doc_fn, ...) -> str
+# Assign a callable here to skip the real VLM in tests.
+_VLM_EXTRACT_BBOX_FN: Callable[..., str] | None = None
 
 
 def _now_iso() -> str:
@@ -296,14 +304,90 @@ def _load_boxes_or_404(data_root, slug: str) -> list[SegmentBox]:
     return list(seg.boxes)
 
 
+def _re_extract_box(cfg, slug: str, box: SegmentBox, raster_dpi: int) -> None:
+    """Crop the PDF page to box.bbox, run VLM, and write the new html_snippet
+    into mineru.json + html.html.
+
+    Skipped silently when mineru.json does not exist yet (document has not been
+    through the VLM segmentation pass).  Any exception is logged and swallowed
+    so callers (bbox edits, kind changes) always succeed even when VLM is
+    unavailable.
+    """
+    import logging
+
+    existing_mineru = read_mineru(cfg.data_root, slug)
+    if existing_mineru is None:
+        # VLM not run yet — nothing to update.
+        return
+
+    pdf_path = doc_dir(cfg.data_root, slug) / "source.pdf"
+    if not pdf_path.exists():
+        return
+
+    try:
+        pdf_bytes = pdf_path.read_bytes()
+        # bbox stored in pixel space at raster_dpi; convert to PDF points.
+        k = 72.0 / raster_dpi
+        bbox_pts = (
+            box.bbox[0] * k,
+            box.bbox[1] * k,
+            box.bbox[2] * k,
+            box.bbox[3] * k,
+        )
+
+        if _VLM_EXTRACT_BBOX_FN is not None:
+            new_html = _VLM_EXTRACT_BBOX_FN(
+                pdf_bytes,
+                box.page,
+                bbox_pts,
+                box.kind,
+                box_id=box.box_id,
+            )
+        else:
+            new_html = vlm_extract_bbox(
+                pdf_bytes,
+                box.page,
+                bbox_pts,
+                box.kind,
+                box_id=box.box_id,
+            )
+
+        # Replace / insert this element in the existing elements list.
+        elements = list(existing_mineru.get("elements", []))
+        found = False
+        for i, el in enumerate(elements):
+            if el.get("box_id") == box.box_id:
+                elements[i] = {"box_id": box.box_id, "html_snippet": new_html}
+                found = True
+                break
+        if not found:
+            elements.append({"box_id": box.box_id, "html_snippet": new_html})
+
+        diagnostics = existing_mineru.get("diagnostics", [])
+        write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
+        write_html(cfg.data_root, slug, _wrap_html(elements))
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "vlm_extract_bbox failed for %s/%s — keeping old html_snippet", slug, box.box_id
+        )
+
+
 @router.put("/api/admin/docs/{slug}/segments/{box_id}")
 async def update_box(
-    slug: str, box_id: str, body: UpdateBoxRequest, request: Request
+    slug: str,
+    box_id: str,
+    body: UpdateBoxRequest,
+    request: Request,
+    reextract: bool = True,
 ) -> dict[str, Any]:
     cfg = request.app.state.config
     boxes = _load_boxes_or_404(cfg.data_root, slug)
+    seg = read_segments(cfg.data_root, slug)
+    raster_dpi = seg.raster_dpi if seg is not None else 288
     for i, b in enumerate(boxes):
         if b.box_id == box_id:
+            bbox_changed = body.bbox is not None and tuple(body.bbox) != tuple(b.bbox)
+            kind_changed = body.kind is not None and body.kind != b.kind
             updates: dict[str, Any] = {}
             if body.kind is not None:
                 updates["kind"] = body.kind
@@ -315,6 +399,8 @@ async def update_box(
                 updates["manually_activated"] = body.manually_activated
             boxes[i] = b.model_copy(update=updates)
             _replace_segments(cfg.data_root, slug, boxes)
+            if reextract and (bbox_changed or kind_changed):
+                _re_extract_box(cfg, slug, boxes[i], raster_dpi)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
@@ -397,9 +483,18 @@ async def split_box(slug: str, body: SplitBoxRequest, request: Request) -> dict[
 
 
 @router.post("/api/admin/docs/{slug}/segments", status_code=status.HTTP_201_CREATED)
-async def create_box(slug: str, body: CreateBoxRequest, request: Request) -> dict[str, Any]:
+async def create_box(
+    slug: str,
+    body: CreateBoxRequest,
+    request: Request,
+    reextract: bool = True,
+) -> dict[str, Any]:
     cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    seg = read_segments(cfg.data_root, slug)
+    if seg is None:
+        raise HTTPException(status_code=404, detail=f"no segments for {slug}")
+    raster_dpi = seg.raster_dpi
+    boxes = list(seg.boxes)
     new = SegmentBox(
         box_id=f"p{body.page}-u{secrets.token_hex(3)}",
         page=body.page,
@@ -410,6 +505,8 @@ async def create_box(slug: str, body: CreateBoxRequest, request: Request) -> dic
     )
     boxes.append(new)
     _replace_segments(cfg.data_root, slug, boxes)
+    if reextract:
+        _re_extract_box(cfg, slug, new, raster_dpi)
     return dict(new.model_dump(mode="json"))
 
 
@@ -441,7 +538,12 @@ async def reset_page(slug: str, page: int, request: Request) -> dict[str, Any]:
 
 
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/reset")
-async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
+async def reset_box(
+    slug: str,
+    box_id: str,
+    request: Request,
+    reextract: bool = True,
+) -> dict[str, Any]:
     """Restore a single box's bbox + kind + confidence from yolo.json."""
     cfg = request.app.state.config
     yolo = _load_yolo_or_404(cfg.data_root, slug)
@@ -451,6 +553,8 @@ async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
             status_code=409,
             detail="no original to reset to (this box wasn't YOLO-detected)",
         )
+    seg = read_segments(cfg.data_root, slug)
+    raster_dpi = seg.raster_dpi if seg is not None else 288
     boxes = _load_boxes_or_404(cfg.data_root, slug)
     for i, b in enumerate(boxes):
         if b.box_id == box_id:
@@ -466,6 +570,8 @@ async def reset_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
                 }
             )
             _replace_segments(cfg.data_root, slug, boxes)
+            if reextract:
+                _re_extract_box(cfg, slug, boxes[i], raster_dpi)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 

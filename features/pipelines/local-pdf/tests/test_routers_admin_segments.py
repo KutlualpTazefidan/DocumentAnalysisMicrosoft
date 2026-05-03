@@ -878,3 +878,176 @@ def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None
     yolo = read_yolo(root, "doc")
     assert yolo is not None, "YOLO path must write yolo.json"
     assert len(yolo["boxes"]) == 1
+
+
+# ── Per-bbox re-extract tests ─────────────────────────────────────────────────
+
+
+def _make_client_with_mineru(tmp_path, monkeypatch):
+    """Helper: client with segments.json AND mineru.json already seeded."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import BoxKind, SegmentBox, SegmentsFile
+    from local_pdf.storage.sidecar import write_mineru, write_segments
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    box = SegmentBox(
+        box_id="p1-aaa",
+        page=1,
+        bbox=(10.0, 10.0, 200.0, 80.0),
+        kind=BoxKind.paragraph,
+        confidence=1.0,
+        reading_order=0,
+    )
+    write_segments(root, "doc", SegmentsFile(slug="doc", boxes=[box], raster_dpi=288))
+    write_mineru(
+        root,
+        "doc",
+        {
+            "elements": [{"box_id": "p1-aaa", "html_snippet": "<p>old content</p>"}],
+            "diagnostics": [],
+        },
+    )
+    return client, root
+
+
+def _stub_extract(html: str):
+    """Return a deterministic vlm_extract_bbox stub that ignores geometry."""
+
+    def _fn(pdf_bytes, page, bbox_pts, user_kind, *, box_id, **_kw):
+        return html
+
+    return _fn
+
+
+def test_put_bbox_change_triggers_reextract(tmp_path, monkeypatch) -> None:
+    """PATCH with a bbox change must update html_snippet in mineru.json."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    stub_html = "<p>fresh bbox content</p>"
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _stub_extract(stub_html))
+
+    client, root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.put(
+        "/api/admin/docs/doc/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"bbox": [20.0, 20.0, 210.0, 90.0]},
+    )
+    assert r.status_code == 200
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    data = read_mineru(root, "doc")
+    assert data is not None
+    el = next(e for e in data["elements"] if e["box_id"] == "p1-aaa")
+    assert el["html_snippet"] == stub_html
+
+
+def test_put_kind_change_triggers_reextract(tmp_path, monkeypatch) -> None:
+    """PATCH with a kind change (no bbox change) must also trigger re-extract."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    stub_html = "<h2>heading content</h2>"
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _stub_extract(stub_html))
+
+    client, root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.put(
+        "/api/admin/docs/doc/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "heading"},
+    )
+    assert r.status_code == 200
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    data = read_mineru(root, "doc")
+    assert data is not None
+    el = next(e for e in data["elements"] if e["box_id"] == "p1-aaa")
+    assert el["html_snippet"] == stub_html
+
+
+def test_put_no_geometry_no_kind_change_skips_reextract(tmp_path, monkeypatch) -> None:
+    """PATCH that changes only reading_order must NOT call re-extract."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    calls: list = []
+
+    def _recording_stub(pdf_bytes, page, bbox_pts, user_kind, *, box_id, **_kw):
+        calls.append(box_id)
+        return "<p>should not appear</p>"
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _recording_stub)
+
+    client, _root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.put(
+        "/api/admin/docs/doc/segments/p1-aaa",
+        headers={"X-Auth-Token": "tok"},
+        json={"reading_order": 5},
+    )
+    assert r.status_code == 200
+    assert calls == [], "re-extract must not fire when bbox/kind unchanged"
+
+
+def test_put_reextract_false_skips_reextract(tmp_path, monkeypatch) -> None:
+    """?reextract=false must skip re-extract even when bbox changes."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    calls: list = []
+
+    def _recording_stub(pdf_bytes, page, bbox_pts, user_kind, *, box_id, **_kw):
+        calls.append(box_id)
+        return "<p>should not appear</p>"
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _recording_stub)
+
+    client, _root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.put(
+        "/api/admin/docs/doc/segments/p1-aaa?reextract=false",
+        headers={"X-Auth-Token": "tok"},
+        json={"bbox": [30.0, 30.0, 220.0, 100.0]},
+    )
+    assert r.status_code == 200
+    assert calls == [], "re-extract must not fire when ?reextract=false"
+
+
+def test_post_new_box_triggers_reextract(tmp_path, monkeypatch) -> None:
+    """POST /segments (create box) must add a new element to mineru.json via re-extract."""
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    stub_html = "<p>brand new box content</p>"
+
+    def _stub(pdf_bytes, page, bbox_pts, user_kind, *, box_id, **_kw):
+        return stub_html
+
+    monkeypatch.setattr(seg_mod, "_VLM_EXTRACT_BBOX_FN", _stub)
+
+    client, root = _make_client_with_mineru(tmp_path, monkeypatch)
+
+    r = client.post(
+        "/api/admin/docs/doc/segments",
+        headers={"X-Auth-Token": "tok"},
+        json={"page": 1, "bbox": [50.0, 100.0, 300.0, 200.0], "kind": "paragraph"},
+    )
+    assert r.status_code == 201
+    new_box_id = r.json()["box_id"]
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    data = read_mineru(root, "doc")
+    assert data is not None
+    ids = {e["box_id"] for e in data["elements"]}
+    assert new_box_id in ids
+    el = next(e for e in data["elements"] if e["box_id"] == new_box_id)
+    assert el["html_snippet"] == stub_html

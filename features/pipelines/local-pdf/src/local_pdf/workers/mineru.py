@@ -1670,6 +1670,181 @@ class MineruWorker:
         )
 
 
+# ── Crop + VLM re-extract (per-bbox edit path) ───────────────────────────────
+
+
+def _crop_pdf_to_bbox(
+    pdf_bytes: bytes,
+    page: int,  # 1-indexed
+    bbox_pts: tuple[float, float, float, float],  # top-down image-coord pts
+    padding_pts: float = 8.0,
+) -> bytes:
+    """Return PDF bytes containing only *page* cropped to *bbox_pts*.
+
+    *bbox_pts* is expressed in PDF points with a **top-down** y-axis (origin at
+    the top-left of the page) — the same convention used by our SegmentBox
+    storage after ``* 72 / raster_dpi``.
+
+    pypdf's CropBox uses PDF's **bottom-up** y-axis (origin at bottom-left), so
+    the conversion is:
+
+        cb_y_lower = page_height - (y1 + padding)   # y1 is bottom in top-down
+        cb_y_upper = page_height - (y0 - padding)   # y0 is top in top-down
+
+    Both values are clamped to [0, page_height] / [0, page_width] so negative
+    coords or oversized boxes never crash.
+    """
+    import io as _io
+
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(_io.BytesIO(pdf_bytes))
+    page_obj = reader.pages[page - 1]
+
+    # pypdf exposes mediabox as a RectangleObject; .width/.height are floats.
+    mb = page_obj.mediabox
+    page_w = float(mb.width)
+    page_h = float(mb.height)
+
+    x0, y0, x1, y1 = bbox_pts
+
+    # Expand by padding, then clamp to [0, page dimension].
+    cx0 = max(0.0, x0 - padding_pts)
+    cx1 = min(page_w, x1 + padding_pts)
+    # Convert top-down y to bottom-up y for CropBox.
+    cb_y_lower = max(0.0, page_h - (y1 + padding_pts))
+    cb_y_upper = min(page_h, page_h - (y0 - padding_pts))
+
+    writer = PdfWriter()
+    writer.add_page(page_obj)
+    writer.pages[0].cropbox.lower_left = (cx0, cb_y_lower)
+    writer.pages[0].cropbox.upper_right = (cx1, cb_y_upper)
+
+    buf = _io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def vlm_extract_bbox(
+    pdf_bytes: bytes,
+    page: int,  # 1-indexed
+    bbox_pts: tuple[float, float, float, float],  # top-down image-coord pts
+    user_kind: BoxKind,
+    *,
+    box_id: str,
+    parse_doc_fn: Callable[[bytes], dict] | None = None,
+    predictor: object | None = None,
+    padding_pts: float = 8.0,
+) -> str:
+    """Crop the PDF page to *bbox_pts*, run MinerU VLM on the crop, and return
+    the rendered HTML fragment for *user_kind*.
+
+    1. Crop the single page to a padded region via ``_crop_pdf_to_bbox``.
+    2. Call the VLM (or the injected *parse_doc_fn* in tests) on the one-page
+       PDF.
+    3. Walk ``para_blocks + discarded_blocks`` of the first (only) page result.
+    4. Build kind-driven HTML using the same helpers as the full-doc path.
+
+    Returns the final HTML fragment with ``data-source-box`` attribute.
+    Returns "" when no content was found in the crop.
+    """
+    crop_bytes = _crop_pdf_to_bbox(pdf_bytes, page, bbox_pts, padding_pts=padding_pts)
+
+    if parse_doc_fn is not None:
+        middle_json = parse_doc_fn(crop_bytes)
+        all_page_infos = middle_json.get("pdf_info", []) if middle_json else []
+    else:
+        try:
+            from mineru.backend.vlm.vlm_analyze import doc_analyze
+
+            class _NullWriter:
+                def write(self, *_a: object, **_kw: object) -> None:
+                    pass
+
+            middle_json, _ = doc_analyze(
+                crop_bytes,
+                _NullWriter(),
+                predictor=predictor,
+                backend="transformers",
+            )
+            all_page_infos = middle_json.get("pdf_info", []) if middle_json else []
+        except ImportError:
+            return ""
+
+    if not all_page_infos:
+        return ""
+
+    page_info = all_page_infos[0]
+    raw_page_size = page_info.get("page_size")
+    try:
+        page_size_pts: tuple[float, float] = (
+            (float(raw_page_size[0]), float(raw_page_size[1]))
+            if raw_page_size and len(raw_page_size) >= 2
+            else (612.0, 792.0)
+        )
+    except (TypeError, ValueError, IndexError):
+        page_size_pts = (612.0, 792.0)
+
+    blocks = (page_info.get("para_blocks") or []) + (page_info.get("discarded_blocks") or [])
+
+    if user_kind in _VISUAL_KINDS:
+        # For table/figure: find the first matching block type; fall back to
+        # the first block regardless if none match.
+        target_types = {"table", "chart"} if user_kind == BoxKind.table else {"image"}
+        chosen: dict | None = None
+        for blk in blocks:
+            if blk.get("type", "") in target_types:
+                chosen = blk
+                break
+        if chosen is None and blocks:
+            chosen = blocks[0]
+        if chosen is None:
+            return ""
+        raw_html = _block_to_html(chosen, page_size=page_size_pts)
+        raw_html = _convert_inline_latex(raw_html)
+        if not raw_html:
+            return ""
+        if user_kind == BoxKind.table:
+            inner = f'<div class="extracted-table">{raw_html}</div>'
+        else:
+            inner = f"<figure>{raw_html}</figure>"
+        return f'<div data-source-box="{box_id}">{inner}</div>'
+
+    # Text-like kinds: concatenate plain text from all blocks.
+    text_parts: list[str] = []
+    for blk in blocks:
+        text = _safe_merge_para_text(blk)
+        text = _convert_inline_latex(text)
+        if text.strip():
+            text_parts.append(text.strip())
+    text = " ".join(text_parts)
+    if not text:
+        return ""
+
+    # Synthesise a minimal SegmentBox so we can delegate to _build_one_box_html.
+    # The bbox is expressed in pixel space at raster_dpi=288 (used only for
+    # auxiliary-zone detection inside _build_one_box_html).
+    _raster_dpi = 288
+    scale = _raster_dpi / 72.0
+    x0, y0, x1, y1 = bbox_pts
+    bbox_px = (x0 * scale, y0 * scale, x1 * scale, y1 * scale)
+    synthetic_box = SegmentBox(
+        box_id=box_id,
+        page=page,
+        bbox=bbox_px,
+        kind=user_kind,
+        confidence=1.0,
+        reading_order=0,
+    )
+    synthetic_el = ParsedElement(
+        bbox=bbox_pts,
+        html=f"<p>{text}</p>",
+        text=text,
+        block_type="text",
+    )
+    return _build_one_box_html(synthetic_box, [synthetic_el], page_size_pts, raster_dpi=_raster_dpi)
+
+
 # ── VLM segmentation path (MinerU as layout authority) ───────────────────────
 
 # Mapping from MinerU block type to SegmentBox kind.

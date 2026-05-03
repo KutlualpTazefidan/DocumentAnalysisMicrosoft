@@ -16,6 +16,8 @@ export function useUpdateBox(slug: string, token: string) {
         if (!prev) return prev;
         return { ...prev, boxes: prev.boxes.map((b) => (b.box_id === updated.box_id ? updated : b)) };
       });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
     },
   });
 }
@@ -41,7 +43,11 @@ export function useCreateBox(slug: string, token: string) {
   return useMutation({
     mutationFn: ({ page, bbox, kind }: { page: number; bbox: [number, number, number, number]; kind: BoxKind }) =>
       createBox(slug, page, bbox, kind, token),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["segments", slug] });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+    },
   });
 }
 
@@ -65,7 +71,11 @@ export function useResetBox(slug: string, token: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (boxId: string) => resetBox(slug, boxId, token),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["segments", slug] });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+    },
   });
 }
 
