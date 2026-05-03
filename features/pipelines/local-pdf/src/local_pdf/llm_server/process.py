@@ -326,5 +326,13 @@ def terminate_on_app_shutdown() -> None:
 
 # Tiny convenience for the dev script.
 def vllm_serve_available() -> bool:
-    """True if `vllm` CLI is on PATH (i.e. user has installed vllm-server's deps)."""
+    """True if a usable vllm CLI exists.
+
+    Two locations to check, in order: vllm-server's own .venv (where
+    `uv sync` installs it, isolated from the backend's .venv), then
+    the parent process's PATH as a fallback for users who install
+    vllm globally.
+    """
+    if (VLLM_SERVER_DIR / ".venv" / "bin" / "vllm").exists():
+        return True
     return shutil.which("vllm") is not None
