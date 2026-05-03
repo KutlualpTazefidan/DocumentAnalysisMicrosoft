@@ -1391,14 +1391,14 @@ def test_vlm_segment_aux_three_alignments_share_one_row(
 
 
 def _fake_middle_json_with_overlap_rows() -> dict:
-    """Two header aux at the same VISUAL line but different y0 (different heights).
+    """Real-world-ish: 4 aux items, 2 visual lines (left+right pairs).
 
-    Item A: y0=30, y1=70 (40pt tall — e.g. a 2-line title block).
-    Item B: y0=55, y1=75 (20pt tall — short tag positioned to its right).
+    Top line (y0~30, height ~12):  Section A | Page 7
+    Bottom line (y0~50, height ~12): Subtitle | Rev. 1
 
-    y0 differs by 25pt — the old y0-band heuristic (≤20pt) would have split
-    them into separate rows. But their bboxes vertically overlap, so they
-    should share a row.
+    The bboxes touch by 1pt at y=42 (line 1's y1) → before the y0-distance
+    fix this chained all four into one row, colliding two left items in
+    grid-col-1 and two right items in grid-col-3.
     """
     return {
         "pdf_info": [
@@ -1419,32 +1419,41 @@ def _fake_middle_json_with_overlap_rows() -> dict:
                 "discarded_blocks": [
                     {
                         "type": "text",
-                        "bbox": [50.0, 30.0, 200.0, 70.0],  # tall, left
+                        "bbox": [50.0, 30.0, 200.0, 42.0],  # top-left
                         "lines": [
                             {
-                                "bbox": [50.0, 30.0, 200.0, 70.0],
-                                "spans": [{"content": "Tall Title"}],
+                                "bbox": [50.0, 30.0, 200.0, 42.0],
+                                "spans": [{"content": "Section A"}],
                             }
                         ],
                     },
                     {
                         "type": "text",
-                        "bbox": [460.0, 55.0, 560.0, 75.0],  # short, right
+                        "bbox": [460.0, 30.0, 560.0, 42.0],  # top-right
                         "lines": [
                             {
-                                "bbox": [460.0, 55.0, 560.0, 75.0],
+                                "bbox": [460.0, 30.0, 560.0, 42.0],
                                 "spans": [{"content": "Page 7"}],
                             }
                         ],
                     },
-                    # A truly stacked second-line aux below — should NOT merge.
                     {
                         "type": "text",
-                        "bbox": [50.0, 100.0, 200.0, 120.0],
+                        "bbox": [50.0, 41.0, 200.0, 53.0],  # bottom-left (touches top-left at y=42)
                         "lines": [
                             {
-                                "bbox": [50.0, 100.0, 200.0, 120.0],
+                                "bbox": [50.0, 41.0, 200.0, 53.0],
                                 "spans": [{"content": "Subtitle"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [460.0, 42.0, 560.0, 54.0],  # bottom-right
+                        "lines": [
+                            {
+                                "bbox": [460.0, 42.0, 560.0, 54.0],
+                                "spans": [{"content": "Rev. 1"}],
                             }
                         ],
                     },
@@ -1454,10 +1463,16 @@ def _fake_middle_json_with_overlap_rows() -> dict:
     }
 
 
-def test_vlm_segment_aux_grouping_uses_vertical_bbox_overlap(
+def test_vlm_segment_aux_touching_lines_dont_chain_into_one_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Items whose y-ranges overlap share a row even with different y0."""
+    """Adjacent visual lines whose bboxes touch (1pt overlap) must NOT merge.
+
+    Regression for the page-12 case: 4 aux items at two visual lines.
+    Top-left's y1=42 touches bottom-left's y0=41 — under bbox-overlap they
+    chained, putting all 4 in one row and colliding pairs in one column.
+    Y0-distance metric splits them at y0=30 vs y0=41.
+    """
     root = tmp_path / "raw-pdfs"
     root.mkdir()
     monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
@@ -1481,21 +1496,21 @@ def test_vlm_segment_aux_grouping_uses_vertical_bbox_overlap(
     client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
     html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
 
-    # Two rows: row 1 = Tall Title + Page 7 (overlap), row 2 = Subtitle (stacked below).
+    # Two rows in the top stack: line 1 (Section A + Page 7), line 2 (Subtitle + Rev. 1).
     assert html.count('<div class="aux-row">') == 2
 
-    # Tall Title and Page 7 share row 1 (y-ranges 30-70 and 55-75 overlap).
     row1_open = html.index('<div class="aux-row">')
     row1_block = html[row1_open : html.index("</div>", row1_open)]
-    assert "Tall Title" in row1_block
+    assert "Section A" in row1_block
     assert "Page 7" in row1_block
     assert "Subtitle" not in row1_block
+    assert "Rev. 1" not in row1_block
 
-    # Subtitle is alone in row 2 (y0=100 > Tall Title's y1=70 → no overlap).
     row2_open = html.index('<div class="aux-row">', row1_open + 1)
     row2_block = html[row2_open : html.index("</div>", row2_open)]
     assert "Subtitle" in row2_block
-    assert "Tall Title" not in row2_block
+    assert "Rev. 1" in row2_block
+    assert "Section A" not in row2_block
 
 
 def _fake_middle_json_with_user_reported_pair() -> dict:

@@ -115,38 +115,39 @@ _X_RE = re.compile(r'data-x="(\d+)"')
 _Y_RE = re.compile(r'data-y="(\d+)"')
 _Y1_RE = re.compile(r'data-y1="(\d+)"')
 
-# Vertical-overlap test requires GENUINE overlap (>0pt). A tolerance >0
-# chains stacked-but-touching lines into one row, e.g. row1 ends y1=48
-# and row2 starts y0=48 → with tol=2 they merge, then their union pulls
-# in the next adjacent line, etc. Two items that just touch are stacked,
-# not on the same row.
-_AUX_OVERLAP_TOL_PTS = 0
-
 
 def _group_aux_into_rows(
     items: list[tuple[int, int, int, str]],
 ) -> list[list[str]]:
-    """Group aux items into rows whose vertical bboxes overlap.
+    """Group items into rows by visual-line proximity (y0 distance).
 
-    Items: ``(y0, y1, x0, snippet)``. Two items share a row iff their
-    ``[y0, y1]`` ranges overlap (with ``_AUX_OVERLAP_TOL_PTS`` jitter slack).
-    Each row's effective range grows to the union of its members, so a
-    chain of overlapping items collapses into one row even if the first
-    and last don't directly overlap. Within each row, sort by x0 so DOM
+    "Same row" really means "items on the same visual line." MinerU's bbox
+    y-ranges sometimes touch or overlap by 1-2pt between adjacent lines
+    (because letter ascenders/descenders straddle line boundaries). Pure
+    bbox-overlap then chains the touching lines into one row.
+
+    Instead, anchor each row on its FIRST item's ``y0`` and admit a new
+    candidate iff its ``y0`` differs from that anchor by no more than half
+    the smaller item's height (with a 2pt floor for OCR jitter). Items
+    starting at clearly different y0 land on separate visual lines even
+    if their bboxes overlap by a sliver.
+
+    Items: ``(y0, y1, x0, snippet)``. Within each row, sort by x0 so DOM
     order matches PDF column order.
     """
     if not items:
         return []
     sorted_items = sorted(items, key=lambda t: (t[0], t[2]))
     rows: list[list[tuple[int, int, int, str]]] = [[sorted_items[0]]]
-    for y0, y1, x, snippet in sorted_items[1:]:
-        row_y0 = min(e[0] for e in rows[-1])
-        row_y1 = max(e[1] for e in rows[-1])
-        overlaps = y0 < row_y1 + _AUX_OVERLAP_TOL_PTS and row_y0 < y1 + _AUX_OVERLAP_TOL_PTS
-        if overlaps:
-            rows[-1].append((y0, y1, x, snippet))
+    for entry in sorted_items[1:]:
+        y0, y1, _x, _snippet = entry
+        anchor_y0, anchor_y1, _, _ = rows[-1][0]
+        h_min = min(y1 - y0, anchor_y1 - anchor_y0)
+        tol = max(2, h_min // 2)
+        if abs(y0 - anchor_y0) <= tol:
+            rows[-1].append(entry)
         else:
-            rows.append([(y0, y1, x, snippet)])
+            rows.append([entry])
     return [[s for _, _, _, s in sorted(row, key=lambda t: t[2])] for row in rows]
 
 
