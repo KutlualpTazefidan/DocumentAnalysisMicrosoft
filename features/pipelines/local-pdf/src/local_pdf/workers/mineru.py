@@ -1751,25 +1751,22 @@ def _crop_pdf_with_visual_hint(
 
     spec = _KIND_HINT_SPEC.get(user_kind)
     if spec is not None:
-        label_text, hex_color = spec
+        _label_text, hex_color = spec
         rgb = _hex_to_rgb(hex_color)
 
         draw = ImageDraw.Draw(pil_img)
         w, h = pil_img.size
 
-        # Outer rectangle — 4-pixel-wide border around the full image.
+        # Colored border around the crop — the VLM picks up the color cue
+        # without OCR'ing any baked-in text. Earlier we drew a "PARAGRAPH" /
+        # "HEADING" badge in the corner, but the VLM then transcribed that
+        # label as part of the extracted text (e.g. "...ermittelt: PARAGRAPH").
         border = 4
         for i in range(border):
             draw.rectangle([i, i, w - 1 - i, h - 1 - i], outline=rgb)
-
-        # Label badge — filled rectangle in top-left corner (80 x 20 px).
-        badge_w, badge_h = 80, 20
-        draw.rectangle([0, 0, badge_w, badge_h], fill=rgb)
-        try:
-            font = ImageFont.load_default()
-        except Exception:
-            font = None
-        draw.text((4, 3), label_text, fill=(255, 255, 255), font=font)
+        # ImageFont import is no longer used here, but kept available in
+        # case future visual hints (e.g. an external legend image) need it.
+        _ = ImageFont
 
     # Wrap as a 1-page PDF using PIL's PDF save capability.
     buf = _io.BytesIO()
