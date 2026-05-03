@@ -378,6 +378,74 @@ def test_reextract_page1_replaces_only_page1_elements(
     assert "v1" in by_id["p2-cc"]["html_snippet"]
 
 
+def test_reextract_drops_stale_elements_for_deactivated_boxes(
+    client_with_multipage_segments, monkeypatch
+) -> None:
+    """When a box is deactivated (kind=discard) between extractions, its
+    on-disk html_snippet must NOT survive the next re-extract of that page."""
+    import local_pdf.api.routers.admin.extract as ext_mod
+    from local_pdf.api.schemas import BoxKind, SegmentsFile
+    from local_pdf.storage.sidecar import read_mineru, read_segments, write_segments
+
+    root = client_with_multipage_segments.app.state.config.data_root
+
+    def fake_fn(pdf_path, box):
+        return type("R", (), {"box_id": box.box_id, "html": f"<p>{box.box_id}</p>"})()
+
+    ext_mod._MINERU_EXTRACT_FN = fake_fn
+
+    # Get p1-aa into mineru.json first (so we can also assert it survives the
+    # later page-2 re-extract).
+    r0 = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract?page=1",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r0.status_code == 200
+    list(r0.iter_lines())
+
+    # Initial extract of page 2 — both p2-bb and p2-cc are active.
+    r = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract?page=2",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    list(r.iter_lines())
+
+    after_initial = read_mineru(root, "spec")
+    assert after_initial is not None
+    initial_ids = {e["box_id"] for e in after_initial["elements"]}
+    assert {"p2-bb", "p2-cc"}.issubset(initial_ids)
+
+    # Now deactivate p2-cc (kind=discard) and re-extract page 2.
+    seg = read_segments(root, "spec")
+    assert seg is not None
+    new_boxes = [
+        b.model_copy(update={"kind": BoxKind.discard, "manually_activated": False})
+        if b.box_id == "p2-cc"
+        else b
+        for b in seg.boxes
+    ]
+    write_segments(root, "spec", SegmentsFile(slug="spec", boxes=new_boxes))
+
+    r2 = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract?page=2",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r2.status_code == 200
+    list(r2.iter_lines())
+
+    # After re-extract, p2-cc must be GONE — its previous html_snippet
+    # should not haunt the on-disk mineru data.
+    after_redo = read_mineru(root, "spec")
+    assert after_redo is not None
+    redo_ids = {e["box_id"] for e in after_redo["elements"]}
+    assert "p2-cc" not in redo_ids, "deactivated box's stale snippet must be dropped on re-extract"
+    # p2-bb should still be present (still active on page 2).
+    assert "p2-bb" in redo_ids
+    # Page 1 element must survive (other-pages preserved).
+    assert "p1-aa" in redo_ids
+
+
 # ---------------------------------------------------------------------------
 # _group_list_items unit tests
 # ---------------------------------------------------------------------------

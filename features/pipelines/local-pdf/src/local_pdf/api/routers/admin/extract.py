@@ -194,12 +194,21 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                 # Per-run diagnostics from the assignment helper (split / no-decomposition events).
                 new_diagnostics = list(worker.diagnostics or [])
                 if page is not None:
-                    # Partial extraction: merge new page's elements into the
-                    # existing on-disk mineru data so other pages are preserved.
+                    # Partial extraction: WIPE this page's existing elements
+                    # before applying the new ones. Otherwise boxes that used
+                    # to be active but were since deactivated (kind=discard)
+                    # would keep their stale html_snippet on disk because
+                    # `targets` excludes discards and the new run doesn't
+                    # produce a replacement. Per-page replace = the user's
+                    # current activate/deactivate state always wins.
                     existing_data = read_mineru(cfg.data_root, slug)
                     existing_elements = existing_data["elements"] if existing_data else []
-                    merged = _merge_elements(existing_elements, new_elements)
-                    # Merge diagnostics: keep entries for pages NOT in the new run, append new ones.
+                    other_pages = [
+                        e
+                        for e in existing_elements
+                        if _page_from_box_id(e.get("box_id", "")) != page
+                    ]
+                    merged = other_pages + new_elements
                     existing_diags = existing_data.get("diagnostics", []) if existing_data else []
                     kept_diags = [d for d in existing_diags if d.get("page") != page]
                     merged_diagnostics = kept_diags + new_diagnostics
