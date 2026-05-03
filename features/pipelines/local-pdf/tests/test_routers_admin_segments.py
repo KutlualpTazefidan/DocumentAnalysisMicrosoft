@@ -1585,6 +1585,131 @@ def test_vlm_segment_aux_user_reported_pair_shares_one_row(
     assert 'data-aux-align="right"' in row_block
 
 
+def _fake_middle_json_with_two_stacked_pairs() -> dict:
+    """Real-world page-7 layout: GNB+Seite7 on top line, TR+Rev.1 below.
+
+    Source y/x in pts (from user-reported HTML data-aux-y values):
+      GNB    y0=37, y1=48  x0=67   (top-left)
+      TR     y0=49, y1=59  x0=67   (bottom-left)
+      Seite7 y0=37, y1=47  x0=472  (top-right)
+      Rev.1  y0=48, y1=58  x0=508  (bottom-right)
+
+    GNB(37,48) and Rev.1(48,58) just touch at y=48 — the prior 2pt
+    tolerance chained them, so all 4 ended up in one row with two
+    left-items colliding in grid-column 1 and two right-items in
+    grid-column 3. Genuine-overlap test (tol=0) keeps them in 2 rows.
+    """
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 200.0, 600.0, 250.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 200.0, 600.0, 250.0],
+                                "spans": [{"content": "Body."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [67.0, 37.0, 145.0, 48.0],
+                        "lines": [
+                            {
+                                "bbox": [67.0, 37.0, 145.0, 48.0],
+                                "spans": [{"content": "GNB B 148/2001"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [67.0, 49.0, 145.0, 59.0],
+                        "lines": [
+                            {
+                                "bbox": [67.0, 49.0, 145.0, 59.0],
+                                "spans": [{"content": "TR K 0161"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [472.0, 37.0, 580.0, 47.0],
+                        "lines": [
+                            {
+                                "bbox": [472.0, 37.0, 580.0, 47.0],
+                                "spans": [{"content": "Seite 7 von 42"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [508.0, 48.0, 580.0, 58.0],
+                        "lines": [
+                            {
+                                "bbox": [508.0, 48.0, 580.0, 58.0],
+                                "spans": [{"content": "Rev. 1"}],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def test_vlm_segment_aux_two_stacked_pairs_become_two_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two visually-stacked pairs of aux must render as 2 rows, not 1.
+
+    Regression: items that *touch* but don't overlap (e.g. y1=48 / y0=48)
+    must NOT be merged into the same row.
+    """
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(
+        seg_mod,
+        "_VLM_PARSE_DOC_FN",
+        lambda _bytes: _fake_middle_json_with_two_stacked_pairs(),
+    )
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    html = client.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}).json()["html"]
+
+    # Two rows: top (GNB + Seite7), bottom (TR + Rev.1).
+    assert html.count('<div class="aux-row">') == 2
+
+    row1_open = html.index('<div class="aux-row">')
+    row1_block = html[row1_open : html.index("</div>", row1_open)]
+    assert "GNB B 148/2001" in row1_block
+    assert "Seite 7 von 42" in row1_block
+    assert "TR K 0161" not in row1_block
+    assert "Rev. 1" not in row1_block
+
+    row2_open = html.index('<div class="aux-row">', row1_open + 1)
+    row2_block = html[row2_open : html.index("</div>", row2_open)]
+    assert "TR K 0161" in row2_block
+    assert "Rev. 1" in row2_block
+    assert "GNB B 148/2001" not in row2_block
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"

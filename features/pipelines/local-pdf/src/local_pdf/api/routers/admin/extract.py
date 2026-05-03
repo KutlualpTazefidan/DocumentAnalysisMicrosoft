@@ -105,9 +105,12 @@ _AUX_X_RE = re.compile(r'data-aux-x="(\d+)"')
 _AUX_Y_RE = re.compile(r'data-aux-y="(\d+)"')
 _AUX_Y1_RE = re.compile(r'data-aux-y1="(\d+)"')
 
-# Tolerance (pts) for the vertical-overlap test — absorbs small OCR jitter
-# without collapsing genuinely-stacked lines.
-_AUX_OVERLAP_TOL_PTS = 2
+# Vertical-overlap test requires GENUINE overlap (>0pt). A tolerance >0
+# chains stacked-but-touching lines into one row, e.g. row1 ends y1=48
+# and row2 starts y0=48 → with tol=2 they merge, then their union pulls
+# in the next adjacent line, etc. Two items that just touch are stacked,
+# not on the same row.
+_AUX_OVERLAP_TOL_PTS = 0
 
 
 def _group_aux_into_rows(
