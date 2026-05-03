@@ -431,7 +431,7 @@ def _convert_inline_latex(s: str) -> str:
             try:
                 from latex2mathml.converter import convert as _l2mml
 
-                return str(_l2mml(_normalize_latex_primes(body)))
+                return str(_l2mml(body))
             except Exception as exc:
                 _logger.debug("inline latex2mathml failed for %r: %s", body[:80], exc)
                 return html_lib.escape(body)
@@ -451,26 +451,10 @@ def _convert_inline_latex(s: str) -> str:
 
 
 # Matches a single bare LaTeX expression: command + optional {arg} + any
-# number of trailing ^{...} / _{...} / ^X / _X parts, plus optional trailing
-# primes ('+). Constrained to non-nested braces and ASCII names so we don't
-# accidentally chew through code blocks or paths like C:\Users\foo (which
-# lack the {arg} pattern).
-_BARE_LATEX_RE = re.compile(r"\\[a-zA-Z]+\{[^{}]*\}(?:[\^_](?:\{[^{}]*\}|\w))*'*")
-
-# MinerU often emits primes AFTER a subscript: \dot{Q}_{max, X}''. The
-# convention is primes-before-subscript on the variable itself. Move them
-# so latex2mathml renders Q̇'' as one unit with the subscript attached.
-_TRAILING_PRIMES_AFTER_SUBSCRIPT_RE = re.compile(r"(_\{[^{}]*\}|_\w)('+)$")
-
-
-def _normalize_latex_primes(latex: str) -> str:
-    """Move trailing primes from after a subscript to before it.
-
-    ``\\dot{Q}_{max,X}''`` → ``\\dot{Q}''_{max,X}`` so latex2mathml renders
-    the prime as part of the variable, not floating after the subscript.
-    No-op when no primes are at the tail.
-    """
-    return _TRAILING_PRIMES_AFTER_SUBSCRIPT_RE.sub(r"\2\1", latex)
+# number of trailing ^{...} / _{...} / ^X / _X parts. Constrained to
+# non-nested braces and ASCII names so we don't accidentally chew through
+# code blocks or paths like C:\Users\foo (which lack the {arg} pattern).
+_BARE_LATEX_RE = re.compile(r"\\[a-zA-Z]+\{[^{}]*\}(?:[\^_](?:\{[^{}]*\}|\w))*")
 
 
 def _convert_bare_latex(s: str) -> str:
@@ -488,7 +472,7 @@ def _convert_bare_latex(s: str) -> str:
         return s
 
     def _replace(m: re.Match[str]) -> str:
-        body = _normalize_latex_primes(m.group(0))
+        body = m.group(0)
         try:
             return str(_l2mml(body))
         except Exception as exc:
