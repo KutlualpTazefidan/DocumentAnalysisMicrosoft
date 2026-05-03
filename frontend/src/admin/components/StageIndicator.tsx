@@ -30,7 +30,9 @@ function fmtEta(seconds: number | null | undefined): string | null {
 export function StageIndicator({ state }: Props): JSX.Element | null {
   const [open, setOpen] = useState(false);
 
-  if (state.stage === "idle" && state.timeline.length === 0) {
+  // Defensive: a malformed reducer event in the past could leave state
+  // undefined; render nothing rather than crashing the whole tree.
+  if (!state || (state.stage === "idle" && state.timeline.length === 0)) {
     return null;
   }
 

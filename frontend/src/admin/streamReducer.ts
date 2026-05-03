@@ -90,4 +90,8 @@ export function applyEvent(prev: StreamState, ev: WorkerEvent): StreamState {
         timeline,
       };
   }
+  // Unknown event shape (e.g. a malformed NDJSON line, or a JSON error
+  // body that slipped past the streamer). Keep the previous state so the
+  // reducer never returns undefined.
+  return prev;
 }

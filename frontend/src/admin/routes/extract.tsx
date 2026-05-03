@@ -147,6 +147,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       }
       await html.refetch();
       await mineru.refetch();
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
       setRunning(false);
     }
@@ -162,6 +164,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       }
       await html.refetch();
       await mineru.refetch();
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
       setRunning(false);
     }

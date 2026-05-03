@@ -104,6 +104,18 @@ export async function* streamExtract(slug: string, token: string, page?: number)
     method: "POST",
     headers: { "X-Auth-Token": token },
   });
+  if (!r.ok) {
+    // Surface the backend error body (typically `{"detail": "..."}`) instead
+    // of yielding garbage NDJSON into the stream reducer.
+    let detail = `${r.status} ${r.statusText}`;
+    try {
+      const body = await r.json();
+      if (body && typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* keep the status-line fallback */
+    }
+    throw new Error(`extract failed: ${detail}`);
+  }
   if (!r.body) throw new Error("no body");
   yield* readNdjsonLines<WorkerEvent>(r.body);
 }
