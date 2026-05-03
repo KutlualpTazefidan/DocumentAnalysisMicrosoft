@@ -241,7 +241,7 @@ async def run_segment(
                 cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes, raster_dpi=288)
             )
             write_mineru(cfg.data_root, slug, {"elements": all_elements, "diagnostics": []})
-            write_html(cfg.data_root, slug, _wrap_html(all_elements))
+            write_html(cfg.data_root, slug, _render_active_html(all_elements, all_boxes))
 
             meta = read_meta(cfg.data_root, slug)
             if meta is not None:
@@ -302,6 +302,37 @@ def _load_boxes_or_404(data_root, slug: str) -> list[SegmentBox]:
     if seg is None:
         raise HTTPException(status_code=404, detail=f"no segments for {slug}")
     return list(seg.boxes)
+
+
+def _render_active_html(
+    elements: list[dict],
+    boxes: list[SegmentBox],
+) -> str:
+    """Render html.html from elements, filtering out kind=discard boxes.
+
+    Discarded boxes stay in mineru.json (so reactivating preserves the
+    snippet without re-running VLM) but are hidden from the rendered
+    HTML so the user sees only active content.
+    """
+    discarded = {b.box_id for b in boxes if b.kind == BoxKind.discard}
+    filtered = [e for e in elements if e.get("box_id") not in discarded]
+    return _wrap_html(filtered)
+
+
+def _refresh_active_html(cfg, slug: str) -> None:
+    """Regenerate html.html from current mineru.json + segments.json.
+
+    Used after a kind change to discard, where no VLM re-extract is needed
+    — we just need to filter out the deactivated box from the rendered
+    HTML.
+    """
+    m = read_mineru(cfg.data_root, slug)
+    if m is None:
+        return
+    seg = read_segments(cfg.data_root, slug)
+    boxes = list(seg.boxes) if seg is not None else []
+    elements = list(m.get("elements", []))
+    write_html(cfg.data_root, slug, _render_active_html(elements, boxes))
 
 
 def _re_extract_box(
@@ -395,7 +426,9 @@ def _re_extract_box(
                 }
             )
         write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
-        write_html(cfg.data_root, slug, _wrap_html(elements))
+        seg_now = read_segments(cfg.data_root, slug)
+        boxes_now = list(seg_now.boxes) if seg_now is not None else []
+        write_html(cfg.data_root, slug, _render_active_html(elements, boxes_now))
     except Exception:
         logging.getLogger(__name__).exception(
             "vlm_extract_bbox failed for %s/%s — keeping old html_snippet", slug, box.box_id
@@ -431,13 +464,19 @@ async def update_box(
             boxes[i] = b.model_copy(update=updates)
             _replace_segments(cfg.data_root, slug, boxes)
             if reextract and (bbox_changed or kind_changed):
-                _re_extract_box(
-                    cfg,
-                    slug,
-                    boxes[i],
-                    raster_dpi,
-                    old_kind=prev_kind if kind_changed else None,
-                )
+                if boxes[i].kind == BoxKind.discard:
+                    # Going to discard: skip VLM, just refresh html with the
+                    # box filtered out. Snippet stays in mineru.json so a later
+                    # reactivate doesn't need a re-extract.
+                    _refresh_active_html(cfg, slug)
+                else:
+                    _re_extract_box(
+                        cfg,
+                        slug,
+                        boxes[i],
+                        raster_dpi,
+                        old_kind=prev_kind if kind_changed else None,
+                    )
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
@@ -450,6 +489,7 @@ async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]
         if b.box_id == box_id:
             boxes[i] = b.model_copy(update={"kind": BoxKind.discard})
             _replace_segments(cfg.data_root, slug, boxes)
+            _refresh_active_html(cfg, slug)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 

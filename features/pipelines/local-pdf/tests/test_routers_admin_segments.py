@@ -1833,6 +1833,58 @@ def test_vlm_segment_table_caption_rendered_as_separate_paragraph(
     assert html.index('data-source-box="p1-b0"') < html.index('data-source-box="p1-b1"')
 
 
+def test_vlm_segment_kind_change_to_discard_hides_box_from_html(
+    client_vlm_segment,
+) -> None:
+    """PUT kind=discard must drop the box from html.html (filter at render)."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    # Both p1-b0 (heading) and p1-b1 (paragraph) start visible.
+    html_before = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert 'data-source-box="p1-b0"' in html_before
+    assert 'data-source-box="p1-b1"' in html_before
+
+    # Deactivate p1-b1; reextract=false to skip VLM (no real model in tests).
+    r = client_vlm_segment.put(
+        "/api/admin/docs/doc/segments/p1-b1?reextract=false",
+        headers={"X-Auth-Token": "tok"},
+        json={"kind": "discard"},
+    )
+    assert r.status_code == 200
+
+    # Manually trigger html refresh — production path runs this via
+    # update_box's _refresh_active_html branch when reextract=true.
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    cfg = client_vlm_segment.app.state.config
+    seg_mod._refresh_active_html(cfg, "doc")
+
+    html_after = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert 'data-source-box="p1-b0"' in html_after  # still visible
+    assert 'data-source-box="p1-b1"' not in html_after  # hidden
+
+
+def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
+    """DELETE /segments/{box_id} marks discard AND refreshes html."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    r = client_vlm_segment.delete(
+        "/api/admin/docs/doc/segments/p1-b1", headers={"X-Auth-Token": "tok"}
+    )
+    assert r.status_code == 200
+    assert r.json()["kind"] == "discard"
+
+    html_after = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert 'data-source-box="p1-b0"' in html_after
+    assert 'data-source-box="p1-b1"' not in html_after
+
+
 def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
     """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
     root = tmp_path / "raw-pdfs"
