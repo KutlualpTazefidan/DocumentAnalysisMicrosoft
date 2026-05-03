@@ -51,13 +51,14 @@ function buildDoc(headContent: string, bodyContent: string): string {
 }
 
 /**
- * Rewrite ``<img src="mineru-images/foo.jpg">`` to an absolute API URL.
+ * Rewrite ``<img src="mineru-images/foo.jpg">`` to a fully-qualified URL.
  *
  * The worker emits a relative ``mineru-images/{file}`` path in html.html
  * because images live on disk at ``data_root/{slug}/mineru-images/{file}``
  * and a backend route serves them. The iframe in HtmlEditor uses srcdoc,
- * whose base URL is ``about:srcdoc``, so relative paths can't reach an
- * HTTP route — we rewrite to absolute before passing the html to srcdoc.
+ * whose base is ``about:srcdoc`` — so relative URLs (and even root-relative
+ * ``/api/...`` URLs when apiBase is empty) can't reach the HTTP route. We
+ * prepend the window origin when no explicit apiBase is configured.
  */
 export function rewriteImageSources(
   html: string,
@@ -65,7 +66,9 @@ export function rewriteImageSources(
   slug: string,
 ): string {
   if (!html || !slug) return html;
-  const prefix = `${apiBase}/api/admin/docs/${encodeURIComponent(slug)}/mineru-images/`;
+  const origin =
+    apiBase || (typeof window !== "undefined" ? window.location.origin : "");
+  const prefix = `${origin}/api/admin/docs/${encodeURIComponent(slug)}/mineru-images/`;
   return html.replace(
     /(<img[^>]*\bsrc=")mineru-images\/([^"]+)(")/gi,
     (_full, pre, file, post) => `${pre}${prefix}${file}${post}`,
