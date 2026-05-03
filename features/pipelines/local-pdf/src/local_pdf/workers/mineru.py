@@ -2043,11 +2043,13 @@ def _aux_alignment(x0: float, x1: float, page_width: float) -> str:
 # Visual parent block types whose `blocks` array carries body/caption/footnote.
 _VLM_VISUAL_PARENT_TYPES: frozenset[str] = frozenset({"table", "image", "chart", "code"})
 
-# Sub-block type → SegmentBox kind. Charts treated as tables (same rendering
-# story); code captions/footnotes share the caption/auxiliary kinds.
+# Sub-block type → SegmentBox kind. Charts render as <figure><img> like
+# images (MinerU stores them as image_path), so they should also carry
+# kind=figure — keeps the SegmentBox kind consistent with the rendered
+# HTML element.
 _VLM_VISUAL_SUB_KIND: dict[str, BoxKind] = {
     "table_body": BoxKind.table,
-    "chart_body": BoxKind.table,
+    "chart_body": BoxKind.figure,
     "image_body": BoxKind.figure,
     "code_body": BoxKind.formula,
     "table_caption": BoxKind.caption,
