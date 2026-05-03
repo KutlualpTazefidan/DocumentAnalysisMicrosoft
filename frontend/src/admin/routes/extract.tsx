@@ -19,6 +19,8 @@ import { StageIndicator } from "../components/StageIndicator";
 import { rewriteImageSources, sliceHtmlByPage } from "../lib/extractHtml";
 import { apiBase } from "../api/adminClient";
 import {
+  useCreateBox,
+  useDeleteBox,
   useMergeBoxDown,
   useMergeBoxUp,
   useResetBox,
@@ -115,6 +117,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const mergeDownMut = useMergeBoxDown(slug ?? "", token);
   const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
   const unmergeDownMut = useUnmergeBoxDown(slug ?? "", token);
+  const createBoxMut = useCreateBox(slug ?? "", token);
+  const deleteBoxMut = useDeleteBox(slug ?? "", token);
 
   // Current page is persisted per-doc so segment/extract tabs stay in sync.
   const [page, setPageRaw] = useState(() => loadCurrentPage(slug ?? ""));
@@ -564,6 +568,51 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <p className={`${T.body} text-slate-400 text-center`}>
             {boxesOnPage.length} boxes on page {page}
           </p>
+
+          {/* New / Delete box — POST /segments (creates a kind=paragraph
+              box; user adjusts via the kind dropdown below) and DELETE
+              /segments/{id} (sets kind=discard, hides from html). Both
+              trigger _re_extract_box on the backend so the new region is
+              VLM-extracted immediately. */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              aria-label="New box"
+              disabled={createBoxMut.isPending}
+              className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() =>
+                createBoxMut.mutate(
+                  { page, bbox: [50, 50, 200, 200], kind: "paragraph" },
+                  {
+                    onError: (e) =>
+                      error(e instanceof Error ? e.message : "Box anlegen fehlgeschlagen"),
+                    onSuccess: (created) => success(`neue Box: ${created.box_id}`),
+                  },
+                )
+              }
+            >
+              {createBoxMut.isPending ? "…" : "New box"}
+            </button>
+            <button
+              aria-label="Delete box"
+              disabled={!focusedBox || deleteBoxMut.isPending}
+              title={!focusedBox ? "Wähle zuerst eine Box aus" : `Box ${focusedBox.box_id} löschen`}
+              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => {
+                if (!focusedBox) return;
+                if (!window.confirm(`Box ${focusedBox.box_id} löschen?`)) return;
+                deleteBoxMut.mutate(focusedBox.box_id, {
+                  onError: (e) =>
+                    error(e instanceof Error ? e.message : "Löschen fehlgeschlagen"),
+                  onSuccess: () => {
+                    setHighlight(null);
+                    success(`gelöscht: ${focusedBox.box_id}`);
+                  },
+                });
+              }}
+            >
+              {deleteBoxMut.isPending ? "…" : "Delete box"}
+            </button>
+          </div>
 
           {/* Box properties — same panel as segment route. Editing kind /
               merge / activate / reset triggers the unified VLM pipeline
