@@ -37,7 +37,16 @@ export interface ExtractDiagnostic {
 
 /** Shape returned by GET /api/admin/docs/{slug}/mineru */
 export interface MineruFile {
-  elements: Array<{ box_id: string; html_snippet: string }>;
+  elements: Array<{
+    box_id: string;
+    html_snippet: string;
+    /** Pre-transform snippet: raw LaTeX / table HTML before our
+     *  _convert_inline_latex pass. Surfaced in the Quelltext panel so
+     *  the user sees what MinerU actually wrote (with $..$, \dot{Q},
+     *  etc.) rather than the rendered MathML. Optional so older
+     *  mineru.json files written before this field existed still parse. */
+    html_snippet_raw?: string;
+  }>;
   diagnostics?: ExtractDiagnostic[];
 }
 

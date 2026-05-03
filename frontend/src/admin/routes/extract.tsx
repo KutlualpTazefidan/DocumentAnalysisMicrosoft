@@ -679,8 +679,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             pending={updateBoxMut.isPending}
             rawSnippet={
               focusedBox
-                ? mineru.data?.elements.find((e) => e.box_id === focusedBox.box_id)
-                    ?.html_snippet ?? ""
+                ? (() => {
+                    const el = mineru.data?.elements.find(
+                      (e) => e.box_id === focusedBox.box_id,
+                    );
+                    return el?.html_snippet_raw ?? el?.html_snippet ?? "";
+                  })()
                 : undefined
             }
           />

@@ -431,7 +431,7 @@ def _convert_inline_latex(s: str) -> str:
             try:
                 from latex2mathml.converter import convert as _l2mml
 
-                return str(_l2mml(body))
+                return str(_l2mml(_normalize_text_subscripts(body)))
             except Exception as exc:
                 _logger.debug("inline latex2mathml failed for %r: %s", body[:80], exc)
                 return html_lib.escape(body)
@@ -456,6 +456,28 @@ def _convert_inline_latex(s: str) -> str:
 # code blocks or paths like C:\Users\foo (which lack the {arg} pattern).
 _BARE_LATEX_RE = re.compile(r"\\[a-zA-Z]+\{[^{}]*\}(?:[\^_](?:\{[^{}]*\}|\w))*")
 
+# Sub/sup bodies that look like text labels (multi-letter words such as
+# "max", "Brennstab") render as a string of italic <mi>'s in MathML — like
+# variable multiplication. Wrap such bodies in \mathrm{} so they read as
+# upright text. Skip bodies that already contain LaTeX commands or only
+# single letters (which are real math variables).
+_SUB_SUP_BODY_RE = re.compile(r"([_^])\{([^{}]*)\}")
+_TWO_LETTER_RUN_RE = re.compile(r"[A-Za-z]{2,}")
+
+
+def _normalize_text_subscripts(latex: str) -> str:
+    """Wrap multi-letter sub/sup bodies in ``\\mathrm{}`` for upright rendering."""
+
+    def _replace(m: re.Match[str]) -> str:
+        op, body = m.group(1), m.group(2)
+        if "\\" in body:
+            return m.group(0)
+        if not _TWO_LETTER_RUN_RE.search(body):
+            return m.group(0)
+        return f"{op}{{\\mathrm{{{body}}}}}"
+
+    return _SUB_SUP_BODY_RE.sub(_replace, latex)
+
 
 def _convert_bare_latex(s: str) -> str:
     """Convert undelimited LaTeX expressions in *s* to inline MathML.
@@ -472,7 +494,7 @@ def _convert_bare_latex(s: str) -> str:
         return s
 
     def _replace(m: re.Match[str]) -> str:
-        body = m.group(0)
+        body = _normalize_text_subscripts(m.group(0))
         try:
             return str(_l2mml(body))
         except Exception as exc:
@@ -499,7 +521,7 @@ def _convert_display_math(s: str) -> str:
         if not body:
             return ""
         try:
-            mathml = _l2mml(body)
+            mathml = _l2mml(_normalize_text_subscripts(body))
         except Exception as exc:  # latex2mathml raises various exception types
             _logger.debug("latex2mathml failed for %r: %s", body[:80], exc)
             escaped = html_lib.escape(body)
@@ -2074,6 +2096,12 @@ class VlmSegmentBlock:
     kind: str = "block"
     box: SegmentBox = None  # type: ignore[assignment]
     html_snippet: str = ""
+    # Pre-LaTeX-conversion version of html_snippet. Same as html_snippet for
+    # blocks that don't go through _convert_inline_latex. Stored alongside
+    # the rendered snippet in mineru.json so the UI's Quelltext panel can
+    # surface what MinerU actually wrote (raw LaTeX, etc.) before our
+    # MathML transforms.
+    html_snippet_raw: str = ""
     page_size_pts: tuple[float, float] = (612.0, 792.0)
 
 
@@ -2421,10 +2449,10 @@ def vlm_segment_doc(
                         sx0, sy0, sx1, sy1 = (float(v) for v in sub_bbox[:4])
                     except (TypeError, ValueError):
                         continue
-                    sub_html = _render_visual_sub_block_html(sub, sub_type)
-                    if not sub_html:
+                    sub_html_raw = _render_visual_sub_block_html(sub, sub_type)
+                    if not sub_html_raw:
                         continue
-                    sub_html = _convert_inline_latex(sub_html)
+                    sub_html = _convert_inline_latex(sub_html_raw)
                     sub_box_id = f"p{page_number}-b{box_counter}"
                     sub_html = _inject_outer_attrs(
                         sub_html,
@@ -2454,6 +2482,7 @@ def vlm_segment_doc(
                         kind="block",
                         box=sub_box,
                         html_snippet=sub_html,
+                        html_snippet_raw=sub_html_raw,
                         page_size_pts=page_size_pts,
                     )
                     box_counter += 1
@@ -2498,8 +2527,8 @@ def vlm_segment_doc(
                         sub_box_id = f"p{page_number}-b{box_counter}"
                         sub_y_mid = (sy0 + sy1) / 2
                         in_top = sub_y_mid < page_h / 2
-                        sub_html = _aux_line_html(sub.text, in_top_zone=in_top)
-                        sub_html = _convert_inline_latex(sub_html)
+                        sub_html_raw = _aux_line_html(sub.text, in_top_zone=in_top)
+                        sub_html = _convert_inline_latex(sub_html_raw)
                         sub_html = _inject_outer_attrs(
                             sub_html,
                             {
@@ -2524,6 +2553,7 @@ def vlm_segment_doc(
                             kind="block",
                             box=sub_box,
                             html_snippet=sub_html,
+                            html_snippet_raw=sub_html_raw,
                             page_size_pts=page_size_pts,
                         )
                         box_counter += 1
@@ -2615,8 +2645,8 @@ def vlm_segment_doc(
                 manually_activated=False,
             )
 
-            html_snippet = _block_to_html(block, page_size=page_size_pts)
-            html_snippet = _convert_inline_latex(html_snippet)
+            html_snippet_raw = _block_to_html(block, page_size=page_size_pts)
+            html_snippet = _convert_inline_latex(html_snippet_raw)
             # Positional attrs (data-x/y/y1) go on every snippet so _wrap_html
             # can group same-y items into rows regardless of kind. Aux items
             # also carry zone (header/footer) + align (left/center/right).
@@ -2637,6 +2667,7 @@ def vlm_segment_doc(
                 kind="block",
                 box=box,
                 html_snippet=html_snippet,
+                html_snippet_raw=html_snippet_raw,
                 page_size_pts=page_size_pts,
             )
 

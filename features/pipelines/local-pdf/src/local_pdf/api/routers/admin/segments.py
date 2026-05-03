@@ -205,7 +205,15 @@ async def run_segment(
             ):
                 if isinstance(ev, VlmSegmentBlock):
                     new_boxes.append(ev.box)
-                    new_elements.append({"box_id": ev.box.box_id, "html_snippet": ev.html_snippet})
+                    new_elements.append(
+                        {
+                            "box_id": ev.box.box_id,
+                            "html_snippet": ev.html_snippet,
+                            # Pre-LaTeX-conversion source so the UI's
+                            # "Quelltext" panel surfaces what MinerU wrote.
+                            "html_snippet_raw": ev.html_snippet_raw or ev.html_snippet,
+                        }
+                    )
                 else:
                     # WorkerEvent — yield to client.
                     yield ev.model_dump_json() + "\n"
@@ -424,14 +432,23 @@ def _re_extract_box(
         # keep the previous snippet — losing the old html on a no-op
         # re-extract makes the box "vanish" from the rendered page.
         if new_html:
+            # Re-extract path doesn't have a separate "raw" form to preserve
+            # (vlm_extract_bbox already returns the rendered snippet), so
+            # the raw mirrors the rendered. The Quelltext panel will still
+            # show this — just not as pristine as the segment-time path.
+            new_entry = {
+                "box_id": box.box_id,
+                "html_snippet": new_html,
+                "html_snippet_raw": new_html,
+            }
             found = False
             for i, el in enumerate(elements):
                 if el.get("box_id") == box.box_id:
-                    elements[i] = {"box_id": box.box_id, "html_snippet": new_html}
+                    elements[i] = new_entry
                     found = True
                     break
             if not found:
-                elements.append({"box_id": box.box_id, "html_snippet": new_html})
+                elements.append(new_entry)
 
         if old_kind is not None:
             # Strip HTML tags for the text preview.
