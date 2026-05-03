@@ -1,6 +1,6 @@
 # Phasenübersicht — Goldset-System
 
-> **Letzte Aktualisierung:** 2026-05-01 (A.0 Local PDF Pipeline gemerged via PR #26 + Model-Lifecycle/Progress follow-up via PR #27. Cleanup PRs #28/#29 ebenfalls merged. Phase A vollständig: A.0 → A.8 + A-Plus.1/.2 alle auf main. Phase B/C/D als nächstes.)
+> **Letzte Aktualisierung:** 2026-05-03 (A.1.0 Coherence + Roles + Extract-Pipeline-Hardening als PR offen — bündelt Admin/Curator-Shells, role-prefixed Backend-Routes, VLM-getriebenen Extract-Pfad mit Per-Sub-Block-Boxen, MathML-Rendering, Aux-Row-Layout, Footnote-Heuristiken, Segment-Route-Entfernung. Davor: A.0 Local PDF Pipeline via PR #26 + Model-Lifecycle/Progress via PR #27. Phase A: A.0 → A.8 + A-Plus.1/.2 alle merged. Phase B/C/D als nächstes.)
 > **Detail-Specs:** [`docs/superpowers/specs/`](superpowers/specs/) — vollständige Design-Dokumente pro Phase
 > **Pläne:** [`docs/superpowers/plans/`](superpowers/plans/) — granulare Implementations-Pläne
 
@@ -56,6 +56,7 @@ features/
 | A.8 | Pydantic v2 core migration (prerequisite for A-Plus) | ✅ merged | [#22](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/22) | [pydantic-core-migration-design.md](superpowers/specs/2026-04-30-pydantic-core-migration-design.md), [plan](superpowers/plans/2026-04-30-pydantic-core-migration.md) |
 | A-Plus.1 | `goldens/api/` (FastAPI backend) | ✅ merged | [#24](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/24) | [a-plus-1-backend-design.md](superpowers/specs/2026-04-30-a-plus-1-backend-design.md), [plan](superpowers/plans/2026-04-30-a-plus-1-backend.md) |
 | A-Plus.2 | `frontend/` (React SPA) | ✅ merged | [#25](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/25) | [a-plus-2-frontend-design.md](superpowers/specs/2026-04-30-a-plus-2-frontend-design.md), [plan](superpowers/plans/2026-04-30-a-plus-2-frontend.md) |
+| A.1.0 | Coherence + roles + UI polish + extract-pipeline hardening (admin/curator shells, role-prefixed routes, MinerU VLM-driven extract, MathML, footnote heuristics, segment-route removal) | 🚧 PR open | (TBD) | [coherence-and-roles-design.md](superpowers/specs/2026-05-01-coherence-and-roles-design.md) |
 | B | Answer-Quality + LLM-Judge | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | C | Klassifikation + Multi-Agent | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | D | User-Signale auf Chunks und Test-Fragen | 💭 Idee, Brainstorming offen | — | (Skizze unten) |
