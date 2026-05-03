@@ -13,9 +13,17 @@ dependencies = [
     "pydantic-settings>=2.0,<3",
     "uvicorn[standard]>=0.27,<1.0",
     "pdfplumber>=0.11,<0.12",
+    "pypdf>=4.0,<5",
     "doclayout-yolo>=0.0.4",
-    "mineru>=3.0,<4",
+    # 'core' extra pulls torch + transformers + the VLM stack (MinerU2.5-Pro
+    # 1.2B). Bare 'mineru' is just the CLI shell and fails at runtime with
+    # HybridDependencyError when extraction kicks off. See PR #26 follow-up.
+    "mineru[core]>=3.0,<4",
     "python-multipart>=0.0.9",
+    # LaTeX → MathML for rendering display equations ($$...$$) in the
+    # sandboxed preview iframe. Modern browsers render MathML natively,
+    # so we don't need to lift the sandbox to load KaTeX/MathJax JS.
+    "latex2mathml>=3.77,<4",
     "goldens",
 ]
 

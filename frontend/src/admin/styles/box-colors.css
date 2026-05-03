@@ -1,0 +1,53 @@
+.box-heading    { --box-color: #2563eb; }
+.box-paragraph  { --box-color: #16a34a; }
+.box-table      { --box-color: #ea580c; }
+.box-figure     { --box-color: #0d9488; }
+.box-caption    { --box-color: #9333ea; }
+.box-formula    { --box-color: #db2777; }
+.box-list_item  { --box-color: #4f46e5; }
+.box-auxiliary  { --box-color: #06b6d4; }
+.box-discard    { --box-color: #6b7280; }
+
+.box-outline {
+  position: absolute;
+  border: 2px solid var(--box-color);
+  background: color-mix(in srgb, var(--box-color) 8%, transparent);
+  cursor: pointer;
+}
+
+.box-outline.selected { outline: 2px dashed #ef4444; outline-offset: 2px; }
+.box-outline.low-confidence { animation: box-pulse 1.4s ease-in-out infinite; }
+
+@keyframes box-pulse {
+  50% { background: color-mix(in srgb, #facc15 25%, transparent); }
+}
+
+.box-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border: 1px solid white;
+}
+
+/* Hidden by default so labels don't cover tiny boxes' PDF text.
+ * Revealed on hover or when the box is selected. */
+.box-label {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  padding: 1px 4px;
+  font-size: 10px;
+  background: var(--box-color);
+  color: white;
+  border-radius: 2px;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.box-outline:hover .box-label,
+.box-outline.selected .box-label {
+  opacity: 1;
+}

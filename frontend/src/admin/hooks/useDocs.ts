@@ -1,0 +1,43 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { deleteDoc, listDocs, publishDoc, uploadDoc } from "../api/docs";
+import { clearLocalStorageForSlug } from "../lib/docLocalState";
+
+export function useDocs(token: string) {
+  return useQuery({ queryKey: ["docs"], queryFn: () => listDocs(token), staleTime: 5_000 });
+}
+
+export function useUploadDoc(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => uploadDoc(file, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["docs"] }),
+  });
+}
+
+export function usePublishDoc(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => publishDoc(slug, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["docs"] }),
+  });
+}
+
+export function useDeleteDoc(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => deleteDoc(slug, token),
+    onSuccess: (_data, slug) => {
+      // Wipe per-doc localStorage (page locks, conf thresholds, current page).
+      clearLocalStorageForSlug(slug);
+      qc.invalidateQueries({ queryKey: ["docs"] });
+      // Drop ALL React Query caches whose key includes the deleted slug.
+      // unique_slug recycles slugs once their dir is gone, so re-uploading
+      // the same filename collides with the cached ["segments", slug] /
+      // ["mineru", slug] / ["html", slug] / ["doc", slug] entries — without
+      // this, the user sees ghost results from the previous doc.
+      qc.removeQueries({
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes(slug),
+      });
+    },
+  });
+}

@@ -23,6 +23,8 @@ from local_pdf.workers.base import (
 __all__ = [
     "BoxKind",
     "CreateBoxRequest",
+    "Curator",
+    "CuratorsFile",
     "DocMeta",
     "DocStatus",
     "ExtractRegionRequest",
@@ -52,6 +54,10 @@ class BoxKind(StrEnum):
     caption = "caption"
     formula = "formula"
     list_item = "list_item"
+    # 'auxiliary' = page-level chrome DocLayout-YOLO flags as "abandon"
+    # (running headers, footers, page numbers). Renamed to "auxiliary" for
+    # user-facing clarity; legacy "abandon" values are migrated on read.
+    auxiliary = "auxiliary"
     discard = "discard"
 
 
@@ -59,7 +65,12 @@ class DocStatus(StrEnum):
     raw = "raw"
     segmenting = "segmenting"
     extracting = "extracting"
-    done = "done"
+    extracted = "extracted"
+    synthesising = "synthesising"
+    synthesised = "synthesised"
+    open_for_curation = "open-for-curation"
+    archived = "archived"
+    done = "done"  # legacy from A.0; keep for back-compat
     needs_ocr = "needs_ocr"
 
 
@@ -71,6 +82,9 @@ class SegmentBox(BaseModel):
     kind: BoxKind
     confidence: float = Field(ge=0.0, le=1.0)
     reading_order: int = 0
+    manually_activated: bool = False
+    continues_from: str | None = None  # box_id on previous page that this is continuation of
+    continues_to: str | None = None  # box_id on next page that continues this
 
     @field_validator("box_id", mode="after")
     @classmethod
@@ -91,6 +105,12 @@ class SegmentsFile(BaseModel):
     model_config = ConfigDict(frozen=True)
     slug: str
     boxes: list[SegmentBox]
+    # DPI at which PDFs were rasterized for YOLO inference. bbox coordinates in
+    # `boxes` are pixel-space at this DPI. Frontend computes the on-screen
+    # placement as bbox * (pdfjs_viewport_scale * 72 / raster_dpi) so the
+    # default doesn't leak into client code. Raised from 144 → 288 for
+    # sharper inputs to YOLO (smaller text + dense layouts segment better).
+    raster_dpi: int = 288
 
 
 class DocMeta(BaseModel):
@@ -108,6 +128,7 @@ class UpdateBoxRequest(BaseModel):
     kind: BoxKind | None = None
     bbox: tuple[float, float, float, float] | None = None
     reading_order: int | None = None
+    manually_activated: bool | None = None
 
 
 class MergeBoxesRequest(BaseModel):
@@ -142,3 +163,73 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
     status: Literal["ok"] = "ok"
     data_root: str
+
+
+class Curator(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: str
+    name: str
+    token_prefix: str
+    token_sha256: str
+    assigned_slugs: list[str] = Field(default_factory=list)
+    created_at: str
+    last_seen_at: str | None = None
+    active: bool = True
+
+
+class CuratorsFile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    curators: list[Curator] = Field(default_factory=list)
+
+
+class CreateCuratorRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    name: str = Field(min_length=1)
+
+
+class CreateCuratorResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: str
+    name: str
+    token: str  # full token, returned ONCE
+    token_prefix: str
+    created_at: str
+
+
+class AssignCuratorRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    curator_id: str
+
+
+class CuratorQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    element_id: str
+    query: str = Field(min_length=1)
+
+
+class CuratorQuestion(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    question_id: str
+    element_id: str
+    curator_id: str
+    query: str
+    refined_query: str | None = None
+    deprecated: bool = False
+    deprecated_reason: str | None = None
+    created_at: str
+
+
+class CuratorQuestionsFile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    slug: str
+    questions: list[CuratorQuestion] = Field(default_factory=list)
+
+
+class RefineQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    query: str = Field(min_length=1)
+
+
+class DeprecateQuestionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    reason: str | None = None

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { clearToken, getToken, setToken as setStoredToken } from "../api/client";
+import { clearToken, getToken, setToken as setStoredToken } from "../curator/api/curatorClient";
 
 export function useAuth() {
   const [token, setTokenState] = useState<string | null>(getToken());

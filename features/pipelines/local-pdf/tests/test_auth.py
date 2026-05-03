@@ -85,3 +85,81 @@ def test_auth_lets_source_pdf_through_with_token() -> None:
     client = TestClient(app)
     resp = client.get("/api/docs/bam/source.pdf", headers={"X-Auth-Token": "tok-good"})
     assert resp.status_code == 200
+
+
+def test_lookup_admin_token(tmp_path):
+    from local_pdf.api.auth import lookup_token
+
+    ident = lookup_token(tmp_path, "ADMIN-TOK", admin_token="ADMIN-TOK")
+    assert ident is not None
+    assert ident.role == "admin"
+    assert ident.name == "admin"
+    assert ident.curator_id is None
+
+
+def test_lookup_curator_token(tmp_path):
+    from local_pdf.api.auth import lookup_token
+    from local_pdf.api.schemas import Curator, CuratorsFile
+    from local_pdf.storage.curators import hash_token, write_curators
+
+    raw = "deadbeefcafebabe1234567890abcdef"
+    write_curators(
+        tmp_path,
+        CuratorsFile(
+            curators=[
+                Curator(
+                    id="c-zz",
+                    name="Dr Curator",
+                    token_prefix=raw[-8:],
+                    token_sha256=hash_token(raw),
+                    assigned_slugs=[],
+                    created_at="t",
+                    last_seen_at=None,
+                    active=True,
+                )
+            ]
+        ),
+    )
+    ident = lookup_token(tmp_path, raw, admin_token="ADMIN-TOK")
+    assert ident is not None
+    assert ident.role == "curator"
+    assert ident.name == "Dr Curator"
+    assert ident.curator_id == "c-zz"
+
+
+def test_lookup_unknown(tmp_path):
+    from local_pdf.api.auth import lookup_token
+
+    assert lookup_token(tmp_path, "nope", admin_token="ADMIN-TOK") is None
+
+
+def test_curator_blocked_from_admin_route(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+    from local_pdf.api.schemas import Curator, CuratorsFile
+    from local_pdf.storage.curators import hash_token, write_curators
+
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "ADMIN")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(tmp_path))
+    raw = "0" * 32
+    write_curators(
+        tmp_path,
+        CuratorsFile(
+            curators=[
+                Curator(
+                    id="c-q",
+                    name="C",
+                    token_prefix=raw[-8:],
+                    token_sha256=hash_token(raw),
+                    assigned_slugs=[],
+                    created_at="t",
+                    last_seen_at=None,
+                    active=True,
+                )
+            ]
+        ),
+    )
+    client = TestClient(create_app())
+    r = client.get("/api/admin/docs", headers={"X-Auth-Token": raw})
+    assert r.status_code == 403
+    assert r.json()["detail"] == "admin role required"

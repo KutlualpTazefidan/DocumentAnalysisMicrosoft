@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/api": { target: "http://127.0.0.1:8001", changeOrigin: true },
     },
   },
   build: {
@@ -21,7 +21,7 @@ export default defineConfig({
       jsdom: { url: "http://localhost/" },
     },
     setupFiles: ["./tests/setup.ts"],
-    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**", "tests/local-pdf/e2e/**"],
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/e2e/**", "tests/local-pdf/e2e/**", "tests/admin/e2e/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

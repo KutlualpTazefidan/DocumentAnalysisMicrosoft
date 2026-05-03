@@ -1,0 +1,110 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createBox, deleteBox, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, unmergeBoxDown, unmergeBoxUp, resetBox, splitBox, updateBox } from "../api/docs";
+import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
+
+export function useSegments(slug: string, token: string) {
+  // retry: false because getSegments returns null on 404 (expected absence
+  // when the doc hasn't been segmented yet) — there's nothing to retry.
+  return useQuery({
+    queryKey: ["segments", slug],
+    queryFn: () => getSegments(slug, token),
+    retry: false,
+  });
+}
+
+export function useUpdateBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ boxId, patch }: { boxId: string; patch: { kind?: BoxKind; bbox?: [number, number, number, number]; manually_activated?: boolean } }) =>
+      updateBox(slug, boxId, patch, token),
+    onSuccess: (updated: SegmentBox) => {
+      qc.setQueryData<SegmentsFile>(["segments", slug], (prev) => {
+        if (!prev) return prev;
+        return { ...prev, boxes: prev.boxes.map((b) => (b.box_id === updated.box_id ? updated : b)) };
+      });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+    },
+  });
+}
+
+export function useMergeBoxes(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => mergeBoxes(slug, ids, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useSplitBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ boxId, splitY }: { boxId: string; splitY: number }) => splitBox(slug, boxId, splitY, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useCreateBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ page, bbox, kind }: { page: number; bbox: [number, number, number, number]; kind: BoxKind }) =>
+      createBox(slug, page, bbox, kind, token),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["segments", slug] });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+    },
+  });
+}
+
+export function useDeleteBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => deleteBox(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useResetBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => resetBox(slug, boxId, token),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["segments", slug] });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+    },
+  });
+}
+
+export function useMergeBoxDown(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => mergeBoxDown(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useMergeBoxUp(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => mergeBoxUp(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useUnmergeBoxDown(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => unmergeBoxDown(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useUnmergeBoxUp(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (boxId: string) => unmergeBoxUp(slug, boxId, token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}

@@ -93,3 +93,36 @@ def test_doc_dir_path_layout(data_root: Path) -> None:
     from local_pdf.storage.sidecar import doc_dir
 
     assert doc_dir(data_root, "alpha") == data_root / "alpha"
+
+
+def test_read_segments_migrates_legacy_abandon_to_auxiliary(data_root: Path) -> None:
+    """Legacy segments.json with kind='abandon' is transparently rewritten to 'auxiliary'."""
+    from local_pdf.api.schemas import BoxKind
+    from local_pdf.storage.sidecar import doc_dir, read_segments
+
+    slug = "legacy"
+    doc_dir(data_root, slug).mkdir()
+    # Write raw JSON with the old 'abandon' value directly (bypasses write_segments)
+    legacy_payload = {
+        "slug": slug,
+        "boxes": [
+            {
+                "box_id": "p1-leg",
+                "page": 1,
+                "bbox": [0.0, 0.0, 100.0, 50.0],
+                "kind": "abandon",
+                "confidence": 0.8,
+                "reading_order": 0,
+                "manually_activated": False,
+                "continues_from": None,
+                "continues_to": None,
+            }
+        ],
+        "raster_dpi": 144,
+    }
+    (doc_dir(data_root, slug) / "segments.json").write_text(
+        json.dumps(legacy_payload), encoding="utf-8"
+    )
+    loaded = read_segments(data_root, slug)
+    assert loaded is not None
+    assert loaded.boxes[0].kind == BoxKind.auxiliary

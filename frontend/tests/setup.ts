@@ -1,9 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-import toast from "react-hot-toast";
 
-// jsdom does not implement matchMedia (used by react-hot-toast's prefers-reduced-motion check).
+// jsdom does not implement matchMedia; polyfill for components that check it.
 if (!window.matchMedia) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
@@ -22,6 +21,4 @@ if (!window.matchMedia) {
 
 afterEach(() => {
   cleanup();
-  // react-hot-toast keeps toast state at module scope; clear between tests.
-  toast.remove();
 });
