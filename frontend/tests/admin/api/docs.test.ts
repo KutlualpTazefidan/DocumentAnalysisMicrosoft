@@ -43,7 +43,8 @@ describe("local-pdf docs api", () => {
 
   it("getSegments returns boxes", async () => {
     const s = await getSegments("rep", "tok");
-    expect(s.boxes[0].kind).toBe("heading");
+    expect(s).not.toBeNull();
+    expect(s?.boxes[0].kind).toBe("heading");
   });
 
   it("updateBox sends PUT", async () => {

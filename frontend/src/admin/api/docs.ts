@@ -1,4 +1,4 @@
-import { apiFetch } from "./adminClient";
+import { ApiError, apiFetch } from "./adminClient";
 import type { CuratorCreated, CuratorRecord, DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {
@@ -27,9 +27,17 @@ export async function deleteDoc(slug: string, token: string): Promise<void> {
   }
 }
 
-export async function getSegments(slug: string, token: string): Promise<SegmentsFile> {
-  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments`, token);
-  return r.json();
+export async function getSegments(slug: string, token: string): Promise<SegmentsFile | null> {
+  // 404 = doc hasn't been segmented yet (expected absence). Return null
+  // instead of throwing so React Query treats it as "no data" and the
+  // browser console isn't spammed with retry-amplified failures.
+  try {
+    const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/segments`, token);
+    return r.json();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
 }
 
 export async function updateBox(
@@ -136,10 +144,17 @@ export async function unmergeBoxUp(slug: string, boxId: string, token: string): 
   return r.json();
 }
 
-export async function getHtml(slug: string, token: string): Promise<string> {
-  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token);
-  const j = (await r.json()) as { html: string };
-  return j.html;
+export async function getHtml(slug: string, token: string): Promise<string | null> {
+  // 404 = no extracted HTML yet (expected when the doc has only just been
+  // uploaded). Return null instead of throwing.
+  try {
+    const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/html`, token);
+    const j = (await r.json()) as { html: string };
+    return j.html;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
 }
 
 export async function putHtml(slug: string, html: string, token: string): Promise<void> {

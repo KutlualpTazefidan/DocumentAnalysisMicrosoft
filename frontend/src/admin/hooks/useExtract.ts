@@ -51,14 +51,21 @@ async function getMineru(slug: string, token: string): Promise<MineruFile | null
 }
 
 export function useMineru(slug: string, token: string) {
+  // retry: false — 404 = no extraction yet, nothing to retry.
   return useQuery({
     queryKey: ["mineru", slug],
     queryFn: () => getMineru(slug, token),
+    retry: false,
   });
 }
 
 export function useHtml(slug: string, token: string) {
-  return useQuery({ queryKey: ["html", slug], queryFn: () => getHtml(slug, token) });
+  // retry: false — 404 = no html.html yet, nothing to retry.
+  return useQuery({
+    queryKey: ["html", slug],
+    queryFn: () => getHtml(slug, token),
+    retry: false,
+  });
 }
 
 export function usePutHtml(slug: string, token: string) {

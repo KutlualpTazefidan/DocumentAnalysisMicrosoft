@@ -3,7 +3,13 @@ import { createBox, deleteBox, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp
 import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
 
 export function useSegments(slug: string, token: string) {
-  return useQuery({ queryKey: ["segments", slug], queryFn: () => getSegments(slug, token) });
+  // retry: false because getSegments returns null on 404 (expected absence
+  // when the doc hasn't been segmented yet) — there's nothing to retry.
+  return useQuery({
+    queryKey: ["segments", slug],
+    queryFn: () => getSegments(slug, token),
+    retry: false,
+  });
 }
 
 export function useUpdateBox(slug: string, token: string) {
