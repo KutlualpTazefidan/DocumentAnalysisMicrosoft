@@ -26,47 +26,31 @@ function wrapNoSlug(initialPath: string) {
 }
 
 describe("DocStepTabs", () => {
-  it("renders all four tabs", () => {
-    render(wrap("/admin/doc/foo/segment"));
+  it("renders three tabs", () => {
+    render(wrap("/admin/doc/foo/extract"));
     expect(screen.getByRole("tab", { name: /files/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /segment/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /synthesise/i })).toBeInTheDocument();
-  });
-
-  it("marks Segment tab active on /admin/doc/foo/segment", () => {
-    render(wrap("/admin/doc/foo/segment"));
-    expect(screen.getByRole("tab", { name: /segment/i })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("tab", { name: /extract/i })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("tab", { name: /files/i })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
   });
 
   it("marks Extract tab active on /admin/doc/foo/extract", () => {
     render(wrap("/admin/doc/foo/extract"));
     expect(screen.getByRole("tab", { name: /extract/i })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("tab", { name: /segment/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("tab", { name: /files/i })).not.toHaveAttribute("aria-current");
   });
 
   it("marks Synthesise tab active on /admin/doc/foo/synthesise", () => {
     render(wrap("/admin/doc/foo/synthesise"));
     expect(screen.getByRole("tab", { name: /synthesise/i })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("tab", { name: /extract/i })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("tab", { name: /segment/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("tab", { name: /files/i })).not.toHaveAttribute("aria-current");
   });
 
   it("Files tab links to /admin/inbox", () => {
-    render(wrap("/admin/doc/foo/segment"));
+    render(wrap("/admin/doc/foo/extract"));
     const filesTab = screen.getByRole("tab", { name: /files/i });
     expect(filesTab).toHaveAttribute("href", "/admin/inbox");
-  });
-
-  it("Segment tab links to /admin/doc/foo/segment given slug=foo", () => {
-    render(wrap("/admin/doc/foo/segment"));
-    const segmentTab = screen.getByRole("tab", { name: /segment/i });
-    expect(segmentTab).toHaveAttribute("href", "/admin/doc/foo/segment");
   });
 
   it("Extract tab links to /admin/doc/foo/extract given slug=foo", () => {
@@ -84,7 +68,6 @@ describe("DocStepTabs", () => {
   it("marks Files tab active on /admin/inbox (with slug)", () => {
     render(wrap("/admin/inbox"));
     expect(screen.getByRole("tab", { name: /files/i })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("tab", { name: /segment/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("tab", { name: /extract/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
   });
@@ -97,14 +80,6 @@ describe("DocStepTabs", () => {
     expect(filesTab.tagName).toBe("A");
     expect(filesTab).toHaveAttribute("href", "/admin/inbox");
     expect(filesTab).toHaveAttribute("aria-current", "page");
-  });
-
-  it("no-slug: Segment tab is rendered as an aria-disabled span (not a link)", () => {
-    render(wrapNoSlug("/admin/inbox"));
-    const segmentTab = screen.getByRole("tab", { name: /segment/i });
-    expect(segmentTab.tagName).toBe("SPAN");
-    expect(segmentTab).toHaveAttribute("aria-disabled", "true");
-    expect(segmentTab).not.toHaveAttribute("href");
   });
 
   it("no-slug: Extract tab is rendered as an aria-disabled span", () => {
@@ -121,10 +96,9 @@ describe("DocStepTabs", () => {
     expect(synthesiseTab).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("no-slug: all four tabs are still rendered", () => {
+  it("no-slug: all three tabs are still rendered", () => {
     render(wrapNoSlug("/admin/inbox"));
     expect(screen.getByRole("tab", { name: /files/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /segment/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /synthesise/i })).toBeInTheDocument();
   });

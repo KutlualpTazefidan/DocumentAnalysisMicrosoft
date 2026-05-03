@@ -130,7 +130,6 @@ describe("ExtractRoute", () => {
     const extractTab = screen.getByRole("tab", { name: /extract/i });
     expect(extractTab).toHaveAttribute("aria-current", "page");
     // Other tabs present but not active
-    expect(screen.getByRole("tab", { name: /segment/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
   });
 

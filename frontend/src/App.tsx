@@ -3,7 +3,6 @@ import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
 import { Inbox } from "./admin/routes/inbox";
-import { Segment } from "./admin/routes/segment";
 import { Extract } from "./admin/routes/extract";
 import { Synthesise } from "./admin/routes/Synthesise";
 import { DocCurators } from "./admin/routes/DocCurators";
@@ -23,7 +22,9 @@ export function App() {
         <Route path="/admin" element={<AdminShell />}>
           <Route index element={<Navigate to="inbox" replace />} />
           <Route path="inbox" element={<Inbox />} />
-          <Route path="doc/:slug/segment" element={<Segment />} />
+          {/* Segment route was merged into extract — redirect any legacy
+              navigation to extract so old bookmarks still resolve. */}
+          <Route path="doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
           <Route path="doc/:slug/extract" element={<Extract />} />
           <Route path="doc/:slug/synthesise" element={<Synthesise />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
@@ -43,11 +44,11 @@ export function App() {
             tree (/local-pdf/* and /docs/*); these now redirect to the
             role-prefixed equivalents. */}
         <Route path="/local-pdf/inbox" element={<Navigate to="/admin/inbox" replace />} />
-        <Route path="/local-pdf/doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
+        <Route path="/local-pdf/doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
         <Route path="/local-pdf/doc/:slug/extract" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
         <Route path="/docs" element={<Navigate to="/admin/inbox" replace />} />
-        <Route path="/docs/:slug/elements" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
-        <Route path="/docs/:slug/elements/:elementId" element={<RedirectWithSlug to="/admin/doc/:slug/segment" />} />
+        <Route path="/docs/:slug/elements" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
+        <Route path="/docs/:slug/elements/:elementId" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
         <Route path="/docs/:slug/synthesise" element={<RedirectWithSlug to="/admin/doc/:slug/synthesise" />} />
 
         <Route path="*" element={<NotFound />} />

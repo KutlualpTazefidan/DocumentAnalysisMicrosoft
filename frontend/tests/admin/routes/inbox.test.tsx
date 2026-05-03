@@ -84,10 +84,7 @@ describe("InboxRoute", () => {
     const filesTab = screen.getByRole("tab", { name: /files/i });
     expect(filesTab.tagName).toBe("A");
     expect(filesTab).toHaveAttribute("aria-current", "page");
-    // Segment/Extract/Synthesise are disabled spans
-    const segmentTab = screen.getByRole("tab", { name: /segment/i });
-    expect(segmentTab.tagName).toBe("SPAN");
-    expect(segmentTab).toHaveAttribute("aria-disabled", "true");
+    // Extract/Synthesise are disabled spans (no slug yet)
     expect(screen.getByRole("tab", { name: /extract/i })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("tab", { name: /synthesise/i })).toHaveAttribute("aria-disabled", "true");
   });

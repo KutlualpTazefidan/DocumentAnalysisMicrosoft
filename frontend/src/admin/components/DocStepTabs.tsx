@@ -1,5 +1,5 @@
 // frontend/src/admin/components/DocStepTabs.tsx
-import { FileText, Folder, Scissors, Sparkles } from "lucide-react";
+import { FileText, Folder, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { T } from "../styles/typography";
 
@@ -9,7 +9,6 @@ interface Props {
 
 const TABS = [
   { key: "files", label: "Files", icon: Folder, href: (_slug: string) => "/admin/inbox" },
-  { key: "segment", label: "Segment", icon: Scissors, href: (slug: string) => `/admin/doc/${slug}/segment` },
   { key: "extract", label: "Extract", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
   { key: "synthesise", label: "Synthesise", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
 ] as const;
@@ -19,7 +18,6 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
 
   function isActive(key: string): boolean {
     if (key === "files") return pathname.endsWith("/inbox");
-    if (key === "segment") return pathname.endsWith("/segment");
     if (key === "extract") return pathname.endsWith("/extract");
     if (key === "synthesise") return pathname.endsWith("/synthesise");
     return false;
