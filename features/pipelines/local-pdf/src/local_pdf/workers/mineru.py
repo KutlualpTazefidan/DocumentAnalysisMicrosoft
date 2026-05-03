@@ -446,7 +446,10 @@ def _convert_inline_latex(s: str) -> str:
     # MinerU sometimes leaves in table cells, e.g. ``\dot{Q}_{max, BE}``.
     s = _convert_bare_latex(s)
     # Promote bare unit exponents like "W/m2" → "W/m²".
-    return _superscript_unit_exponents(s)
+    s = _superscript_unit_exponents(s)
+    # Promote footnote-like trailing digit-paren tokens that MinerU lost
+    # the superscript styling on (e.g. "K)1)" or "0.44)").
+    return _promote_footnote_markers(s)
 
 
 # Matches a single bare LaTeX expression: command + optional {arg} + any
@@ -521,6 +524,30 @@ def _superscript_unit_exponents(s: str) -> str:
         return f"{unit}{exp.translate(_SUPERSCRIPT_DIGITS)}"
 
     return _UNIT_EXPONENT_RE.sub(_r, s)
+
+
+# Footnote markers MinerU couldn't see as superscript.
+# Pattern A: digit) immediately after a closing paren — "(GGG)2)" → "(GGG)<sup>2)</sup>".
+_FOOTNOTE_AFTER_PAREN_RE = re.compile(r"(\))(\d{1,2})\)(?=[\s<,;]|$)")
+# Pattern B: decimal number ending with a single-digit footnote that got
+# OCR'd onto the value — "0.44)" → "0.4<sup>4)</sup>". Requires ≥2 decimal
+# digits so we don't chop a 1-decimal value like "1.5)". Excludes numbers
+# preceded by ``(`` so a balanced "(0.44)" stays unchanged.
+_FOOTNOTE_AFTER_DECIMAL_RE = re.compile(r"(?<!\()(\d+\.\d+)(\d)\)(?=[\s<,;]|$)")
+
+
+def _promote_footnote_markers(s: str) -> str:
+    """Wrap trailing footnote-like ``digit)`` in ``<sup>``.
+
+    MinerU sometimes loses the typographic distinction between baseline
+    text and a footnote-reference superscript, emitting ``W/(m·K)1)`` or
+    ``0.44)`` where the ``1)`` / trailing ``4)`` should sit above the line.
+    Two conservative heuristics catch the common shapes without false-
+    tripping on regular numeric values.
+    """
+    s = _FOOTNOTE_AFTER_PAREN_RE.sub(r"\1<sup>\2)</sup>", s)
+    s = _FOOTNOTE_AFTER_DECIMAL_RE.sub(r"\1<sup>\2)</sup>", s)
+    return s
 
 
 def _convert_bare_latex(s: str) -> str:
