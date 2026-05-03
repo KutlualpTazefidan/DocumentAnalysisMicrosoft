@@ -159,6 +159,18 @@ class HtmlPayload(BaseModel):
     html: str
 
 
+class UpdateElementRequest(BaseModel):
+    """PATCH body for ``/api/admin/docs/<slug>/elements/<box_id>``.
+
+    User-edited HTML for a single element. The router re-runs the inline-LaTeX
+    conversion before storing so user input ($\\alpha$, $$..$$, ``\\dot{q}``)
+    stays consistent with what the segment-time pipeline produces.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    html_snippet: str
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
     status: Literal["ok"] = "ok"
