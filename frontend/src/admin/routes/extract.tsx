@@ -423,23 +423,43 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             </span>
           </div>
 
-          {/* Single page button — toggles the grid below */}
-          <button
-            aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
-            aria-expanded={gridOpen}
-            onClick={() => setGridOpen((p) => !p)}
-            className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} w-full !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
-            data-testid="extract-page-grid-toggle"
-          >
-            <span>Seite {page} / {totalPages}</span>
-            <motion.span
-              aria-hidden="true"
-              animate={{ rotate: gridOpen ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
+          {/* Page navigation: prev | toggle-grid | next */}
+          <div className="flex items-stretch gap-1">
+            <button
+              aria-label="Vorherige Seite"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+              className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="extract-page-prev"
             >
-              ▾
-            </motion.span>
-          </button>
+              ◀
+            </button>
+            <button
+              aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
+              aria-expanded={gridOpen}
+              onClick={() => setGridOpen((p) => !p)}
+              className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
+              data-testid="extract-page-grid-toggle"
+            >
+              <span>Seite {page} / {totalPages}</span>
+              <motion.span
+                aria-hidden="true"
+                animate={{ rotate: gridOpen ? 180 : 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                ▾
+              </motion.span>
+            </button>
+            <button
+              aria-label="Nächste Seite"
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+              className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="extract-page-next"
+            >
+              ▶
+            </button>
+          </div>
 
           {/* Animated grid (expand/collapse) */}
           <AnimatePresence initial={false}>
