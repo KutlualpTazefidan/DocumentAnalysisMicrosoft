@@ -398,7 +398,11 @@ def _convert_inline_latex(s: str) -> str:
 
     Display-mode ``$$...$$`` is left alone (we don't have MathJax loaded).
     """
-    if not s or "$" not in s:
+    if not s:
+        return s
+    # Cells with bare LaTeX (no $ delimiters) still need the final pass; only
+    # short-circuit when neither dollars nor backslashes are present.
+    if "$" not in s and "\\" not in s:
         return s
 
     def _replace_latex_symbols(content: str) -> str:
@@ -440,7 +444,42 @@ def _convert_inline_latex(s: str) -> str:
     # latex2mathml can't parse the body.
     s = _convert_display_math(s)
     # Match $...$ but not $$...$$ (display mode handled above)
-    return re.sub(r"(?<!\$)\$([^$]+)\$(?!\$)", _math_replace, s)
+    s = re.sub(r"(?<!\$)\$([^$]+)\$(?!\$)", _math_replace, s)
+    # Final pass: catch bare LaTeX expressions (no $..$ delimiters) that
+    # MinerU sometimes leaves in table cells, e.g. ``\dot{Q}_{max, BE}``.
+    return _convert_bare_latex(s)
+
+
+# Matches a single bare LaTeX expression: command + optional {arg} + any
+# number of trailing ^{...} / _{...} / ^X / _X parts. Constrained to
+# non-nested braces and ASCII names so we don't accidentally chew through
+# code blocks or paths like C:\Users\foo (which lack the {arg} pattern).
+_BARE_LATEX_RE = re.compile(r"\\[a-zA-Z]+\{[^{}]*\}(?:[\^_](?:\{[^{}]*\}|\w))*")
+
+
+def _convert_bare_latex(s: str) -> str:
+    """Convert undelimited LaTeX expressions in *s* to inline MathML.
+
+    Looks for ``\\cmd{arg}`` patterns optionally followed by ``_{...}`` /
+    ``^{...}`` etc. Each match is converted via latex2mathml. Surrounding
+    text is preserved verbatim. No-op when no bare LaTeX is present.
+    """
+    if "\\" not in s or not _BARE_LATEX_RE.search(s):
+        return s
+    try:
+        from latex2mathml.converter import convert as _l2mml
+    except ImportError:
+        return s
+
+    def _replace(m: re.Match[str]) -> str:
+        body = m.group(0)
+        try:
+            return str(_l2mml(body))
+        except Exception as exc:
+            _logger.debug("bare latex2mathml failed for %r: %s", body[:80], exc)
+            return html_lib.escape(body)
+
+    return _BARE_LATEX_RE.sub(_replace, s)
 
 
 _DISPLAY_MATH_RE = re.compile(r"\$\$\s*(.*?)\s*\$\$", re.DOTALL)
