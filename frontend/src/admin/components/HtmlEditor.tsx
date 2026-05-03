@@ -1,157 +1,180 @@
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useRef, useState } from "react";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
-import { defaultKeymap } from "@codemirror/commands";
-import { html as htmlLang } from "@codemirror/lang-html";
+import { useEffect, useRef } from "react";
 import { T } from "../styles/typography";
 
-// PDF-style typography mirroring extract.py _PDF_STYLE, scoped to ProseMirror.
-// TipTap strips the <style> block from the HTML it parses, but we can style
-// the known tags it preserves (h1/h2/p/pre/code) via this injected stylesheet.
-const WYSIWYG_STYLE = `
-.ProseMirror { font-family: Georgia,'Times New Roman',serif; max-width:720px; margin:0 auto; line-height:1.6; color:#1f2937; padding:0.5rem; }
-.ProseMirror h1 { font-size:2em; font-weight:bold; text-align:center; margin:1.5em 0 0.5em; }
-.ProseMirror h2 { font-size:1.5em; font-weight:bold; margin:1.2em 0 0.4em; border-bottom:1px solid #d1d5db; padding-bottom:0.2em; }
-.ProseMirror h3 { font-size:1.2em; font-weight:bold; margin:1em 0 0.3em; }
-.ProseMirror p  { margin:0.6em 0; }
-.ProseMirror pre { background:#f3f4f6; padding:1em; border-radius:4px; overflow-x:auto; }
-.ProseMirror code { font-family:"SF Mono",Menlo,monospace; }
-`.trim();
+/**
+ * In-place HTML editor.
+ *
+ * The rendered html.html mounts inside a Shadow DOM (CSS isolation, no JS
+ * sandbox needed because the html.html is generated server-side). Clicking
+ * on any element with `data-source-box`:
+ *   - first click  → highlight (sidebar selects the box)
+ *   - second click on the SAME box within ~800 ms → enter edit mode
+ *     (contenteditable=true on that element)
+ *   - blur         → save via `onElementChange(boxId, outerHTML)`
+ *   - Esc          → cancel and restore from prop
+ *
+ * Math editing flows through to `<math>`/`<mi>` descendants via DOM
+ * contenteditable. For LaTeX-friendly editing, users can type `$..$` /
+ * `$$..$$` / bare `\command{...}` — the backend re-runs
+ * `_convert_inline_latex` on save so the rendered form gets re-converted.
+ *
+ * The Quelltext panel in the sidebar keeps showing the raw `html_snippet_raw`
+ * for read-only inspection.
+ */
 
-type Mode = "preview" | "wysiwyg" | "raw";
+const EDITOR_CSS = `
+[data-source-box]{outline:1px dashed transparent;transition:outline-color 0.15s ease}
+[data-source-box]:hover{outline-color:#93c5fd;cursor:text}
+[data-source-box].is-highlighted{outline-color:#2563eb;outline-style:dashed}
+[data-source-box][contenteditable="true"]{outline-color:#2563eb;outline-style:solid;outline-offset:2px;background-color:#eff6ff}
+`;
+
+const SECOND_CLICK_WINDOW_MS = 800;
 
 interface Props {
   html: string;
-  onChange: (html: string) => void;
   onClickElement: (boxId: string) => void;
+  onElementChange: (boxId: string, newOuterHtml: string) => void;
+  /** box_id currently highlighted by the sidebar — applies the dashed
+   *  outline. */
+  highlightedBoxId?: string | null;
+  /** Optional small status text shown next to the title (e.g. "Speichert…"). */
+  status?: string;
 }
 
-export function HtmlEditor({ html, onChange, onClickElement }: Props): JSX.Element {
-  // Default to preview so the user immediately sees PDF-styled output.
-  const [mode, setMode] = useState<Mode>("preview");
-  const cmHostRef = useRef<HTMLDivElement>(null);
-  const cmRef = useRef<EditorView | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+interface PendingClick {
+  boxId: string;
+  ts: number;
+}
 
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: html,
-    editorProps: {
-      handleClick(_view, _pos, evt) {
-        const t = evt.target as HTMLElement;
-        const el = t.closest("[data-source-box]") as HTMLElement | null;
-        if (el) {
-          onClickElement(el.getAttribute("data-source-box")!);
-          return true;
-        }
-        return false;
-      },
-    },
-    onUpdate({ editor }) {
-      onChange(editor.getHTML());
-    },
-  });
+export function HtmlEditor({
+  html,
+  onClickElement,
+  onElementChange,
+  highlightedBoxId,
+  status,
+}: Props): JSX.Element {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const lastClickRef = useRef<PendingClick | null>(null);
+  // Snapshot of the box's outerHTML at edit-mode entry, used to restore on Esc.
+  const editingBoxRef = useRef<{ box: HTMLElement; original: string } | null>(null);
 
-  // Keep TipTap in sync when html prop changes (e.g. after re-extract).
+  // Mount / re-render whenever html changes.
   useEffect(() => {
-    if (editor && html !== editor.getHTML()) {
-      editor.commands.setContent(html, false);
+    const host = hostRef.current;
+    if (!host) return;
+    let root = host.shadowRoot;
+    if (!root) root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>${EDITOR_CSS}</style>${html}`;
+    // Re-apply highlight if any (re-render wiped the class).
+    if (highlightedBoxId) {
+      const el = root.querySelector(
+        `[data-source-box="${cssEscape(highlightedBoxId)}"]`,
+      );
+      el?.classList.add("is-highlighted");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html]);
+  }, [html, highlightedBoxId]);
 
-  // CodeMirror: mount/unmount when raw mode activates.
+  // Wire event listeners on the shadow root once.
   useEffect(() => {
-    if (mode !== "raw" || !cmHostRef.current) return;
-    const cmView = new EditorView({
-      state: EditorState.create({
-        doc: html,
-        extensions: [keymap.of(defaultKeymap), htmlLang(), EditorView.updateListener.of((v) => {
-          if (v.docChanged) onChange(v.state.doc.toString());
-        })],
-      }),
-      parent: cmHostRef.current,
-    });
-    cmRef.current = cmView;
-    return () => {
-      cmView.destroy();
-      cmRef.current = null;
-    };
-  }, [mode, html, onChange]);
+    const host = hostRef.current;
+    if (!host) return;
+    const root = host.shadowRoot;
+    if (!root) return;
 
-  // Preview iframe: attach click listener on load to dispatch onClickElement.
-  function handleIframeLoad() {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-    doc.addEventListener("click", (evt) => {
-      const t = evt.target as HTMLElement;
-      const el = t.closest("[data-source-box]") as HTMLElement | null;
-      if (el) {
-        onClickElement(el.getAttribute("data-source-box")!);
+    function findBox(t: EventTarget | null): HTMLElement | null {
+      const el = t as HTMLElement | null;
+      return el?.closest?.("[data-source-box]") as HTMLElement | null;
+    }
+
+    function handleClick(evt: Event) {
+      const box = findBox(evt.target);
+      if (!box) return;
+      const boxId = box.getAttribute("data-source-box")!;
+      // If this box is already in edit mode, let the click reposition the
+      // cursor — don't reset state.
+      if (box.contentEditable === "true") return;
+
+      const now = Date.now();
+      const prev = lastClickRef.current;
+      const isSecondClick =
+        prev && prev.boxId === boxId && now - prev.ts < SECOND_CLICK_WINDOW_MS;
+
+      if (isSecondClick) {
+        // Enter edit mode.
+        editingBoxRef.current = { box, original: box.outerHTML };
+        box.contentEditable = "true";
+        box.focus();
+        // Browser places the caret near the click point by default.
+        lastClickRef.current = null;
+      } else {
+        // First click → highlight only.
+        onClickElement(boxId);
+        lastClickRef.current = { boxId, ts: now };
       }
-    });
-  }
+    }
 
-  const modeButtons: { key: Mode; label: string }[] = [
-    { key: "preview", label: "Vorschau" },
-    { key: "wysiwyg", label: "WYSIWYG" },
-    { key: "raw", label: "Quelltext" },
-  ];
+    function handleFocusOut(evt: FocusEvent) {
+      const editing = editingBoxRef.current;
+      if (!editing) return;
+      const box = findBox(evt.target);
+      if (!box || box !== editing.box) return;
+      // Leave edit mode and save (unless the same focusout was triggered by
+      // an Esc cancel that already cleared editingBoxRef).
+      const boxId = box.getAttribute("data-source-box")!;
+      box.contentEditable = "false";
+      const newOuter = box.outerHTML;
+      editingBoxRef.current = null;
+      // Skip save if user typed nothing.
+      if (newOuter !== editing.original) {
+        onElementChange(boxId, newOuter);
+      }
+    }
+
+    function handleKeyDown(evt: KeyboardEvent) {
+      const editing = editingBoxRef.current;
+      if (!editing) return;
+      if (evt.key === "Escape") {
+        evt.preventDefault();
+        // Restore original HTML; bypass the save in handleFocusOut by
+        // clearing the ref before triggering blur.
+        editing.box.contentEditable = "false";
+        editing.box.outerHTML = editing.original;
+        editingBoxRef.current = null;
+      }
+    }
+
+    root.addEventListener("click", handleClick);
+    root.addEventListener("focusout", handleFocusOut as EventListener, true);
+    root.addEventListener("keydown", handleKeyDown as EventListener, true);
+    return () => {
+      root.removeEventListener("click", handleClick);
+      root.removeEventListener("focusout", handleFocusOut as EventListener, true);
+      root.removeEventListener("keydown", handleKeyDown as EventListener, true);
+    };
+  }, [onClickElement, onElementChange]);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Inject WYSIWYG typography */}
-      <style>{WYSIWYG_STYLE}</style>
-
       <div className="flex justify-between items-center p-2 border-b">
-        <span className={`${T.heading}`}>HTML editor</span>
-        {/* 3-button segmented control */}
-        <div className={`flex rounded overflow-hidden border border-slate-300 ${T.body}`} role="group" aria-label="Editor mode">
-          {modeButtons.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={mode === key}
-              className={
-                mode === key
-                  ? "px-2 py-1 bg-slate-700 text-white font-medium"
-                  : "px-2 py-1 bg-white text-slate-600 hover:bg-slate-50"
-              }
-              onClick={() => setMode(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        {mode === "preview" && (
-          // sandbox="allow-same-origin" lets the <style> in <head> apply.
-          // No allow-scripts: React side attaches the listener after load.
-          <iframe
-            ref={iframeRef}
-            data-testid="html-preview-iframe"
-            sandbox="allow-same-origin"
-            srcDoc={html}
-            className="w-full h-full border-none"
-            title="HTML preview"
-            onLoad={handleIframeLoad}
-          />
-        )}
-        {mode === "wysiwyg" && (
-          <div className="p-2">
-            <EditorContent editor={editor} />
-          </div>
-        )}
-        {mode === "raw" && (
-          <div ref={cmHostRef} data-testid="codemirror-host" className="h-full" />
+        <span className={T.heading}>HTML editor</span>
+        {status && (
+          <span className={`${T.body} text-slate-500`} aria-live="polite">
+            {status}
+          </span>
         )}
       </div>
+      <div
+        ref={hostRef}
+        data-testid="html-editor-host"
+        className="flex-1 overflow-auto bg-white p-8"
+      />
     </div>
   );
+}
+
+/** Minimal CSS.escape shim for older runtimes — only needed for box_id, which
+ *  is always alphanumeric + dash, so a no-op identity is fine. */
+function cssEscape(s: string): string {
+  return s.replace(/"/g, '\\"');
 }

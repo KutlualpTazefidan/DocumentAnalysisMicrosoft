@@ -94,16 +94,16 @@ function wrapNoHtml() {
   );
 }
 
-// Helper: wait until the HTML editor is mounted (preview iframe visible).
+// Helper: wait until the HTML editor host (Shadow DOM mount) is visible.
 async function waitForEditor() {
-  await waitFor(() => expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByTestId("html-editor-host")).toBeInTheDocument());
 }
 
 describe("ExtractRoute", () => {
   it("loads html and shows preview iframe in editor", async () => {
     render(wrap());
     await waitForEditor();
-    expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument();
+    expect(screen.getByTestId("html-editor-host")).toBeInTheDocument();
   });
 
   it("Export button posts and toasts", async () => {

@@ -1,5 +1,5 @@
 // frontend/src/admin/routes/extract.tsx
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -37,7 +37,7 @@ import {
   useExtractRegion,
   useHtml,
   useMineru,
-  usePutHtml,
+  useUpdateElement,
 } from "../hooks/useExtract";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import { loadConf, effectiveThreshold } from "../lib/confThreshold";
@@ -105,7 +105,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const segments = useSegments(slug ?? "", token);
   const html = useHtml(slug ?? "", token);
   const mineru = useMineru(slug ?? "", token);
-  const putHtml = usePutHtml(slug ?? "", token);
+  const updateElement = useUpdateElement(slug ?? "", token);
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
   // Segment-route mutation hooks reused so the extract sidebar can edit
@@ -140,7 +140,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     const stored = parseFloat(localStorage.getItem("admin.extract.scale") ?? "");
     return Number.isFinite(stored) && stored >= 0.25 && stored <= 4 ? stored : 1.2;
   });
-  const debounceRef = useRef<number | null>(null);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
   const { success, error } = useToast();
 
@@ -150,16 +149,21 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     localStorage.setItem("admin.extract.scale", String(clamped));
   }
 
-  function handleHtmlChange(next: string) {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      putHtml.mutate(next);
-    }, 300);
+  /**
+   * Save a single edited element back to mineru.json. Called by the
+   * in-place editor on blur. The backend re-runs `_convert_inline_latex`
+   * so user-typed `$..$` / bare LaTeX gets re-rendered consistently with
+   * the segment-time pipeline.
+   */
+  function handleElementChange(boxId: string, newOuterHtml: string) {
+    updateElement.mutate(
+      { boxId, html: newOuterHtml },
+      {
+        onError: (e) =>
+          error(e instanceof Error ? e.message : "Speichern fehlgeschlagen"),
+      },
+    );
   }
-
-  useEffect(() => () => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-  }, []);
 
   // After Step 1, segmentation = extraction (single VLM pass produces both
   // bboxes and content). The buttons that used to call /extract now call
@@ -293,12 +297,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     [html.data, page, slug],
   );
 
-  // ── Saving status derived from putHtml mutation state ─────────────────
-  const savingStatus = putHtml.isPending
-    ? "Saving…"
-    : putHtml.isSuccess
-    ? "Saved"
-    : null;
+  // ── Saving status derived from updateElement mutation state ───────────
+  const savingStatus = updateElement.isPending
+    ? "Speichert…"
+    : updateElement.isSuccess
+      ? "Gespeichert"
+      : null;
 
   // ── Action buttons — right-aligned in top bar ─────────────────────────
   // Re-extract-this-box and Re-extract-this-page live in the side pane now;
@@ -412,7 +416,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* HTML editor pane — shows only the current page's content */}
         <div className="flex-[2] flex flex-col border-l border-slate-200 min-w-0">
-          <HtmlEditor html={visibleHtml} onChange={handleHtmlChange} onClickElement={handleClickElement} />
+          <HtmlEditor
+            html={visibleHtml}
+            onClickElement={handleClickElement}
+            onElementChange={handleElementChange}
+            highlightedBoxId={highlight}
+            status={savingStatus ?? undefined}
+          />
         </div>
 
         {/* Sidebar — colored page-button grid */}

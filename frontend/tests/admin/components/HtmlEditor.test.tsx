@@ -1,71 +1,88 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { HtmlEditor } from "../../../src/admin/components/HtmlEditor";
 
+/**
+ * HtmlEditor is the in-place editor: a single Shadow DOM mount of the
+ * rendered html.html. Click a `[data-source-box]` to highlight; click a
+ * second time within 800ms to enter contenteditable mode; blur saves via
+ * onElementChange. Tests verify the props contract + the host element
+ * attaches a Shadow root.
+ */
 describe("HtmlEditor", () => {
-  it("renders in preview mode by default — shows Vorschau button as active", () => {
-    render(<HtmlEditor html="<p>hi</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    const vorschauBtn = screen.getByRole("button", { name: /vorschau/i });
-    expect(vorschauBtn).toBeInTheDocument();
-    expect(vorschauBtn).toHaveAttribute("aria-pressed", "true");
+  it("renders the host element with a Shadow root containing the html", () => {
+    render(
+      <HtmlEditor
+        html='<p data-source-box="p1-b0">hi</p>'
+        onClickElement={vi.fn()}
+        onElementChange={vi.fn()}
+      />,
+    );
+    const host = screen.getByTestId("html-editor-host");
+    expect(host).toBeInTheDocument();
+    expect(host.shadowRoot).not.toBeNull();
+    // Shadow content includes the box.
+    expect(host.shadowRoot!.innerHTML).toContain('data-source-box="p1-b0"');
   });
 
-  it("shows all three mode buttons in the segmented control", () => {
-    render(<HtmlEditor html="<p>hi</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    expect(screen.getByRole("button", { name: /vorschau/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /wysiwyg/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /quelltext/i })).toBeInTheDocument();
+  it("shows status text when provided", () => {
+    render(
+      <HtmlEditor
+        html="<p>x</p>"
+        onClickElement={vi.fn()}
+        onElementChange={vi.fn()}
+        status="Speichert…"
+      />,
+    );
+    expect(screen.getByText("Speichert…")).toBeInTheDocument();
   });
 
-  it("preview mode renders an iframe with srcDoc", () => {
-    render(<HtmlEditor html="<p>preview</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    const iframe = screen.getByTestId("html-preview-iframe");
-    expect(iframe).toBeInTheDocument();
-    expect(iframe.tagName).toBe("IFRAME");
+  it("HTML editor title visible", () => {
+    render(
+      <HtmlEditor
+        html="<p>x</p>"
+        onClickElement={vi.fn()}
+        onElementChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("HTML editor")).toBeInTheDocument();
   });
 
-  it("switching to WYSIWYG mode hides the iframe and shows editor content", () => {
-    render(<HtmlEditor html="<p>editable</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    // Switch to WYSIWYG
-    fireEvent.click(screen.getByRole("button", { name: /wysiwyg/i }));
-    expect(screen.queryByTestId("html-preview-iframe")).not.toBeInTheDocument();
-    // WYSIWYG button is now active
-    expect(screen.getByRole("button", { name: /wysiwyg/i })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("switching to raw mode shows CodeMirror host and hides iframe", () => {
-    render(<HtmlEditor html="<p>raw</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /quelltext/i }));
-    expect(screen.queryByTestId("html-preview-iframe")).not.toBeInTheDocument();
-    expect(screen.getByTestId("codemirror-host")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /quelltext/i })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("can cycle through all three modes without error", () => {
-    render(<HtmlEditor html="<p>cycle</p>" onChange={vi.fn()} onClickElement={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /wysiwyg/i }));
-    fireEvent.click(screen.getByRole("button", { name: /quelltext/i }));
-    fireEvent.click(screen.getByRole("button", { name: /vorschau/i }));
-    expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument();
-  });
-
-  // Contract test for onClickElement via data-source-box (unchanged from original).
-  it("onClickElement contract: called with boxId from data-source-box attribute (mock)", () => {
+  it("first click on a [data-source-box] calls onClickElement (highlight)", () => {
     const onClickElement = vi.fn();
-    const mockTarget = document.createElement("span");
-    const mockEl = document.createElement("p");
-    mockEl.setAttribute("data-source-box", "b-1");
-    mockEl.appendChild(mockTarget);
-    document.body.appendChild(mockEl);
+    render(
+      <HtmlEditor
+        html='<p data-source-box="p1-b0">hi</p>'
+        onClickElement={onClickElement}
+        onElementChange={vi.fn()}
+      />,
+    );
+    const host = screen.getByTestId("html-editor-host");
+    const box = host.shadowRoot!.querySelector(
+      '[data-source-box="p1-b0"]',
+    ) as HTMLElement;
+    box.click();
+    expect(onClickElement).toHaveBeenCalledWith("p1-b0");
+  });
 
-    const t = mockTarget as HTMLElement;
-    const el = t.closest("[data-source-box]") as HTMLElement | null;
-    if (el) {
-      onClickElement(el.getAttribute("data-source-box")!);
-    }
-
-    expect(onClickElement).toHaveBeenCalledWith("b-1");
-    document.body.removeChild(mockEl);
+  it("second click on the same box within 800ms enters contenteditable mode", () => {
+    const onClickElement = vi.fn();
+    render(
+      <HtmlEditor
+        html='<p data-source-box="p1-b0">hi</p>'
+        onClickElement={onClickElement}
+        onElementChange={vi.fn()}
+      />,
+    );
+    const host = screen.getByTestId("html-editor-host");
+    const box = host.shadowRoot!.querySelector(
+      '[data-source-box="p1-b0"]',
+    ) as HTMLElement;
+    box.click();
+    box.click();
+    // contenteditable was set; React doesn't track DOM-direct mutations,
+    // so we read it off the element.
+    expect(box.contentEditable).toBe("true");
   });
 });

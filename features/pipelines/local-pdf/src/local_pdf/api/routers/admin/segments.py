@@ -24,6 +24,7 @@ from local_pdf.api.schemas import (
     SegmentsFile,
     SplitBoxRequest,
     UpdateBoxRequest,
+    UpdateElementRequest,
     WorkFailedEvent,
 )
 from local_pdf.storage.sidecar import (
@@ -41,6 +42,7 @@ from local_pdf.storage.sidecar import (
 from local_pdf.workers.base import now_ms
 from local_pdf.workers.mineru import (
     VlmSegmentBlock,
+    _convert_inline_latex,
     _inject_outer_attrs,
     vlm_extract_bbox,
     vlm_segment_doc,
@@ -538,6 +540,40 @@ async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]
             _refresh_active_html(cfg, slug)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
+
+
+@router.patch("/api/admin/docs/{slug}/elements/{box_id}")
+async def update_element(
+    slug: str,
+    box_id: str,
+    body: UpdateElementRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Update one element's html_snippet from the in-place editor.
+
+    The submitted HTML is run through ``_convert_inline_latex`` so user
+    typing of ``$\\alpha$`` / ``$$..$$`` / bare LaTeX commands stays
+    consistent with what the segment-time pipeline produces. The user's
+    raw input is preserved in ``html_snippet_raw`` so the Quelltext panel
+    reflects exactly what they typed.
+    """
+    cfg = request.app.state.config
+    m = read_mineru(cfg.data_root, slug)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"no mineru output for {slug}")
+    elements = list(m.get("elements", []))
+    for i, el in enumerate(elements):
+        if el.get("box_id") == box_id:
+            new_rendered = _convert_inline_latex(body.html_snippet)
+            elements[i] = {
+                **el,
+                "html_snippet": new_rendered,
+                "html_snippet_raw": body.html_snippet,
+            }
+            write_mineru(cfg.data_root, slug, {**m, "elements": elements})
+            _refresh_active_html(cfg, slug)
+            return dict(elements[i])
+    raise HTTPException(status_code=404, detail=f"element not found: {box_id}")
 
 
 @router.post("/api/admin/docs/{slug}/segments/merge")
