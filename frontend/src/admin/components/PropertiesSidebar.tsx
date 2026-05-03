@@ -2,8 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { BoxKind, SegmentBox } from "../types/domain";
 import { T } from "../styles/typography";
-
-const KINDS: BoxKind[] = ["heading", "paragraph", "table", "figure", "caption", "formula", "list_item", "auxiliary", "discard"];
+import { BoxPropertiesPanel } from "./BoxPropertiesPanel";
 
 // ── Page-state helpers ─────────────────────────────────────────────────────────
 
@@ -284,129 +283,20 @@ export function PropertiesSidebar({
 
       <hr className="border-slate-200" />
 
-      {/* ── Section: Properties ────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3">
-        <span className={T.tinyBold}>Properties</span>
-
-        {selected ? (
-          <>
-            <div>
-              <label className={`block ${T.bodyMuted}`}>Kind</label>
-              <select
-                className="w-full border rounded p-1 text-slate-900"
-                value={selected.kind}
-                onChange={(e) => onChangeKind(e.target.value as BoxKind)}
-              >
-                {KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={`${T.body} text-slate-700`}>
-              Confidence: {selected.confidence.toFixed(2)}
-            </div>
-
-            {/* Bbox 2x2 grid */}
-            <div>
-              <span className={T.bodyMuted}>bbox</span>
-              <div className={`grid grid-cols-2 gap-1 ${T.mono} mt-1`}>
-                <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                  x0: {selected.bbox[0].toFixed(3)}
-                </div>
-                <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                  y0: {selected.bbox[1].toFixed(3)}
-                </div>
-                <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                  x1: {selected.bbox[2].toFixed(3)}
-                </div>
-                <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                  y1: {selected.bbox[3].toFixed(3)}
-                </div>
-              </div>
-            </div>
-
-            {/* Action row: Merge/Unmerge up (left) | Merge/Unmerge down (right) */}
-            <div className="grid grid-cols-2 gap-2">
-              {selected.continues_from ? (
-                <button
-                  aria-label="Unmerge up"
-                  className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
-                  onClick={onUnmergeUp}
-                >
-                  Unmerge ↑
-                </button>
-              ) : (
-                <button
-                  aria-label="Merge up"
-                  disabled={currentPage <= 1}
-                  className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={onMergeUp}
-                >
-                  Merge up
-                </button>
-              )}
-              {selected.continues_to ? (
-                <button
-                  aria-label="Unmerge down"
-                  className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
-                  onClick={onUnmergeDown}
-                >
-                  Unmerge ↓
-                </button>
-              ) : (
-                <button
-                  aria-label="Merge down"
-                  disabled={currentPage >= totalPages}
-                  className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={onMergeDown}
-                >
-                  Merge down
-                </button>
-              )}
-            </div>
-
-            {/* Action row: Deactivate (left) | Activate (right) */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                aria-label="Deactivate"
-                className={`px-2 py-1 rounded ${
-                  selected.kind === "discard"
-                    ? "bg-red-700 text-white border border-red-700"
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
-                }`}
-                onClick={onDeactivate}
-              >
-                {selected.kind === "discard" ? "✓ Deactivated" : "Deactivate"}
-              </button>
-              <button
-                aria-label="Activate"
-                className={`px-2 py-1 rounded ${
-                  selected.manually_activated
-                    ? "bg-green-700 text-white border border-green-700"
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-50"
-                }`}
-                onClick={onActivate}
-              >
-                {selected.manually_activated ? "✓ Activated" : "Activate"}
-              </button>
-            </div>
-
-            {/* Reset — full-width below */}
-            <button
-              aria-label="Reset box"
-              className="w-full px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-              onClick={onResetBox}
-            >
-              Reset
-            </button>
-          </>
-        ) : (
-          <p className="text-slate-400">Wähle eine Box aus</p>
-        )}
-      </div>
+      {/* ── Section: Properties (shared with extract route) ───────────── */}
+      <BoxPropertiesPanel
+        selected={selected}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onChangeKind={onChangeKind}
+        onDeactivate={onDeactivate}
+        onActivate={onActivate}
+        onResetBox={onResetBox}
+        onMergeUp={onMergeUp}
+        onMergeDown={onMergeDown}
+        onUnmergeUp={onUnmergeUp}
+        onUnmergeDown={onUnmergeDown}
+      />
 
       <div className="border-t border-slate-200 pt-3 mt-auto">
         <p className={T.bodyMuted}>{pageBoxCount} boxes on page</p>

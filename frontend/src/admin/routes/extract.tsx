@@ -17,7 +17,17 @@ import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
 import { sliceHtmlByPage } from "../lib/extractHtml";
-import { useSegments } from "../hooks/useSegments";
+import {
+  useMergeBoxDown,
+  useMergeBoxUp,
+  useResetBox,
+  useSegments,
+  useUnmergeBoxDown,
+  useUnmergeBoxUp,
+  useUpdateBox,
+} from "../hooks/useSegments";
+import { BoxPropertiesPanel } from "../components/BoxPropertiesPanel";
+import type { BoxKind } from "../types/domain";
 import {
   streamSegment,
   useExportSourceElements,
@@ -95,6 +105,15 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const putHtml = usePutHtml(slug ?? "", token);
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
+  // Segment-route mutation hooks reused so the extract sidebar can edit
+  // selected boxes (kind / activate / merge / reset) without making the
+  // user switch routes.
+  const updateBoxMut = useUpdateBox(slug ?? "", token);
+  const resetBoxMut = useResetBox(slug ?? "", token);
+  const mergeUpMut = useMergeBoxUp(slug ?? "", token);
+  const mergeDownMut = useMergeBoxDown(slug ?? "", token);
+  const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
+  const unmergeDownMut = useUnmergeBoxDown(slug ?? "", token);
 
   // Current page is persisted per-doc so segment/extract tabs stay in sync.
   const [page, setPageRaw] = useState(() => loadCurrentPage(slug ?? ""));
@@ -237,6 +256,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       (b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confThresholdForPage),
     );
   }, [segments.data, page, confThresholdForPage]);
+
+  // The currently-selected box (highlighted via click) — sourced from segments
+  // so the BoxPropertiesPanel reflects the latest state after edits.
+  const focusedBox = useMemo(
+    () => (segments.data?.boxes ?? []).find((b) => b.box_id === highlight) ?? null,
+    [segments.data, highlight],
+  );
 
   // ── Compute which pages have extractions ──────────────────────────────
   const extractedPages = useMemo<Set<number>>(() => {
@@ -512,6 +538,70 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <p className={`${T.body} text-slate-400 text-center`}>
             {boxesOnPage.length} boxes on page {page}
           </p>
+
+          {/* Box properties — same panel as segment route. Editing kind /
+              merge / activate / reset triggers the unified VLM pipeline
+              via PATCH /segments and refreshes mineru.json + html.html. */}
+          <BoxPropertiesPanel
+            selected={focusedBox}
+            currentPage={page}
+            totalPages={totalPages}
+            onChangeKind={(k: BoxKind) => {
+              if (!focusedBox) return;
+              updateBoxMut.mutate({ boxId: focusedBox.box_id, patch: { kind: k } });
+            }}
+            onDeactivate={() => {
+              if (!focusedBox) return;
+              updateBoxMut.mutate({
+                boxId: focusedBox.box_id,
+                patch: { kind: "discard", manually_activated: false },
+              });
+            }}
+            onActivate={() => {
+              if (!focusedBox) return;
+              const restored: BoxKind =
+                focusedBox.kind === "discard" ? "paragraph" : focusedBox.kind;
+              updateBoxMut.mutate({
+                boxId: focusedBox.box_id,
+                patch: { kind: restored, manually_activated: true },
+              });
+            }}
+            onResetBox={() => {
+              if (!focusedBox) return;
+              resetBoxMut.mutate(focusedBox.box_id, {
+                onError: (e) =>
+                  error(e instanceof Error ? e.message : "Reset fehlgeschlagen"),
+              });
+            }}
+            onMergeUp={() => {
+              if (!focusedBox) return;
+              mergeUpMut.mutate(focusedBox.box_id, {
+                onError: (e) =>
+                  error(e instanceof Error ? e.message : "Merge up fehlgeschlagen"),
+              });
+            }}
+            onMergeDown={() => {
+              if (!focusedBox) return;
+              mergeDownMut.mutate(focusedBox.box_id, {
+                onError: (e) =>
+                  error(e instanceof Error ? e.message : "Merge down fehlgeschlagen"),
+              });
+            }}
+            onUnmergeUp={() => {
+              if (!focusedBox) return;
+              unmergeUpMut.mutate(focusedBox.box_id, {
+                onError: (e) =>
+                  error(e instanceof Error ? e.message : "Unmerge up fehlgeschlagen"),
+              });
+            }}
+            onUnmergeDown={() => {
+              if (!focusedBox) return;
+              unmergeDownMut.mutate(focusedBox.box_id, {
+                onError: (e) =>
+                  error(e instanceof Error ? e.message : "Unmerge down fehlgeschlagen"),
+              });
+            }}
+          />
 
           {/* Diagnose section — what the worker decided for THIS page.
               Pass undefined (not []) when the field is absent so the component
