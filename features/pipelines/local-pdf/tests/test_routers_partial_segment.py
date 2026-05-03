@@ -34,11 +34,12 @@ def _fake_predict_four_pages(pdf_path):
 
 @pytest.fixture
 def client_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Client wired to a fake 4-page predict function."""
+    """Client wired to a fake 4-page predict function (YOLO legacy path)."""
     root = tmp_path / "raw-pdfs"
     root.mkdir()
     monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
     monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.setenv("LOCAL_PDF_SEGMENT_BACKEND", "yolo")
     import local_pdf.api.routers.admin.segments as seg_mod
 
     monkeypatch.setattr(seg_mod, "_YOLO_PREDICT_FN", _fake_predict_four_pages)

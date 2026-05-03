@@ -34,7 +34,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from local_pdf.api.schemas import BoxKind, SegmentBox
 from local_pdf.workers.base import (
@@ -1668,3 +1668,258 @@ class MineruWorker:
             timestamp_ms=now_ms(),
             vram_freed_mb=freed,
         )
+
+
+# ── VLM segmentation path (MinerU as layout authority) ───────────────────────
+
+# Mapping from MinerU block type to SegmentBox kind.
+_VLM_TYPE_TO_KIND: dict[str, BoxKind] = {
+    "title": BoxKind.heading,
+    "text": BoxKind.paragraph,
+    "list": BoxKind.list_item,
+    "table": BoxKind.table,
+    "chart": BoxKind.table,
+    "image": BoxKind.figure,
+    "equation": BoxKind.formula,
+    "interline_equation": BoxKind.formula,
+    "code": BoxKind.formula,
+    "index": BoxKind.paragraph,
+}
+
+
+@dataclass(frozen=True)
+class VlmSegmentBlock:
+    """One segmentation result from the VLM path.
+
+    Yielded by ``vlm_segment_doc`` interleaved with lifecycle events.
+    """
+
+    kind: str = "block"
+    box: SegmentBox = None  # type: ignore[assignment]
+    html_snippet: str = ""
+    page_size_pts: tuple[float, float] = (612.0, 792.0)
+
+
+def vlm_segment_doc(
+    pdf_bytes: bytes,
+    *,
+    raster_dpi: int = 288,
+    page_subset: list[int] | None = None,
+    # Test injection: replaces the real doc_analyze call entirely.
+    # Signature: (pdf_bytes: bytes) -> dict  (middle_json)
+    parse_doc_fn: Callable[[bytes], dict] | None = None,
+) -> Iterator[Any]:
+    """Yield segmentation events from the VLM's pdf_info.
+
+    Event stream (in order):
+      - ModelLoadingEvent / ModelLoadedEvent
+      - WorkProgressEvent (one per block, current=N, total=total_blocks)
+      - WorkCompleteEvent
+      - ModelUnloadingEvent / ModelUnloadedEvent
+
+    Interleaved with lifecycle events, VlmSegmentBlock items are yielded for
+    each para_block and discarded_block in the VLM output.  The router collects
+    these to build segments.json and mineru.json without knowing MinerU internals.
+
+    Args:
+        pdf_bytes: Raw PDF bytes to analyse.
+        raster_dpi: DPI at which segment bboxes are expressed (default 288).
+            Bboxes are converted from PDF pts (72 dpi) to pixel space via
+            pts * raster_dpi / 72.
+        page_subset: 1-indexed page numbers to restrict analysis to.  None = all
+            pages.  When provided, only those pages are in the output.
+        parse_doc_fn: Test injection; skips the real model entirely.
+    """
+    scale = raster_dpi / 72.0
+    worker_name = MineruWorker.name
+
+    # ── Model load ────────────────────────────────────────────────────────────
+    yield ModelLoadingEvent(
+        model=worker_name,
+        timestamp_ms=now_ms(),
+        source=os.environ.get("LOCAL_PDF_MINERU_BIN", "mineru"),
+        vram_estimate_mb=MineruWorker.estimated_vram_mb,
+    )
+
+    before = _vram_used_mb()
+    t0 = time.monotonic()
+    predictor = None
+    if parse_doc_fn is None:
+        try:
+            from mineru.backend.vlm.vlm_analyze import ModelSingleton
+
+            model_path = os.environ.get("LOCAL_PDF_MINERU_MODEL_PATH") or None
+            predictor = ModelSingleton().get_model(
+                backend="transformers",
+                model_path=model_path,
+                server_url=None,
+            )
+        except ImportError:
+            predictor = None
+    load_seconds = time.monotonic() - t0
+    loaded_vram_mb = max(0, _vram_used_mb() - before)
+
+    yield ModelLoadedEvent(
+        model=worker_name,
+        timestamp_ms=now_ms(),
+        vram_actual_mb=loaded_vram_mb,
+        load_seconds=load_seconds,
+    )
+
+    # ── Parse document ────────────────────────────────────────────────────────
+    run_t0 = time.monotonic()
+
+    if parse_doc_fn is not None:
+        # Test injection: the fn receives pdf_bytes and returns a middle_json dict.
+        middle_json = parse_doc_fn(pdf_bytes)
+        all_page_infos = middle_json.get("pdf_info", []) if middle_json else []
+    else:
+        # Production path: slice pages if a subset was requested, then call
+        # doc_analyze on the (possibly sliced) PDF bytes.
+        if page_subset:
+            sorted_subset = sorted(set(page_subset))
+            active_bytes = _slice_pdf_to_pages(pdf_bytes, sorted_subset)
+        else:
+            active_bytes = pdf_bytes
+            sorted_subset = None
+
+        try:
+            from mineru.backend.vlm.vlm_analyze import doc_analyze
+
+            class _NullWriter:
+                def write(self, *_a: object, **_kw: object) -> None:
+                    pass
+
+            middle_json, _ = doc_analyze(
+                active_bytes,
+                _NullWriter(),
+                predictor=predictor,
+                backend="transformers",
+            )
+        except ImportError:
+            middle_json = {}
+        all_page_infos = middle_json.get("pdf_info", []) if middle_json else []
+
+    # ── Count total blocks for progress reporting ─────────────────────────────
+    total_blocks = sum(
+        len(pi.get("para_blocks") or []) + len(pi.get("discarded_blocks") or [])
+        for pi in all_page_infos
+    )
+
+    # ── Iterate pages and emit blocks ─────────────────────────────────────────
+    # Pre-compute sorted subset for page-number remapping (avoids re-sorting in loop).
+    _sorted_subset: list[int] | None = sorted(set(page_subset)) if page_subset else None
+
+    block_idx = 0
+    eta = EtaCalculator()
+    for page_idx, page_info in enumerate(all_page_infos):
+        # Map sliced-page index back to original page number.
+        if _sorted_subset is not None:
+            page_number = (
+                _sorted_subset[page_idx] if page_idx < len(_sorted_subset) else page_idx + 1
+            )
+        else:
+            page_number = page_idx + 1
+
+        raw_page_size = page_info.get("page_size")
+        try:
+            page_size_pts: tuple[float, float] = (
+                (float(raw_page_size[0]), float(raw_page_size[1]))
+                if raw_page_size and len(raw_page_size) >= 2
+                else (612.0, 792.0)
+            )
+        except (TypeError, ValueError, IndexError):
+            page_size_pts = (612.0, 792.0)
+
+        para_blocks = page_info.get("para_blocks") or []
+        discarded_blocks = page_info.get("discarded_blocks") or []
+
+        for local_idx, (block, is_discarded) in enumerate(
+            [(b, False) for b in para_blocks] + [(b, True) for b in discarded_blocks]
+        ):
+            raw_bbox = block.get("bbox")
+            if raw_bbox is None:
+                block_idx += 1
+                continue
+            try:
+                px0, py0, px1, py1 = (float(v) for v in raw_bbox[:4])
+            except (TypeError, ValueError):
+                block_idx += 1
+                continue
+
+            # Convert PDF pts → pixel space at raster_dpi.
+            bbox_px = (px0 * scale, py0 * scale, px1 * scale, py1 * scale)
+
+            block_type = block.get("type", "")
+            if is_discarded:
+                kind = BoxKind.auxiliary
+            else:
+                kind = _VLM_TYPE_TO_KIND.get(block_type, BoxKind.paragraph)
+
+            box_id = f"p{page_number}-b{local_idx}"
+            box = SegmentBox(
+                box_id=box_id,
+                page=page_number,
+                bbox=bbox_px,
+                kind=kind,
+                confidence=1.0,
+                reading_order=local_idx,
+                manually_activated=False,
+            )
+
+            html_snippet = _block_to_html(block, page_size=page_size_pts)
+            html_snippet = _convert_inline_latex(html_snippet)
+
+            yield VlmSegmentBlock(
+                kind="block",
+                box=box,
+                html_snippet=html_snippet,
+                page_size_pts=page_size_pts,
+            )
+
+            block_idx += 1
+            eta.observe(block_idx, time.monotonic())
+            eta_seconds, throughput = eta.estimate(total=max(total_blocks, 1))
+            yield WorkProgressEvent(
+                model=worker_name,
+                timestamp_ms=now_ms(),
+                stage="block",
+                current=block_idx,
+                total=total_blocks,
+                eta_seconds=eta_seconds,
+                throughput_per_sec=throughput,
+                vram_current_mb=_vram_used_mb(),
+            )
+
+    yield WorkCompleteEvent(
+        model=worker_name,
+        timestamp_ms=now_ms(),
+        total_seconds=time.monotonic() - run_t0,
+        items_processed=block_idx,
+        output_summary={"blocks_segmented": block_idx},
+    )
+
+    # ── Model unload ──────────────────────────────────────────────────────────
+    yield ModelUnloadingEvent(model=worker_name, timestamp_ms=now_ms())
+    before_free = _vram_used_mb()
+    predictor = None
+    if parse_doc_fn is None:
+        try:
+            from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
+
+            shutdown_cached_models()
+        except ImportError:
+            pass
+        gc.collect()
+        try:
+            torch = _import_torch()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+    freed = max(0, before_free - _vram_used_mb())
+    yield ModelUnloadedEvent(
+        model=worker_name,
+        timestamp_ms=now_ms(),
+        vram_freed_mb=freed,
+    )

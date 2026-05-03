@@ -613,3 +613,268 @@ def test_unmerge_up_404_when_box_missing(tmp_path, monkeypatch) -> None:
         headers={"X-Auth-Token": "tok"},
     )
     assert r.status_code == 404
+
+
+# ── VLM segmentation path tests ───────────────────────────────────────────────
+
+
+def _fake_middle_json_two_pages() -> dict:
+    """Minimal middle_json with 2 pages, 3 blocks total (one discarded)."""
+    return {
+        "pdf_info": [
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "title",
+                        "bbox": [50.0, 50.0, 300.0, 80.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 50.0, 300.0, 80.0],
+                                "spans": [{"content": "Document Title"}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 100.0, 400.0, 150.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 100.0, 400.0, 150.0],
+                                "spans": [{"content": "First paragraph text."}],
+                            }
+                        ],
+                    },
+                ],
+                "discarded_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 750.0, 200.0, 780.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 750.0, 200.0, 780.0],
+                                "spans": [{"content": "1"}],
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "page_size": [612.0, 792.0],
+                "para_blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [50.0, 50.0, 400.0, 120.0],
+                        "lines": [
+                            {
+                                "bbox": [50.0, 50.0, 400.0, 120.0],
+                                "spans": [{"content": "Page two paragraph."}],
+                            }
+                        ],
+                    }
+                ],
+                "discarded_blocks": [],
+            },
+        ]
+    }
+
+
+@pytest.fixture
+def client_vlm_segment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Client wired to a fake VLM parse_doc_fn (no real model loaded)."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    # Ensure the VLM path is active (not yolo).
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_two_pages())
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+    return client
+
+
+def _run_segment_vlm(client, slug: str, start: int | None = None, end: int | None = None) -> None:
+    qs = ""
+    if start is not None and end is not None:
+        qs = f"?start={start}&end={end}"
+    elif start is not None:
+        qs = f"?start={start}"
+    elif end is not None:
+        qs = f"?end={end}"
+    r = client.post(
+        f"/api/admin/docs/{slug}/segment{qs}",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+
+
+def test_vlm_segment_boxes_have_page_block_ids(client_vlm_segment) -> None:
+    """box_id format must be p{page}-b{idx}."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    boxes = r.json()["boxes"]
+    ids = {b["box_id"] for b in boxes}
+    # Expect p1-b0, p1-b1 (para), p1-b2 (discarded), p2-b0 (para on page 2)
+    assert "p1-b0" in ids
+    assert "p1-b1" in ids
+    assert "p2-b0" in ids
+
+
+def test_vlm_segment_kind_mapping(client_vlm_segment) -> None:
+    """title → heading, text → paragraph, discarded → auxiliary."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"})
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+
+    assert boxes["p1-b0"]["kind"] == "heading"  # "title" → heading
+    assert boxes["p1-b1"]["kind"] == "paragraph"  # "text" → paragraph
+    assert boxes["p1-b2"]["kind"] == "auxiliary"  # discarded → auxiliary
+    assert boxes["p2-b0"]["kind"] == "paragraph"  # "text" → paragraph
+
+
+def test_vlm_segment_bbox_in_pixel_space(client_vlm_segment) -> None:
+    """Bboxes must be scaled from PDF pts to pixel space at raster_dpi=288."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"})
+    boxes = {b["box_id"]: b for b in r.json()["boxes"]}
+
+    # title block bbox in pts: [50, 50, 300, 80]
+    # scale = 288/72 = 4.0 → px: [200, 200, 1200, 320]
+    bbox = boxes["p1-b0"]["bbox"]
+    assert pytest.approx(bbox[0], rel=1e-3) == 50.0 * 4
+    assert pytest.approx(bbox[1], rel=1e-3) == 50.0 * 4
+    assert pytest.approx(bbox[2], rel=1e-3) == 300.0 * 4
+    assert pytest.approx(bbox[3], rel=1e-3) == 80.0 * 4
+
+
+def test_vlm_segment_writes_mineru_json(client_vlm_segment) -> None:
+    """mineru.json must exist with elements carrying the same box_ids."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    import os
+
+    from local_pdf.storage.sidecar import read_mineru
+
+    root_str = os.environ.get("LOCAL_PDF_DATA_ROOT")
+    from pathlib import Path
+
+    data = read_mineru(Path(root_str), "doc")
+    assert data is not None
+    element_ids = {e["box_id"] for e in data["elements"]}
+    assert "p1-b0" in element_ids
+    assert "p1-b1" in element_ids
+    assert "p2-b0" in element_ids
+
+
+def test_vlm_segment_writes_html_with_sections(client_vlm_segment) -> None:
+    """html.html must contain section[data-page=...] wrappers."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    html = r.json()["html"]
+    assert '<section data-page="1">' in html
+    assert '<section data-page="2">' in html
+
+
+def test_vlm_segment_confidence_and_reading_order(client_vlm_segment) -> None:
+    """Confidence must be 1.0; manually_activated must be False."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"})
+    for box in r.json()["boxes"]:
+        assert box["confidence"] == 1.0
+        assert box["manually_activated"] is False
+
+
+def test_vlm_segment_partial_preserves_other_pages(tmp_path, monkeypatch) -> None:
+    """Partial VLM re-segmentation must preserve boxes from untouched pages."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.delenv("LOCAL_PDF_SEGMENT_BACKEND", raising=False)
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_VLM_PARSE_DOC_FN", lambda _bytes: _fake_middle_json_two_pages())
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    # Full segment to seed both pages.
+    _run_segment_vlm(client, "doc")
+    full_boxes = client.get("/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"}).json()[
+        "boxes"
+    ]
+    page1_ids = {b["box_id"] for b in full_boxes if b["page"] == 1}
+    assert page1_ids  # sanity
+
+    # Re-segment only page 2.
+    _run_segment_vlm(client, "doc", start=2, end=2)
+    partial_boxes = client.get(
+        "/api/admin/docs/doc/segments", headers={"X-Auth-Token": "tok"}
+    ).json()["boxes"]
+    partial_ids = {b["box_id"] for b in partial_boxes if b["page"] == 1}
+
+    # Page 1 boxes must be unchanged.
+    assert page1_ids == partial_ids
+
+
+def test_vlm_segment_yolo_fallback_uses_yolo_path(tmp_path, monkeypatch) -> None:
+    """LOCAL_PDF_SEGMENT_BACKEND=yolo must route to YOLO worker, not VLM."""
+    root = tmp_path / "raw-pdfs"
+    root.mkdir()
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    monkeypatch.setenv("LOCAL_PDF_SEGMENT_BACKEND", "yolo")
+
+    from local_pdf.workers.yolo import YOLOPagePrediction, YOLOPredictedBox
+
+    def fake_predict(pdf_path):
+        return [
+            YOLOPagePrediction(
+                page=1,
+                width=600,
+                height=800,
+                boxes=[
+                    YOLOPredictedBox(
+                        class_name="plain text",
+                        bbox=(10.0, 10.0, 100.0, 50.0),
+                        confidence=0.9,
+                    )
+                ],
+            )
+        ]
+
+    import local_pdf.api.routers.admin.segments as seg_mod
+
+    monkeypatch.setattr(seg_mod, "_YOLO_PREDICT_FN", fake_predict)
+
+    from fastapi.testclient import TestClient
+    from local_pdf.api.app import create_app
+
+    client = TestClient(create_app())
+    files = {"file": ("Doc.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")}
+    client.post("/api/admin/docs", headers={"X-Auth-Token": "tok"}, files=files)
+
+    r = client.post("/api/admin/docs/doc/segment", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+
+    # YOLO path writes yolo.json; VLM path does not.
+    from local_pdf.storage.sidecar import read_yolo
+
+    yolo = read_yolo(root, "doc")
+    assert yolo is not None, "YOLO path must write yolo.json"
+    assert len(yolo["boxes"]) == 1

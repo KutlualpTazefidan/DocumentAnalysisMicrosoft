@@ -1,4 +1,4 @@
-"""Segmenter routes: run YOLO + CRUD on boxes."""
+"""Segmenter routes: run YOLO (legacy) or MinerU VLM (default) + CRUD on boxes."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
+from local_pdf.api.routers.admin.extract import _wrap_html
 from local_pdf.api.schemas import (
     BoxKind,
     CreateBoxRequest,
@@ -25,19 +26,27 @@ from local_pdf.api.schemas import (
 from local_pdf.storage.sidecar import (
     doc_dir,
     read_meta,
+    read_mineru,
     read_segments,
     read_yolo,
+    write_html,
     write_meta,
+    write_mineru,
     write_segments,
     write_yolo,
 )
 from local_pdf.workers.base import now_ms
+from local_pdf.workers.mineru import VlmSegmentBlock, vlm_segment_doc
 from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
 
 # Test hook: assign a fake predict_fn here from tests.
 _YOLO_PREDICT_FN = None
+
+# Test hook: inject a fake parse_doc_fn for the VLM path.
+# Signature: (pdf_bytes: bytes) -> dict  (middle_json with pdf_info)
+_VLM_PARSE_DOC_FN = None
 
 
 def _now_iso() -> str:
@@ -63,7 +72,10 @@ async def run_segment(
     start: int | None = None,
     end: int | None = None,
 ) -> StreamingResponse:
-    """Stream YOLO segmentation for *slug*.
+    """Stream segmentation for *slug*.
+
+    Default path: MinerU VLM (``LOCAL_PDF_SEGMENT_BACKEND`` unset or not "yolo").
+    Legacy path:  YOLO (``LOCAL_PDF_SEGMENT_BACKEND=yolo``).
 
     Optional *start* / *end* query parameters (1-based, inclusive) restrict
     processing to a page range.  When provided, existing boxes outside that
@@ -76,59 +88,170 @@ async def run_segment(
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
     _bump_meta(cfg.data_root, slug, DocStatus.segmenting)
 
-    def stream():
+    env_backend = os.environ.get("LOCAL_PDF_SEGMENT_BACKEND", "").strip().lower()
+
+    if env_backend == "yolo":
+        # ── Legacy YOLO path ──────────────────────────────────────────────────
+        def stream_yolo():
+            try:
+                with YoloWorker(_yolo_weights_path(), predict_fn=_YOLO_PREDICT_FN) as worker:
+                    for ev in worker.run(pdf, start_page=start, end_page=end):
+                        yield ev.model_dump_json() + "\n"
+                    new_boxes = worker.boxes
+
+                    # ── yolo.json: merge pristine output ──────────────────────
+                    existing_yolo = read_yolo(cfg.data_root, slug) or {"boxes": []}
+                    if start is not None or end is not None:
+                        lo = start if start is not None else 1
+                        hi = end if end is not None else float("inf")
+                        kept_yolo = [
+                            b
+                            for b in existing_yolo.get("boxes", [])
+                            if not (lo <= b.get("page", 0) <= hi)
+                        ]
+                    else:
+                        kept_yolo = []
+                    merged_yolo_boxes = kept_yolo + [b.model_dump(mode="json") for b in new_boxes]
+                    write_yolo(cfg.data_root, slug, {"boxes": merged_yolo_boxes})
+
+                    # ── segments.json: same merge logic ───────────────────────
+                    existing_seg = read_segments(cfg.data_root, slug)
+                    if existing_seg is not None and (start is not None or end is not None):
+                        lo = start if start is not None else 1
+                        hi = end if end is not None else float("inf")
+                        kept_seg = [b for b in existing_seg.boxes if not (lo <= b.page <= hi)]
+                    else:
+                        kept_seg = []
+                    all_boxes = kept_seg + new_boxes
+                    all_boxes.sort(key=lambda b: (b.page, b.reading_order))
+                    write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes))
+
+                    meta = read_meta(cfg.data_root, slug)
+                    if meta is not None:
+                        write_meta(
+                            cfg.data_root,
+                            slug,
+                            meta.model_copy(
+                                update={
+                                    "box_count": len(
+                                        [b for b in all_boxes if b.kind != BoxKind.discard]
+                                    ),
+                                    "last_touched_utc": _now_iso(),
+                                }
+                            ),
+                        )
+                    for ev in worker.unload():
+                        yield ev.model_dump_json() + "\n"
+            except Exception as exc:
+                failure = WorkFailedEvent(
+                    model=YoloWorker.name,
+                    timestamp_ms=now_ms(),
+                    stage="run",
+                    reason=str(exc),
+                    recoverable=False,
+                    hint=None,
+                )
+                yield failure.model_dump_json() + "\n"
+                raise
+
+        return StreamingResponse(stream_yolo(), media_type="application/x-ndjson")
+
+    # ── VLM path (default) ────────────────────────────────────────────────────
+    def stream_vlm():
         try:
-            with YoloWorker(_yolo_weights_path(), predict_fn=_YOLO_PREDICT_FN) as worker:
-                for ev in worker.run(pdf, start_page=start, end_page=end):
-                    yield ev.model_dump_json() + "\n"
-                new_boxes = worker.boxes
+            pdf_bytes = pdf.read_bytes()
 
-                # ── yolo.json: merge pristine output, replacing only pages in range ──
-                existing_yolo = read_yolo(cfg.data_root, slug) or {"boxes": []}
-                if start is not None or end is not None:
-                    lo = start if start is not None else 1
-                    hi = end if end is not None else float("inf")
-                    kept_yolo = [
-                        b
-                        for b in existing_yolo.get("boxes", [])
-                        if not (lo <= b.get("page", 0) <= hi)
-                    ]
-                else:
-                    kept_yolo = []
-                merged_yolo_boxes = kept_yolo + [b.model_dump(mode="json") for b in new_boxes]
-                write_yolo(cfg.data_root, slug, {"boxes": merged_yolo_boxes})
-
-                # ── segments.json: same merge logic ──────────────────────────────────
+            # Build the page_subset from ?start / ?end.
+            if start is not None or end is not None:
+                # We don't know the total page count here; we'll pass the range
+                # as the page_subset.  We rely on vlm_segment_doc emitting only
+                # those pages.  Build a conservative range: we read the existing
+                # segments to infer max page if end is None.
                 existing_seg = read_segments(cfg.data_root, slug)
-                if existing_seg is not None and (start is not None or end is not None):
-                    lo = start if start is not None else 1
-                    hi = end if end is not None else float("inf")
-                    kept_seg = [b for b in existing_seg.boxes if not (lo <= b.page <= hi)]
+                lo = start if start is not None else 1
+                if end is not None:
+                    hi = end
+                elif existing_seg is not None and existing_seg.boxes:
+                    hi = max(b.page for b in existing_seg.boxes)
                 else:
-                    kept_seg = []
-                all_boxes = kept_seg + new_boxes
-                all_boxes.sort(key=lambda b: (b.page, b.reading_order))
-                write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes))
+                    hi = 9999  # safe sentinel — vlm_segment_doc only yields pages in the PDF
+                page_subset: list[int] | None = list(range(lo, hi + 1))
+            else:
+                page_subset = None
 
-                meta = read_meta(cfg.data_root, slug)
-                if meta is not None:
-                    write_meta(
-                        cfg.data_root,
-                        slug,
-                        meta.model_copy(
-                            update={
-                                "box_count": len(
-                                    [b for b in all_boxes if b.kind != BoxKind.discard]
-                                ),
-                                "last_touched_utc": _now_iso(),
-                            }
-                        ),
-                    )
-                for ev in worker.unload():
+            new_boxes: list[SegmentBox] = []
+            new_elements: list[dict] = []
+
+            for ev in vlm_segment_doc(
+                pdf_bytes,
+                raster_dpi=288,
+                page_subset=page_subset,
+                parse_doc_fn=_VLM_PARSE_DOC_FN,
+            ):
+                if isinstance(ev, VlmSegmentBlock):
+                    new_boxes.append(ev.box)
+                    new_elements.append({"box_id": ev.box.box_id, "html_snippet": ev.html_snippet})
+                else:
+                    # WorkerEvent — yield to client.
                     yield ev.model_dump_json() + "\n"
+
+            # ── Partial-page merge: preserve boxes/elements for untouched pages ─
+            if start is not None or end is not None:
+                lo = start if start is not None else 1
+                hi = end if end is not None else float("inf")
+
+                existing_seg = read_segments(cfg.data_root, slug)
+                kept_boxes = (
+                    [b for b in existing_seg.boxes if not (lo <= b.page <= hi)]
+                    if existing_seg is not None
+                    else []
+                )
+
+                existing_mineru = read_mineru(cfg.data_root, slug)
+                existing_elements = existing_mineru["elements"] if existing_mineru else []
+
+                def _page_from_bid(bid: str) -> int | None:
+                    import re as _re
+
+                    m = _re.match(r"p(\d+)-", bid or "")
+                    return int(m.group(1)) if m else None
+
+                kept_elements = [
+                    e
+                    for e in existing_elements
+                    if not (lo <= (_page_from_bid(e.get("box_id", "")) or 0) <= hi)
+                ]
+            else:
+                kept_boxes = []
+                kept_elements = []
+
+            all_boxes = kept_boxes + new_boxes
+            all_boxes.sort(key=lambda b: (b.page, b.reading_order))
+            all_elements = kept_elements + new_elements
+
+            write_segments(
+                cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes, raster_dpi=288)
+            )
+            write_mineru(cfg.data_root, slug, {"elements": all_elements, "diagnostics": []})
+            write_html(cfg.data_root, slug, _wrap_html(all_elements))
+
+            meta = read_meta(cfg.data_root, slug)
+            if meta is not None:
+                write_meta(
+                    cfg.data_root,
+                    slug,
+                    meta.model_copy(
+                        update={
+                            "box_count": len([b for b in all_boxes if b.kind != BoxKind.discard]),
+                            "last_touched_utc": _now_iso(),
+                        }
+                    ),
+                )
         except Exception as exc:
+            from local_pdf.workers.mineru import MineruWorker
+
             failure = WorkFailedEvent(
-                model=YoloWorker.name,
+                model=MineruWorker.name,
                 timestamp_ms=now_ms(),
                 stage="run",
                 reason=str(exc),
@@ -138,7 +261,7 @@ async def run_segment(
             yield failure.model_dump_json() + "\n"
             raise
 
-    return StreamingResponse(stream(), media_type="application/x-ndjson")
+    return StreamingResponse(stream_vlm(), media_type="application/x-ndjson")
 
 
 @router.get("/api/admin/docs/{slug}/segments")
