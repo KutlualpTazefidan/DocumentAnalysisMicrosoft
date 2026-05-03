@@ -9,10 +9,16 @@ Path-based role enforcement:
   - /api/admin/* requires role=admin (else 403)
   - /api/curate/* requires role=curator (else 403)
   - /api/auth/*, /api/_features, /api/health → public/authed via token only
+
+Public bypass (no token check at all):
+  - /api/admin/docs/{slug}/mineru-images/{file} — served to <img> tags
+    inside iframe srcdoc, which can't carry custom headers. Single-user
+    MVP bound to 127.0.0.1 so the slug is a sufficient access guard.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -28,6 +34,10 @@ if TYPE_CHECKING:
 
 _ALLOWLIST = ("/api/health", "/docs", "/openapi.json", "/redoc", "/api/_features")
 _AUTH_PUBLIC = ("/api/auth/check",)  # validates own header, no middleware enforcement
+
+# Iframe srcdoc <img> tags can't send X-Auth-Token. Bypass middleware for
+# the mineru-images GET route only (read-only, scoped to a known slug).
+_IMAGE_PATH_RE = re.compile(r"^/api/admin/docs/[^/]+/mineru-images/[^/]+$")
 
 
 @dataclass(frozen=True)
@@ -58,6 +68,8 @@ def install_auth_middleware(app: FastAPI, *, token: str) -> None:
         if path in _ALLOWLIST or any(path.startswith(p + "/") for p in _ALLOWLIST):
             return await call_next(request)
         if path in _AUTH_PUBLIC:
+            return await call_next(request)
+        if request.method == "GET" and _IMAGE_PATH_RE.match(path):
             return await call_next(request)
         if not path.startswith("/api/"):
             return await call_next(request)
