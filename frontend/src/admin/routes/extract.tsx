@@ -16,7 +16,8 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
-import { sliceHtmlByPage } from "../lib/extractHtml";
+import { rewriteImageSources, sliceHtmlByPage } from "../lib/extractHtml";
+import { apiBase } from "../api/adminClient";
 import {
   useMergeBoxDown,
   useMergeBoxUp,
@@ -279,8 +280,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   // ── Slice the full-doc HTML to only the current page ──────────────────
   // TODO: backend per-page persistence (v1: display-only slice; full doc is authoritative)
   const visibleHtml = useMemo(
-    () => sliceHtmlByPage(html.data ?? "", page),
-    [html.data, page],
+    () =>
+      rewriteImageSources(
+        sliceHtmlByPage(html.data ?? "", page),
+        apiBase(),
+        slug ?? "",
+      ),
+    [html.data, page, slug],
   );
 
   // ── Saving status derived from putHtml mutation state ─────────────────

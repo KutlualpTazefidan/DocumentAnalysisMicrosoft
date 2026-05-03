@@ -190,11 +190,13 @@ async def run_segment(
             new_boxes: list[SegmentBox] = []
             new_elements: list[dict] = []
 
+            images_dir = doc_dir(cfg.data_root, slug) / "mineru-images"
             for ev in vlm_segment_doc(
                 pdf_bytes,
                 raster_dpi=288,
                 page_subset=page_subset,
                 parse_doc_fn=_VLM_PARSE_DOC_FN,
+                image_writer_dir=images_dir,
             ):
                 if isinstance(ev, VlmSegmentBlock):
                     new_boxes.append(ev.box)

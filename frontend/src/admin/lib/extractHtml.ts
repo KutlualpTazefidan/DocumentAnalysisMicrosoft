@@ -49,3 +49,25 @@ export function sliceHtmlByPage(html: string, page: number): string {
 function buildDoc(headContent: string, bodyContent: string): string {
   return `<!DOCTYPE html>\n<html><head>${headContent}</head><body>\n${bodyContent}\n</body></html>\n`;
 }
+
+/**
+ * Rewrite ``<img src="mineru-images/foo.jpg">`` to an absolute API URL.
+ *
+ * The worker emits a relative ``mineru-images/{file}`` path in html.html
+ * because images live on disk at ``data_root/{slug}/mineru-images/{file}``
+ * and a backend route serves them. The iframe in HtmlEditor uses srcdoc,
+ * whose base URL is ``about:srcdoc``, so relative paths can't reach an
+ * HTTP route — we rewrite to absolute before passing the html to srcdoc.
+ */
+export function rewriteImageSources(
+  html: string,
+  apiBase: string,
+  slug: string,
+): string {
+  if (!html || !slug) return html;
+  const prefix = `${apiBase}/api/admin/docs/${encodeURIComponent(slug)}/mineru-images/`;
+  return html.replace(
+    /(<img[^>]*\bsrc=")mineru-images\/([^"]+)(")/gi,
+    (_full, pre, file, post) => `${pre}${prefix}${file}${post}`,
+  );
+}

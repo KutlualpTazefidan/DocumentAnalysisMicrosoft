@@ -2090,7 +2090,13 @@ def _render_visual_sub_block_html(sub_block: dict, sub_type: str) -> str:
             for span in line.get("spans", []):
                 img_path = span.get("image_path", "")
                 if img_path:
-                    return f'<figure><img src="{img_path}" alt=""></figure>'
+                    # Worker emits a relative ``mineru-images/{file}`` path;
+                    # frontend rewrites it to the absolute API URL before
+                    # passing the html to the iframe srcdoc (where relative
+                    # paths against about:srcdoc don't resolve).
+                    alt = (span.get("content") or "").strip()
+                    alt_attr = f' alt="{alt}"' if alt else ' alt=""'
+                    return f'<figure><img src="mineru-images/{img_path}"{alt_attr}></figure>'
         return ""
 
     if sub_type == "code_body":
@@ -2125,6 +2131,10 @@ def vlm_segment_doc(
     # Test injection: replaces the real doc_analyze call entirely.
     # Signature: (pdf_bytes: bytes) -> dict  (middle_json)
     parse_doc_fn: Callable[[bytes], dict] | None = None,
+    # When set, MinerU writes figure / table cropouts here. Required for
+    # image_body sub-blocks to render — without it the writer drops them
+    # and <img src> points to a file that doesn't exist on disk.
+    image_writer_dir: Path | None = None,
 ) -> Iterator[Any]:
     """Yield segmentation events from the VLM's pdf_info.
 
@@ -2207,9 +2217,17 @@ def vlm_segment_doc(
                 def write(self, *_a: object, **_kw: object) -> None:
                     pass
 
+            if image_writer_dir is not None:
+                from mineru.data.data_reader_writer import FileBasedDataWriter
+
+                image_writer_dir.mkdir(parents=True, exist_ok=True)
+                writer = FileBasedDataWriter(str(image_writer_dir))
+            else:
+                writer = _NullWriter()
+
             middle_json, _ = doc_analyze(
                 active_bytes,
-                _NullWriter(),
+                writer,
                 predictor=predictor,
                 backend="transformers",
             )
