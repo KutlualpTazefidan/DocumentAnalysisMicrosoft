@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Edit3, Trash2 } from "../../shared/icons";
 import { T } from "../styles/typography";
 import type { Question } from "../hooks/useSynthesise";
 
@@ -78,22 +79,24 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                 <p className={`${T.body} text-slate-800 whitespace-pre-wrap`}>
                   {q.text}
                 </p>
-                <div className="flex gap-2 justify-end">
+                <div className="flex gap-1 justify-end">
                   <button
                     type="button"
+                    title="Frage bearbeiten"
                     aria-label="Frage bearbeiten"
-                    className="text-xs text-blue-600 hover:underline disabled:opacity-40"
+                    className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40"
                     disabled={disabled}
                     onClick={() =>
                       setEditing({ id: q.entry_id, draft: q.text })
                     }
                   >
-                    bearbeiten
+                    <Edit3 size={14} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
+                    title="Frage loeschen"
                     aria-label="Frage loeschen"
-                    className="text-xs text-red-600 hover:underline disabled:opacity-40"
+                    className="p-1 rounded text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"
                     disabled={disabled}
                     onClick={() => {
                       if (window.confirm(`Diese Frage wirklich loeschen?`)) {
@@ -101,7 +104,7 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                       }
                     }}
                   >
-                    loeschen
+                    <Trash2 size={14} aria-hidden="true" />
                   </button>
                 </div>
               </>
