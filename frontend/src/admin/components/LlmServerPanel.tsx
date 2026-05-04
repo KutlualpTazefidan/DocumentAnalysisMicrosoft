@@ -44,9 +44,12 @@ export function LlmServerPanel({ token }: Props): JSX.Element {
   const state: LlmState = data?.state ?? "stopped";
   const isRunning = state === "running" || state === "starting";
 
-  // Auto-expand log tail when there's an error so the cause is visible
-  // without needing to click open <details>.
-  const showLogsByDefault = state === "error";
+  // Auto-expand log tail during boot AND on error so the user can
+  // watch vLLM's startup stream live (model download, weight load,
+  // CUDA init) instead of staring at a "Startet…" pill for 60s.
+  const showLogsByDefault = state === "error" || state === "starting";
+
+  const lastLog = data?.log_tail?.length ? data.log_tail[data.log_tail.length - 1] : null;
 
   return (
     <section
@@ -66,6 +69,19 @@ export function LlmServerPanel({ token }: Props): JSX.Element {
       {data?.model && (
         <p className={`${T.body} text-slate-600 truncate`} title={data.model}>
           {data.model}
+        </p>
+      )}
+
+      {/* Live "current step" peek — shows vLLM's most recent log line
+          while the server is booting. Click the Logs <details> below
+          for the full tail. */}
+      {state === "starting" && lastLog && (
+        <p
+          className={`${T.body} text-slate-500 italic truncate`}
+          title={lastLog}
+          data-testid="llm-current-step"
+        >
+          {lastLog}
         </p>
       )}
 
