@@ -63,6 +63,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const [pipelineName, setPipelineName] = useState<string>("microsoft");
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [searchChunks, setSearchChunks] = useState<PipelineChunk[] | null>(null);
+  const [chunkSelection, setChunkSelection] = useState<Record<string, boolean>>({});
   const [answerText, setAnswerText] = useState<string | null>(null);
   const [compareResult, setCompareResult] = useState<{
     bm25: number;
@@ -136,6 +137,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   function handleSearch() {
     if (!selected) return;
     setSearchChunks(null);
+    setChunkSelection({});
     setAnswerText(null);
     setCompareResult(null);
     search.mutate(
@@ -147,6 +149,10 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
       {
         onSuccess: (data) => {
           setSearchChunks(data.chunks);
+          // Default: every chunk is selected. User unchecks to drop.
+          setChunkSelection(
+            Object.fromEntries(data.chunks.map((c) => [c.chunk_id, true])),
+          );
           success(`${data.chunks.length} Chunks von ${pipelineName}`);
         },
         onError: (e) => error(e instanceof Error ? e.message : "Suche fehlgeschlagen"),
@@ -156,18 +162,32 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
   function handleAnswer() {
     if (!selected || !searchChunks) return;
+    const kept = searchChunks.filter((c) => chunkSelection[c.chunk_id] !== false);
+    if (kept.length === 0) {
+      error("Bitte mindestens einen Chunk auswählen.");
+      return;
+    }
     setAnswerText(null);
     setCompareResult(null);
     answer.mutate(
-      { name: pipelineName, question: selected.text, chunks: searchChunks },
+      { name: pipelineName, question: selected.text, chunks: kept },
       {
         onSuccess: (data) => {
           setAnswerText(data.answer);
-          success("Antwort generiert");
+          success(`Antwort generiert (${kept.length} Chunks verwendet)`);
         },
         onError: (e) => error(e instanceof Error ? e.message : "Antwort fehlgeschlagen"),
       },
     );
+  }
+
+  function toggleChunk(id: string) {
+    setChunkSelection((prev) => ({ ...prev, [id]: prev[id] === false }));
+  }
+
+  function setAllChunks(state: boolean) {
+    if (!searchChunks) return;
+    setChunkSelection(Object.fromEntries(searchChunks.map((c) => [c.chunk_id, state])));
   }
 
   async function handleUploadSource(file: File) {
@@ -405,28 +425,49 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 )}
               </div>
 
-              {/* Step 1 result: chunks shown in their own card. */}
+              {/* Step 1 result: chunks shown as selectable, collapsible cards. */}
               {searchChunks && (
-                <div className="rounded border border-slate-200 bg-white px-3 py-2 flex flex-col gap-1">
-                  <span className={T.tinyBold}>
-                    {pipelineName} — {searchChunks.length} Chunk(s)
-                  </span>
+                <div className="rounded border border-slate-200 bg-white px-3 py-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className={T.tinyBold}>
+                      {pipelineName} — {searchChunks.length} Chunk(s) ·{" "}
+                      {searchChunks.filter((c) => chunkSelection[c.chunk_id] !== false).length} ausgewählt
+                    </span>
+                    {searchChunks.length > 1 && (
+                      <div className={`${T.tiny} ml-auto flex items-center gap-2`}>
+                        <button
+                          type="button"
+                          onClick={() => setAllChunks(true)}
+                          className="text-blue-600 hover:underline"
+                          data-testid="chunks-select-all"
+                        >
+                          Alle
+                        </button>
+                        <span className="text-slate-300">·</span>
+                        <button
+                          type="button"
+                          onClick={() => setAllChunks(false)}
+                          className="text-blue-600 hover:underline"
+                          data-testid="chunks-select-none"
+                        >
+                          Keine
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {searchChunks.length === 0 ? (
                     <p className={`${T.bodyMuted} italic`}>
                       Keine Treffer in der Wissensquelle.
                     </p>
                   ) : (
-                    <ul className="list-none p-0 mt-1 flex flex-col gap-1">
-                      {searchChunks.map((c) => (
-                        <li
-                          key={c.chunk_id}
-                          className="rounded border border-slate-200 bg-slate-50 px-2 py-1"
-                        >
-                          <p className={`${T.tiny} text-slate-500`}>
-                            {c.title ?? c.chunk_id} · score {c.score.toFixed(3)}
-                          </p>
-                          <p className={`${T.body} whitespace-pre-wrap`}>{c.chunk}</p>
-                        </li>
+                    <ul className="list-none p-0 flex flex-col gap-1">
+                      {searchChunks.map((c, i) => (
+                        <ChunkCard
+                          key={c.chunk_id || `idx-${i}`}
+                          chunk={c}
+                          checked={chunkSelection[c.chunk_id] !== false}
+                          onToggle={() => toggleChunk(c.chunk_id)}
+                        />
                       ))}
                     </ul>
                   )}
@@ -437,7 +478,10 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               {searchChunks && searchChunks.length > 0 && (
                 <button
                   type="button"
-                  disabled={answer.isPending}
+                  disabled={
+                    answer.isPending ||
+                    searchChunks.every((c) => chunkSelection[c.chunk_id] === false)
+                  }
                   onClick={handleAnswer}
                   className={`px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed self-start`}
                   data-testid="compare-answer"
@@ -446,7 +490,9 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                     ? "Antworte…"
                     : answerText
                       ? "↻ Nochmal antworten"
-                      : "💬 Antwort generieren"}
+                      : `💬 Antwort generieren (${
+                          searchChunks.filter((c) => chunkSelection[c.chunk_id] !== false).length
+                        } Chunks)`}
                 </button>
               )}
 
@@ -825,6 +871,64 @@ function SourceStateChip({
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STYLE[state]}`}>
       {LABEL[state]}
     </span>
+  );
+}
+
+function ChunkCard({
+  chunk,
+  checked,
+  onToggle,
+}: {
+  chunk: PipelineChunk;
+  checked: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const preview = chunk.chunk.replace(/\s+/g, " ").trim().slice(0, 120);
+  const truncated = chunk.chunk.length > 120;
+
+  return (
+    <li
+      className={`rounded border ${
+        checked ? "border-blue-300 bg-blue-50/40" : "border-slate-200 bg-slate-50"
+      } px-2 py-1.5 flex flex-col gap-1`}
+    >
+      <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="mt-0.5 cursor-pointer flex-shrink-0"
+          aria-label={`Chunk ${chunk.title ?? chunk.chunk_id} verwenden`}
+          data-testid={`chunk-checkbox-${chunk.chunk_id}`}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((p) => !p)}
+          className="text-left flex-1 flex flex-col gap-0.5 min-w-0"
+          data-testid={`chunk-toggle-${chunk.chunk_id}`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`${T.tiny} text-slate-500 font-medium truncate`}>
+              {chunk.title ?? chunk.chunk_id}
+            </span>
+            <span className={`${T.tiny} text-slate-400 ml-auto flex-shrink-0`}>
+              {chunk.score.toFixed(3)}
+            </span>
+            <span className={`${T.tiny} text-slate-400 flex-shrink-0`}>{open ? "▾" : "▸"}</span>
+          </div>
+          {!open && (
+            <p className={`${T.tiny} text-slate-600 line-clamp-1 italic`}>
+              {preview}
+              {truncated ? "…" : ""}
+            </p>
+          )}
+        </button>
+      </div>
+      {open && (
+        <p className={`${T.body} whitespace-pre-wrap pl-6 text-slate-700`}>{chunk.chunk}</p>
+      )}
+    </li>
   );
 }
 
