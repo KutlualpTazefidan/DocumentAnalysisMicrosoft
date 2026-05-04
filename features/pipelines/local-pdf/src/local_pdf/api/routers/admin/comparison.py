@@ -145,6 +145,43 @@ async def compare(body: CompareRequest, request: Request) -> CompareResponse:
     )
 
 
+# ── /compare-bulk — score one reference against many candidates ─────────────
+
+
+class CompareBulkRequest(BaseModel):
+    reference: str
+    candidates: list[str]
+
+
+class CompareBulkScore(BaseModel):
+    bm25: float
+    cosine: float
+
+
+class CompareBulkResponse(BaseModel):
+    embedder: bool
+    scores: list[CompareBulkScore]
+
+
+@router.post("/api/admin/compare-bulk", response_model=CompareBulkResponse)
+async def compare_bulk(body: CompareBulkRequest, request: Request) -> CompareBulkResponse:
+    """Score *reference* against each *candidates*[i].
+
+    Used by the Vergleich tab to surface "how much did each retrieved
+    chunk actually contribute to the answer?" — high-scoring chunks
+    were likely the basis of the answer; low-scoring ones were
+    dragged in but ignored. The user reads this as a context-
+    efficiency signal.
+    """
+    _ = request
+    embedder = _build_embedder()
+    out: list[CompareBulkScore] = []
+    for cand in body.candidates:
+        s = score_pair(body.reference, cand, embedder=embedder)
+        out.append(CompareBulkScore(bm25=s["bm25"], cosine=s["cosine"]))
+    return CompareBulkResponse(embedder=embedder is not None, scores=out)
+
+
 # ── helpers reused by tests via dependency injection (not implemented here). ──
 
 if TYPE_CHECKING:

@@ -188,6 +188,31 @@ export function useAskPipeline(token: string) {
   });
 }
 
+export interface CompareBulkResponse {
+  embedder: boolean;
+  scores: { bm25: number; cosine: number }[];
+}
+
+/** Score one reference text against many candidates in one round-trip.
+ *  Used to compute "how much did each chunk contribute to the answer?"
+ *  after the LLM call returns. */
+export function useCompareBulk(token: string) {
+  return useMutation({
+    mutationFn: async (params: { reference: string; candidates: string[] }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/compare-bulk`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        token,
+      );
+      return r.json() as Promise<CompareBulkResponse>;
+    },
+  });
+}
+
 export function useCompareAnswers(token: string) {
   return useMutation({
     mutationFn: async (params: { reference: string; candidate: string }) => {

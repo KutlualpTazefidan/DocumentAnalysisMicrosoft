@@ -11,6 +11,7 @@ import { useQuestions, type Question } from "../hooks/useSynthesise";
 import {
   useAnswerPipeline,
   useCompareAnswers,
+  useCompareBulk,
   useDeleteMicrosoftSource,
   useMicrosoftSources,
   usePipelines,
@@ -82,6 +83,11 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const search = useSearchPipeline(token);
   const answer = useAnswerPipeline(token);
   const compare = useCompareAnswers(token);
+  const compareBulk = useCompareBulk(token);
+  const [chunkRelevance, setChunkRelevance] = useState<
+    Record<string, { bm25: number; cosine: number }>
+  >({});
+  const [chunkRelevanceEmbedder, setChunkRelevanceEmbedder] = useState(false);
   const microsoftSources = useMicrosoftSources(token);
   const refreshSources = useRefreshMicrosoftSources(token);
   const uploadSource = useUploadMicrosoftSource(token);
@@ -139,6 +145,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     setSearchChunks(null);
     setChunkSelection({});
     setAnswerText(null);
+    setChunkRelevance({});
     setCompareResult(null);
     search.mutate(
       {
@@ -169,12 +176,33 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     }
     setAnswerText(null);
     setCompareResult(null);
+    setChunkRelevance({});
     answer.mutate(
       { name: pipelineName, question: selected.text, chunks: kept },
       {
         onSuccess: (data) => {
           setAnswerText(data.answer);
           success(`Antwort generiert (${kept.length} Chunks verwendet)`);
+          // Score each chunk's text against the answer so we can show
+          // "how much did this chunk contribute". Best-effort —
+          // failure just means no relevance bars on the cards.
+          compareBulk.mutate(
+            { reference: data.answer, candidates: kept.map((c) => c.chunk),
+            },
+            {
+              onSuccess: (rel) => {
+                const map: Record<string, { bm25: number; cosine: number }> = {};
+                kept.forEach((c, i) => {
+                  const s = rel.scores[i];
+                  if (s) map[c.chunk_id] = { bm25: s.bm25, cosine: s.cosine };
+                });
+                setChunkRelevance(map);
+                setChunkRelevanceEmbedder(rel.embedder);
+              },
+              // Silent on error — relevance is optional UX sugar.
+              onError: () => {},
+            },
+          );
         },
         onError: (e) => error(e instanceof Error ? e.message : "Antwort fehlgeschlagen"),
       },
@@ -467,6 +495,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           chunk={c}
                           checked={chunkSelection[c.chunk_id] !== false}
                           onToggle={() => toggleChunk(c.chunk_id)}
+                          relevance={chunkRelevance[c.chunk_id]}
+                          relevanceEmbedder={chunkRelevanceEmbedder}
                         />
                       ))}
                     </ul>
@@ -517,8 +547,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               {compareResult && (
                 <div className="rounded border border-slate-200 bg-white px-3 py-2 flex flex-col gap-2">
                   <span className={T.tinyBold}>Ähnlichkeit Referenz ↔ {pipelineName}</span>
-                  <ScoreBar label="Cosine" value={compareResult.cosine} />
-                  <ScoreBar label="BM25" value={compareResult.bm25} />
+                  <ScoreBar label="Sinngleichheit" hint="Cosine" value={compareResult.cosine} />
+                  <ScoreBar label="Wortlaut" hint="BM25" value={compareResult.bm25} />
                   {!compareResult.embedder && (
                     <p className={`${T.tiny} text-amber-700`}>
                       Cosine = 0 weil Azure-Embeddings nicht konfiguriert sind.
@@ -619,6 +649,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           setSelectedEntry(null);
                           setSearchChunks(null);
                           setAnswerText(null);
+                          setChunkRelevance({});
                           setCompareResult(null);
                         }}
                         data-testid={`compare-page-btn-${p}`}
@@ -661,6 +692,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setPipelineName(e.target.value);
                 setSearchChunks(null);
                 setAnswerText(null);
+                setChunkRelevance({});
                 setCompareResult(null);
               }}
               className={`${T.body} px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-800`}
@@ -685,6 +717,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setSelectedSource(slug);
                 setSearchChunks(null);
                 setAnswerText(null);
+                setChunkRelevance({});
                 setCompareResult(null);
               }}
               onUpload={handleUploadSource}
@@ -878,10 +911,14 @@ function ChunkCard({
   chunk,
   checked,
   onToggle,
+  relevance,
+  relevanceEmbedder,
 }: {
   chunk: PipelineChunk;
   checked: boolean;
   onToggle: () => void;
+  relevance?: { bm25: number; cosine: number };
+  relevanceEmbedder?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const preview = chunk.chunk.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -912,8 +949,11 @@ function ChunkCard({
             <span className={`${T.tiny} text-slate-500 font-medium truncate`}>
               {chunk.title ?? chunk.chunk_id}
             </span>
-            <span className={`${T.tiny} text-slate-400 ml-auto flex-shrink-0`}>
-              {chunk.score.toFixed(3)}
+            <span
+              className={`${T.tiny} text-slate-400 ml-auto flex-shrink-0`}
+              title="Retrieval-Score (von Azure AI Search)"
+            >
+              Treffer {chunk.score.toFixed(3)}
             </span>
             <span className={`${T.tiny} text-slate-400 flex-shrink-0`}>{open ? "▾" : "▸"}</span>
           </div>
@@ -925,6 +965,22 @@ function ChunkCard({
           )}
         </button>
       </div>
+
+      {/* Per-chunk "did this contribute to the answer?" bars — appear
+          only after /answer + /compare-bulk have run. Compares the
+          chunk text against the LLM's answer text so the user sees
+          which chunks were actually useful vs which were dragged
+          along but ignored. */}
+      {relevance && (
+        <div className="pl-6 flex flex-col gap-0.5 pt-0.5 border-t border-slate-100">
+          <span className={`${T.tiny} text-slate-500 italic`}>Beitrag zur Antwort</span>
+          <ScoreBar label="Wortlaut" hint="BM25" value={relevance.bm25} />
+          {relevanceEmbedder && (
+            <ScoreBar label="Sinngleichheit" hint="Cosine" value={relevance.cosine} />
+          )}
+        </div>
+      )}
+
       {open && (
         <p className={`${T.body} whitespace-pre-wrap pl-6 text-slate-700`}>{chunk.chunk}</p>
       )}
@@ -932,14 +988,25 @@ function ChunkCard({
   );
 }
 
-function ScoreBar({ label, value }: { label: string; value: number }): JSX.Element {
+function ScoreBar({
+  label,
+  hint,
+  value,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+}): JSX.Element {
   const pct = Math.max(0, Math.min(1, value));
   const w = `${(pct * 100).toFixed(0)}%`;
   const color =
     pct >= 0.8 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-500" : "bg-red-500";
   return (
     <div className="flex items-center gap-2">
-      <span className={`${T.tinyBold} w-14`}>{label}</span>
+      <span className={`${T.tiny} font-medium w-28 text-slate-700`}>
+        {label}
+        {hint && <span className="text-slate-400"> ({hint})</span>}
+      </span>
       <div className="flex-1 h-2 rounded bg-slate-100 overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: w }} />
       </div>
@@ -989,8 +1056,10 @@ function SimilarCard({
         </p>
         <p className={`${T.tiny} text-slate-400 font-mono`}>{hit.box_id}</p>
         <div className="flex flex-col gap-0.5 mt-1">
-          <ScoreBar label="BM25" value={hit.bm25_score} />
-          {embedder && <ScoreBar label="Cos" value={hit.cosine_score} />}
+          <ScoreBar label="Wortlaut" hint="BM25" value={hit.bm25_score} />
+          {embedder && (
+            <ScoreBar label="Sinngleichheit" hint="Cosine" value={hit.cosine_score} />
+          )}
         </div>
       </div>
 
