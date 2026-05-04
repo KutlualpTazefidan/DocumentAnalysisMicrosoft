@@ -72,6 +72,13 @@ EOF
 
 LOG_FILE="${LOG_DIR}/vllm.log"
 
+# Filter out env vars that are for the BACKEND's vllm-remote client, not
+# for vllm itself. Without this, vllm warns "Unknown vLLM environment
+# variable detected" on every boot because dev-local-pdf.sh source's
+# .env.local-pdf-test with `set -a`, the backend inherits them, and
+# they leak through Popen into start.sh's environment.
+unset LLM_BACKEND VLLM_BASE_URL VLLM_MODEL VLLM_EMBEDDING_MODEL OPENAI_EMBEDDING_MODEL OPENAI_BASE_URL OPENAI_API_KEY
+
 if [[ "${1:-}" == "--background" ]]; then
     PID_FILE="${LOG_DIR}/vllm.pid"
     echo "starting in background, logs: ${LOG_FILE}"
