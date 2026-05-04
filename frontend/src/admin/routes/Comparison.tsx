@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
@@ -15,18 +16,30 @@ import {
   type AskResponse,
   type SimilarHit,
 } from "../hooks/useComparison";
-import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
+import {
+  loadApprovedPages,
+  loadCurrentPage,
+  saveApprovedPages,
+  saveCurrentPage,
+} from "../lib/currentPage";
 import { T } from "../styles/typography";
 
 /**
- * Vergleich tab — pick a question, see similar Qs in the doc + their
- * chunks, then send the question to an external pipeline (Microsoft
- * Azure today) and compare its answer to our local reference answer.
+ * Vergleich tab — same chrome as Extract / Synthesise:
  *
- * Layout: questions list on the left (filtered by the current page),
- * pipeline runner + comparison on the right. Bottom-left of the
- * selected question shows similar Qs with bm25/cosine scores.
+ *   Left pane     : questions on this page + similar-question block
+ *   Middle pane   : pipeline runner (send → chunks + answer → compare)
+ *   Right strip   : page navigation widget + lock-page button
+ *                   (same components Synthesise uses)
  */
+
+function comparePageBtnClasses(hasQuestions: boolean, isActive: boolean): string {
+  const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center`;
+  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  return hasQuestions
+    ? `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`
+    : `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
+}
 
 interface InnerProps {
   slug: string;
@@ -36,9 +49,18 @@ interface InnerProps {
 function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const { success, error } = useToast();
   const [page, setPage] = useState<number>(() => loadCurrentPage(slug));
+  const [pageGridOpen, setPageGridOpen] = useState(false);
+  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
+    loadApprovedPages(slug),
+  );
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [pipelineName, setPipelineName] = useState<string>("microsoft");
   const [pipelineResult, setPipelineResult] = useState<AskResponse | null>(null);
+  const [compareResult, setCompareResult] = useState<{
+    bm25: number;
+    cosine: number;
+    embedder: boolean;
+  } | null>(null);
 
   const docMeta = useQuery({
     queryKey: ["doc", slug],
@@ -50,18 +72,34 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const pipelines = usePipelines(token);
   const ask = useAskPipeline(token);
   const compare = useCompareAnswers(token);
-  const [compareResult, setCompareResult] = useState<{
-    bm25: number;
-    cosine: number;
-    embedder: boolean;
-  } | null>(null);
 
   useEffect(() => {
     saveCurrentPage(slug, page);
   }, [slug, page]);
 
-  // Flatten the by-box question map into a list filtered by the
-  // current page (box_ids are p<N>-b<M>).
+  // Same DocMeta-first total-pages calc as Extract / Synthesise.
+  const totalPages = docMeta.data?.pages ?? 1;
+
+  // Pages-with-questions for the page-grid colouring.
+  const pagesWithQuestions = useMemo<Set<number>>(() => {
+    const out = new Set<number>();
+    for (const [boxId, qs] of Object.entries(questions.data ?? {})) {
+      if (!qs || qs.length === 0) continue;
+      const m = boxId.match(/^p(\d+)-/);
+      if (m) out.add(parseInt(m[1], 10));
+    }
+    return out;
+  }, [questions.data]);
+
+  function handleToggleApprove() {
+    const next = new Set(approvedPages);
+    if (next.has(page)) next.delete(page);
+    else next.add(page);
+    setApprovedPages(next);
+    saveApprovedPages(slug, next);
+  }
+
+  // Flatten questions for the current page only.
   const questionsOnPage: Question[] = useMemo(() => {
     const out: Question[] = [];
     for (const [boxId, qs] of Object.entries(questions.data ?? {})) {
@@ -70,10 +108,6 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     }
     return out;
   }, [questions.data, page]);
-
-  // Total page count from DocMeta (PDF-truth) so the page selector
-  // shows every page even those without questions.
-  const totalPages = docMeta.data?.pages ?? 1;
 
   const selected: Question | null = useMemo(() => {
     if (!selectedEntry) return null;
@@ -115,44 +149,22 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top bar — same as other doc tabs. */}
+      {/* Top bar — same chrome as Extract / Synthesise. */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
-      </div>
-
-      {/* Page selector — strip across the top of the content area. */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 flex-shrink-0">
-        <span className={T.tinyBold}>Seite</span>
-        <div className="flex flex-wrap gap-1">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPage(p)}
-              className={
-                p === page
-                  ? "px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-medium"
-                  : "px-2 py-0.5 rounded border border-slate-300 text-slate-700 text-xs hover:bg-white"
-              }
-              data-testid={`compare-page-${p}`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-        <span className={`${T.bodyMuted} ml-auto`}>
-          {questionsOnPage.length} Frage(n) auf dieser Seite
-        </span>
       </div>
 
       <div className="flex flex-1 min-h-0">
         {/* ── Left: questions list + similar block. ──────────────── */}
         <div
-          className="w-[40%] flex flex-col border-r border-slate-200 bg-white overflow-y-auto"
+          className="flex-1 flex flex-col border-r border-slate-200 bg-white overflow-y-auto min-w-0"
           data-testid="compare-left"
         >
-          <div className="px-4 py-3 border-b border-slate-100">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
             <span className={T.tinyBold}>Fragen auf Seite {page}</span>
+            <span className={`${T.bodyMuted} ml-auto`}>
+              {questionsOnPage.length} Frage(n)
+            </span>
           </div>
           {questionsOnPage.length === 0 ? (
             <p className={`${T.bodyMuted} italic px-4 py-3`}>Keine Fragen auf dieser Seite.</p>
@@ -206,10 +218,10 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
           )}
         </div>
 
-        {/* ── Right: pipeline runner + comparison. ───────────────── */}
+        {/* ── Middle: pipeline runner + comparison. ───────────────── */}
         <div
-          className="flex-1 flex flex-col bg-slate-50 overflow-y-auto px-4 py-4 gap-3"
-          data-testid="compare-right"
+          className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50 overflow-y-auto px-4 py-4 gap-3 min-w-0"
+          data-testid="compare-middle"
         >
           <div className="flex items-center gap-2">
             <span className={T.tinyBold}>Pipeline</span>
@@ -315,6 +327,124 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
             </>
           )}
         </div>
+
+        {/* ── Right: thin controls strip — page nav + lock (same as Synthesise). ── */}
+        <aside
+          className="w-[280px] flex flex-col gap-3 bg-white px-4 py-4 overflow-y-auto flex-shrink-0"
+          data-testid="compare-sidebar"
+        >
+          <div className="flex flex-col gap-2">
+            <div
+              className={`flex items-center justify-between gap-2 ${T.tiny} text-slate-600 whitespace-nowrap`}
+            >
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
+                Keine Fragen
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded bg-green-200 shrink-0" aria-hidden="true" />
+                Mit Fragen
+              </span>
+            </div>
+
+            <div className="flex items-stretch gap-1">
+              <button
+                type="button"
+                aria-label="Vorherige Seite"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="compare-page-prev"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                aria-label={`Seite ${page} von ${totalPages}, ${pageGridOpen ? "Liste schließen" : "Liste öffnen"}`}
+                aria-expanded={pageGridOpen}
+                onClick={() => setPageGridOpen((p) => !p)}
+                className={`${comparePageBtnClasses(pagesWithQuestions.has(page), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
+                data-testid="compare-page-grid-toggle"
+              >
+                <span>
+                  Seite {page} / {totalPages}
+                </span>
+                <motion.span
+                  aria-hidden="true"
+                  animate={{ rotate: pageGridOpen ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  ▾
+                </motion.span>
+              </button>
+              <button
+                type="button"
+                aria-label="Nächste Seite"
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="compare-page-next"
+              >
+                ▶
+              </button>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {pageGridOpen && (
+                <motion.div
+                  key="compare-page-grid"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div
+                    className="grid grid-cols-5 gap-1 pt-1 max-h-64 overflow-y-auto pr-1"
+                    role="group"
+                    aria-label="Page navigation"
+                  >
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        aria-label={`Seite ${p}`}
+                        aria-pressed={p === page}
+                        className={`${comparePageBtnClasses(pagesWithQuestions.has(p), p === page)} transition-colors`}
+                        onClick={() => {
+                          setPage(p);
+                          setPageGridOpen(false);
+                          setSelectedEntry(null);
+                          setPipelineResult(null);
+                          setCompareResult(null);
+                        }}
+                        data-testid={`compare-page-btn-${p}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <button
+            type="button"
+            aria-label={
+              approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"
+            }
+            onClick={handleToggleApprove}
+            className={
+              approvedPages.has(page)
+                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200`
+                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`
+            }
+            data-testid="compare-page-lock"
+          >
+            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+          </button>
+        </aside>
       </div>
     </div>
   );
