@@ -186,3 +186,109 @@ def test_pipelines_unknown_returns_404(client):
         json={"question": "Test?"},
     )
     assert r.status_code == 404
+
+
+# ── Microsoft knowledge sources ──────────────────────────────────────────────
+
+
+def test_microsoft_sources_empty_initially(client):
+    r = client.get(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_microsoft_sources_upload_round_trips(client):
+    import io
+
+    r = client.post(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+        files={"file": ("spec.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")},
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["filename"] == "spec.pdf"
+    assert body["state"] == "uploaded"
+    assert body["index_name"] is None
+    assert body["pages"] >= 1
+    slug = body["slug"]
+
+    listing = client.get(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+    ).json()
+    assert any(s["slug"] == slug for s in listing)
+
+
+def test_microsoft_sources_upload_rejects_non_pdf(client):
+    import io
+
+    r = client.post(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+        files={"file": ("notes.txt", io.BytesIO(b"hello"), "text/plain")},
+    )
+    assert r.status_code == 400
+
+
+def test_microsoft_sources_upload_rejects_bad_pdf(client):
+    import io
+
+    r = client.post(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+        files={"file": ("spec.pdf", io.BytesIO(b"not actually a pdf"), "application/pdf")},
+    )
+    assert r.status_code == 400
+
+
+def test_microsoft_sources_delete_removes_local_artifacts(client, tmp_path):
+    import io
+
+    r = client.post(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+        files={"file": ("notes.pdf", io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")},
+    )
+    slug = r.json()["slug"]
+
+    r = client.delete(
+        f"/api/admin/pipelines/microsoft/sources/{slug}",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 204
+
+    listing = client.get(
+        "/api/admin/pipelines/microsoft/sources",
+        headers={"X-Auth-Token": "tok"},
+    ).json()
+    assert all(s["slug"] != slug for s in listing)
+
+
+def test_microsoft_sources_delete_404_when_unknown(client):
+    r = client.delete(
+        "/api/admin/pipelines/microsoft/sources/missing-slug",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 404
+
+
+def test_microsoft_sources_uniqueness_appends_suffix(client):
+    """Uploading two PDFs with the same filename creates distinct slugs."""
+    import io
+
+    def _post(name: str) -> str:
+        r = client.post(
+            "/api/admin/pipelines/microsoft/sources",
+            headers={"X-Auth-Token": "tok"},
+            files={"file": (name, io.BytesIO(b"%PDF-1.4\n%%EOF\n"), "application/pdf")},
+        )
+        return r.json()["slug"]
+
+    s1 = _post("report.pdf")
+    s2 = _post("report.pdf")
+    assert s1 != s2
+    assert s2.startswith(s1)  # "report" + "-2"
