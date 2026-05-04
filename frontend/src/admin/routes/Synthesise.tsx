@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
@@ -23,7 +24,13 @@ import {
 } from "../hooks/useSynthesise";
 import { rewriteImageSources, sliceHtmlByPage } from "../lib/extractHtml";
 import { apiBase } from "../api/adminClient";
-import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
+import { getDoc } from "../api/docs";
+import {
+  loadApprovedPages,
+  loadCurrentPage,
+  saveApprovedPages,
+  saveCurrentPage,
+} from "../lib/currentPage";
 import { useMineru } from "../hooks/useExtract";
 import { T } from "../styles/typography";
 
@@ -66,6 +73,18 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   const [page, setPage] = useState<number>(() => loadCurrentPage(slug));
   const [highlight, setHighlight] = useState<string | null>(null);
   const [pageGridOpen, setPageGridOpen] = useState(false);
+  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
+    loadApprovedPages(slug),
+  );
+
+  // Total page count from DocMeta — same source the Extract page uses,
+  // so the page-grid shows every page in the doc (including pages with
+  // no boxes yet) instead of stopping at the highest mineru-box page.
+  const docMeta = useQuery({
+    queryKey: ["doc", slug],
+    queryFn: () => getDoc(slug, token),
+    enabled: !!slug,
+  });
 
   // Streaming state.
   const streamRef = useRef<StreamHandles | null>(null);
@@ -90,15 +109,26 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
     [html.data, page, slug],
   );
 
-  // Page count derived from the mineru elements (box_id format pN-bM).
+  // Total page count: prefer DocMeta.pages (PDF-truth, every page).
+  // Fall back to highest page seen in mineru elements when meta isn't
+  // loaded yet so the grid still works on first paint.
   const totalPages = useMemo<number>(() => {
+    if (docMeta.data?.pages) return docMeta.data.pages;
     const pages = new Set<number>();
     for (const el of mineru.data?.elements ?? []) {
       const m = el.box_id.match(/^p(\d+)-/);
       if (m) pages.add(parseInt(m[1], 10));
     }
     return pages.size > 0 ? Math.max(...pages) : 1;
-  }, [mineru.data]);
+  }, [docMeta.data, mineru.data]);
+
+  function handleToggleApprove() {
+    const next = new Set(approvedPages);
+    if (next.has(page)) next.delete(page);
+    else next.add(page);
+    setApprovedPages(next);
+    saveApprovedPages(slug, next);
+  }
 
   // Pages that already have at least one (non-deprecated) question.
   // Drives the green/red colouring in the page-grid widget.
@@ -475,6 +505,26 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Lock / unlock current page — same localStorage key as
+              Extract, so locking in either tab applies everywhere.
+              While locked, per-page Generate is disabled to match
+              Extract's "approved" semantics. */}
+          <button
+            type="button"
+            aria-label={
+              approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"
+            }
+            onClick={handleToggleApprove}
+            className={
+              approvedPages.has(page)
+                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200`
+                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`
+            }
+            data-testid="synth-page-lock"
+          >
+            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+          </button>
 
           <hr className="border-slate-200" />
 
