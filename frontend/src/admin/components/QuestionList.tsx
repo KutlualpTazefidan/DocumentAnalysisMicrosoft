@@ -86,6 +86,15 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                 >
                   {q.text}
                 </p>
+                {q.answer && (
+                  <div
+                    className="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[13px] leading-snug text-emerald-900 whitespace-pre-wrap"
+                    data-testid={`question-answer-${q.entry_id}`}
+                  >
+                    <span className="font-semibold mr-1">Antwort:</span>
+                    {q.answer}
+                  </div>
+                )}
                 <div className="flex gap-1 justify-end">
                   <button
                     type="button"

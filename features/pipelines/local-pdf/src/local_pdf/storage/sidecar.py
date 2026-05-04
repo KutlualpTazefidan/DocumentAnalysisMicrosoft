@@ -171,6 +171,29 @@ def read_curator_questions(data_root: Path, slug: str) -> CuratorQuestionsFile |
     return CuratorQuestionsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
 
 
+def _answers_path(data_root: Path, slug: str) -> Path:
+    """LLM-generated reference answers, keyed by question entry_id.
+
+    Lives next to golden_events.v1.jsonl so a slug's answers travel
+    with its events. Format: {entry_id: answer_text} JSON.
+    """
+    return doc_dir(data_root, slug) / "datasets" / "answers.json"
+
+
+def read_answers(data_root: Path, slug: str) -> dict[str, str]:
+    raw = _read_text_or_none(_answers_path(data_root, slug))
+    if not raw:
+        return {}
+    obj = json.loads(raw)
+    return {str(k): str(v) for k, v in obj.items()} if isinstance(obj, dict) else {}
+
+
+def write_answers(data_root: Path, slug: str, answers: dict[str, str]) -> None:
+    path = _answers_path(data_root, slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_locked_text(path, json.dumps(answers, ensure_ascii=False, indent=2))
+
+
 def update_question(
     data_root: Path, slug: str, question_id: str, patch: dict
 ) -> CuratorQuestionsFile | None:

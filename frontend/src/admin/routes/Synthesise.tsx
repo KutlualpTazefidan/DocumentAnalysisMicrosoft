@@ -10,6 +10,7 @@ import { QuestionList } from "../components/QuestionList";
 import { useHtml } from "../hooks/useExtract";
 import {
   streamGenerate,
+  useAnswerBox,
   useDeprecateQuestion,
   useGenerateBox,
   useQuestions,
@@ -52,6 +53,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   const mineru = useMineru(slug, token);
   const questions = useQuestions(slug, token);
   const generateBox = useGenerateBox(slug, token);
+  const answerBox = useAnswerBox(slug, token);
   const refine = useRefineQuestion(slug, token);
   const deprecate = useDeprecateQuestion(slug, token);
   const { success, error } = useToast();
@@ -189,6 +191,20 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
       }
     } catch (e) {
       error(e instanceof Error ? e.message : "Generierung fehlgeschlagen");
+    }
+  }
+
+  async function handleAnswerBox() {
+    if (!highlight) return;
+    try {
+      const res = await answerBox.mutateAsync(highlight);
+      if (res.answered === 0 && res.skipped_reason) {
+        success(`Keine Antworten — ${res.skipped_reason}`);
+      } else {
+        success(`${res.answered} Antwort(en) generiert`);
+      }
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Antwort-Generierung fehlgeschlagen");
     }
   }
 
@@ -494,6 +510,22 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             className={`w-full px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
           >
             {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
+          </button>
+
+          <button
+            type="button"
+            aria-label="Antworten für diese Box generieren"
+            disabled={
+              !highlight ||
+              answerBox.isPending ||
+              streaming !== null ||
+              questionsForBox.length === 0
+            }
+            onClick={handleAnswerBox}
+            className={`w-full px-3 py-1.5 rounded bg-emerald-600 text-white ${T.bodyMedium} hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
+            data-testid="synthesise-answer-box"
+          >
+            {answerBox.isPending ? "…" : "📝 Antworten für diese Box generieren"}
           </button>
 
           {/* Box-scoped dedup — only the highlighted box's questions. */}

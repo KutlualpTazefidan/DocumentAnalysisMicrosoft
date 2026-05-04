@@ -18,6 +18,8 @@ export interface Question {
   entry_id: string;
   text: string;
   box_id: string;
+  /** LLM-generated reference answer; null until ⟨📝 Antworten⟩ runs. */
+  answer?: string | null;
 }
 
 export type QuestionsByBox = Record<string, Question[]>;
@@ -63,6 +65,31 @@ export function useQuestions(slug: string, token: string) {
       return r.json() as Promise<QuestionsByBox>;
     },
     retry: false,
+  });
+}
+
+/** Sync per-box answer generation. Backend reads the box's content +
+ *  active questions, asks the LLM to answer each, and stores the
+ *  results in the per-slug answers sidecar. The next /questions read
+ *  surfaces them via the `answer` field. */
+export function useAnswerBox(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (boxId: string) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/answer-box?box_id=${encodeURIComponent(boxId)}`,
+        { method: "POST" },
+        token,
+      );
+      return r.json() as Promise<{
+        box_id: string;
+        answered: number;
+        skipped_reason: string | null;
+      }>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["questions", slug] });
+    },
   });
 }
 

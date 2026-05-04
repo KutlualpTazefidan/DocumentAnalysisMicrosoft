@@ -48,7 +48,7 @@ from goldens.storage.log import append_events, read_events
 from goldens.storage.projection import build_state
 from pydantic import BaseModel
 
-from local_pdf.storage.sidecar import doc_dir
+from local_pdf.storage.sidecar import doc_dir, read_answers, write_answers
 from local_pdf.synthetic import MineruElementsLoader
 
 if TYPE_CHECKING:
@@ -88,6 +88,13 @@ class GeneratedQuestion(BaseModel):
     entry_id: str
     text: str
     box_id: str
+    answer: str | None = None
+
+
+class AnswerBoxResponse(BaseModel):
+    box_id: str
+    answered: int
+    skipped_reason: str | None = None
 
 
 class GenerateBoxResponse(BaseModel):
@@ -141,11 +148,13 @@ def _box_id_from_source_element(page: int, bare_id: str) -> str:
 
 def _list_questions(cfg: Any, slug: str) -> list[GeneratedQuestion]:
     """Read all active retrieval entries for *slug* and project them into
-    the SPA's box_id-keyed shape.
+    the SPA's box_id-keyed shape. Enriches with LLM-generated answers
+    from the sidecar if available.
     """
     path = _events_path(cfg, slug)
     if not path.exists():
         return []
+    answers = read_answers(cfg.data_root, slug)
     out: list[GeneratedQuestion] = []
     for entry in iter_active_retrieval_entries(path):
         src = entry.source_element
@@ -156,6 +165,7 @@ def _list_questions(cfg: Any, slug: str) -> list[GeneratedQuestion]:
                 entry_id=entry.entry_id,
                 text=entry.query,
                 box_id=_box_id_from_source_element(src.page_number, src.element_id),
+                answer=answers.get(entry.entry_id),
             )
         )
     return out
@@ -334,6 +344,121 @@ async def synthesise(
         yield json.dumps({"event": "done"}) + "\n"
 
     return StreamingResponse(_stream(), media_type="application/x-ndjson")
+
+
+# ── Answer generation (per-box) ───────────────────────────────────────────────
+
+
+def _answer_prompt(content: str, questions: list[tuple[str, str]]) -> str:
+    """Render the prompt for batch question-answering of one box.
+
+    `questions` is a list of (entry_id, question_text). Asking the LLM
+    to answer all questions for a box in a single call reuses the
+    context tokens once and keeps round-trip count low.
+    """
+    indexed = "\n".join(f"{i}. {q}" for i, (_, q) in enumerate(questions))
+    return (
+        "You are a domain expert answering evaluation questions.\n\n"
+        "Use ONLY the following content (one document element) to answer "
+        "each question. If the content does not contain a clear answer, "
+        "reply with the literal string 'unknown'. Be concise. Use the "
+        "language of the input.\n\n"
+        f"Content:\n{content}\n\n"
+        f"Questions:\n{indexed}\n\n"
+        "Return a JSON object with a top-level key `answers` whose value "
+        "is a list of objects, each with two string fields: `index` "
+        "(matching the input index, 0-based as a string) and `answer` "
+        "(your answer). The list length must equal the number of input "
+        "questions."
+    )
+
+
+def _parse_answers_payload(raw: str, expected: int) -> list[str] | None:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    items = data.get("answers") if isinstance(data, dict) else None
+    if not isinstance(items, list) or len(items) != expected:
+        return None
+    out = [""] * expected
+    for it in items:
+        if not isinstance(it, dict):
+            return None
+        idx_raw = it.get("index")
+        ans = it.get("answer")
+        if not isinstance(ans, str):
+            return None
+        if isinstance(idx_raw, int):
+            idx = idx_raw
+        elif isinstance(idx_raw, str):
+            try:
+                idx = int(idx_raw)
+            except ValueError:
+                return None
+        else:
+            return None
+        if not (0 <= idx < expected):
+            return None
+        out[idx] = ans
+    return out
+
+
+@router.post("/api/admin/docs/{slug}/answer-box", response_model=AnswerBoxResponse)
+async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxResponse:
+    """Generate reference answers for every question on one box.
+
+    Reads the box's HTML-stripped text + its existing active questions,
+    asks the LLM to answer each in a single bundled call, and writes
+    the results into ``<slug>/datasets/answers.json`` (keyed by
+    entry_id). Idempotent: re-running overwrites prior answers.
+    """
+    from llm_clients.base import Message
+
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+
+    # Box content from the same loader the question generator uses, so
+    # tables get row-preserving newlines etc.
+    loader = MineruElementsLoader(data_root=cfg.data_root, slug=slug, only_box_id=box_id)
+    elements = loader.elements()
+    if not elements:
+        return AnswerBoxResponse(box_id=box_id, answered=0, skipped_reason="box_not_found")
+    content = elements[0].content
+
+    questions = [(q.entry_id, q.text) for q in _list_questions(cfg, slug) if q.box_id == box_id]
+    if not questions:
+        return AnswerBoxResponse(box_id=box_id, answered=0, skipped_reason="no_questions")
+
+    client, _embed, model, _embed_model = _resolve_clients()
+    prompt = _answer_prompt(content, questions)
+    completion = client.complete(
+        [Message(role="user", content=prompt)],
+        model=model,
+        temperature=0.0,
+        response_format={"type": "json_object"},
+    )
+    answers = _parse_answers_payload(completion.text, expected=len(questions))
+    if answers is None:
+        # One retry on parse failure — same model, same prompt.
+        completion = client.complete(
+            [Message(role="user", content=prompt)],
+            model=model,
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        answers = _parse_answers_payload(completion.text, expected=len(questions))
+    if answers is None:
+        raise HTTPException(status_code=502, detail="LLM returned malformed answer payload")
+
+    stored = read_answers(cfg.data_root, slug)
+    for (entry_id, _q), a in zip(questions, answers, strict=True):
+        if a.strip():
+            stored[entry_id] = a.strip()
+    write_answers(cfg.data_root, slug, stored)
+    answered = sum(1 for a in answers if a.strip())
+    return AnswerBoxResponse(box_id=box_id, answered=answered, skipped_reason=None)
 
 
 # ── Read questions ────────────────────────────────────────────────────────────
