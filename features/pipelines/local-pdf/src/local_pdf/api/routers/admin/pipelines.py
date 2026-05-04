@@ -188,11 +188,14 @@ def _ask_microsoft(
     else:
         index_name = cfg.ai_search_index_name
 
-    chat_deployment = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    chat_deployment = _resolve_chat_deployment()
     if not chat_deployment:
         raise HTTPException(
             status_code=503,
-            detail="AZURE_OPENAI_CHAT_DEPLOYMENT not set — can't ask Microsoft for an answer",
+            detail=(
+                "Set AZURE_OPENAI_CHAT_DEPLOYMENT (or DEPLOYMENT_NAME) in your env "
+                "to the chat deployment name — e.g. 'gpt-4.1'."
+            ),
         )
 
     # Semantic config name: schema we create uses "default-semantic-config";
@@ -280,6 +283,19 @@ def _ask_microsoft(
         )
 
     return AskResponse(pipeline="microsoft", question=question, chunks=chunks, answer=answer)
+
+
+def _resolve_chat_deployment() -> str | None:
+    """Where to find the Azure OpenAI chat deployment name.
+
+    Order of precedence:
+      1. AZURE_OPENAI_CHAT_DEPLOYMENT  (canonical)
+      2. DEPLOYMENT_NAME               (matches archive/llm_query_index.ipynb)
+    Returns None if neither is set; caller turns that into a 503.
+    """
+    import os
+
+    return os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT") or os.environ.get("DEPLOYMENT_NAME")
 
 
 def _index_name_for(slug: str) -> str:
@@ -377,8 +393,6 @@ def _answer_microsoft(question: str, chunks: list[PipelineChunk]) -> str:
     lets the user edit/filter chunks, then sends the kept set here for
     answer generation.
     """
-    import os
-
     try:
         from query_index.client import get_openai_client
         from query_index.config import Config
@@ -396,11 +410,14 @@ def _answer_microsoft(question: str, chunks: list[PipelineChunk]) -> str:
             detail=f"Microsoft credentials missing in env: {exc}",
         ) from exc
 
-    chat_deployment = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    chat_deployment = _resolve_chat_deployment()
     if not chat_deployment:
         raise HTTPException(
             status_code=503,
-            detail="AZURE_OPENAI_CHAT_DEPLOYMENT not set — can't ask Microsoft for an answer",
+            detail=(
+                "Set AZURE_OPENAI_CHAT_DEPLOYMENT (or DEPLOYMENT_NAME) in your env "
+                "to the chat deployment name — e.g. 'gpt-4.1'."
+            ),
         )
 
     if not chunks:
