@@ -413,7 +413,7 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
     the results into ``<slug>/datasets/answers.json`` (keyed by
     entry_id). Idempotent: re-running overwrites prior answers.
     """
-    from llm_clients.base import Message
+    from llm_clients.base import Message, ResponseFormat
 
     cfg = request.app.state.config
     if not doc_dir(cfg.data_root, slug).exists():
@@ -437,7 +437,7 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
         [Message(role="user", content=prompt)],
         model=model,
         temperature=0.0,
-        response_format={"type": "json_object"},
+        response_format=ResponseFormat(type="json_object"),
     )
     answers = _parse_answers_payload(completion.text, expected=len(questions))
     if answers is None:
@@ -446,7 +446,7 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
             [Message(role="user", content=prompt)],
             model=model,
             temperature=0.0,
-            response_format={"type": "json_object"},
+            response_format=ResponseFormat(type="json_object"),
         )
         answers = _parse_answers_payload(completion.text, expected=len(questions))
     if answers is None:
