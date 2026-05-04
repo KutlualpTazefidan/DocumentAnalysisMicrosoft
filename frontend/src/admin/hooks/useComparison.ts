@@ -170,6 +170,24 @@ export function useMicrosoftSources(token: string) {
   });
 }
 
+/** Pings Azure AI Search for any kb-* indexes we don't have locally
+ *  and adopts them. Returns the merged list. */
+export function useRefreshMicrosoftSources(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/pipelines/microsoft/sources/_refresh`,
+        { method: "POST" },
+        token,
+      );
+      return r.json() as Promise<KnowledgeSource[]>;
+    },
+    onSuccess: (data) =>
+      qc.setQueryData<KnowledgeSource[]>(["microsoft-sources"], data),
+  });
+}
+
 export function useUploadMicrosoftSource(token: string) {
   const qc = useQueryClient();
   return useMutation({

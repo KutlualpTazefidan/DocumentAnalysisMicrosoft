@@ -306,6 +306,72 @@ async def list_sources(request: Request) -> list[KnowledgeSource]:
     return out
 
 
+@router.post(
+    "/api/admin/pipelines/microsoft/sources/_refresh",
+    response_model=list[KnowledgeSource],
+)
+async def refresh_sources(request: Request) -> list[KnowledgeSource]:
+    """Reconcile local sources with what's actually on Azure AI Search.
+
+    Adopts any ``kb-*`` index found on Azure that we don't already
+    have a local meta.json for — creating a synthetic
+    KnowledgeSource(state="indexed", filename=slug.pdf) so the user
+    can immediately query it. Existing local entries are left
+    unchanged.
+
+    Best-effort: an Azure failure (auth / network / package missing)
+    just falls back to the local-only list rather than 5xx-ing.
+    """
+    cfg = request.app.state.config
+
+    # Existing local sources keyed by slug.
+    local: dict[str, KnowledgeSource] = {}
+    root = _ms_root(cfg.data_root)
+    if root.exists():
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir():
+                continue
+            src = _read_source(cfg.data_root, entry.name)
+            if src is not None:
+                local[src.slug] = src
+
+    # Azure `kb-*` indexes the user has access to.
+    azure_kb_indexes: list[str] = []
+    try:
+        from query_index.client import get_search_index_client
+        from query_index.config import Config
+
+        cfg_az = Config.from_env()
+        idx_client = get_search_index_client(cfg_az)
+        for name in idx_client.list_index_names():
+            if name.startswith("kb-"):
+                azure_kb_indexes.append(name)
+    except Exception:
+        # No creds, package missing, or list call failed — return
+        # local-only.
+        return list(local.values())
+
+    # Adopt anything on Azure that we don't have locally.
+    for idx_name in azure_kb_indexes:
+        slug = idx_name[len("kb-") :]
+        if slug in local:
+            continue
+        # Synthesize a local meta.json so subsequent /ask + delete
+        # work uniformly.
+        adopted = KnowledgeSource(
+            slug=slug,
+            filename=f"{slug}.pdf",
+            pages=0,  # unknown — no source.pdf was uploaded here
+            state="indexed",
+            error=None,
+            index_name=idx_name,
+        )
+        _write_source(cfg.data_root, adopted)
+        local[slug] = adopted
+
+    return sorted(local.values(), key=lambda s: s.slug)
+
+
 @router.delete(
     "/api/admin/pipelines/microsoft/sources/{slug}",
     status_code=204,

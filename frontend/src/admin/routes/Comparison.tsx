@@ -14,6 +14,7 @@ import {
   useDeleteMicrosoftSource,
   useMicrosoftSources,
   usePipelines,
+  useRefreshMicrosoftSources,
   useSimilarQuestions,
   useUploadMicrosoftSource,
   type AskResponse,
@@ -78,6 +79,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const ask = useAskPipeline(token);
   const compare = useCompareAnswers(token);
   const microsoftSources = useMicrosoftSources(token);
+  const refreshSources = useRefreshMicrosoftSources(token);
   const uploadSource = useUploadMicrosoftSource(token);
   const deleteSource = useDeleteMicrosoftSource(token);
 
@@ -171,6 +173,15 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
       success(`"${filename}" entfernt`);
     } catch (e) {
       error(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
+    }
+  }
+
+  async function handleRefreshSources() {
+    try {
+      const list = await refreshSources.mutateAsync();
+      success(`${list.length} Quelle(n) — Azure abgeglichen`);
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Aktualisieren fehlgeschlagen");
     }
   }
 
@@ -577,8 +588,10 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               }}
               onUpload={handleUploadSource}
               onDelete={handleDeleteSource}
+              onRefresh={handleRefreshSources}
               uploadPending={uploadSource.isPending}
               deletePending={deleteSource.isPending}
+              refreshPending={refreshSources.isPending}
             />
           )}
         </aside>
@@ -594,8 +607,10 @@ function MicrosoftSourcesPanel({
   onSelect,
   onUpload,
   onDelete,
+  onRefresh,
   uploadPending,
   deletePending,
+  refreshPending,
 }: {
   sources: KnowledgeSource[];
   loading: boolean;
@@ -603,14 +618,29 @@ function MicrosoftSourcesPanel({
   onSelect: (slug: string) => void;
   onUpload: (file: File) => void;
   onDelete: (slug: string, filename: string) => void;
+  onRefresh: () => void;
   uploadPending: boolean;
   deletePending: boolean;
+  refreshPending: boolean;
 }): JSX.Element {
   return (
     <div className="flex flex-col gap-2">
-      <span className={`${T.tinyBold} uppercase tracking-wide text-slate-700`}>
-        Wissensquellen
-      </span>
+      <div className="flex items-center gap-1">
+        <span className={`${T.tinyBold} uppercase tracking-wide text-slate-700 flex-1`}>
+          Wissensquellen
+        </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshPending}
+          className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+          title="Mit Azure abgleichen"
+          aria-label="Wissensquellen aktualisieren"
+          data-testid="ms-sources-refresh"
+        >
+          <RefreshIcon spinning={refreshPending} />
+        </button>
+      </div>
 
       {loading ? (
         <p className={`${T.bodyMuted} italic`}>Lade…</p>
@@ -678,6 +708,28 @@ function MicrosoftSourcesPanel({
         />
       </label>
     </div>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }): JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={spinning ? "animate-spin" : ""}
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
   );
 }
 
