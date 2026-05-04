@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+_TR_RE = re.compile(r"<\s*tr\b[^>]*>(.*?)<\s*/\s*tr\s*>", re.IGNORECASE | re.DOTALL)
+_CELL_RE = re.compile(r"<\s*(?:t[hd])\b[^>]*>(.*?)<\s*/\s*t[hd]\s*>", re.IGNORECASE | re.DOTALL)
 
 
 def _strip_html(html: str) -> str:
@@ -41,6 +43,26 @@ def _strip_html(html: str) -> str:
     """
     text = _TAG_RE.sub(" ", html or "")
     return _WS_RE.sub(" ", text).strip()
+
+
+def _table_html_to_text(html: str) -> str:
+    """Render <table> HTML as one row per line, cells joined with " | ".
+
+    The synthetic generator's table decomposer (decompose_to_sub_units)
+    splits content on newlines and treats line 0 as the header. Without
+    row-preserving newlines every cell collapses into a single line and
+    the element gets skipped with reason "no_sub_units".
+    """
+    rows = _TR_RE.findall(html or "")
+    if not rows:
+        return _strip_html(html)
+    lines: list[str] = []
+    for row_html in rows:
+        cells = [_strip_html(c) for c in _CELL_RE.findall(row_html)]
+        cells = [c for c in cells if c]
+        if cells:
+            lines.append(" | ".join(cells))
+    return "\n".join(lines)
 
 
 # Map local-pdf BoxKind → goldens ElementType. Kinds that don't support
@@ -100,7 +122,9 @@ class MineruElementsLoader:
             if element_type is None:
                 continue
             html = snippet_by_id.get(box_id, "")
-            text = _strip_html(html)
+            # Tables need newline-separated rows so decompose_to_sub_units
+            # can split them; everything else collapses to a single line.
+            text = _table_html_to_text(html) if element_type == "table" else _strip_html(html)
             if not text:
                 continue
 
