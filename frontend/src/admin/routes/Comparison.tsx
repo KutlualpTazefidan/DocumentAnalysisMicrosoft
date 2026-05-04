@@ -7,6 +7,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { getDoc } from "../api/docs";
+import { useMineru } from "../hooks/useExtract";
 import { useQuestions, type Question } from "../hooks/useSynthesise";
 import {
   useAnswerPipeline,
@@ -78,16 +79,26 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     enabled: !!slug,
   });
   const questions = useQuestions(slug, token);
+  const mineru = useMineru(slug, token);
   const similar = useSimilarQuestions(slug, token, selectedEntry);
   const pipelines = usePipelines(token);
   const search = useSearchPipeline(token);
   const answer = useAnswerPipeline(token);
   const compare = useCompareAnswers(token);
   const compareBulk = useCompareBulk(token);
+  const compareBulkBox = useCompareBulk(token);
+  // chunk_id → score vs the LLM's answer (existing).
   const [chunkRelevance, setChunkRelevance] = useState<
     Record<string, { bm25: number; cosine: number }>
   >({});
   const [chunkRelevanceEmbedder, setChunkRelevanceEmbedder] = useState(false);
+  // chunk_id → score vs the LOCAL source box that the question came from.
+  // High = Microsoft retrieved a chunk that overlaps with the same content
+  // we curated locally. Low + long MS chunk = MS dragged in extra noise.
+  const [boxRelevance, setBoxRelevance] = useState<
+    Record<string, { bm25: number; cosine: number }>
+  >({});
+  const [boxRelevanceEmbedder, setBoxRelevanceEmbedder] = useState(false);
   const microsoftSources = useMicrosoftSources(token);
   const refreshSources = useRefreshMicrosoftSources(token);
   const uploadSource = useUploadMicrosoftSource(token);
@@ -140,12 +151,29 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
   const referenceAnswer = selected?.answer ?? null;
 
+  // Local box content for the selected question — used as the "ground
+  // truth" reference when scoring Microsoft's retrieved chunks. Read
+  // from the mineru data we already loaded for the page-grid widget;
+  // strip HTML to plain text the same way the backend loader does.
+  const localBoxContent = useMemo<string>(() => {
+    if (!selected) return "";
+    const els = mineru.data?.elements ?? [];
+    const el = els.find((e) => e.box_id === selected.box_id);
+    if (!el) return "";
+    const html = el.html_snippet_raw ?? el.html_snippet ?? "";
+    return html
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }, [selected, mineru.data]);
+
   function handleSearch() {
     if (!selected) return;
     setSearchChunks(null);
     setChunkSelection({});
     setAnswerText(null);
     setChunkRelevance({});
+    setBoxRelevance({});
     setCompareResult(null);
     search.mutate(
       {
@@ -156,11 +184,34 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
       {
         onSuccess: (data) => {
           setSearchChunks(data.chunks);
-          // Default: every chunk is selected. User unchecks to drop.
           setChunkSelection(
             Object.fromEntries(data.chunks.map((c) => [c.chunk_id, true])),
           );
           success(`${data.chunks.length} Chunks von ${pipelineName}`);
+
+          // If we have the local box content, score each MS chunk
+          // against it so the user can see "did Microsoft retrieve
+          // anything matching our curated chunk?"
+          if (localBoxContent && data.chunks.length > 0) {
+            compareBulkBox.mutate(
+              {
+                reference: localBoxContent,
+                candidates: data.chunks.map((c) => c.chunk),
+              },
+              {
+                onSuccess: (rel) => {
+                  const map: Record<string, { bm25: number; cosine: number }> = {};
+                  data.chunks.forEach((c, i) => {
+                    const s = rel.scores[i];
+                    if (s) map[c.chunk_id] = { bm25: s.bm25, cosine: s.cosine };
+                  });
+                  setBoxRelevance(map);
+                  setBoxRelevanceEmbedder(rel.embedder);
+                },
+                onError: () => {},
+              },
+            );
+          }
         },
         onError: (e) => error(e instanceof Error ? e.message : "Suche fehlgeschlagen"),
       },
@@ -177,6 +228,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     setAnswerText(null);
     setCompareResult(null);
     setChunkRelevance({});
+    // boxRelevance NOT reset here — it's a property of {question, chunks}
+    // which haven't changed; re-running /answer doesn't invalidate it.
     answer.mutate(
       { name: pipelineName, question: selected.text, chunks: kept },
       {
@@ -497,6 +550,9 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           onToggle={() => toggleChunk(c.chunk_id)}
                           relevance={chunkRelevance[c.chunk_id]}
                           relevanceEmbedder={chunkRelevanceEmbedder}
+                          boxRelevance={boxRelevance[c.chunk_id]}
+                          boxRelevanceEmbedder={boxRelevanceEmbedder}
+                          localBoxLength={localBoxContent.length}
                         />
                       ))}
                     </ul>
@@ -650,6 +706,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           setSearchChunks(null);
                           setAnswerText(null);
                           setChunkRelevance({});
+    setBoxRelevance({});
                           setCompareResult(null);
                         }}
                         data-testid={`compare-page-btn-${p}`}
@@ -693,6 +750,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setSearchChunks(null);
                 setAnswerText(null);
                 setChunkRelevance({});
+    setBoxRelevance({});
                 setCompareResult(null);
               }}
               className={`${T.body} px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-800`}
@@ -718,6 +776,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setSearchChunks(null);
                 setAnswerText(null);
                 setChunkRelevance({});
+    setBoxRelevance({});
                 setCompareResult(null);
               }}
               onUpload={handleUploadSource}
@@ -907,18 +966,51 @@ function SourceStateChip({
   );
 }
 
+function ChunkLengthChip({
+  msLength,
+  localLength,
+}: {
+  msLength: number;
+  localLength: number;
+}): JSX.Element | null {
+  if (localLength <= 0) return null;
+  const ratio = msLength / localLength;
+  const label =
+    ratio >= 1.2
+      ? `${ratio.toFixed(1)}× länger als unser Chunk`
+      : ratio <= 0.8
+        ? `${(1 / ratio).toFixed(1)}× kürzer als unser Chunk`
+        : "etwa gleich lang";
+  const tone =
+    ratio >= 3 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
+  return (
+    <span
+      className={`px-1.5 py-0.5 rounded ${tone} text-[10px] font-medium`}
+      title="MS-Chunk-Länge / lokaler Box-Inhalt — hoch = MS hat viel Drumherum mitgenommen"
+    >
+      {label}
+    </span>
+  );
+}
+
 function ChunkCard({
   chunk,
   checked,
   onToggle,
   relevance,
   relevanceEmbedder,
+  boxRelevance,
+  boxRelevanceEmbedder,
+  localBoxLength,
 }: {
   chunk: PipelineChunk;
   checked: boolean;
   onToggle: () => void;
   relevance?: { bm25: number; cosine: number };
   relevanceEmbedder?: boolean;
+  boxRelevance?: { bm25: number; cosine: number };
+  boxRelevanceEmbedder?: boolean;
+  localBoxLength?: number;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const preview = chunk.chunk.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -965,6 +1057,27 @@ function ChunkCard({
           )}
         </button>
       </div>
+
+      {/* "Vs unsere Box" — how well does this MS chunk match the
+          locally-curated source box that the question came from?
+          Computed at search time, independent of the LLM step. */}
+      {boxRelevance && (
+        <div className="pl-6 flex flex-col gap-0.5 pt-0.5 border-t border-slate-100">
+          <div className={`${T.tiny} text-slate-500 italic flex items-center gap-2`}>
+            <span>Vs lokaler Chunk</span>
+            {localBoxLength !== undefined && localBoxLength > 0 && (
+              <ChunkLengthChip
+                msLength={chunk.chunk.length}
+                localLength={localBoxLength}
+              />
+            )}
+          </div>
+          <ScoreBar label="Wortlaut" hint="BM25" value={boxRelevance.bm25} />
+          {boxRelevanceEmbedder && (
+            <ScoreBar label="Sinngleichheit" hint="Cosine" value={boxRelevance.cosine} />
+          )}
+        </div>
+      )}
 
       {/* Per-chunk "did this contribute to the answer?" bars — appear
           only after /answer + /compare-bulk have run. Compares the
