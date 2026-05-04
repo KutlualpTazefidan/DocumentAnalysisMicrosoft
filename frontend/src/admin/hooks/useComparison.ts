@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiBase } from "../api/adminClient";
 
 /**
@@ -103,13 +103,22 @@ export function usePipelines(token: string) {
 
 export function useAskPipeline(token: string) {
   return useMutation({
-    mutationFn: async (params: { name: string; question: string; topK?: number }) => {
+    mutationFn: async (params: {
+      name: string;
+      question: string;
+      topK?: number;
+      source?: string;
+    }) => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/pipelines/${encodeURIComponent(params.name)}/ask`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: params.question, top_k: params.topK ?? 5 }),
+          body: JSON.stringify({
+            question: params.question,
+            top_k: params.topK ?? 5,
+            source: params.source ?? null,
+          }),
         },
         token,
       );
@@ -132,5 +141,62 @@ export function useCompareAnswers(token: string) {
       );
       return r.json() as Promise<CompareResponse>;
     },
+  });
+}
+
+// ── Microsoft knowledge sources ────────────────────────────────────────────
+
+export interface KnowledgeSource {
+  slug: string;
+  filename: string;
+  pages: number;
+  state: "uploaded" | "analyzed" | "chunked" | "embedded" | "indexed" | "error";
+  error: string | null;
+  index_name: string | null;
+}
+
+export function useMicrosoftSources(token: string) {
+  return useQuery<KnowledgeSource[]>({
+    queryKey: ["microsoft-sources"],
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/pipelines/microsoft/sources`,
+        { method: "GET" },
+        token,
+      );
+      return r.json() as Promise<KnowledgeSource[]>;
+    },
+    retry: false,
+  });
+}
+
+export function useUploadMicrosoftSource(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/pipelines/microsoft/sources`,
+        { method: "POST", body: fd },
+        token,
+      );
+      return r.json() as Promise<KnowledgeSource>;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["microsoft-sources"] }),
+  });
+}
+
+export function useDeleteMicrosoftSource(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (slug: string) => {
+      await fetchOk(
+        `${apiBase()}/api/admin/pipelines/microsoft/sources/${encodeURIComponent(slug)}`,
+        { method: "DELETE" },
+        token,
+      );
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["microsoft-sources"] }),
   });
 }

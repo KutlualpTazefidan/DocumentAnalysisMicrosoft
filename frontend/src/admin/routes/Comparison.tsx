@@ -11,9 +11,13 @@ import { useQuestions, type Question } from "../hooks/useSynthesise";
 import {
   useAskPipeline,
   useCompareAnswers,
+  useDeleteMicrosoftSource,
+  useMicrosoftSources,
   usePipelines,
   useSimilarQuestions,
+  useUploadMicrosoftSource,
   type AskResponse,
+  type KnowledgeSource,
   type SimilarHit,
 } from "../hooks/useComparison";
 import {
@@ -55,6 +59,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   );
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [pipelineName, setPipelineName] = useState<string>("microsoft");
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [pipelineResult, setPipelineResult] = useState<AskResponse | null>(null);
   const [compareResult, setCompareResult] = useState<{
     bm25: number;
@@ -72,6 +77,9 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const pipelines = usePipelines(token);
   const ask = useAskPipeline(token);
   const compare = useCompareAnswers(token);
+  const microsoftSources = useMicrosoftSources(token);
+  const uploadSource = useUploadMicrosoftSource(token);
+  const deleteSource = useDeleteMicrosoftSource(token);
 
   useEffect(() => {
     saveCurrentPage(slug, page);
@@ -125,7 +133,11 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     setPipelineResult(null);
     setCompareResult(null);
     ask.mutate(
-      { name: pipelineName, question: selected.text },
+      {
+        name: pipelineName,
+        question: selected.text,
+        source: pipelineName === "microsoft" ? selectedSource ?? undefined : undefined,
+      },
       {
         onSuccess: (data) => {
           setPipelineResult(data);
@@ -134,6 +146,32 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
         onError: (e) => error(e instanceof Error ? e.message : "Pipeline fehlgeschlagen"),
       },
     );
+  }
+
+  async function handleUploadSource(file: File) {
+    const proceed = window.confirm(
+      `"${file.name}" hochladen?\n\nDokument-Intelligence + Embeddings + ` +
+        `Indexierung kosten Azure-Credits. Bei größeren PDFs kann das spürbar werden.`,
+    );
+    if (!proceed) return;
+    try {
+      const src = await uploadSource.mutateAsync(file);
+      setSelectedSource(src.slug);
+      success(`"${src.filename}" hochgeladen — bereit zum Ingestieren`);
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Upload fehlgeschlagen");
+    }
+  }
+
+  async function handleDeleteSource(slug: string, filename: string) {
+    if (!window.confirm(`"${filename}" und seinen Azure-Index wirklich löschen?`)) return;
+    try {
+      await deleteSource.mutateAsync(slug);
+      if (selectedSource === slug) setSelectedSource(null);
+      success(`"${filename}" entfernt`);
+    } catch (e) {
+      error(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
+    }
   }
 
   function handleCompare() {
@@ -277,39 +315,40 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
           className="w-[440px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto px-4 py-4 gap-3"
           data-testid="compare-middle"
         >
-          <div className="flex items-center gap-2">
-            <span className={T.tinyBold}>Pipeline</span>
-            <select
-              value={pipelineName}
-              onChange={(e) => {
-                setPipelineName(e.target.value);
-                setPipelineResult(null);
-                setCompareResult(null);
-              }}
-              className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700 text-xs"
-              data-testid="compare-pipeline-select"
-            >
-              {(pipelines.data ?? []).map((p) => (
-                <option key={p.name} value={p.name} disabled={!p.available}>
-                  {p.label}
-                  {!p.available ? ` — ${p.note ?? "nicht verfügbar"}` : ""}
-                </option>
-              ))}
-            </select>
+          <header className="flex items-center gap-2">
+            <span className={`${T.tinyBold} uppercase tracking-wide text-slate-700`}>
+              {pipelines.data?.find((p) => p.name === pipelineName)?.label ?? pipelineName}
+            </span>
+            {pipelineName === "microsoft" && selectedSource && (
+              <span className={`${T.tiny} text-slate-500`}>
+                Quelle: <code>{selectedSource}</code>
+              </span>
+            )}
             <button
               type="button"
-              disabled={!selected || ask.isPending}
+              disabled={
+                !selected ||
+                ask.isPending ||
+                (pipelineName === "microsoft" && !selectedSource)
+              }
               onClick={handleSendToPipeline}
               className={`ml-auto px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
               data-testid="compare-send"
             >
               {ask.isPending ? "Sende…" : "▶ Senden"}
             </button>
-          </div>
+          </header>
 
           {!selected && (
             <p className={`${T.bodyMuted} italic`}>
               Wähle links eine Frage, um sie an die Pipeline zu schicken.
+            </p>
+          )}
+
+          {selected && pipelineName === "microsoft" && !selectedSource && (
+            <p className={`${T.tiny} text-amber-700 bg-amber-50 rounded p-2`}>
+              ⚠ Wähle rechts eine Microsoft-Wissensquelle aus oder lade ein PDF hoch,
+              bevor du senden kannst.
             </p>
           )}
 
@@ -498,9 +537,175 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
           >
             {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
           </button>
+
+          <hr className="border-slate-200" />
+
+          {/* Pipeline selector — moved here from the middle pane. */}
+          <div className="flex flex-col gap-1">
+            <label className={`${T.tinyBold} uppercase tracking-wide text-slate-700`}>
+              Pipeline
+            </label>
+            <select
+              value={pipelineName}
+              onChange={(e) => {
+                setPipelineName(e.target.value);
+                setPipelineResult(null);
+                setCompareResult(null);
+              }}
+              className={`${T.body} px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-800`}
+              data-testid="compare-pipeline-select"
+            >
+              {(pipelines.data ?? []).map((p) => (
+                <option key={p.name} value={p.name} disabled={!p.available}>
+                  {p.label}
+                  {!p.available ? ` — ${p.note ?? "nicht verfügbar"}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Microsoft-only knowledge-source panel. */}
+          {pipelineName === "microsoft" && (
+            <MicrosoftSourcesPanel
+              sources={microsoftSources.data ?? []}
+              loading={microsoftSources.isPending}
+              selected={selectedSource}
+              onSelect={(slug) => {
+                setSelectedSource(slug);
+                setPipelineResult(null);
+                setCompareResult(null);
+              }}
+              onUpload={handleUploadSource}
+              onDelete={handleDeleteSource}
+              uploadPending={uploadSource.isPending}
+              deletePending={deleteSource.isPending}
+            />
+          )}
         </aside>
       </div>
     </div>
+  );
+}
+
+function MicrosoftSourcesPanel({
+  sources,
+  loading,
+  selected,
+  onSelect,
+  onUpload,
+  onDelete,
+  uploadPending,
+  deletePending,
+}: {
+  sources: KnowledgeSource[];
+  loading: boolean;
+  selected: string | null;
+  onSelect: (slug: string) => void;
+  onUpload: (file: File) => void;
+  onDelete: (slug: string, filename: string) => void;
+  uploadPending: boolean;
+  deletePending: boolean;
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className={`${T.tinyBold} uppercase tracking-wide text-slate-700`}>
+        Wissensquellen
+      </span>
+
+      {loading ? (
+        <p className={`${T.bodyMuted} italic`}>Lade…</p>
+      ) : sources.length === 0 ? (
+        <p className={`${T.bodyMuted} italic`}>Noch keine Quellen.</p>
+      ) : (
+        <ul className="list-none p-0 flex flex-col gap-1">
+          {sources.map((s) => {
+            const active = s.slug === selected;
+            return (
+              <li
+                key={s.slug}
+                className={`rounded border ${
+                  active ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
+                } px-2 py-1.5 flex flex-col gap-0.5`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelect(s.slug)}
+                  className="text-left flex items-center gap-1"
+                  data-testid={`ms-source-${s.slug}`}
+                >
+                  <span className={`${T.body} truncate flex-1`} title={s.filename}>
+                    {s.filename}
+                  </span>
+                  <SourceStateChip state={s.state} />
+                </button>
+                <div className="flex items-center justify-between">
+                  <span className={`${T.tiny} text-slate-400`}>
+                    {s.pages} Seite{s.pages === 1 ? "" : "n"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(s.slug, s.filename)}
+                    disabled={deletePending}
+                    className="text-red-600 hover:bg-red-50 rounded px-1 text-[11px] disabled:opacity-40"
+                    aria-label={`${s.filename} entfernen`}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <label
+        className={`${T.body} text-center px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 cursor-pointer ${
+          uploadPending ? "opacity-40 cursor-wait" : ""
+        }`}
+        data-testid="ms-upload"
+      >
+        {uploadPending ? "Lädt…" : "▲ PDF hochladen"}
+        <input
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          disabled={uploadPending}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onUpload(f);
+            e.target.value = "";
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+function SourceStateChip({
+  state,
+}: {
+  state: KnowledgeSource["state"];
+}): JSX.Element {
+  const STYLE: Record<KnowledgeSource["state"], string> = {
+    uploaded: "bg-slate-200 text-slate-700",
+    analyzed: "bg-amber-200 text-amber-800",
+    chunked: "bg-amber-200 text-amber-800",
+    embedded: "bg-amber-200 text-amber-800",
+    indexed: "bg-emerald-200 text-emerald-800",
+    error: "bg-red-200 text-red-800",
+  };
+  const LABEL: Record<KnowledgeSource["state"], string> = {
+    uploaded: "neu",
+    analyzed: "1/4",
+    chunked: "2/4",
+    embedded: "3/4",
+    indexed: "✓",
+    error: "✗",
+  };
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STYLE[state]}`}>
+      {LABEL[state]}
+    </span>
   );
 }
 
