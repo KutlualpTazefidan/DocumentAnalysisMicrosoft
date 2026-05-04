@@ -1,5 +1,5 @@
 // frontend/src/admin/components/DocStepTabs.tsx
-import { FileText, Folder, Sparkles } from "lucide-react";
+import { FileText, Folder, GitCompare, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { T } from "../styles/typography";
 
@@ -11,6 +11,7 @@ const TABS = [
   { key: "files", label: "Files", icon: Folder, href: (_slug: string) => "/admin/inbox" },
   { key: "extract", label: "Extract", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
   { key: "synthesise", label: "Synthesise", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
+  { key: "compare", label: "Vergleich", icon: GitCompare, href: (slug: string) => `/admin/doc/${slug}/compare` },
 ] as const;
 
 export function DocStepTabs({ slug }: Props): JSX.Element {
@@ -20,6 +21,7 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
     if (key === "files") return pathname.endsWith("/inbox");
     if (key === "extract") return pathname.endsWith("/extract");
     if (key === "synthesise") return pathname.endsWith("/synthesise");
+    if (key === "compare") return pathname.endsWith("/compare");
     return false;
   }
 
