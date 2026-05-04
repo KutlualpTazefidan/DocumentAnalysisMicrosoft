@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from goldens.creation.elements.adapter import DocumentElement
 
@@ -32,6 +32,9 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 _TR_RE = re.compile(r"<\s*tr\b[^>]*>(.*?)<\s*/\s*tr\s*>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<\s*(?:t[hd])\b[^>]*>(.*?)<\s*/\s*t[hd]\s*>", re.IGNORECASE | re.DOTALL)
+
+# 4-tuple bbox: x0, y0, x1, y1.
+Bbox = tuple[float, float, float, float]
 
 
 def _strip_html(html: str) -> str:
@@ -65,10 +68,10 @@ def _table_html_to_text(html: str) -> str:
     return "\n".join(lines)
 
 
-# Map local-pdf BoxKind → goldens ElementType. Kinds that don't support
-# question generation (figure, auxiliary, discard) are excluded — the
-# generator's own ``_template_for`` helper would skip them anyway, but
-# filtering early keeps progress counts honest.
+# Map local-pdf BoxKind → goldens ElementType.
+# - figure: paired with its nearest caption box and treated as a
+#   paragraph for prompting (OCR text from the snippet + caption).
+# - auxiliary / discard: silently dropped.
 _KIND_TO_ELEMENT_TYPE: dict[str, ElementType] = {
     BoxKind.paragraph.value: "paragraph",
     BoxKind.heading.value: "heading",
@@ -79,7 +82,37 @@ _KIND_TO_ELEMENT_TYPE: dict[str, ElementType] = {
     # Formulas: rare and the generator returns no template for them, but
     # surfacing as paragraph lets a future template handle them.
     BoxKind.formula.value: "paragraph",
+    # Figures: caption-paired + OCR text from the figure snippet (axis
+    # labels, legends, in-figure titles MinerU's VLM extracted).
+    BoxKind.figure.value: "paragraph",
 }
+
+
+def _nearest_caption_id(
+    fig_box_id: str,
+    fig_page: int,
+    fig_bbox: tuple[float, float, float, float],
+    caption_ids_on_page: list[tuple[str, tuple[float, float, float, float]]],
+) -> str | None:
+    """Pick the caption box closest in vertical centre to *fig_bbox*.
+
+    Captions in scientific PDFs sit directly above or below their
+    figure, so vertical-distance is a much stronger signal than
+    horizontal alignment. Returns None when no caption exists on the
+    page.
+    """
+    if not caption_ids_on_page:
+        return None
+    fig_yc = (fig_bbox[1] + fig_bbox[3]) / 2.0
+    best_id: str | None = None
+    best_dist = float("inf")
+    for cap_id, cap_bbox in caption_ids_on_page:
+        cap_yc = (cap_bbox[1] + cap_bbox[3]) / 2.0
+        d = abs(cap_yc - fig_yc)
+        if d < best_dist:
+            best_dist = d
+            best_id = cap_id
+    return best_id
 
 
 @dataclass(frozen=True)
@@ -109,12 +142,21 @@ class MineruElementsLoader:
 
         kind_by_id = {b.box_id: b.kind.value for b in seg.boxes}
         page_by_id = {b.box_id: b.page for b in seg.boxes}
+        bbox_by_id: dict[str, Bbox] = {b.box_id: cast("Bbox", tuple(b.bbox)) for b in seg.boxes}
         # Snippet preference: html_snippet_raw if present (pre-LaTeX-conversion
         # form, easier to extract clean text from); fall back to html_snippet.
         snippet_by_id = {
             e["box_id"]: (e.get("html_snippet_raw") or e.get("html_snippet") or "")
             for e in m.get("elements", [])
         }
+
+        # Index captions by page for the figure-pairing step below.
+        captions_by_page: dict[int, list[tuple[str, Bbox]]] = {}
+        for b in seg.boxes:
+            if b.kind == BoxKind.caption:
+                captions_by_page.setdefault(b.page, []).append(
+                    (b.box_id, cast("Bbox", tuple(b.bbox)))
+                )
 
         out: list[DocumentElement] = []
         for box_id, kind in kind_by_id.items():
@@ -125,7 +167,30 @@ class MineruElementsLoader:
             # Tables need newline-separated rows so decompose_to_sub_units
             # can split them; everything else collapses to a single line.
             text = _table_html_to_text(html) if element_type == "table" else _strip_html(html)
-            if not text:
+
+            # Figures: pair with nearest caption on the same page so
+            # prompts get both the OCR-extracted in-figure text and the
+            # caption sentence. Skip figures with neither.
+            if kind == BoxKind.figure.value:
+                page = page_by_id.get(box_id, 1)
+                fig_bbox = bbox_by_id.get(box_id)
+                cap_id = (
+                    _nearest_caption_id(box_id, page, fig_bbox, captions_by_page.get(page, []))
+                    if fig_bbox is not None
+                    else None
+                )
+                cap_text = _strip_html(snippet_by_id.get(cap_id, "")) if cap_id else ""
+                ocr_text = text  # already stripped above
+                parts: list[str] = []
+                if cap_text:
+                    parts.append(f"Bildunterschrift: {cap_text}")
+                if ocr_text:
+                    parts.append(f"Im Bild erkannter Text: {ocr_text}")
+                if not parts:
+                    # No caption + no OCR → can't ask anything useful.
+                    continue
+                text = "\n\n".join(parts)
+            elif not text:
                 continue
 
             extra: dict = {}

@@ -140,3 +140,81 @@ def test_loader_filter_only_page(populated_root: Path) -> None:
 def test_loader_returns_empty_for_unknown_slug(tmp_path: Path) -> None:
     loader = MineruElementsLoader(data_root=tmp_path, slug="nope")
     assert loader.elements() == []
+
+
+def test_loader_pairs_figure_with_nearest_caption(tmp_path: Path) -> None:
+    """A figure box yields a paragraph element whose content includes
+    BOTH the OCR text from the figure snippet and the nearest caption's
+    text."""
+    boxes = [
+        SegmentBox(
+            box_id="p1-fig",
+            page=1,
+            bbox=(50.0, 100.0, 350.0, 300.0),
+            kind=BoxKind.figure,
+            confidence=1.0,
+            reading_order=0,
+        ),
+        SegmentBox(
+            box_id="p1-cap",
+            page=1,
+            bbox=(50.0, 310.0, 350.0, 330.0),  # directly below the figure
+            kind=BoxKind.caption,
+            confidence=1.0,
+            reading_order=1,
+        ),
+    ]
+    write_segments(tmp_path, "doc", SegmentsFile(slug="doc", boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        "doc",
+        {
+            "elements": [
+                {
+                    "box_id": "p1-fig",
+                    "html_snippet": (
+                        '<div data-source-box="p1-fig">'
+                        '<figure><img src="x.png"/>Achse: Druck (bar)</figure></div>'
+                    ),
+                },
+                {
+                    "box_id": "p1-cap",
+                    "html_snippet": "<p>Abb. 3 Druckverlauf über Zeit.</p>",
+                },
+            ],
+            "diagnostics": [],
+        },
+    )
+    elements = MineruElementsLoader(data_root=tmp_path, slug="doc").elements()
+    by_id = {e.element_id: e for e in elements}
+    fig = by_id["p1-fig"]
+    assert fig.element_type == "paragraph"
+    assert "Bildunterschrift: Abb. 3 Druckverlauf über Zeit." in fig.content
+    assert "Im Bild erkannter Text: Achse: Druck (bar)" in fig.content
+
+
+def test_loader_skips_figure_with_no_text_or_caption(tmp_path: Path) -> None:
+    """Figure with empty snippet AND no caption → no element emitted."""
+    boxes = [
+        SegmentBox(
+            box_id="p1-fig",
+            page=1,
+            bbox=(50.0, 100.0, 350.0, 300.0),
+            kind=BoxKind.figure,
+            confidence=1.0,
+            reading_order=0,
+        ),
+    ]
+    write_segments(tmp_path, "doc", SegmentsFile(slug="doc", boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        "doc",
+        {
+            "elements": [
+                {"box_id": "p1-fig", "html_snippet": '<div data-source-box="p1-fig"></div>'},
+            ],
+            "diagnostics": [],
+        },
+    )
+    elements = MineruElementsLoader(data_root=tmp_path, slug="doc").elements()
+    assert [e.element_id for e in elements] == []
