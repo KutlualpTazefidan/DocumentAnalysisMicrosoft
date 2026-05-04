@@ -52,6 +52,41 @@ from local_pdf.workers.base import (
     now_ms,
 )
 
+
+def free_cached_models() -> int:
+    """Drop MinerU's process-wide cached models + clear CUDA cache.
+
+    The MinerU VLM ``ModelSingleton`` keeps the predictor alive for the
+    lifetime of the backend process so per-doc re-extracts don't pay
+    the cold-load cost. That's normally what we want, but when the
+    user spins up the local vLLM via the Synthesise panel the cached
+    pipeline models are competing for VRAM with the new server.
+
+    Calling this releases the predictor + runs ``gc.collect()`` and
+    ``torch.cuda.empty_cache()``. Subsequent extract calls will reload
+    on demand (a few seconds + a VRAM hit).
+
+    Returns the freed VRAM in MiB (best-effort; 0 if torch is missing
+    or NVML is unavailable).
+    """
+    before = _vram_used_mb()
+    try:
+        from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
+
+        shutdown_cached_models()
+    except ImportError:
+        pass
+    gc.collect()
+    try:
+        torch = _import_torch()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+    after = _vram_used_mb()
+    return max(0, before - after)
+
+
 # Default VLM model: ~1.2B-parameter Qwen2-VL fine-tune for document parsing.
 # ~3 GB VRAM in fp16.  First run downloads from HuggingFace (~3 GB cache).
 _DEFAULT_VLM_MODEL = "opendatalab/MinerU2.5-Pro-2604-1.2B"

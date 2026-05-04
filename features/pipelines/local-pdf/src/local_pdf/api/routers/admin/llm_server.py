@@ -58,6 +58,17 @@ async def llm_status() -> LlmStatusResponse:
 
 @router.post("/api/admin/llm/start", response_model=LlmStatusResponse)
 async def llm_start() -> LlmStatusResponse:
+    # Free MinerU/torch's cached pipeline models before starting vLLM
+    # so the new server doesn't fight the backend's already-loaded
+    # weights for VRAM. Idempotent — safe to call when nothing is
+    # cached. Subsequent extract calls reload on demand.
+    try:
+        from local_pdf.workers.mineru import free_cached_models
+
+        free_cached_models()
+    except Exception:
+        # Cleanup is best-effort; never let it block the start path.
+        pass
     return _to_response(get_instance().start())
 
 
