@@ -99,6 +99,10 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     Record<string, { bm25: number; cosine: number }>
   >({});
   const [boxRelevanceEmbedder, setBoxRelevanceEmbedder] = useState(false);
+  // Per-chunk eval metrics (boxRelevance + chunkRelevance + length) only
+  // render after the user explicitly clicks "Vergleichen" — keeps the
+  // chunk cards clean during the search/answer phase.
+  const [showChunkAnalytics, setShowChunkAnalytics] = useState(false);
   const microsoftSources = useMicrosoftSources(token);
   const refreshSources = useRefreshMicrosoftSources(token);
   const uploadSource = useUploadMicrosoftSource(token);
@@ -174,6 +178,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     setAnswerText(null);
     setChunkRelevance({});
     setBoxRelevance({});
+    setShowChunkAnalytics(false);
     setCompareResult(null);
     search.mutate(
       {
@@ -228,6 +233,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     setAnswerText(null);
     setCompareResult(null);
     setChunkRelevance({});
+    setShowChunkAnalytics(false);
     // boxRelevance NOT reset here — it's a property of {question, chunks}
     // which haven't changed; re-running /answer doesn't invalidate it.
     answer.mutate(
@@ -315,7 +321,14 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     compare.mutate(
       { reference: referenceAnswer, candidate: answerText },
       {
-        onSuccess: (data) => setCompareResult(data),
+        onSuccess: (data) => {
+          setCompareResult(data);
+          // Vergleichen is the explicit "show me everything" trigger
+          // for the per-chunk eval metrics (Vs lokaler Chunk + Beitrag
+          // zur Antwort + Längen-Verhältnis). They're already cached
+          // from earlier search/answer runs; we just unhide them here.
+          setShowChunkAnalytics(true);
+        },
         onError: (e) => error(e instanceof Error ? e.message : "Vergleich fehlgeschlagen"),
       },
     );
@@ -548,6 +561,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           chunk={c}
                           checked={chunkSelection[c.chunk_id] !== false}
                           onToggle={() => toggleChunk(c.chunk_id)}
+                          showAnalytics={showChunkAnalytics}
                           relevance={chunkRelevance[c.chunk_id]}
                           relevanceEmbedder={chunkRelevanceEmbedder}
                           boxRelevance={boxRelevance[c.chunk_id]}
@@ -707,6 +721,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           setAnswerText(null);
                           setChunkRelevance({});
     setBoxRelevance({});
+    setShowChunkAnalytics(false);
                           setCompareResult(null);
                         }}
                         data-testid={`compare-page-btn-${p}`}
@@ -751,6 +766,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setAnswerText(null);
                 setChunkRelevance({});
     setBoxRelevance({});
+    setShowChunkAnalytics(false);
                 setCompareResult(null);
               }}
               className={`${T.body} px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-800`}
@@ -777,6 +793,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 setAnswerText(null);
                 setChunkRelevance({});
     setBoxRelevance({});
+    setShowChunkAnalytics(false);
                 setCompareResult(null);
               }}
               onUpload={handleUploadSource}
@@ -966,30 +983,51 @@ function SourceStateChip({
   );
 }
 
-function ChunkLengthChip({
+function LengthBar({
   msLength,
   localLength,
 }: {
   msLength: number;
   localLength: number;
 }): JSX.Element | null {
-  if (localLength <= 0) return null;
+  if (localLength <= 0 || msLength <= 0) return null;
+  // Render as two stacked mini-bars sharing the same scale, where 100%
+  // is the longer of the two. Mirrors ScoreBar's label-bar-value
+  // layout so the eyes don't jump between visual styles.
+  const longer = Math.max(msLength, localLength);
+  const localPct = (localLength / longer) * 100;
+  const msPct = (msLength / longer) * 100;
   const ratio = msLength / localLength;
-  const label =
-    ratio >= 1.2
-      ? `${ratio.toFixed(1)}× länger als unser Chunk`
-      : ratio <= 0.8
-        ? `${(1 / ratio).toFixed(1)}× kürzer als unser Chunk`
-        : "etwa gleich lang";
-  const tone =
-    ratio >= 3 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
+  const ratioLabel =
+    ratio >= 1.05
+      ? `${ratio.toFixed(1)}× MS`
+      : ratio <= 0.95
+        ? `${(1 / ratio).toFixed(1)}× lokal`
+        : "≈ gleich";
   return (
-    <span
-      className={`px-1.5 py-0.5 rounded ${tone} text-[10px] font-medium`}
-      title="MS-Chunk-Länge / lokaler Box-Inhalt — hoch = MS hat viel Drumherum mitgenommen"
-    >
-      {label}
-    </span>
+    <div className="flex flex-col gap-0.5 mt-0.5">
+      <div className="flex items-center gap-2">
+        <span className={`${T.tiny} text-slate-600 w-28`}>Lokal</span>
+        <div className="flex-1 h-1.5 rounded bg-slate-100 overflow-hidden">
+          <div className="h-full bg-emerald-400" style={{ width: `${localPct}%` }} />
+        </div>
+        <span className={`${T.tiny} font-mono text-slate-500 w-14 text-right`}>
+          {localLength}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={`${T.tiny} text-slate-600 w-28`}>Microsoft</span>
+        <div className="flex-1 h-1.5 rounded bg-slate-100 overflow-hidden">
+          <div className="h-full bg-blue-400" style={{ width: `${msPct}%` }} />
+        </div>
+        <span className={`${T.tiny} font-mono text-slate-500 w-14 text-right`}>
+          {msLength}
+        </span>
+      </div>
+      <span className={`${T.tiny} text-slate-400 italic`}>
+        Längen-Verhältnis: {ratioLabel}
+      </span>
+    </div>
   );
 }
 
@@ -997,6 +1035,7 @@ function ChunkCard({
   chunk,
   checked,
   onToggle,
+  showAnalytics,
   relevance,
   relevanceEmbedder,
   boxRelevance,
@@ -1006,6 +1045,7 @@ function ChunkCard({
   chunk: PipelineChunk;
   checked: boolean;
   onToggle: () => void;
+  showAnalytics: boolean;
   relevance?: { bm25: number; cosine: number };
   relevanceEmbedder?: boolean;
   boxRelevance?: { bm25: number; cosine: number };
@@ -1058,34 +1098,26 @@ function ChunkCard({
         </button>
       </div>
 
-      {/* "Vs unsere Box" — how well does this MS chunk match the
-          locally-curated source box that the question came from?
-          Computed at search time, independent of the LLM step. */}
-      {boxRelevance && (
-        <div className="pl-6 flex flex-col gap-0.5 pt-0.5 border-t border-slate-100">
-          <div className={`${T.tiny} text-slate-500 italic flex items-center gap-2`}>
-            <span>Vs lokaler Chunk</span>
-            {localBoxLength !== undefined && localBoxLength > 0 && (
-              <ChunkLengthChip
-                msLength={chunk.chunk.length}
-                localLength={localBoxLength}
-              />
-            )}
-          </div>
+      {/* Per-chunk eval metrics — gated behind the explicit Vergleichen
+          click so the chunk cards stay clean during the search/answer
+          phase. boxRelevance and chunkRelevance are still fetched
+          eagerly (cheap, no extra round-trip on Vergleichen click);
+          we just don't show them until the user asks. */}
+      {showAnalytics && boxRelevance && (
+        <div className="pl-6 flex flex-col gap-0.5 pt-1 border-t border-slate-100">
+          <span className={`${T.tiny} text-slate-500 italic`}>Vs lokaler Chunk</span>
           <ScoreBar label="Wortlaut" hint="BM25" value={boxRelevance.bm25} />
           {boxRelevanceEmbedder && (
             <ScoreBar label="Sinngleichheit" hint="Cosine" value={boxRelevance.cosine} />
           )}
+          {localBoxLength !== undefined && localBoxLength > 0 && (
+            <LengthBar msLength={chunk.chunk.length} localLength={localBoxLength} />
+          )}
         </div>
       )}
 
-      {/* Per-chunk "did this contribute to the answer?" bars — appear
-          only after /answer + /compare-bulk have run. Compares the
-          chunk text against the LLM's answer text so the user sees
-          which chunks were actually useful vs which were dragged
-          along but ignored. */}
-      {relevance && (
-        <div className="pl-6 flex flex-col gap-0.5 pt-0.5 border-t border-slate-100">
+      {showAnalytics && relevance && (
+        <div className="pl-6 flex flex-col gap-0.5 pt-1 border-t border-slate-100">
           <span className={`${T.tiny} text-slate-500 italic`}>Beitrag zur Antwort</span>
           <ScoreBar label="Wortlaut" hint="BM25" value={relevance.bm25} />
           {relevanceEmbedder && (
