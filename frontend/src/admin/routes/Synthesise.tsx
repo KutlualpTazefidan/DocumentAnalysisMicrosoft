@@ -194,33 +194,31 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Top bar 1: tab navigation ───────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
+      {/* ── Top bar: DocStepTabs left, page/file Generate actions right ── */}
+      <div className="flex items-center gap-2 px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
-      </div>
-
-      {/* ── Top bar 2: page-scope and file-scope generate actions ───── */}
-      <div className="flex items-center justify-end gap-2 px-4 py-2 bg-white border-b border-slate-200 flex-shrink-0">
-        <button
-          type="button"
-          disabled={streaming !== null || generateBox.isPending}
-          onClick={() => startStream("page")}
-          className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          ⚡ Für die Seite generieren
-        </button>
-        <button
-          type="button"
-          disabled={streaming !== null || generateBox.isPending}
-          onClick={() => {
-            if (window.confirm("Für die ganze Datei generieren?")) {
-              startStream("doc");
-            }
-          }}
-          className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          ⚡ Für die ganze Datei generieren
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            disabled={streaming !== null || generateBox.isPending}
+            onClick={() => startStream("page")}
+            className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            ⚡ Für die Seite generieren
+          </button>
+          <button
+            type="button"
+            disabled={streaming !== null || generateBox.isPending}
+            onClick={() => {
+              if (window.confirm("Für die ganze Datei generieren?")) {
+                startStream("doc");
+              }
+            }}
+            className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
+          >
+            ⚡ Für die ganze Datei generieren
+          </button>
+        </div>
       </div>
 
       {/* ── Three-pane content: HTML | Questions | Controls ─────────── */}
