@@ -12,6 +12,7 @@ import {
   streamGenerate,
   useAnswerBox,
   useDeprecateQuestion,
+  useEditAnswer,
   useGenerateBox,
   useQuestions,
   useRefineQuestion,
@@ -54,6 +55,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   const questions = useQuestions(slug, token);
   const generateBox = useGenerateBox(slug, token);
   const answerBox = useAnswerBox(slug, token);
+  const editAnswer = useEditAnswer(slug, token);
   const refine = useRefineQuestion(slug, token);
   const deprecate = useDeprecateQuestion(slug, token);
   const { success, error } = useToast();
@@ -359,7 +361,15 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
                     error(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
                   }
                 }}
-                disabled={refine.isPending || deprecate.isPending}
+                onEditAnswer={async (entryId, text) => {
+                  try {
+                    await editAnswer.mutateAsync({ entryId, text });
+                    success(text ? "Antwort aktualisiert" : "Antwort gelöscht");
+                  } catch (e) {
+                    error(e instanceof Error ? e.message : "Antwort speichern fehlgeschlagen");
+                  }
+                }}
+                disabled={refine.isPending || deprecate.isPending || editAnswer.isPending}
               />
             )}
           </div>

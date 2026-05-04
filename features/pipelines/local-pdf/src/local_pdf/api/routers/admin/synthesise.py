@@ -461,6 +461,39 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
     return AnswerBoxResponse(box_id=box_id, answered=answered, skipped_reason=None)
 
 
+# ── Edit / delete a stored answer ────────────────────────────────────────────
+
+
+class AnswerPatchRequest(BaseModel):
+    text: str
+
+
+@router.patch("/api/admin/docs/{slug}/answers/{entry_id}")
+async def patch_answer(
+    slug: str,
+    entry_id: str,
+    body: AnswerPatchRequest,
+    request: Request,
+) -> dict[str, str]:
+    """Update a single answer in the sidecar.
+
+    Empty/whitespace-only text deletes the entry (so a user can clear
+    a wrong answer back to "no answer yet"). The /questions response
+    will then surface ``answer: null`` again.
+    """
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    stored = read_answers(cfg.data_root, slug)
+    text = body.text.strip()
+    if text:
+        stored[entry_id] = text
+    else:
+        stored.pop(entry_id, None)
+    write_answers(cfg.data_root, slug, stored)
+    return {"entry_id": entry_id, "answer": text}
+
+
 # ── Read questions ────────────────────────────────────────────────────────────
 
 

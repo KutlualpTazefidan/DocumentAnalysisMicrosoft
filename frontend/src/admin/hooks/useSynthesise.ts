@@ -68,6 +68,29 @@ export function useQuestions(slug: string, token: string) {
   });
 }
 
+/** Edit a single answer. Empty text deletes the answer (sets the
+ *  question's answer back to null). */
+export function useEditAnswer(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { entryId: string; text: string }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/answers/${encodeURIComponent(params.entryId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: params.text }),
+        },
+        token,
+      );
+      return r.json() as Promise<{ entry_id: string; answer: string }>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["questions", slug] });
+    },
+  });
+}
+
 /** Sync per-box answer generation. Backend reads the box's content +
  *  active questions, asks the LLM to answer each, and stores the
  *  results in the per-slug answers sidecar. The next /questions read
