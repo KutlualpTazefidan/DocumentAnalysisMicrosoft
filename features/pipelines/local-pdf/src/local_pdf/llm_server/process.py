@@ -175,6 +175,13 @@ class VllmProcess:
         """SIGTERM the subprocess and wait up to grace_seconds; SIGKILL on timeout.
 
         Idempotent — calling stop() on an already-stopped process is a no-op.
+
+        Belt-and-suspenders SIGKILL: even after the parent bash exits we
+        still SIGKILL the process group, because vLLM spawns
+        ``VLLM::EngineCore`` as a multiprocessing worker that catches
+        SIGTERM and takes its time to release the CUDA context. Without
+        the final SIGKILL the worker can hold ~20 GB of VRAM long after
+        the start.sh wrapper has died.
         """
         with self._lock:
             proc = self._proc
@@ -183,30 +190,47 @@ class VllmProcess:
                 self._proc = None
                 return self.status()
 
+            # Capture the process-group id BEFORE the parent dies. Once
+            # the leader exits, getpgid() can still resolve via the
+            # group's children, but we cache to be safe.
             try:
-                # Signal the entire process group so vllm + any spawned
-                # workers go down together.
-                if os.name == "posix":
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                pgid = os.getpgid(proc.pid) if os.name == "posix" else None
+            except (ProcessLookupError, PermissionError):
+                pgid = None
+
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGTERM)
                 else:
                     proc.terminate()
             except (ProcessLookupError, PermissionError):
                 pass
 
-            # Wait for graceful shutdown, then escalate.
+            # Wait for the parent bash to exit (proxy for "vllm responded
+            # to SIGTERM"). The grace period applies to the parent only —
+            # the engine worker SIGKILL below is unconditional.
             deadline = time.monotonic() + grace_seconds
             while time.monotonic() < deadline:
                 if proc.poll() is not None:
                     break
                 time.sleep(0.1)
-            if proc.poll() is None:
-                try:
-                    if os.name == "posix":
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    else:
-                        proc.kill()
-                except (ProcessLookupError, PermissionError):
-                    pass
+
+            # Always SIGKILL the group — survivors (engine workers,
+            # detached children) won't release VRAM otherwise.
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except (ProcessLookupError, PermissionError):
+                pass
+
+            # Reap the parent if it's still pending so we don't leave a
+            # zombie behind.
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=1.0)
 
             self._proc = None
             self._state = "stopped"
