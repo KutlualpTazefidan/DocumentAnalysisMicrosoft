@@ -156,18 +156,27 @@ def _ask_microsoft(
     # the actual index_name from the source's meta.json so we honour
     # adopted external indexes (whose name isn't kb-{slug}).
     if source:
+        import dataclasses
+
         src_meta = _read_source(data_root, source)
         index_name = (
             src_meta.index_name
             if src_meta is not None and src_meta.index_name
             else _index_name_for(source)
         )
-        cfg = cfg.model_copy(update={"ai_search_index_name": index_name})
+        # Config is a frozen dataclass (not a Pydantic model) — use
+        # dataclasses.replace, not model_copy.
+        cfg = dataclasses.replace(cfg, ai_search_index_name=index_name)
 
     try:
         hits = hybrid_search(question, top=top_k, cfg=cfg)
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Azure search failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Azure search failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
 
     chunks = [
         PipelineChunk(
@@ -208,7 +217,10 @@ def _ask_microsoft(
             temperature=0.0,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Azure chat failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Azure chat failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
 
     answer = (resp.choices[0].message.content or "").strip()
     return AskResponse(pipeline="microsoft", question=question, chunks=chunks, answer=answer)
