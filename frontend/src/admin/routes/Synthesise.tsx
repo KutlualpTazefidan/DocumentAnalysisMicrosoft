@@ -194,9 +194,33 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Top bar ─────────────────────────────────────────────────── */}
+      {/* ── Top bar 1: tab navigation ───────────────────────────────── */}
       <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
+      </div>
+
+      {/* ── Top bar 2: page-scope and file-scope generate actions ───── */}
+      <div className="flex items-center justify-end gap-2 px-4 py-2 bg-white border-b border-slate-200 flex-shrink-0">
+        <button
+          type="button"
+          disabled={streaming !== null || generateBox.isPending}
+          onClick={() => startStream("page")}
+          className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          ⚡ Für die Seite generieren
+        </button>
+        <button
+          type="button"
+          disabled={streaming !== null || generateBox.isPending}
+          onClick={() => {
+            if (window.confirm("Für die ganze Datei generieren?")) {
+              startStream("doc");
+            }
+          }}
+          className={`px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+        >
+          ⚡ Für die ganze Datei generieren
+        </button>
       </div>
 
       {/* ── Three-pane content: HTML | Questions | Controls ─────────── */}
@@ -220,7 +244,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           data-testid="synthesise-questions"
         >
           <div className="flex items-center gap-2 px-8 py-2 border-b border-slate-200 bg-slate-50">
-            <span className={T.tinyBold}>Ausgewaehlte Box:</span>
+            <span className={T.tinyBold}>Ausgewählte Box:</span>
             <span className={`${T.body} font-mono`}>
               {highlight ?? <em className="text-slate-400">keine</em>}
             </span>
@@ -247,9 +271,9 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
                 onDeprecate={async (entryId) => {
                   try {
                     await deprecate.mutateAsync(entryId);
-                    success("Frage geloescht");
+                    success("Frage gelöscht");
                   } catch (e) {
-                    error(e instanceof Error ? e.message : "Loeschen fehlgeschlagen");
+                    error(e instanceof Error ? e.message : "Löschen fehlgeschlagen");
                   }
                 }}
                 disabled={refine.isPending || deprecate.isPending}
@@ -292,7 +316,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               </button>
               <button
                 type="button"
-                aria-label={`Seite ${page} von ${totalPages}, ${pageGridOpen ? "Liste schliessen" : "Liste oeffnen"}`}
+                aria-label={`Seite ${page} von ${totalPages}, ${pageGridOpen ? "Liste schließen" : "Liste öffnen"}`}
                 aria-expanded={pageGridOpen}
                 onClick={() => setPageGridOpen((p) => !p)}
                 className={`${synthPageBtnClasses(pagesWithQuestions.has(page), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
@@ -309,7 +333,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               </button>
               <button
                 type="button"
-                aria-label="Naechste Seite"
+                aria-label="Nächste Seite"
                 disabled={page >= totalPages}
                 onClick={() => setPage(page + 1)}
                 className="px-2 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -362,33 +386,9 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
           <hr className="border-slate-200" />
 
-          {/* Generate buttons — broad → narrow scope, top to bottom. */}
-          <button
-            type="button"
-            disabled={streaming !== null || generateBox.isPending}
-            onClick={() => {
-              if (window.confirm("Fuer das ganze Dokument generieren?")) {
-                startStream("doc");
-              }
-            }}
-            className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            ⚡ Fuer die Datei generieren
-          </button>
-          <button
-            type="button"
-            disabled={streaming !== null || generateBox.isPending}
-            onClick={() => startStream("page")}
-            className={`w-full px-3 py-1.5 rounded border border-slate-300 text-slate-700 ${T.bodyMedium} hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            ⚡ Fuer die Seite generieren
-          </button>
-
-          {/* Box metadata — what "diese Box" refers to. Sits between
-              the page-scope button and the box-scope button so the
-              user sees the target before clicking. */}
+          {/* Box metadata — what "diese Box" refers to. */}
           <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-1">
-            <span className={T.tinyBold}>Ausgewaehlte Box</span>
+            <span className={T.tinyBold}>Ausgewählte Box</span>
             {highlightMeta ? (
               <>
                 <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 ${T.body}`}>
@@ -414,19 +414,19 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               </>
             ) : (
               <span className={`${T.bodyMuted} italic`}>
-                Klicke ein Element im HTML-Bereich, um es auszuwaehlen.
+                Klicke ein Element im HTML-Bereich, um es auszuwählen.
               </span>
             )}
           </div>
 
           <button
             type="button"
-            aria-label="Fuer diese Box generieren"
+            aria-label="Für diese Box generieren"
             disabled={!highlight || generateBox.isPending || streaming !== null}
             onClick={handleGenerateBox}
             className={`w-full px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
           >
-            {generateBox.isPending ? "…" : "⚡ Fuer diese Box generieren"}
+            {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
           </button>
 
           {streaming && (
@@ -434,7 +434,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               <span className={T.tinyBold}>
                 {streaming.scope === "page"
                   ? `Generiere Seite ${page}…`
-                  : "Generiere Datei…"}
+                  : "Generiere ganze Datei…"}
               </span>
               <span className={T.body}>
                 {streaming.completed} Elemente, {streaming.accepted} Fragen

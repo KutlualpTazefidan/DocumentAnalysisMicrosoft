@@ -75,18 +75,20 @@ function wrap() {
 }
 
 describe("Synthesise", () => {
-  it("renders the sidebar with the three Generate buttons", async () => {
+  it("renders the three Generate buttons (file/page in topbar, box in sidebar)", async () => {
     render(wrap());
     const sidebar = await screen.findByTestId("synthesise-sidebar");
     expect(sidebar).toBeInTheDocument();
+    // File-scope and page-scope generate live in the second topbar.
     expect(
-      within(sidebar).getByRole("button", { name: /Fuer die Datei generieren/i }),
+      screen.getByRole("button", { name: /Für die ganze Datei generieren/i }),
     ).toBeInTheDocument();
     expect(
-      within(sidebar).getByRole("button", { name: /Fuer die Seite generieren/i }),
+      screen.getByRole("button", { name: /Für die Seite generieren/i }),
     ).toBeInTheDocument();
+    // Per-box generate stays in the right sidebar next to the metadata.
     expect(
-      within(sidebar).getByRole("button", { name: /Fuer diese Box generieren/i }),
+      within(sidebar).getByRole("button", { name: /Für diese Box generieren/i }),
     ).toBeInTheDocument();
   });
 
@@ -96,7 +98,7 @@ describe("Synthesise", () => {
       expect(screen.getByTestId("synthesise-sidebar")).toBeInTheDocument(),
     );
     expect(
-      screen.getByRole("button", { name: /Fuer diese Box generieren/i }),
+      screen.getByRole("button", { name: /Für diese Box generieren/i }),
     ).toBeDisabled();
   });
 

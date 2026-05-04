@@ -101,12 +101,12 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
                   </button>
                   <button
                     type="button"
-                    title="Frage loeschen"
-                    aria-label="Frage loeschen"
+                    title="Frage löschen"
+                    aria-label="Frage löschen"
                     className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-40"
                     disabled={disabled}
                     onClick={() => {
-                      if (window.confirm(`Diese Frage wirklich loeschen?`)) {
+                      if (window.confirm(`Diese Frage wirklich löschen?`)) {
                         void onDeprecate(q.entry_id);
                       }
                     }}
