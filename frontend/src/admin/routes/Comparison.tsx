@@ -9,16 +9,17 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { getDoc } from "../api/docs";
 import { useQuestions, type Question } from "../hooks/useSynthesise";
 import {
-  useAskPipeline,
+  useAnswerPipeline,
   useCompareAnswers,
   useDeleteMicrosoftSource,
   useMicrosoftSources,
   usePipelines,
   useRefreshMicrosoftSources,
+  useSearchPipeline,
   useSimilarQuestions,
   useUploadMicrosoftSource,
-  type AskResponse,
   type KnowledgeSource,
+  type PipelineChunk,
   type SimilarHit,
 } from "../hooks/useComparison";
 import {
@@ -61,7 +62,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
   const [pipelineName, setPipelineName] = useState<string>("microsoft");
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [pipelineResult, setPipelineResult] = useState<AskResponse | null>(null);
+  const [searchChunks, setSearchChunks] = useState<PipelineChunk[] | null>(null);
+  const [answerText, setAnswerText] = useState<string | null>(null);
   const [compareResult, setCompareResult] = useState<{
     bm25: number;
     cosine: number;
@@ -76,7 +78,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   const questions = useQuestions(slug, token);
   const similar = useSimilarQuestions(slug, token, selectedEntry);
   const pipelines = usePipelines(token);
-  const ask = useAskPipeline(token);
+  const search = useSearchPipeline(token);
+  const answer = useAnswerPipeline(token);
   const compare = useCompareAnswers(token);
   const microsoftSources = useMicrosoftSources(token);
   const refreshSources = useRefreshMicrosoftSources(token);
@@ -130,11 +133,12 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
   const referenceAnswer = selected?.answer ?? null;
 
-  function handleSendToPipeline() {
+  function handleSearch() {
     if (!selected) return;
-    setPipelineResult(null);
+    setSearchChunks(null);
+    setAnswerText(null);
     setCompareResult(null);
-    ask.mutate(
+    search.mutate(
       {
         name: pipelineName,
         question: selected.text,
@@ -142,10 +146,26 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
       },
       {
         onSuccess: (data) => {
-          setPipelineResult(data);
-          success(`${data.chunks.length} Chunks + Antwort von ${pipelineName}`);
+          setSearchChunks(data.chunks);
+          success(`${data.chunks.length} Chunks von ${pipelineName}`);
         },
-        onError: (e) => error(e instanceof Error ? e.message : "Pipeline fehlgeschlagen"),
+        onError: (e) => error(e instanceof Error ? e.message : "Suche fehlgeschlagen"),
+      },
+    );
+  }
+
+  function handleAnswer() {
+    if (!selected || !searchChunks) return;
+    setAnswerText(null);
+    setCompareResult(null);
+    answer.mutate(
+      { name: pipelineName, question: selected.text, chunks: searchChunks },
+      {
+        onSuccess: (data) => {
+          setAnswerText(data.answer);
+          success("Antwort generiert");
+        },
+        onError: (e) => error(e instanceof Error ? e.message : "Antwort fehlgeschlagen"),
       },
     );
   }
@@ -190,9 +210,9 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   }
 
   function handleCompare() {
-    if (!referenceAnswer || !pipelineResult?.answer) return;
+    if (!referenceAnswer || !answerText) return;
     compare.mutate(
-      { reference: referenceAnswer, candidate: pipelineResult.answer },
+      { reference: referenceAnswer, candidate: answerText },
       {
         onSuccess: (data) => setCompareResult(data),
         onError: (e) => error(e instanceof Error ? e.message : "Vergleich fehlgeschlagen"),
@@ -343,14 +363,14 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               type="button"
               disabled={
                 !selected ||
-                ask.isPending ||
+                search.isPending ||
                 (pipelineName === "microsoft" && !selectedSource)
               }
-              onClick={handleSendToPipeline}
+              onClick={handleSearch}
               className={`ml-auto px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
-              data-testid="compare-send"
+              data-testid="compare-search"
             >
-              {ask.isPending ? "Sende…" : "▶ Senden"}
+              {search.isPending ? "Suche…" : "🔍 Suchen"}
             </button>
           </header>
 
@@ -385,16 +405,19 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 )}
               </div>
 
-              {pipelineResult && (
+              {/* Step 1 result: chunks shown in their own card. */}
+              {searchChunks && (
                 <div className="rounded border border-slate-200 bg-white px-3 py-2 flex flex-col gap-1">
-                  <span className={T.tinyBold}>{pipelineName} — Antwort</span>
-                  <p className={`${T.body} whitespace-pre-wrap`}>{pipelineResult.answer}</p>
-                  <details className="mt-1">
-                    <summary className={`${T.tiny} cursor-pointer text-slate-600`}>
-                      Chunks ({pipelineResult.chunks.length})
-                    </summary>
+                  <span className={T.tinyBold}>
+                    {pipelineName} — {searchChunks.length} Chunk(s)
+                  </span>
+                  {searchChunks.length === 0 ? (
+                    <p className={`${T.bodyMuted} italic`}>
+                      Keine Treffer in der Wissensquelle.
+                    </p>
+                  ) : (
                     <ul className="list-none p-0 mt-1 flex flex-col gap-1">
-                      {pipelineResult.chunks.map((c) => (
+                      {searchChunks.map((c) => (
                         <li
                           key={c.chunk_id}
                           className="rounded border border-slate-200 bg-slate-50 px-2 py-1"
@@ -406,13 +429,38 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                         </li>
                       ))}
                     </ul>
-                  </details>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2 trigger: only enabled once chunks are present. */}
+              {searchChunks && searchChunks.length > 0 && (
+                <button
+                  type="button"
+                  disabled={answer.isPending}
+                  onClick={handleAnswer}
+                  className={`px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed self-start`}
+                  data-testid="compare-answer"
+                >
+                  {answer.isPending
+                    ? "Antworte…"
+                    : answerText
+                      ? "↻ Nochmal antworten"
+                      : "💬 Antwort generieren"}
+                </button>
+              )}
+
+              {/* Step 2 result. */}
+              {answerText !== null && (
+                <div className="rounded border border-slate-200 bg-white px-3 py-2">
+                  <span className={T.tinyBold}>{pipelineName} — Antwort</span>
+                  <p className={`${T.body} whitespace-pre-wrap`}>{answerText}</p>
                 </div>
               )}
 
               <button
                 type="button"
-                disabled={!pipelineResult || !referenceAnswer || compare.isPending}
+                disabled={!answerText || !referenceAnswer || compare.isPending}
                 onClick={handleCompare}
                 className={`px-3 py-1.5 rounded bg-emerald-600 text-white ${T.bodyMedium} hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed self-start`}
                 data-testid="compare-compare"
@@ -523,7 +571,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                           setPage(p);
                           setPageGridOpen(false);
                           setSelectedEntry(null);
-                          setPipelineResult(null);
+                          setSearchChunks(null);
+                          setAnswerText(null);
                           setCompareResult(null);
                         }}
                         data-testid={`compare-page-btn-${p}`}
@@ -564,7 +613,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               value={pipelineName}
               onChange={(e) => {
                 setPipelineName(e.target.value);
-                setPipelineResult(null);
+                setSearchChunks(null);
+                setAnswerText(null);
                 setCompareResult(null);
               }}
               className={`${T.body} px-2 py-1.5 rounded border border-slate-300 bg-white text-slate-800`}
@@ -587,7 +637,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               selected={selectedSource}
               onSelect={(slug) => {
                 setSelectedSource(slug);
-                setPipelineResult(null);
+                setSearchChunks(null);
+                setAnswerText(null);
                 setCompareResult(null);
               }}
               onUpload={handleUploadSource}

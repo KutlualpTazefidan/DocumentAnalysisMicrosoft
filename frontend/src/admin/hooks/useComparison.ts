@@ -101,6 +101,67 @@ export function usePipelines(token: string) {
   });
 }
 
+export interface SearchResponse {
+  pipeline: string;
+  question: string;
+  chunks: PipelineChunk[];
+}
+
+export interface AnswerResponse {
+  pipeline: string;
+  question: string;
+  answer: string;
+}
+
+/** Step 1 of the two-step Vergleich flow: just retrieve chunks. */
+export function useSearchPipeline(token: string) {
+  return useMutation({
+    mutationFn: async (params: {
+      name: string;
+      question: string;
+      topK?: number;
+      source?: string;
+    }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/pipelines/${encodeURIComponent(params.name)}/search`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: params.question,
+            top_k: params.topK ?? 5,
+            source: params.source ?? null,
+          }),
+        },
+        token,
+      );
+      return r.json() as Promise<SearchResponse>;
+    },
+  });
+}
+
+/** Step 2: answer using the chunks the user reviewed in step 1. */
+export function useAnswerPipeline(token: string) {
+  return useMutation({
+    mutationFn: async (params: {
+      name: string;
+      question: string;
+      chunks: PipelineChunk[];
+    }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/pipelines/${encodeURIComponent(params.name)}/answer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: params.question, chunks: params.chunks }),
+        },
+        token,
+      );
+      return r.json() as Promise<AnswerResponse>;
+    },
+  });
+}
+
 export function useAskPipeline(token: string) {
   return useMutation({
     mutationFn: async (params: {

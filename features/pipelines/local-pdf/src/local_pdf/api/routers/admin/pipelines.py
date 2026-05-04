@@ -98,6 +98,29 @@ class AskResponse(BaseModel):
     answer: str
 
 
+class SearchRequest(BaseModel):
+    question: str
+    top_k: int = 5
+    source: str | None = None
+
+
+class SearchResponse(BaseModel):
+    pipeline: PipelineName
+    question: str
+    chunks: list[PipelineChunk]
+
+
+class AnswerRequest(BaseModel):
+    question: str
+    chunks: list[PipelineChunk]
+
+
+class AnswerResponse(BaseModel):
+    pipeline: PipelineName
+    question: str
+    answer: str
+
+
 class KnowledgeSource(BaseModel):
     slug: str
     filename: str
@@ -268,6 +291,11 @@ def _index_name_for(slug: str) -> str:
 
 @router.post("/api/admin/pipelines/{name}/ask", response_model=AskResponse)
 async def ask(name: str, body: AskRequest, request: Request) -> AskResponse:
+    """All-in-one: retrieve + answer in one Azure 'On Your Data' call.
+
+    Kept for callers that want the single-shot pattern. The SPA's
+    Vergleich tab uses /search + /answer for the two-step flow.
+    """
     if name == "microsoft":
         return _ask_microsoft(
             body.question,
@@ -275,6 +303,156 @@ async def ask(name: str, body: AskRequest, request: Request) -> AskResponse:
             body.source,
             request.app.state.config.data_root,
         )
+    if name == "bam":
+        raise HTTPException(status_code=501, detail="BAM pipeline not implemented yet")
+    raise HTTPException(status_code=404, detail=f"unknown pipeline: {name}")
+
+
+# ── Two-step flow: /search then /answer ──────────────────────────────────────
+
+
+def _search_microsoft(
+    question: str,
+    top_k: int,
+    source: str | None,
+    data_root: Path,
+) -> list[PipelineChunk]:
+    """Direct hybrid_search call against the configured AI Search index.
+
+    Returns just chunks — no LLM yet. The user reviews these in the
+    SPA before triggering /answer.
+    """
+    import dataclasses
+
+    try:
+        from query_index.config import Config
+        from query_index.search import hybrid_search
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Microsoft pipeline package not installed: {exc}",
+        ) from exc
+
+    try:
+        cfg = Config.from_env()
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Microsoft credentials missing in env: {exc}",
+        ) from exc
+
+    if source:
+        src_meta = _read_source(data_root, source)
+        index_name = (
+            src_meta.index_name
+            if src_meta is not None and src_meta.index_name
+            else _index_name_for(source)
+        )
+        cfg = dataclasses.replace(cfg, ai_search_index_name=index_name)
+
+    try:
+        hits = hybrid_search(question, top=top_k, cfg=cfg)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Azure search failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
+    return [
+        PipelineChunk(
+            chunk_id=h.chunk_id,
+            title=h.title,
+            chunk=h.chunk,
+            score=h.score,
+            source_file=h.source_file,
+        )
+        for h in hits
+    ]
+
+
+def _answer_microsoft(question: str, chunks: list[PipelineChunk]) -> str:
+    """Plain Azure OpenAI chat completion grounded on caller-supplied chunks.
+
+    Used by the two-step flow: the SPA calls /search first, optionally
+    lets the user edit/filter chunks, then sends the kept set here for
+    answer generation.
+    """
+    import os
+
+    try:
+        from query_index.client import get_openai_client
+        from query_index.config import Config
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Microsoft pipeline package not installed: {exc}",
+        ) from exc
+
+    try:
+        cfg = Config.from_env()
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Microsoft credentials missing in env: {exc}",
+        ) from exc
+
+    chat_deployment = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
+    if not chat_deployment:
+        raise HTTPException(
+            status_code=503,
+            detail="AZURE_OPENAI_CHAT_DEPLOYMENT not set — can't ask Microsoft for an answer",
+        )
+
+    if not chunks:
+        return "unbekannt"
+
+    context = "\n\n---\n\n".join(
+        f"[{i + 1}] {c.title or c.chunk_id}\n{c.chunk}" for i, c in enumerate(chunks)
+    )
+    prompt = (
+        "Beantworte die Frage AUSSCHLIESSLICH anhand des unten stehenden Kontexts. "
+        "Wenn der Kontext die Antwort nicht enthält, antworte mit 'unbekannt'. "
+        "Antworte knapp in der Sprache der Frage.\n\n"
+        f"Kontext:\n{context}\n\n"
+        f"Frage: {question}"
+    )
+
+    client = get_openai_client(cfg)
+    try:
+        resp = client.chat.completions.create(
+            model=chat_deployment,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Azure chat failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
+    return (resp.choices[0].message.content or "").strip()
+
+
+@router.post("/api/admin/pipelines/{name}/search", response_model=SearchResponse)
+async def search(name: str, body: SearchRequest, request: Request) -> SearchResponse:
+    if name == "microsoft":
+        chunks = _search_microsoft(
+            body.question,
+            body.top_k,
+            body.source,
+            request.app.state.config.data_root,
+        )
+        return SearchResponse(pipeline="microsoft", question=body.question, chunks=chunks)
+    if name == "bam":
+        raise HTTPException(status_code=501, detail="BAM pipeline not implemented yet")
+    raise HTTPException(status_code=404, detail=f"unknown pipeline: {name}")
+
+
+@router.post("/api/admin/pipelines/{name}/answer", response_model=AnswerResponse)
+async def answer(name: str, body: AnswerRequest) -> AnswerResponse:
+    if name == "microsoft":
+        text = _answer_microsoft(body.question, body.chunks)
+        return AnswerResponse(pipeline="microsoft", question=body.question, answer=text)
     if name == "bam":
         raise HTTPException(status_code=501, detail="BAM pipeline not implemented yet")
     raise HTTPException(status_code=404, detail=f"unknown pipeline: {name}")
