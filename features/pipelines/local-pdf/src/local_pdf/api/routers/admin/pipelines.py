@@ -127,17 +127,19 @@ def _ask_microsoft(
     source: str | None,
     data_root: Path,
 ) -> AskResponse:
-    """Run hybrid_search + Azure OpenAI completion for one question.
+    """Single-call Azure OpenAI "On Your Data" completion.
 
-    When *source* is set, reads its stored ``index_name`` from
-    meta.json (so adopted external indexes work even when their name
-    isn't ``kb-{slug}``) and scopes the search there; otherwise falls
-    back to the env-configured default index (legacy path).
+    Mirrors archive/llm_query_index.ipynb: one chat.completions.create
+    call with extra_body={"data_sources": [...]}, where Azure handles
+    the AI Search retrieval + grounding + citation extraction
+    internally. We then pull chunks from the response's
+    message.context["all_retrieved_documents"].
     """
+    import os
+
     try:
         from query_index.client import get_openai_client
         from query_index.config import Config
-        from query_index.search import hybrid_search
     except ImportError as exc:
         raise HTTPException(
             status_code=503,
@@ -152,44 +154,16 @@ def _ask_microsoft(
             detail=f"Microsoft credentials missing in env: {exc}",
         ) from exc
 
-    # Override the default index name when scoped to a source. Read
-    # the actual index_name from the source's meta.json so we honour
-    # adopted external indexes (whose name isn't kb-{slug}).
+    # Resolve index_name: per-source meta.json wins, else kb-{slug}, else env default.
     if source:
-        import dataclasses
-
         src_meta = _read_source(data_root, source)
         index_name = (
             src_meta.index_name
             if src_meta is not None and src_meta.index_name
             else _index_name_for(source)
         )
-        # Config is a frozen dataclass (not a Pydantic model) — use
-        # dataclasses.replace, not model_copy.
-        cfg = dataclasses.replace(cfg, ai_search_index_name=index_name)
-
-    try:
-        hits = hybrid_search(question, top=top_k, cfg=cfg)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Azure search failed: {exc.__class__.__name__}: {exc}",
-        ) from exc
-
-    chunks = [
-        PipelineChunk(
-            chunk_id=h.chunk_id,
-            title=h.title,
-            chunk=h.chunk,
-            score=h.score,
-            source_file=h.source_file,
-        )
-        for h in hits
-    ]
-
-    import os
+    else:
+        index_name = cfg.ai_search_index_name
 
     chat_deployment = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
     if not chat_deployment:
@@ -198,23 +172,54 @@ def _ask_microsoft(
             detail="AZURE_OPENAI_CHAT_DEPLOYMENT not set — can't ask Microsoft for an answer",
         )
 
-    context = "\n\n---\n\n".join(
-        f"[{i + 1}] {c.title or c.chunk_id}\n{c.chunk}" for i, c in enumerate(chunks)
-    )
-    prompt = (
-        "Beantworte die Frage AUSSCHLIESSLICH anhand des unten stehenden Kontexts. "
-        "Wenn der Kontext die Antwort nicht enthält, antworte mit 'unbekannt'. "
-        "Antworte knapp in der Sprache der Frage.\n\n"
-        f"Kontext:\n{context}\n\n"
-        f"Frage: {question}"
-    )
+    # Semantic config name: schema we create uses "default-semantic-config";
+    # the existing push-* index uses "my-semantic-config". Make this env-
+    # configurable so both work without code changes.
+    semantic_config = os.environ.get("AZURE_SEARCH_SEMANTIC_CONFIG", "default-semantic-config")
+
+    data_sources: list[dict] = [
+        {
+            "type": "azure_search",
+            "parameters": {
+                "endpoint": cfg.ai_search_endpoint,
+                "index_name": index_name,
+                "semantic_configuration": semantic_config,
+                "query_type": "vector_semantic_hybrid",
+                "fields_mapping": {
+                    "title_field": "section_heading",
+                    "content_fields": ["chunk"],
+                    "vector_fields": ["chunkVector"],
+                },
+                "in_scope": True,
+                "filter": None,
+                "strictness": 3,
+                "top_n_documents": top_k,
+                "include_contexts": ["citations", "all_retrieved_documents"],
+                "embedding_dependency": {
+                    "type": "deployment_name",
+                    "deployment_name": cfg.embedding_deployment_name,
+                },
+                "authentication": {
+                    "type": "api_key",
+                    "key": cfg.ai_search_key,
+                },
+            },
+        }
+    ]
 
     client = get_openai_client(cfg)
     try:
-        resp = client.chat.completions.create(
+        completion = client.chat.completions.create(
             model=chat_deployment,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an AI assistant that helps people find information.",
+                },
+                {"role": "user", "content": question},
+            ],
             temperature=0.0,
+            extra_body={"data_sources": data_sources},
         )
     except Exception as exc:
         raise HTTPException(
@@ -222,7 +227,35 @@ def _ask_microsoft(
             detail=f"Azure chat failed: {exc.__class__.__name__}: {exc}",
         ) from exc
 
-    answer = (resp.choices[0].message.content or "").strip()
+    msg = completion.choices[0].message
+    answer = (msg.content or "").strip()
+
+    # Azure's "On Your Data" stuffs retrieval results into
+    # message.context. Shape:
+    #   context = {
+    #     "citations": [{ "title": ..., "content": ..., ... }],
+    #     "all_retrieved_documents": [
+    #       { "title", "content", "original_search_score", "rerank_score",
+    #         "filepath", "url", ... }
+    #     ],
+    #   }
+    ctx = getattr(msg, "context", None) or {}
+    docs = ctx.get("all_retrieved_documents") or []
+    chunks: list[PipelineChunk] = []
+    for d in docs:
+        rerank = d.get("rerank_score")
+        search = d.get("original_search_score")
+        score = float(rerank if rerank is not None else (search or 0.0))
+        chunks.append(
+            PipelineChunk(
+                chunk_id=str(d.get("title") or d.get("doc_id") or len(chunks)),
+                title=d.get("title"),
+                chunk=str(d.get("content") or ""),
+                score=score,
+                source_file=d.get("filepath") or d.get("url"),
+            )
+        )
+
     return AskResponse(pipeline="microsoft", question=question, chunks=chunks, answer=answer)
 
 
