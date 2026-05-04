@@ -289,19 +289,19 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             onClick={() => startStream("page")}
             className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
           >
-            ⚡ Für die Seite generieren
+            ⚡ Fragen für die Seite generieren
           </button>
           <button
             type="button"
             disabled={streaming !== null || generateBox.isPending}
             onClick={() => {
-              if (window.confirm("Für die ganze Datei generieren?")) {
+              if (window.confirm("Fragen für die ganze Datei generieren?")) {
                 startStream("doc");
               }
             }}
             className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
           >
-            ⚡ Für die ganze Datei generieren
+            ⚡ Fragen für die ganze Datei generieren
           </button>
         </div>
       </div>
@@ -504,12 +504,12 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
           <button
             type="button"
-            aria-label="Für diese Box generieren"
+            aria-label="Fragen für diese Box generieren"
             disabled={!highlight || generateBox.isPending || streaming !== null}
             onClick={handleGenerateBox}
             className={`w-full px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
           >
-            {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
+            {generateBox.isPending ? "…" : "⚡ Fragen für diese Box generieren"}
           </button>
 
           <button
