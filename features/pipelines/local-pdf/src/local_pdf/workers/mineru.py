@@ -53,6 +53,53 @@ from local_pdf.workers.base import (
 )
 
 
+def stop_local_vllm_if_running(grace_seconds: float = 5.0) -> bool:
+    """Gently stop the local vllm-server subprocess if any is running.
+
+    Used as a pre-step on every code path that loads MinerU's VLM
+    (MineruWorker.__enter__, vlm_segment_doc, vlm_extract_bbox) — they
+    all fight vLLM for the same VRAM. Best-effort: never raises;
+    returns True if a stop was actually issued, False otherwise.
+
+    Logs at INFO level so the backend stderr shows what happened.
+    """
+    import logging as _logging
+
+    log = _logging.getLogger(__name__)
+    try:
+        from local_pdf.llm_server import process as _llm_process_mod
+    except Exception:
+        log.exception("stop_local_vllm_if_running: import failed")
+        return False
+    inst = _llm_process_mod._INSTANCE
+    if inst is None:
+        log.info("stop_local_vllm_if_running: no vllm singleton")
+        return False
+    proc = inst._proc
+    if proc is None or proc.poll() is not None:
+        log.info("stop_local_vllm_if_running: singleton present but proc dead")
+        return False
+    vram_before = _vram_used_mb()
+    pid = proc.pid
+    log.info(
+        "stop_local_vllm_if_running: stopping vllm pid=%s (vram before=%d MiB)",
+        pid,
+        vram_before,
+    )
+    try:
+        inst.stop(grace_seconds=grace_seconds)
+    except Exception:
+        log.exception("stop_local_vllm_if_running: stop() raised")
+        return True
+    vram_after = _vram_used_mb()
+    log.info(
+        "stop_local_vllm_if_running: vllm stopped (vram after=%d MiB, freed=%d MiB)",
+        vram_after,
+        max(0, vram_before - vram_after),
+    )
+    return True
+
+
 def free_cached_models() -> int:
     """Drop MinerU's process-wide cached models + clear CUDA cache.
 
@@ -1590,33 +1637,7 @@ class MineruWorker:
         # means the user doesn't have to manually click "Stop vLLM"
         # before every "Diese Seite extrahieren". No auto-restart;
         # if the user wants the LLM back, they re-click Start.
-        try:
-            from local_pdf.llm_server import process as _llm_process_mod
-
-            inst = _llm_process_mod._INSTANCE
-            if inst is None:
-                _logger.info("MineruWorker.__enter__: no vllm instance to stop")
-            elif inst._proc is None or inst._proc.poll() is not None:
-                _logger.info(
-                    "MineruWorker.__enter__: vllm singleton present but proc dead; nothing to kill"
-                )
-            else:
-                vram_before = _vram_used_mb()
-                pid = inst._proc.pid
-                _logger.info(
-                    "MineruWorker.__enter__: stopping vllm pid=%s (vram before=%d MiB)",
-                    pid,
-                    vram_before,
-                )
-                inst.stop(grace_seconds=5.0)
-                vram_after = _vram_used_mb()
-                _logger.info(
-                    "MineruWorker.__enter__: vllm stopped (vram after=%d MiB, freed=%d MiB)",
-                    vram_after,
-                    max(0, vram_before - vram_after),
-                )
-        except Exception:
-            _logger.exception("MineruWorker.__enter__: failed to stop vllm")
+        stop_local_vllm_if_running()
 
         before = _vram_used_mb()
         t0 = time.monotonic()
@@ -2142,6 +2163,11 @@ def vlm_extract_bbox(
     Returns the final HTML fragment with ``data-source-box`` attribute.
     Returns "" when no content was found in the crop.
     """
+    # Free vLLM before loading MinerU's VLM — kind-change re-extract
+    # path bypasses MineruWorker, so the hook lives here too.
+    if parse_doc_fn is None and predictor is None:
+        stop_local_vllm_if_running()
+
     if visual_hint:
         try:
             crop_bytes = _crop_pdf_with_visual_hint(
@@ -2470,6 +2496,12 @@ def vlm_segment_doc(
     """
     scale = raster_dpi / 72.0
     worker_name = MineruWorker.name
+
+    # ── Free vLLM (if running) before loading MinerU ──────────────────────────
+    # Same hook MineruWorker.__enter__ uses; vlm_segment_doc bypasses
+    # the worker class so we re-apply the cleanup here.
+    if parse_doc_fn is None:
+        stop_local_vllm_if_running()
 
     # ── Model load ────────────────────────────────────────────────────────────
     yield ModelLoadingEvent(
