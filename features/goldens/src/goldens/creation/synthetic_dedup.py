@@ -1,6 +1,16 @@
-"""Embedding-based question dedup, scoped to a single source_element.
+"""Question dedup, scoped to a single source_element.
 
 Spec: docs/superpowers/specs/2026-04-29-a5-synthetic-design.md §4.4.
+
+Two modes:
+
+  - With an embedding client → cosine similarity ≥ threshold counts
+    as a duplicate (default 0.95).
+  - Without an embedding client → normalized-text fallback (NFKC-
+    fold + lowercase + strip punctuation + collapse whitespace).
+    Catches exact duplicates and the trivial near-misses (case,
+    quoting style, trailing whitespace) that table prompts emit at
+    high rates.
 
 Usage:
     dedup = QuestionDedup(client=embed_client, model=embed_model)
@@ -11,24 +21,37 @@ Usage:
             against=existing,
             source_key=element.element_id,
         )
-
-If `client is None`, dedup is disabled — `filter` returns its
-`generated` argument unchanged after logging a single per-session
-warning.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+import re
+import unicodedata
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from llm_clients.base import LLMClient
 
-__all__ = ["QuestionDedup", "cosine"]
+__all__ = ["QuestionDedup", "cosine", "normalize_for_dedup"]
 
 _log = logging.getLogger(__name__)
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_WS_RE = re.compile(r"\s+")
+
+
+def normalize_for_dedup(q: str) -> str:
+    """Fold unicode, lowercase, drop punctuation, collapse whitespace.
+
+    Stable for the cheap text-equality dedup path; also useful for
+    the UI's "delete duplicates" action so frontend and backend agree
+    on what counts as the same question.
+    """
+    s = unicodedata.normalize("NFKC", q).casefold()
+    s = _PUNCT_RE.sub(" ", s)
+    return _WS_RE.sub(" ", s).strip()
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -71,13 +94,7 @@ class QuestionDedup:
         source_key: str,
     ) -> list[str]:
         if self._client is None:
-            if not self._disabled_warned:
-                _log.warning(
-                    "dedup disabled — no embedding client configured; "
-                    "generated questions will be passed through unchanged"
-                )
-                self._disabled_warned = True
-            return list(generated)
+            return self._filter_text_equality(generated, against=against, source_key=source_key)
 
         # Resolve the against-vector list for this source_key, using
         # the cache. If we've never seen this source_key, embed
@@ -106,3 +123,37 @@ class QuestionDedup:
         # subsequent calls in this session also dedup against them.
         self._cache[source_key].extend(kept_vecs)
         return kept
+
+    # ── Text-equality fallback ───────────────────────────────────────
+
+    # Per-source_key set of normalized strings already accepted in
+    # this session; mirrors `_cache` for the embedding path.
+    @property
+    def _norm_cache(self) -> dict[str, set[str]]:
+        cache = getattr(self, "_norm_cache_inner", None)
+        if cache is None:
+            cache = {}
+            self._norm_cache_inner = cache
+        return cache
+
+    def _filter_text_equality(
+        self,
+        generated: list[str],
+        *,
+        against: list[str],
+        source_key: str,
+    ) -> list[str]:
+        seen = self._norm_cache.setdefault(source_key, set())
+        if not seen:
+            for a in against:
+                n = normalize_for_dedup(a)
+                if n:
+                    seen.add(n)
+        out: list[str] = []
+        for q in generated:
+            n = normalize_for_dedup(q)
+            if not n or n in seen:
+                continue
+            out.append(q)
+            seen.add(n)
+        return out

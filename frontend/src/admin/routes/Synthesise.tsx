@@ -192,6 +192,55 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
     }
   }
 
+  // ── Duplicate detection ──────────────────────────────────────────
+  // Mirrors the backend's normalize_for_dedup (NFKC casefold + strip
+  // punctuation + collapse whitespace) so the UI count matches what
+  // the backend would consider duplicates.
+  const dupPlan = useMemo(() => {
+    const toRemove: string[] = []; // entry_ids
+    let kept = 0;
+    for (const qs of Object.values(questions.data ?? {})) {
+      if (!qs || qs.length < 2) {
+        kept += qs?.length ?? 0;
+        continue;
+      }
+      const seen = new Set<string>();
+      for (const q of qs) {
+        const n = q.text
+          .normalize("NFKC")
+          .toLocaleLowerCase()
+          .replace(/[^\p{L}\p{N}\s]/gu, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!n) continue;
+        if (seen.has(n)) {
+          toRemove.push(q.entry_id);
+        } else {
+          seen.add(n);
+          kept += 1;
+        }
+      }
+    }
+    return { toRemove, kept };
+  }, [questions.data]);
+
+  async function handleRemoveDuplicates() {
+    const ids = dupPlan.toRemove;
+    if (ids.length === 0) return;
+    if (!window.confirm(`${ids.length} doppelte Frage(n) löschen?`)) return;
+    let removed = 0;
+    for (const id of ids) {
+      try {
+        await deprecate.mutateAsync(id);
+        removed += 1;
+      } catch (e) {
+        error(e instanceof Error ? e.message : `Löschen ${id} fehlgeschlagen`);
+      }
+    }
+    if (removed > 0) success(`${removed} Duplikat(e) entfernt`);
+    void questions.refetch();
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar: DocStepTabs left, page/file Generate actions right ── */}
@@ -426,6 +475,23 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           >
             {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
           </button>
+
+          {/* Bulk dedup — scans every box's question list with the same
+              normalisation the backend uses (NFKC casefold + strip
+              punctuation + collapse whitespace) and deprecates all but
+              the first occurrence per box. Hidden when nothing to do. */}
+          {dupPlan.toRemove.length > 0 && (
+            <button
+              type="button"
+              aria-label="Doppelte Fragen entfernen"
+              disabled={deprecate.isPending}
+              onClick={handleRemoveDuplicates}
+              className={`w-full px-3 py-1.5 rounded border border-amber-400 bg-amber-50 text-amber-900 ${T.bodyMedium} hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+              data-testid="synthesise-remove-duplicates"
+            >
+              🧹 {dupPlan.toRemove.length} Duplikat(e) entfernen
+            </button>
+          )}
 
           {streaming && (
             <div className="rounded border border-blue-200 bg-blue-50 p-2 flex flex-col gap-1">
