@@ -1099,11 +1099,12 @@ function ChunkCard({
       </div>
 
       {/* Per-chunk eval metrics — gated behind the explicit Vergleichen
-          click so the chunk cards stay clean during the search/answer
-          phase. boxRelevance and chunkRelevance are still fetched
-          eagerly (cheap, no extra round-trip on Vergleichen click);
-          we just don't show them until the user asks. */}
-      {showAnalytics && boxRelevance && (
+          click AND the user's current selection. boxRelevance / chunk-
+          Relevance are computed for all chunks (cheap), but we only
+          render analytics for the chunk(s) the user actually checked
+          — that's the set the answer was generated against. Untoggling
+          a chunk hides its analytics; re-toggling brings them back. */}
+      {showAnalytics && checked && boxRelevance && (
         <div className="pl-6 flex flex-col gap-0.5 pt-1 border-t border-slate-100">
           <span className={`${T.tiny} text-slate-500 italic`}>Vs lokaler Chunk</span>
           <ScoreBar label="Wortlaut" hint="BM25" value={boxRelevance.bm25} />
@@ -1116,7 +1117,7 @@ function ChunkCard({
         </div>
       )}
 
-      {showAnalytics && relevance && (
+      {showAnalytics && checked && relevance && (
         <div className="pl-6 flex flex-col gap-0.5 pt-1 border-t border-slate-100">
           <span className={`${T.tiny} text-slate-500 italic`}>Beitrag zur Antwort</span>
           <ScoreBar label="Wortlaut" hint="BM25" value={relevance.bm25} />
