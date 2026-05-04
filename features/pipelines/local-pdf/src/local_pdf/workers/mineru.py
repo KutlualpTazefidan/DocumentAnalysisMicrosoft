@@ -1594,11 +1594,29 @@ class MineruWorker:
             from local_pdf.llm_server import process as _llm_process_mod
 
             inst = _llm_process_mod._INSTANCE
-            if inst is not None:
+            if inst is None:
+                _logger.info("MineruWorker.__enter__: no vllm instance to stop")
+            elif inst._proc is None or inst._proc.poll() is not None:
+                _logger.info(
+                    "MineruWorker.__enter__: vllm singleton present but proc dead; nothing to kill"
+                )
+            else:
+                vram_before = _vram_used_mb()
+                pid = inst._proc.pid
+                _logger.info(
+                    "MineruWorker.__enter__: stopping vllm pid=%s (vram before=%d MiB)",
+                    pid,
+                    vram_before,
+                )
                 inst.stop(grace_seconds=5.0)
+                vram_after = _vram_used_mb()
+                _logger.info(
+                    "MineruWorker.__enter__: vllm stopped (vram after=%d MiB, freed=%d MiB)",
+                    vram_after,
+                    max(0, vram_before - vram_after),
+                )
         except Exception:
-            # Best-effort — never let cleanup block the extract path.
-            pass
+            _logger.exception("MineruWorker.__enter__: failed to stop vllm")
 
         before = _vram_used_mb()
         t0 = time.monotonic()
