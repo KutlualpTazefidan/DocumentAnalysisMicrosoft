@@ -165,8 +165,12 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
     }
   }
 
-  async function handleDeleteSource(slug: string, filename: string) {
-    if (!window.confirm(`"${filename}" und seinen Azure-Index wirklich löschen?`)) return;
+  async function handleDeleteSource(slug: string, filename: string, external: boolean) {
+    const msg = external
+      ? `⚠ "${filename}" ist ein vorhandener Azure-Index — Löschen entfernt ihn auch ` +
+        "auf Azure (nicht nur lokal). Andere Nutzer verlieren den Zugriff. Wirklich löschen?"
+      : `"${filename}" und seinen Azure-Index wirklich löschen?`;
+    if (!window.confirm(msg)) return;
     try {
       await deleteSource.mutateAsync(slug);
       if (selectedSource === slug) setSelectedSource(null);
@@ -617,7 +621,7 @@ function MicrosoftSourcesPanel({
   selected: string | null;
   onSelect: (slug: string) => void;
   onUpload: (file: File) => void;
-  onDelete: (slug: string, filename: string) => void;
+  onDelete: (slug: string, filename: string, external: boolean) => void;
   onRefresh: () => void;
   uploadPending: boolean;
   deletePending: boolean;
@@ -666,15 +670,27 @@ function MicrosoftSourcesPanel({
                   <span className={`${T.body} truncate flex-1`} title={s.filename}>
                     {s.filename}
                   </span>
+                  {s.external && (
+                    <span
+                      className="px-1 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] uppercase font-bold tracking-wide"
+                      title="Auf Azure vorgefunden — nicht selbst hochgeladen"
+                    >
+                      extern
+                    </span>
+                  )}
                   <SourceStateChip state={s.state} />
                 </button>
                 <div className="flex items-center justify-between">
                   <span className={`${T.tiny} text-slate-400`}>
-                    {s.pages} Seite{s.pages === 1 ? "" : "n"}
+                    {s.pages > 0
+                      ? `${s.pages} Seite${s.pages === 1 ? "" : "n"}`
+                      : s.external
+                        ? "extern"
+                        : ""}
                   </span>
                   <button
                     type="button"
-                    onClick={() => onDelete(s.slug, s.filename)}
+                    onClick={() => onDelete(s.slug, s.filename, s.external ?? false)}
                     disabled={deletePending}
                     className="text-red-600 hover:bg-red-50 rounded px-1 text-[11px] disabled:opacity-40"
                     aria-label={`${s.filename} entfernen`}

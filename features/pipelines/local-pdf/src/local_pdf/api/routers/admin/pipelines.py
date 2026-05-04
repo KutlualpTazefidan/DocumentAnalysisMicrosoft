@@ -105,6 +105,10 @@ class KnowledgeSource(BaseModel):
     state: Literal["uploaded", "analyzed", "chunked", "embedded", "indexed", "error"]
     error: str | None = None
     index_name: str | None = None
+    # True for indexes adopted from Azure that we never uploaded
+    # ourselves — UI flags them differently so the user knows
+    # they're "external" and a delete will drop someone else's index.
+    external: bool = False
 
 
 class PipelineInfo(BaseModel):
@@ -117,12 +121,18 @@ class PipelineInfo(BaseModel):
 # ── Microsoft pipeline runner (ASK) ──────────────────────────────────────────
 
 
-def _ask_microsoft(question: str, top_k: int, source: str | None) -> AskResponse:
+def _ask_microsoft(
+    question: str,
+    top_k: int,
+    source: str | None,
+    data_root: Path,
+) -> AskResponse:
     """Run hybrid_search + Azure OpenAI completion for one question.
 
-    When *source* is set, scopes the search to that knowledge source's
-    Azure index (`kb-{source}`); otherwise falls back to the env-
-    configured default index (legacy path).
+    When *source* is set, reads its stored ``index_name`` from
+    meta.json (so adopted external indexes work even when their name
+    isn't ``kb-{slug}``) and scopes the search there; otherwise falls
+    back to the env-configured default index (legacy path).
     """
     try:
         from query_index.client import get_openai_client
@@ -142,9 +152,17 @@ def _ask_microsoft(question: str, top_k: int, source: str | None) -> AskResponse
             detail=f"Microsoft credentials missing in env: {exc}",
         ) from exc
 
-    # Override the default index name when scoped to a source.
+    # Override the default index name when scoped to a source. Read
+    # the actual index_name from the source's meta.json so we honour
+    # adopted external indexes (whose name isn't kb-{slug}).
     if source:
-        cfg = cfg.model_copy(update={"ai_search_index_name": _index_name_for(source)})
+        src_meta = _read_source(data_root, source)
+        index_name = (
+            src_meta.index_name
+            if src_meta is not None and src_meta.index_name
+            else _index_name_for(source)
+        )
+        cfg = cfg.model_copy(update={"ai_search_index_name": index_name})
 
     try:
         hits = hybrid_search(question, top=top_k, cfg=cfg)
@@ -204,9 +222,14 @@ def _index_name_for(slug: str) -> str:
 
 
 @router.post("/api/admin/pipelines/{name}/ask", response_model=AskResponse)
-async def ask(name: str, body: AskRequest) -> AskResponse:
+async def ask(name: str, body: AskRequest, request: Request) -> AskResponse:
     if name == "microsoft":
-        return _ask_microsoft(body.question, body.top_k, body.source)
+        return _ask_microsoft(
+            body.question,
+            body.top_k,
+            body.source,
+            request.app.state.config.data_root,
+        )
     if name == "bam":
         raise HTTPException(status_code=501, detail="BAM pipeline not implemented yet")
     raise HTTPException(status_code=404, detail=f"unknown pipeline: {name}")
@@ -335,36 +358,42 @@ async def refresh_sources(request: Request) -> list[KnowledgeSource]:
             if src is not None:
                 local[src.slug] = src
 
-    # Azure `kb-*` indexes the user has access to.
-    azure_kb_indexes: list[str] = []
+    # All indexes the user has access to on Azure AI Search. We don't
+    # filter by name pattern: the user might have pre-existing indexes
+    # from earlier sessions / external pipelines and wants to query
+    # them too. UI flags them as `external` so deletion shows a louder
+    # warning.
+    azure_indexes: list[str] = []
     try:
         from query_index.client import get_search_index_client
         from query_index.config import Config
 
         cfg_az = Config.from_env()
         idx_client = get_search_index_client(cfg_az)
-        for name in idx_client.list_index_names():
-            if name.startswith("kb-"):
-                azure_kb_indexes.append(name)
+        azure_indexes = list(idx_client.list_index_names())
     except Exception:
-        # No creds, package missing, or list call failed — return
-        # local-only.
         return list(local.values())
 
-    # Adopt anything on Azure that we don't have locally.
-    for idx_name in azure_kb_indexes:
-        slug = idx_name[len("kb-") :]
-        if slug in local:
+    # Map: any local source that already points at this Azure index name?
+    by_index_name = {s.index_name: s for s in local.values() if s.index_name}
+
+    for idx_name in azure_indexes:
+        if idx_name in by_index_name:
             continue
-        # Synthesize a local meta.json so subsequent /ask + delete
-        # work uniformly.
+        # Sanitise the Azure name into a local slug. AI Search names
+        # are already lowercase + dash + alnum, so this mostly passes
+        # through unchanged.
+        slug = _make_slug(idx_name)
+        if slug in local:
+            slug = f"{slug}-az"  # tiebreak when a local-uploaded slug shadows
         adopted = KnowledgeSource(
             slug=slug,
-            filename=f"{slug}.pdf",
-            pages=0,  # unknown — no source.pdf was uploaded here
+            filename=idx_name,  # surface the actual Azure name to the user
+            pages=0,
             state="indexed",
             error=None,
             index_name=idx_name,
+            external=True,
         )
         _write_source(cfg.data_root, adopted)
         local[slug] = adopted
@@ -390,14 +419,18 @@ async def delete_source(slug: str, request: Request) -> None:
     if not d.exists():
         raise HTTPException(status_code=404, detail=f"source not found: {slug}")
 
-    # Try to drop the Azure index first.
+    # Try to drop the Azure index first. Use the source's stored
+    # index_name when present — otherwise fall back to kb-{slug} for
+    # backwards compatibility with pre-refresh-feature data.
+    src = _read_source(cfg.data_root, slug)
+    azure_index = src.index_name if src and src.index_name else _index_name_for(slug)
     try:
         from query_index.client import get_search_index_client
         from query_index.config import Config
 
         cfg_az = Config.from_env()
         idx_client = get_search_index_client(cfg_az)
-        idx_client.delete_index(_index_name_for(slug))
+        idx_client.delete_index(azure_index)
     except Exception:
         # Either the index never got created or Azure call failed —
         # not fatal. Local files still wipe so the user can retry.

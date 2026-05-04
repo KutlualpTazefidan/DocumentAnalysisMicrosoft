@@ -153,6 +153,7 @@ export interface KnowledgeSource {
   state: "uploaded" | "analyzed" | "chunked" | "embedded" | "indexed" | "error";
   error: string | null;
   index_name: string | null;
+  external?: boolean;
 }
 
 export function useMicrosoftSources(token: string) {
