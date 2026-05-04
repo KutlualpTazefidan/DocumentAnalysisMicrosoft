@@ -1585,6 +1585,21 @@ class MineruWorker:
             # Injected test path — skip real model load.
             return self
 
+        # Free any user-managed vLLM subprocess BEFORE MinerU's VLM
+        # loads — they fight for the same VRAM. A gentle SIGTERM here
+        # means the user doesn't have to manually click "Stop vLLM"
+        # before every "Diese Seite extrahieren". No auto-restart;
+        # if the user wants the LLM back, they re-click Start.
+        try:
+            from local_pdf.llm_server import process as _llm_process_mod
+
+            inst = _llm_process_mod._INSTANCE
+            if inst is not None:
+                inst.stop(grace_seconds=5.0)
+        except Exception:
+            # Best-effort — never let cleanup block the extract path.
+            pass
+
         before = _vram_used_mb()
         t0 = time.monotonic()
         try:
