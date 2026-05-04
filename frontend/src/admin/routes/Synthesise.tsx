@@ -195,15 +195,13 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   // ── Duplicate detection ──────────────────────────────────────────
   // Mirrors the backend's normalize_for_dedup (NFKC casefold + strip
   // punctuation + collapse whitespace) so the UI count matches what
-  // the backend would consider duplicates.
-  const dupPlan = useMemo(() => {
-    const toRemove: string[] = []; // entry_ids
-    let kept = 0;
-    for (const qs of Object.values(questions.data ?? {})) {
-      if (!qs || qs.length < 2) {
-        kept += qs?.length ?? 0;
-        continue;
-      }
+  // the backend would consider duplicates. Box-scoped: same wording
+  // across different boxes is intentionally not flagged.
+  function planDuplicates(predicate: (boxId: string) => boolean): string[] {
+    const toRemove: string[] = [];
+    for (const [boxId, qs] of Object.entries(questions.data ?? {})) {
+      if (!predicate(boxId)) continue;
+      if (!qs || qs.length < 2) continue;
       const seen = new Set<string>();
       for (const q of qs) {
         const n = q.text
@@ -213,21 +211,27 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           .replace(/\s+/g, " ")
           .trim();
         if (!n) continue;
-        if (seen.has(n)) {
-          toRemove.push(q.entry_id);
-        } else {
-          seen.add(n);
-          kept += 1;
-        }
+        if (seen.has(n)) toRemove.push(q.entry_id);
+        else seen.add(n);
       }
     }
-    return { toRemove, kept };
-  }, [questions.data]);
+    return toRemove;
+  }
 
-  async function handleRemoveDuplicates() {
-    const ids = dupPlan.toRemove;
+  const docDuplicateIds = useMemo(
+    () => planDuplicates(() => true),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [questions.data],
+  );
+  const pageDuplicateIds = useMemo(
+    () => planDuplicates((boxId) => boxId.startsWith(`p${page}-`)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [questions.data, page],
+  );
+
+  async function removeDuplicates(ids: string[], scopeLabel: string) {
     if (ids.length === 0) return;
-    if (!window.confirm(`${ids.length} doppelte Frage(n) löschen?`)) return;
+    if (!window.confirm(`${ids.length} doppelte Frage(n) ${scopeLabel} löschen?`)) return;
     let removed = 0;
     for (const id of ids) {
       try {
@@ -247,6 +251,17 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
       <div className="flex items-center gap-2 px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
         <div className="ml-auto flex items-center gap-2">
+          {docDuplicateIds.length > 0 && (
+            <button
+              type="button"
+              disabled={deprecate.isPending}
+              onClick={() => removeDuplicates(docDuplicateIds, "im Dokument")}
+              className={`px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-900 ${T.bodyMedium} hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+              data-testid="synthesise-remove-duplicates-doc"
+            >
+              🧹 {docDuplicateIds.length} Duplikat(e) im Dokument
+            </button>
+          )}
           <button
             type="button"
             disabled={streaming !== null || generateBox.isPending}
@@ -476,20 +491,19 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
           </button>
 
-          {/* Bulk dedup — scans every box's question list with the same
-              normalisation the backend uses (NFKC casefold + strip
-              punctuation + collapse whitespace) and deprecates all but
-              the first occurrence per box. Hidden when nothing to do. */}
-          {dupPlan.toRemove.length > 0 && (
+          {/* Page-scoped dedup — restricts the bulk delete to boxes
+              on the currently-viewed page. Doc-scoped dedup lives in
+              the topbar so it stays reachable from any page. */}
+          {pageDuplicateIds.length > 0 && (
             <button
               type="button"
-              aria-label="Doppelte Fragen entfernen"
+              aria-label="Doppelte Fragen auf dieser Seite entfernen"
               disabled={deprecate.isPending}
-              onClick={handleRemoveDuplicates}
+              onClick={() => removeDuplicates(pageDuplicateIds, `auf Seite ${page}`)}
               className={`w-full px-3 py-1.5 rounded border border-amber-400 bg-amber-50 text-amber-900 ${T.bodyMedium} hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
-              data-testid="synthesise-remove-duplicates"
+              data-testid="synthesise-remove-duplicates-page"
             >
-              🧹 {dupPlan.toRemove.length} Duplikat(e) entfernen
+              🧹 {pageDuplicateIds.length} Duplikat(e) auf Seite {page}
             </button>
           )}
 
