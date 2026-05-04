@@ -228,6 +228,11 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [questions.data, page],
   );
+  const boxDuplicateIds = useMemo(
+    () => (highlight ? planDuplicates((boxId) => boxId === highlight) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [questions.data, highlight],
+  );
 
   async function removeDuplicates(ids: string[], scopeLabel: string) {
     if (ids.length === 0) return;
@@ -490,6 +495,20 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           >
             {generateBox.isPending ? "…" : "⚡ Für diese Box generieren"}
           </button>
+
+          {/* Box-scoped dedup — only the highlighted box's questions. */}
+          {boxDuplicateIds.length > 0 && (
+            <button
+              type="button"
+              aria-label="Doppelte Fragen in dieser Box entfernen"
+              disabled={deprecate.isPending}
+              onClick={() => removeDuplicates(boxDuplicateIds, "in dieser Box")}
+              className={`w-full px-3 py-1.5 rounded border border-amber-400 bg-amber-50 text-amber-900 ${T.bodyMedium} hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+              data-testid="synthesise-remove-duplicates-box"
+            >
+              🧹 {boxDuplicateIds.length} Duplikat(e) in dieser Box
+            </button>
+          )}
 
           {/* Page-scoped dedup — restricts the bulk delete to boxes
               on the currently-viewed page. Doc-scoped dedup lives in
