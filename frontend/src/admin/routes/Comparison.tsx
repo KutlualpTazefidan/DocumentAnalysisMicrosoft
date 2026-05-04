@@ -155,19 +155,17 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* ── Left: questions list + similar block. ──────────────── */}
+        {/* ── Pane 1: Questions list (narrow). ──────────────────── */}
         <div
-          className="flex-1 flex flex-col border-r border-slate-200 bg-white overflow-y-auto min-w-0"
+          className="w-[300px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto"
           data-testid="compare-left"
         >
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 sticky top-0 bg-white z-10">
             <span className={T.tinyBold}>Fragen auf Seite {page}</span>
-            <span className={`${T.bodyMuted} ml-auto`}>
-              {questionsOnPage.length} Frage(n)
-            </span>
+            <span className={`${T.bodyMuted} ml-auto`}>{questionsOnPage.length}</span>
           </div>
           {questionsOnPage.length === 0 ? (
-            <p className={`${T.bodyMuted} italic px-4 py-3`}>Keine Fragen auf dieser Seite.</p>
+            <p className={`${T.bodyMuted} italic px-3 py-3`}>Keine Fragen auf dieser Seite.</p>
           ) : (
             <ul className="list-none p-0 flex flex-col">
               {questionsOnPage.map((q) => {
@@ -176,17 +174,17 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                   <li
                     key={q.entry_id}
                     onClick={() => setSelectedEntry(q.entry_id)}
-                    className={`px-4 py-2 cursor-pointer border-b border-slate-100 hover:bg-blue-50 ${
-                      active ? "bg-blue-100" : ""
+                    className={`px-3 py-2 cursor-pointer border-b border-slate-100 hover:bg-blue-50 transition-colors ${
+                      active ? "bg-blue-50 border-l-4 border-l-blue-500" : "border-l-4 border-l-transparent"
                     }`}
                     data-testid={`compare-question-${q.entry_id}`}
                   >
-                    <p className="text-[14px] leading-snug text-slate-800 whitespace-pre-wrap">
+                    <p className="text-[13px] leading-snug text-slate-800 whitespace-pre-wrap">
                       {q.text}
                     </p>
                     {q.answer && (
                       <p className={`${T.tiny} text-emerald-700 mt-0.5 line-clamp-2`}>
-                        Antwort: {q.answer}
+                        ✓ Antwort vorhanden
                       </p>
                     )}
                     <p className={`${T.tiny} text-slate-400 font-mono mt-0.5`}>{q.box_id}</p>
@@ -195,22 +193,78 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
               })}
             </ul>
           )}
+        </div>
 
-          {/* Similar block — appears under the list once a Q is selected. */}
-          {selected && (
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50">
-              <span className={T.tinyBold}>
-                Ähnliche Fragen im Dokument
-                {similar.data?.embedder ? " (BM25 + Cosine)" : " (BM25)"}
-              </span>
+        {/* ── Pane 2: NEW — Detail / similar + their chunks. ──── */}
+        <div
+          className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50 overflow-y-auto min-w-0"
+          data-testid="compare-detail"
+        >
+          {!selected ? (
+            <div className="flex-1 flex items-center justify-center">
+              <p className={`${T.bodyMuted} italic px-4`}>
+                Wähle links eine Frage, um Details und ähnliche Fragen zu sehen.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 px-4 py-4">
+              {/* Selected question card */}
+              <section className="rounded-lg border-2 border-blue-300 bg-white shadow-sm overflow-hidden">
+                <header className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center gap-2">
+                  <span className={`${T.tinyBold} text-blue-900 uppercase tracking-wide`}>
+                    Ausgewählte Frage
+                  </span>
+                  <span className={`${T.tiny} font-mono text-blue-700 ml-auto`}>
+                    {selected.box_id}
+                  </span>
+                </header>
+                <div className="px-4 py-3 flex flex-col gap-2">
+                  <p className="text-[15px] leading-snug text-slate-800 whitespace-pre-wrap">
+                    {selected.text}
+                  </p>
+                  {referenceAnswer ? (
+                    <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <span className={`${T.tinyBold} text-emerald-900`}>
+                        Referenz-Antwort (lokal)
+                      </span>
+                      <p className={`${T.body} text-emerald-900 whitespace-pre-wrap mt-0.5`}>
+                        {referenceAnswer}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className={`${T.tiny} text-amber-700 italic`}>
+                      Noch keine Referenz-Antwort. Generiere sie in der Synthesise-Tab.
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              {/* Similar questions — section header */}
+              <header className="flex items-center gap-2 mt-2">
+                <span className={`${T.tinyBold} uppercase tracking-wide text-slate-700`}>
+                  Ähnliche Fragen im Dokument
+                </span>
+                {similar.data && (
+                  <span className={`${T.tiny} text-slate-500`}>
+                    {similar.data.hits.length} ·{" "}
+                    {similar.data.embedder ? "BM25 + Cosine" : "BM25"}
+                  </span>
+                )}
+              </header>
+
               {similar.isPending ? (
                 <p className={`${T.bodyMuted} italic`}>Lade…</p>
               ) : similar.data && similar.data.hits.length > 0 ? (
-                <ul className="list-none p-0 flex flex-col gap-2 mt-1">
-                  {similar.data.hits.map((h) => (
-                    <SimilarHitRow key={h.entry_id} hit={h} embedder={similar.data!.embedder} />
+                <div className="flex flex-col gap-3">
+                  {similar.data.hits.map((h, i) => (
+                    <SimilarCard
+                      key={h.entry_id}
+                      hit={h}
+                      rank={i + 1}
+                      embedder={similar.data!.embedder}
+                    />
                   ))}
-                </ul>
+                </div>
               ) : (
                 <p className={`${T.bodyMuted} italic`}>Keine ähnlichen Fragen gefunden.</p>
               )}
@@ -218,9 +272,9 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
           )}
         </div>
 
-        {/* ── Middle: pipeline runner + comparison. ───────────────── */}
+        {/* ── Pane 3: pipeline runner + comparison. ───────────────── */}
         <div
-          className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50 overflow-y-auto px-4 py-4 gap-3 min-w-0"
+          className="w-[440px] flex-shrink-0 flex flex-col border-r border-slate-200 bg-white overflow-y-auto px-4 py-4 gap-3"
           data-testid="compare-middle"
         >
           <div className="flex items-center gap-2">
@@ -466,29 +520,69 @@ function ScoreBar({ label, value }: { label: string; value: number }): JSX.Eleme
   );
 }
 
-function SimilarHitRow({ hit, embedder }: { hit: SimilarHit; embedder: boolean }): JSX.Element {
+function SimilarCard({
+  hit,
+  rank,
+  embedder,
+}: {
+  hit: SimilarHit;
+  rank: number;
+  embedder: boolean;
+}): JSX.Element {
+  // Combined score for the "headline" — weighted same way the backend
+  // ranks. Drives the ribbon colour so users see the verdict at a
+  // glance without reading both bars.
+  const combined = embedder
+    ? 0.4 * hit.bm25_score + 0.6 * hit.cosine_score
+    : hit.bm25_score;
+  const ribbon =
+    combined >= 0.7
+      ? "bg-emerald-500"
+      : combined >= 0.4
+        ? "bg-amber-500"
+        : "bg-slate-400";
+
   return (
-    <li className="rounded border border-slate-200 bg-white px-2 py-1">
-      <p className="text-[13px] leading-snug">{hit.text}</p>
-      <p className={`${T.tiny} text-slate-400 font-mono`}>{hit.box_id}</p>
-      <div className="flex items-center gap-2 mt-1">
-        <ScoreBar label="BM25" value={hit.bm25_score} />
+    <article
+      className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden flex"
+      data-testid={`similar-card-${hit.entry_id}`}
+    >
+      {/* Rank ribbon — coloured by combined score. */}
+      <div
+        className={`${ribbon} text-white text-[11px] font-bold w-7 flex-shrink-0 flex items-start justify-center pt-2`}
+      >
+        #{rank}
       </div>
-      {embedder && (
-        <div className="flex items-center gap-2">
-          <ScoreBar label="Cos" value={hit.cosine_score} />
+
+      {/* Question side */}
+      <div className="flex-1 px-3 py-2 border-r border-slate-100 min-w-0 flex flex-col gap-1">
+        <p className="text-[13px] leading-snug text-slate-800 whitespace-pre-wrap">
+          {hit.text}
+        </p>
+        <p className={`${T.tiny} text-slate-400 font-mono`}>{hit.box_id}</p>
+        <div className="flex flex-col gap-0.5 mt-1">
+          <ScoreBar label="BM25" value={hit.bm25_score} />
+          {embedder && <ScoreBar label="Cos" value={hit.cosine_score} />}
         </div>
-      )}
-      {hit.chunk && (
-        <details className="mt-1">
-          <summary className={`${T.tiny} cursor-pointer text-slate-600`}>Chunk</summary>
-          <p className={`${T.tiny} text-slate-700 whitespace-pre-wrap mt-0.5`}>
-            {hit.chunk.slice(0, 400)}
-            {hit.chunk.length > 400 ? "…" : ""}
+      </div>
+
+      {/* Chunk side */}
+      <div className="flex-1 px-3 py-2 bg-slate-50 min-w-0 flex flex-col">
+        <span className={`${T.tinyBold} text-slate-600 uppercase tracking-wide`}>
+          Chunk
+        </span>
+        {hit.chunk ? (
+          <p
+            className={`${T.tiny} text-slate-700 whitespace-pre-wrap mt-0.5 line-clamp-6 leading-relaxed`}
+            title={hit.chunk}
+          >
+            {hit.chunk}
           </p>
-        </details>
-      )}
-    </li>
+        ) : (
+          <p className={`${T.tiny} italic text-slate-400 mt-0.5`}>kein Inhalt</p>
+        )}
+      </div>
+    </article>
   );
 }
 
