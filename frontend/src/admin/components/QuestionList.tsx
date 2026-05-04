@@ -76,7 +76,14 @@ export function QuestionList({ questions, onRefine, onDeprecate, disabled }: Pro
               </>
             ) : (
               <>
-                <p className="text-[14px] leading-snug text-slate-800 whitespace-pre-wrap">
+                <p
+                  className="text-[14px] leading-snug text-slate-800 whitespace-pre-wrap cursor-text select-text"
+                  title="Doppelklick zum Bearbeiten"
+                  onDoubleClick={() => {
+                    if (disabled) return;
+                    setEditing({ id: q.entry_id, draft: q.text });
+                  }}
+                >
                   {q.text}
                 </p>
                 <div className="flex gap-1 justify-end">
