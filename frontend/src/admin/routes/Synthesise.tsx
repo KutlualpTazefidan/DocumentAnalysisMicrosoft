@@ -7,7 +7,9 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlPreview } from "../components/HtmlPreview";
 import { LlmServerPanel } from "../components/LlmServerPanel";
 import { QuestionList } from "../components/QuestionList";
+import { StageIndicator } from "../components/StageIndicator";
 import { useHtml } from "../hooks/useExtract";
+import { useLlmStream } from "../hooks/useLlmStream";
 import {
   streamGenerate,
   useAnswerBox,
@@ -58,6 +60,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   const editAnswer = useEditAnswer(slug, token);
   const refine = useRefineQuestion(slug, token);
   const deprecate = useDeprecateQuestion(slug, token);
+  const llmStream = useLlmStream(token);
   const { success, error } = useToast();
 
   const [page, setPage] = useState<number>(() => loadCurrentPage(slug));
@@ -591,6 +594,11 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           )}
         </aside>
       </div>
+
+      {/* Bottom-left lifecycle pill — same component the Extract page
+          uses, fed by the local vLLM lifecycle (loading / loaded /
+          unloading / failed). Click to open the timeline. */}
+      <StageIndicator state={llmStream} />
     </div>
   );
 }
