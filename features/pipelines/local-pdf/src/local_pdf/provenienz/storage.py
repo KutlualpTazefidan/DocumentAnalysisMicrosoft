@@ -15,10 +15,11 @@ handler layer (see future steps/*.py).
 from __future__ import annotations
 
 import json
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 
 @dataclass(frozen=True)
@@ -115,3 +116,32 @@ def read_meta(session_dir: Path) -> SessionMeta | None:
     if not p.exists():
         return None
     return SessionMeta(**json.loads(p.read_text()))
+
+
+_ALPHABET: Final = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32
+
+
+def new_id() -> str:
+    """Time-prefixed random id, 26 chars, lex-sortable.
+
+    ULID-shaped (10 chars timestamp + 16 chars randomness, Crockford
+    base32). Hand-rolled so we don't pull in the ulid lib for one
+    helper. Two ids generated in the same millisecond may compare
+    equal on the time prefix; the random tail tiebreaks.
+    """
+    ts = int(datetime.now(UTC).timestamp() * 1000)
+    out = ""
+    for _ in range(10):
+        out = _ALPHABET[ts & 0x1F] + out
+        ts >>= 5
+    out += "".join(secrets.choice(_ALPHABET) for _ in range(16))
+    return out
+
+
+def session_dir(data_root: Path, slug: str, session_id: str) -> Path:
+    """Filesystem path for one session's event log + meta.
+
+    Mirrors the convention {LOCAL_PDF_DATA_ROOT}/{slug}/provenienz/{session_id}/
+    used by Stage 1.3's session router.
+    """
+    return data_root / slug / "provenienz" / session_id

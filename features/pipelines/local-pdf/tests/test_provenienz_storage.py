@@ -64,3 +64,22 @@ def test_read_session_returns_empty_when_dir_missing(tmp_path: Path):
     nodes, edges = read_session(tmp_path / "does-not-exist")
     assert nodes == []
     assert edges == []
+
+
+def test_new_id_is_unique_and_lexically_sortable():
+    from local_pdf.provenienz.storage import new_id
+
+    a = new_id()
+    b = new_id()
+    assert a != b
+    # ULIDs sort by time when generated in order — b should be > a
+    # (or at minimum >= a, since same-millisecond is possible).
+    assert b >= a
+    assert len(a) == 26
+
+
+def test_session_dir_layout(tmp_path: Path):
+    from local_pdf.provenienz.storage import session_dir
+
+    d = session_dir(tmp_path, "my-slug", "01H123")
+    assert d == tmp_path / "my-slug" / "provenienz" / "01H123"
