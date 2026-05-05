@@ -337,6 +337,150 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
     return landed.__dict__
 
 
+def _llm_evaluate(claim_text: str, candidate_chunk_text: str, provider: str) -> dict:
+    """Real LLM call lands in Stage 5.5. v1 stub returns an unknown
+    verdict so the route + decide dispatch are testable without a
+    running model.
+
+    Tests monkey-patch this symbol on the module.
+    """
+    return {"verdict": "unknown", "confidence": 0.5, "reasoning": "stub: no LLM"}
+
+
+class EvaluateStepRequest(BaseModel):
+    search_result_node_id: str
+    against_claim_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/evaluate",
+    status_code=201,
+)
+async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _ = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"search_result node not found: {body.search_result_node_id}",
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400,
+            detail=f"anchor must be search_result, got kind={sr.kind}",
+        )
+    claim = next((n for n in nodes if n.node_id == body.against_claim_id), None)
+    if claim is None:
+        raise HTTPException(
+            status_code=404, detail=f"claim node not found: {body.against_claim_id}"
+        )
+    if claim.kind != "claim":
+        raise HTTPException(
+            status_code=400, detail=f"against_claim_id must be claim, got kind={claim.kind}"
+        )
+
+    actor = resolve_provider(body.provider)
+    verdict_payload = _llm_evaluate(
+        claim.payload.get("text", ""),
+        sr.payload.get("text", ""),
+        body.provider or "vllm",
+    )
+    verdict = verdict_payload["verdict"]
+    confidence = verdict_payload["confidence"]
+    reasoning = verdict_payload["reasoning"]
+
+    payload = ActionProposalPayload(
+        step_kind="evaluate",
+        anchor_node_id=body.search_result_node_id,
+        recommended=ActionOption(
+            label=f"{verdict} (conf {confidence:.2f})",
+            args={
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "against_claim_id": body.against_claim_id,
+            },
+        ),
+        alternatives=[
+            ActionOption(
+                label="Verwerfen — keine Quelle",
+                args={
+                    "verdict": "not-source",
+                    "confidence": 1.0,
+                    "reasoning": "manuell verworfen",
+                    "against_claim_id": body.against_claim_id,
+                },
+            ),
+        ],
+        reasoning="LLM-Bewertung Kandidat vs. Claim.",
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    )
+    return landed.__dict__
+
+
+def _llm_propose_stop(anchor_text: str, provider: str) -> str:
+    """Real LLM call lands in Stage 5.5. v1 stub returns a fixed
+    reasoning text so the route + decide dispatch are testable
+    without a running model.
+
+    Tests monkey-patch this symbol on the module.
+    """
+    return "Quelle gefunden"
+
+
+class ProposeStopRequest(BaseModel):
+    anchor_node_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/propose-stop",
+    status_code=201,
+)
+async def propose_stop(session_id: str, body: ProposeStopRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _ = read_session(sd)
+    anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
+    if anchor is None:
+        raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
+
+    actor = resolve_provider(body.provider)
+    reason_text = _llm_propose_stop(anchor.payload.get("text", ""), body.provider or "vllm")
+    payload = ActionProposalPayload(
+        step_kind="propose_stop",
+        anchor_node_id=body.anchor_node_id,
+        recommended=ActionOption(
+            label="Sitzung schließen",
+            args={"reason": reason_text, "close_session": True},
+        ),
+        alternatives=[
+            ActionOption(
+                label="Stopp annehmen, Sitzung offen lassen",
+                args={"reason": reason_text, "close_session": False},
+            ),
+        ],
+        reasoning="Manueller Vorschlag: Recherche abgeschlossen?",
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    )
+    return landed.__dict__
+
+
 class DecideRequest(BaseModel):
     proposal_node_id: str
     accepted: Literal["recommended", "alt", "override"]
@@ -589,6 +733,132 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     ),
                 )
             )
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "evaluate":
+        anchor_sr_id = proposal.payload["anchor_node_id"]
+        rec_args = proposal.payload["recommended"]["args"]
+        if body.accepted == "recommended":
+            args = rec_args
+        elif body.accepted == "alt":
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            args = alts[idx]["args"]
+        else:  # override
+            if not body.override:
+                raise HTTPException(status_code=400, detail="override requires 'override' text")
+            args = {
+                "verdict": "manual",
+                "confidence": 1.0,
+                "reasoning": body.override,
+                "against_claim_id": rec_args.get("against_claim_id"),
+            }
+        eval_actor = "human" if body.accepted == "override" else proposal.actor
+        eval_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="evaluation",
+                payload={
+                    "verdict": args["verdict"],
+                    "confidence": args["confidence"],
+                    "reasoning": args["reasoning"],
+                    "against_claim_id": args["against_claim_id"],
+                    "search_result_node_id": anchor_sr_id,
+                },
+                actor=eval_actor,
+            ),
+        )
+        spawned_nodes.append(eval_node)
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=eval_node.node_id,
+                    to_node=anchor_sr_id,
+                    kind="evaluates",
+                    reason=None,
+                    actor=eval_actor,
+                ),
+            )
+        )
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=decision_landed.node_id,
+                    to_node=eval_node.node_id,
+                    kind="triggers",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "propose_stop":
+        anchor_id = proposal.payload["anchor_node_id"]
+        if body.accepted == "recommended":
+            args = proposal.payload["recommended"]["args"]
+        elif body.accepted == "alt":
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            args = alts[idx]["args"]
+        else:  # override
+            if not body.override:
+                raise HTTPException(status_code=400, detail="override requires 'override' text")
+            args = {"reason": body.override, "close_session": True}
+        stop_actor = "human" if body.accepted == "override" else proposal.actor
+        stop_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="stop_proposal",
+                payload={
+                    "reason": args["reason"],
+                    "close_session": args["close_session"],
+                    "anchor_node_id": anchor_id,
+                },
+                actor=stop_actor,
+            ),
+        )
+        spawned_nodes.append(stop_node)
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=decision_landed.node_id,
+                    to_node=stop_node.node_id,
+                    kind="triggers",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        if args["close_session"]:
+            meta = read_meta(sd)
+            if meta is not None:
+                write_meta(sd, SessionMeta(**{**meta.__dict__, "status": "closed"}))
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
