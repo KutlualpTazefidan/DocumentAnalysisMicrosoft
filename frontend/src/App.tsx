@@ -5,6 +5,7 @@ import { CuratorShell } from "./shell/CuratorShell";
 import { Inbox } from "./admin/routes/inbox";
 import { Extract } from "./admin/routes/extract";
 import { Synthesise } from "./admin/routes/Synthesise";
+import { Comparison } from "./admin/routes/Comparison";
 import { DocCurators } from "./admin/routes/DocCurators";
 import { Curators } from "./admin/routes/Curators";
 import { CuratorActivity } from "./admin/routes/CuratorActivity";
@@ -27,6 +28,7 @@ export function App() {
           <Route path="doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
           <Route path="doc/:slug/extract" element={<Extract />} />
           <Route path="doc/:slug/synthesise" element={<Synthesise />} />
+          <Route path="doc/:slug/compare" element={<Comparison />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
           <Route path="curators" element={<Curators />} />
           <Route path="curators/:id/activity" element={<CuratorActivity />} />

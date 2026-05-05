@@ -52,6 +52,88 @@ from local_pdf.workers.base import (
     now_ms,
 )
 
+
+def stop_local_vllm_if_running(grace_seconds: float = 5.0) -> bool:
+    """Gently stop the local vllm-server subprocess if any is running.
+
+    Used as a pre-step on every code path that loads MinerU's VLM
+    (MineruWorker.__enter__, vlm_segment_doc, vlm_extract_bbox) — they
+    all fight vLLM for the same VRAM. Best-effort: never raises;
+    returns True if a stop was actually issued, False otherwise.
+
+    Logs at INFO level so the backend stderr shows what happened.
+    """
+    import logging as _logging
+
+    log = _logging.getLogger(__name__)
+    try:
+        from local_pdf.llm_server import process as _llm_process_mod
+    except Exception:
+        log.exception("stop_local_vllm_if_running: import failed")
+        return False
+    inst = _llm_process_mod._INSTANCE
+    if inst is None:
+        log.info("stop_local_vllm_if_running: no vllm singleton")
+        return False
+    proc = inst._proc
+    if proc is None or proc.poll() is not None:
+        log.info("stop_local_vllm_if_running: singleton present but proc dead")
+        return False
+    vram_before = _vram_used_mb()
+    pid = proc.pid
+    log.info(
+        "stop_local_vllm_if_running: stopping vllm pid=%s (vram before=%d MiB)",
+        pid,
+        vram_before,
+    )
+    try:
+        inst.stop(grace_seconds=grace_seconds)
+    except Exception:
+        log.exception("stop_local_vllm_if_running: stop() raised")
+        return True
+    vram_after = _vram_used_mb()
+    log.info(
+        "stop_local_vllm_if_running: vllm stopped (vram after=%d MiB, freed=%d MiB)",
+        vram_after,
+        max(0, vram_before - vram_after),
+    )
+    return True
+
+
+def free_cached_models() -> int:
+    """Drop MinerU's process-wide cached models + clear CUDA cache.
+
+    The MinerU VLM ``ModelSingleton`` keeps the predictor alive for the
+    lifetime of the backend process so per-doc re-extracts don't pay
+    the cold-load cost. That's normally what we want, but when the
+    user spins up the local vLLM via the Synthesise panel the cached
+    pipeline models are competing for VRAM with the new server.
+
+    Calling this releases the predictor + runs ``gc.collect()`` and
+    ``torch.cuda.empty_cache()``. Subsequent extract calls will reload
+    on demand (a few seconds + a VRAM hit).
+
+    Returns the freed VRAM in MiB (best-effort; 0 if torch is missing
+    or NVML is unavailable).
+    """
+    before = _vram_used_mb()
+    try:
+        from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
+
+        shutdown_cached_models()
+    except ImportError:
+        pass
+    gc.collect()
+    try:
+        torch = _import_torch()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+    after = _vram_used_mb()
+    return max(0, before - after)
+
+
 # Default VLM model: ~1.2B-parameter Qwen2-VL fine-tune for document parsing.
 # ~3 GB VRAM in fp16.  First run downloads from HuggingFace (~3 GB cache).
 _DEFAULT_VLM_MODEL = "opendatalab/MinerU2.5-Pro-2604-1.2B"
@@ -1550,6 +1632,13 @@ class MineruWorker:
             # Injected test path — skip real model load.
             return self
 
+        # Free any user-managed vLLM subprocess BEFORE MinerU's VLM
+        # loads — they fight for the same VRAM. A gentle SIGTERM here
+        # means the user doesn't have to manually click "Stop vLLM"
+        # before every "Diese Seite extrahieren". No auto-restart;
+        # if the user wants the LLM back, they re-click Start.
+        stop_local_vllm_if_running()
+
         before = _vram_used_mb()
         t0 = time.monotonic()
         try:
@@ -2074,6 +2163,11 @@ def vlm_extract_bbox(
     Returns the final HTML fragment with ``data-source-box`` attribute.
     Returns "" when no content was found in the crop.
     """
+    # Free vLLM before loading MinerU's VLM — kind-change re-extract
+    # path bypasses MineruWorker, so the hook lives here too.
+    if parse_doc_fn is None and predictor is None:
+        stop_local_vllm_if_running()
+
     if visual_hint:
         try:
             crop_bytes = _crop_pdf_with_visual_hint(
@@ -2402,6 +2496,12 @@ def vlm_segment_doc(
     """
     scale = raster_dpi / 72.0
     worker_name = MineruWorker.name
+
+    # ── Free vLLM (if running) before loading MinerU ──────────────────────────
+    # Same hook MineruWorker.__enter__ uses; vlm_segment_doc bypasses
+    # the worker class so we re-apply the cleanup here.
+    if parse_doc_fn is None:
+        stop_local_vllm_if_running()
 
     # ── Model load ────────────────────────────────────────────────────────────
     yield ModelLoadingEvent(

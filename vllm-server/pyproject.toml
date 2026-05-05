@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vllm-server"
+version = "0.1.0"
+description = "Standalone vLLM launcher for the synthetic-question-generation pipeline."
+requires-python = ">=3.10"
+dependencies = [
+    # vLLM ≥ 0.6 has stable OpenAI-compatible /v1/* endpoints. Pin a
+    # conservative lower bound; CI / per-host installs pick the latest.
+    "vllm>=0.6,<1.0",
+    # tomllib is stdlib on Python 3.11+; for 3.10 fallback we'd need
+    # tomli, but our requires-python guarantees ≥ 3.10 and the start
+    # script uses bash + python -c (which uses the venv's interpreter).
+]
+
+[tool.setuptools]
+# No package — this project is just a launcher script + config.
+py-modules = []

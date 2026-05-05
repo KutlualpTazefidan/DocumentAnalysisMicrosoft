@@ -1,0 +1,9 @@
+# Captured stdout / stderr + PID files.
+logs/
+
+# venv created locally (we don't ship it).
+.venv/
+
+# Python build artifacts.
+__pycache__/
+*.egg-info/

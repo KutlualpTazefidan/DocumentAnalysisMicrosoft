@@ -319,6 +319,70 @@ def _load_boxes_or_404(data_root, slug: str) -> list[SegmentBox]:
     return list(seg.boxes)
 
 
+_OUTER_TAG_RE = __import__("re").compile(
+    r"^\s*<(?P<tag>[a-zA-Z][\w-]*)(?P<attrs>[^>]*)>(?P<inner>.*)</(?P=tag)>\s*$",
+    __import__("re").DOTALL,
+)
+_DATA_ATTR_RE = __import__("re").compile(r'(data-[\w-]+)="([^"]*)"')
+
+# Map kind → (open_tag, close_tag, extra_attr) for text-like kinds
+# whose outer tag is purely presentational. Visual kinds (table/figure)
+# and auxiliary/discard are left as-is — their snippets are structural
+# HTML that can't be rewrapped without losing meaning.
+#
+# Captions render as `<p class="caption">` to match the segment-time
+# convention (table caption rescue, figure caption pairing).
+_KIND_TO_OUTER_TAG: dict[BoxKind, tuple[str, str, str]] = {
+    BoxKind.heading: ("h2", "h2", ""),
+    BoxKind.paragraph: ("p", "p", ""),
+    BoxKind.list_item: ("li", "li", ""),
+    BoxKind.caption: ("p", "p", 'class="caption"'),
+    BoxKind.formula: ("pre", "pre", ""),
+}
+
+
+def _rewrap_outer_tag(snippet: str, kind: BoxKind, box_id: str) -> str:
+    """Rewrite the outermost tag of *snippet* to match *kind*.
+
+    Picks the kind-appropriate tag (h2, p, li, figcaption, pre) and
+    transplants the snippet's data-* attrs (data-source-box, data-x,
+    data-y, data-y1) onto the new tag. Inner HTML is preserved
+    verbatim — only the outermost wrapper changes.
+
+    Returns the snippet unchanged when:
+      - the kind has no presentational outer-tag mapping (table,
+        figure, auxiliary, discard); or
+      - the snippet doesn't match the simple <tag …>…</tag> shape.
+
+    Why this exists: when the user changes a box's kind in the Extract
+    pane, the VLM re-extract may fail / be unavailable, or may return
+    HTML wrapped in the same tag as before. Either way the visible
+    style would not follow the kind change. Rewrapping at render time
+    makes the kind authoritative for presentation.
+    """
+    tags = _KIND_TO_OUTER_TAG.get(kind)
+    if tags is None:
+        return snippet
+    m = _OUTER_TAG_RE.match(snippet)
+    if m is None:
+        return snippet
+    inner = m.group("inner")
+    attrs = m.group("attrs") or ""
+    # Preserve only the data-* attrs (positional + source-box). Drop
+    # whatever class/style the previous tag carried — the new kind's
+    # default styling should win.
+    data_attrs = " ".join(f'{k}="{v}"' for k, v in _DATA_ATTR_RE.findall(attrs))
+    if "data-source-box" not in data_attrs:
+        data_attrs = (f'data-source-box="{box_id}" ' + data_attrs).strip()
+    open_tag, close_tag, extra_attr = tags
+    head_attrs = " ".join(a for a in (extra_attr, data_attrs) if a)
+    if kind == BoxKind.formula and "<code" not in inner:
+        # Formulas were originally <pre …><code>…</code></pre>. Mirror
+        # that nesting so KaTeX / monospace styling still applies.
+        inner = f"<code>{inner}</code>"
+    return f"<{open_tag} {head_attrs}>{inner}</{close_tag}>"
+
+
 def _render_active_html(
     elements: list[dict],
     boxes: list[SegmentBox],
@@ -428,6 +492,12 @@ def _re_extract_box(
                 },
             )
 
+        # On kind change, force the outer tag to match the new kind even
+        # when VLM keeps the same wrapping (or fails). Without this the
+        # rendered style would not change, defeating the kind switch.
+        if old_kind is not None and new_html:
+            new_html = _rewrap_outer_tag(new_html, box.kind, box.box_id)
+
         # Replace / insert this element. If VLM returned nothing usable,
         # keep the previous snippet — losing the old html on a no-op
         # re-extract makes the box "vanish" from the rendered page.
@@ -449,6 +519,16 @@ def _re_extract_box(
                     break
             if not found:
                 elements.append(new_entry)
+        elif old_kind is not None:
+            # VLM returned empty on a kind change → rewrap the EXISTING
+            # snippet so the style still follows the new kind.
+            for i, el in enumerate(elements):
+                if el.get("box_id") == box.box_id:
+                    existing = el.get("html_snippet", "")
+                    if existing:
+                        rewrapped = _rewrap_outer_tag(existing, box.kind, box.box_id)
+                        elements[i] = {**el, "html_snippet": rewrapped}
+                    break
 
         if old_kind is not None:
             # Strip HTML tags for the text preview.

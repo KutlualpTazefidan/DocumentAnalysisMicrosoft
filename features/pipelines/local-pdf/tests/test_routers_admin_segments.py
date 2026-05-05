@@ -1990,16 +1990,21 @@ def test_vlm_segment_kind_change_preserves_position_metadata(
 def test_vlm_segment_kind_change_keeps_old_snippet_when_vlm_empty(
     client_vlm_segment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If the VLM re-extract returns empty, the OLD snippet must stay so
-    the box doesn't vanish from html.html."""
+    """When VLM re-extract returns empty on a kind change:
+
+    - the inner content (text + positional data-* attrs) is preserved
+      so the box doesn't vanish from html.html
+    - the OUTER tag is rewrapped to match the new kind, so the change
+      is reflected in the rendered style even without a fresh VLM call
+    """
     _run_segment_vlm(client_vlm_segment, "doc")
 
-    # Capture the original snippet for p1-b0.
     mineru0 = client_vlm_segment.get(
         "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
     ).json()
     original = next(e["html_snippet"] for e in mineru0["elements"] if e["box_id"] == "p1-b0")
-    assert original  # sanity
+    assert original  # sanity — should be a heading <h2>
+    assert original.startswith("<h2")
 
     import local_pdf.api.routers.admin.segments as seg_mod
 
@@ -2016,7 +2021,11 @@ def test_vlm_segment_kind_change_keeps_old_snippet_when_vlm_empty(
         "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
     ).json()
     snippet = next(e["html_snippet"] for e in mineru1["elements"] if e["box_id"] == "p1-b0")
-    assert snippet == original
+    # Outer tag now matches the new kind; inner text + data-* attrs preserved.
+    assert snippet.startswith("<p ")
+    assert snippet.endswith("</p>")
+    assert "Document Title" in snippet
+    assert 'data-source-box="p1-b0"' in snippet
 
 
 def _fake_middle_json_with_side_by_side_paragraphs() -> dict:
