@@ -12,6 +12,12 @@ from pathlib import Path  # noqa: TC003
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from local_pdf.provenienz.llm import (
+    ActionOption,
+    ActionProposalPayload,
+    build_proposal_node,
+    resolve_provider,
+)
 from local_pdf.provenienz.storage import (
     Node,
     SessionMeta,
@@ -150,3 +156,65 @@ async def delete_session(session_id: str, request: Request) -> None:
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     shutil.rmtree(sd)
+
+
+def _llm_extract_claims(chunk_text: str, provider: str) -> list[str]:
+    """Real LLM call — wired in Stage 5.5. v1 is a sentence-split heuristic
+    so the route is testable without spinning up vLLM or Azure.
+
+    Tests monkey-patch this symbol on the module.
+    """
+    sentences = [s.strip() for s in chunk_text.split(".") if len(s.strip()) > 8]
+    return sentences[:5]
+
+
+class ExtractClaimsRequest(BaseModel):
+    chunk_node_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/extract-claims",
+    status_code=201,
+)
+async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _ = read_session(sd)
+    chunk = next((n for n in nodes if n.node_id == body.chunk_node_id), None)
+    if chunk is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"chunk node not found: {body.chunk_node_id}",
+        )
+    if chunk.kind != "chunk":
+        raise HTTPException(
+            status_code=400,
+            detail=f"anchor must be a chunk node, got kind={chunk.kind}",
+        )
+
+    actor = resolve_provider(body.provider)
+    claims = _llm_extract_claims(chunk.payload.get("text", ""), body.provider or "vllm")
+
+    payload = ActionProposalPayload(
+        step_kind="extract_claims",
+        anchor_node_id=body.chunk_node_id,
+        recommended=ActionOption(
+            label=f"Akzeptiere {len(claims)} Aussage(n)",
+            args={"claims": claims},
+        ),
+        alternatives=[
+            ActionOption(
+                label="Überspringen — keine prüfbaren Aussagen",
+                args={"claims": []},
+            )
+        ],
+        reasoning="Heuristik v0: Sätze ≥ 8 Zeichen aus dem Chunk-Text.",
+        guidance_consulted=[],
+    )
+    node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    landed = append_node(sd, node)
+    return landed.__dict__
