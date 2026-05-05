@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003
 from typing import Any, Final, Literal
@@ -52,6 +52,7 @@ class SessionMeta:
     status: Literal["open", "closed"]
     created_at: str = ""
     last_touched_at: str = ""
+    pinned_approach_ids: list[str] = field(default_factory=list)
 
 
 def _now() -> str:
@@ -115,7 +116,9 @@ def read_meta(session_dir: Path) -> SessionMeta | None:
     p = _meta_path(session_dir)
     if not p.exists():
         return None
-    return SessionMeta(**json.loads(p.read_text()))
+    raw = json.loads(p.read_text())
+    raw.setdefault("pinned_approach_ids", [])
+    return SessionMeta(**raw)
 
 
 _ALPHABET: Final = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32

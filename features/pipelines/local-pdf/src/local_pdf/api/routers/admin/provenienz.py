@@ -17,6 +17,7 @@ from llm_clients.base import Message
 from pydantic import BaseModel
 
 from local_pdf.llm import get_default_model, get_llm_client
+from local_pdf.provenienz.approaches import get_approach
 from local_pdf.provenienz.llm import (
     ActionOption,
     ActionProposalPayload,
@@ -74,6 +75,7 @@ class SessionMetaResponse(BaseModel):
     status: str
     created_at: str
     last_touched_at: str
+    pinned_approach_ids: list[str] = []
 
 
 def _meta_to_response(m: SessionMeta) -> SessionMetaResponse:
@@ -170,6 +172,46 @@ async def delete_session(session_id: str, request: Request) -> None:
     shutil.rmtree(sd)
 
 
+class PinApproachRequest(BaseModel):
+    approach_id: str
+
+
+@router.post("/api/admin/provenienz/sessions/{session_id}/pin-approach")
+async def pin_approach(session_id: str, body: PinApproachRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    pinned = list(meta.pinned_approach_ids)
+    if body.approach_id not in pinned:
+        pinned.append(body.approach_id)
+    new_meta = SessionMeta(**{**meta.__dict__, "pinned_approach_ids": pinned})
+    write_meta(sd, new_meta)
+    written = read_meta(sd)
+    assert written is not None
+    return {"meta": _meta_to_response(written).model_dump()}
+
+
+@router.post("/api/admin/provenienz/sessions/{session_id}/unpin-approach")
+async def unpin_approach(session_id: str, body: PinApproachRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    pinned = [a for a in meta.pinned_approach_ids if a != body.approach_id]
+    new_meta = SessionMeta(**{**meta.__dict__, "pinned_approach_ids": pinned})
+    write_meta(sd, new_meta)
+    written = read_meta(sd)
+    assert written is not None
+    return {"meta": _meta_to_response(written).model_dump()}
+
+
 def _strip_json_fence(s: str) -> str:
     """Strip ```json ... ``` or ``` ... ``` fences if present."""
     s = s.strip()
@@ -217,6 +259,47 @@ def _gather_reason_guidance(
         for r in reasons
     ]
     return block, refs
+
+
+def _gather_guidance(
+    data_root: Path, meta: SessionMeta, step_kind: str
+) -> tuple[str, list[GuidanceRef]]:
+    """Combine pinned approaches (explicit) with the reason corpus
+    (implicit). Approaches come first as named overlays; reasons come
+    after as "lessons learned" examples.
+
+    Approaches are filtered to those that are enabled and have
+    *step_kind* in their step_kinds list. Disabled or non-matching
+    pinned approaches are silently skipped.
+    """
+    blocks: list[str] = []
+    refs: list[GuidanceRef] = []
+
+    if meta.pinned_approach_ids:
+        approach_block_lines: list[str] = []
+        for app_id in meta.pinned_approach_ids:
+            a = get_approach(data_root, app_id)
+            if a is None or not a.enabled:
+                continue
+            if step_kind not in a.step_kinds:
+                continue
+            approach_block_lines.append(f"## Vorgehen: {a.name}\n{a.extra_system}")
+            refs.append(
+                GuidanceRef(
+                    kind="approach",
+                    id=a.approach_id,
+                    summary=a.name[:80],
+                )
+            )
+        if approach_block_lines:
+            blocks.append("\n\n" + "\n\n".join(approach_block_lines))
+
+    reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind)
+    if reason_block:
+        blocks.append(reason_block)
+        refs.extend(reason_refs)
+
+    return ("".join(blocks), refs)
 
 
 def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "") -> list[str]:
@@ -268,6 +351,9 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
     nodes, _ = read_session(sd)
     chunk = next((n for n in nodes if n.node_id == body.chunk_node_id), None)
@@ -283,7 +369,7 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "extract_claims")
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "extract_claims")
     claims = _llm_extract_claims(
         chunk.payload.get("text", ""),
         body.provider or "vllm",
@@ -357,6 +443,9 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
     nodes, _ = read_session(sd)
     claim = next((n for n in nodes if n.node_id == body.claim_node_id), None)
@@ -366,7 +455,7 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         raise HTTPException(status_code=400, detail=f"anchor must be claim, got kind={claim.kind}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "formulate_task")
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "formulate_task")
     query = _llm_formulate_task(
         claim.payload.get("text", ""),
         body.provider or "vllm",
@@ -524,6 +613,9 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
     nodes, _ = read_session(sd)
     sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
@@ -548,7 +640,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "evaluate")
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "evaluate")
     verdict_payload = _llm_evaluate(
         claim.payload.get("text", ""),
         sr.payload.get("text", ""),
@@ -635,6 +727,9 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
     nodes, _ = read_session(sd)
     anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
@@ -642,7 +737,7 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "propose_stop")
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "propose_stop")
     reason_text = _llm_propose_stop(
         anchor.payload.get("text", ""),
         body.provider or "vllm",
