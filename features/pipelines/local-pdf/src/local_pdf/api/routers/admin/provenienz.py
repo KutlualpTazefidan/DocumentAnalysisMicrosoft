@@ -5,14 +5,18 @@ Step + decision routes land in later stages.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 import shutil
 from pathlib import Path  # noqa: TC003
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from llm_clients.base import Message
 from pydantic import BaseModel
 
+from local_pdf.llm import get_default_model, get_llm_client
 from local_pdf.provenienz.llm import (
     ActionOption,
     ActionProposalPayload,
@@ -33,6 +37,8 @@ from local_pdf.provenienz.storage import (
     write_meta,
 )
 from local_pdf.storage.sidecar import doc_dir, read_mineru
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -162,14 +168,52 @@ async def delete_session(session_id: str, request: Request) -> None:
     shutil.rmtree(sd)
 
 
-def _llm_extract_claims(chunk_text: str, provider: str) -> list[str]:
-    """Real LLM call — wired in Stage 5.5. v1 is a sentence-split heuristic
-    so the route is testable without spinning up vLLM or Azure.
+def _strip_json_fence(s: str) -> str:
+    """Strip ```json ... ``` or ``` ... ``` fences if present."""
+    s = s.strip()
+    if s.startswith("```"):
+        # remove leading fence (```json or ```)
+        first_newline = s.find("\n")
+        s = s[first_newline + 1 :] if first_newline != -1 else s[3:]
+        if s.endswith("```"):
+            s = s[:-3]
+    return s.strip()
 
-    Tests monkey-patch this symbol on the module.
+
+_EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradicts"}
+
+
+def _llm_extract_claims(chunk_text: str, provider: str) -> list[str]:
+    """Extract verifiable claims from a chunk via the configured LLM.
+
+    The ``provider`` arg is plumbed-through but unused today — per-step
+    provider routing lands in Stage 6 with the reason corpus. Tests
+    monkey-patch this symbol on the module.
     """
-    sentences = [s.strip() for s in chunk_text.split(".") if len(s.strip()) > 8]
-    return sentences[:5]
+    del provider  # reserved for Stage 6 routing
+    system = (
+        "Du extrahierst überprüfbare Aussagen aus einem Textabschnitt. Eine Aussage "
+        "ist eine spezifische, faktische Behauptung — Zahl, Datum, Eigenschaft, "
+        "Beziehung. Antworte ausschließlich als JSON-Array von Strings, ohne Vor- "
+        "oder Nachtext. Keine Aufzählungen, keine Markdown-Codeblöcke."
+    )
+    user = f"Textabschnitt:\n{chunk_text}\n\nGib das JSON-Array der Aussagen zurück."
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"_llm_extract_claims: could not parse LLM response: {raw[:500]}"
+        ) from exc
+    if not isinstance(parsed, list) or not all(isinstance(c, str) and c.strip() for c in parsed):
+        raise RuntimeError(f"_llm_extract_claims: could not parse LLM response: {raw[:500]}")
+    return [c.strip() for c in parsed]
 
 
 class ExtractClaimsRequest(BaseModel):
@@ -225,11 +269,33 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
 
 
 def _llm_formulate_task(claim_text: str, provider: str) -> str:
-    """Real LLM call lands in Stage 5.5. v1 stub: pass-through, trimmed.
+    """Build a short search query for the claim via the configured LLM.
 
-    Tests monkey-patch this symbol on the module.
+    The ``provider`` arg is plumbed-through but unused today. Tests
+    monkey-patch this symbol on the module.
     """
-    return (claim_text or "").strip()[:200]
+    del provider  # reserved for Stage 6 routing
+    system = (
+        "Du formulierst eine knappe Suchanfrage (max. 12 Wörter, deutsch oder "
+        "englisch je nach Claim-Sprache), mit der die Quelle einer Aussage in "
+        "einem Korpus gefunden werden kann. Antworte ausschließlich mit der "
+        "Suchanfrage selbst — keine Anführungszeichen, keine Erklärung, kein "
+        "Zeilenumbruch davor oder danach."
+    )
+    user = f"Aussage: {claim_text}\nSuchanfrage:"
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = (completion.text or "").strip()
+    # strip outer matching single/double quotes if present
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+        raw = raw[1:-1].strip()
+    raw = raw[:200]
+    if not raw:
+        raise RuntimeError("_llm_formulate_task: empty response from LLM")
+    return raw
 
 
 class FormulateTaskRequest(BaseModel):
@@ -338,13 +404,51 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
 
 
 def _llm_evaluate(claim_text: str, candidate_chunk_text: str, provider: str) -> dict:
-    """Real LLM call lands in Stage 5.5. v1 stub returns an unknown
-    verdict so the route + decide dispatch are testable without a
-    running model.
+    """Ask the LLM whether a candidate chunk is the source of a claim.
 
-    Tests monkey-patch this symbol on the module.
+    Returns a dict with ``verdict`` (constrained set), ``confidence``
+    (float 0..1) and ``reasoning`` (short German sentence). The
+    ``provider`` arg is plumbed-through but unused today. Tests
+    monkey-patch this symbol on the module.
     """
-    return {"verdict": "unknown", "confidence": 0.5, "reasoning": "stub: no LLM"}
+    del provider  # reserved for Stage 6 routing
+    system = (
+        "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer Aussage "
+        "ist. Antworte ausschließlich als JSON-Objekt mit den Feldern verdict "
+        "(eines von: 'likely-source', 'partial-support', 'unrelated', "
+        "'contradicts'), confidence (Zahl 0.0-1.0) und reasoning (kurzer "
+        "deutscher Satz). Kein Vor- oder Nachtext, keine Codeblöcke."
+    )
+    user = f"Aussage:\n{claim_text}\n\nKandidat:\n{candidate_chunk_text}\n\nJSON:"
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}")
+    verdict = parsed.get("verdict")
+    confidence = parsed.get("confidence")
+    reasoning = parsed.get("reasoning")
+    if (
+        not isinstance(verdict, str)
+        or verdict not in _EVALUATE_VERDICTS
+        or not isinstance(confidence, (int, float))
+        or not (0.0 <= float(confidence) <= 1.0)
+        or not isinstance(reasoning, str)
+    ):
+        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}")
+    return {
+        "verdict": verdict,
+        "confidence": float(confidence),
+        "reasoning": reasoning,
+    }
 
 
 class EvaluateStepRequest(BaseModel):
@@ -428,13 +532,31 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
 
 
 def _llm_propose_stop(anchor_text: str, provider: str) -> str:
-    """Real LLM call lands in Stage 5.5. v1 stub returns a fixed
-    reasoning text so the route + decide dispatch are testable
-    without a running model.
+    """Generate a short German sentence justifying a stop on the current node.
 
-    Tests monkey-patch this symbol on the module.
+    The ``provider`` arg is plumbed-through but unused today. Tests
+    monkey-patch this symbol on the module.
     """
-    return "Quelle gefunden"
+    del provider  # reserved for Stage 6 routing
+    system = (
+        "Du formulierst einen kurzen deutschen Satz (max. 25 Wörter), warum "
+        "die Recherche zu einer Aussage abgeschlossen werden kann (Quelle "
+        "gefunden, mehrfach bestätigt, oder Sackgasse). Antworte ausschließlich "
+        "mit dem Satz selbst, ohne Anführungszeichen oder Markdown."
+    )
+    user = f"Aktueller Knoten: {anchor_text}\nBegründung für Stopp:"
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = (completion.text or "").strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
+        raw = raw[1:-1].strip()
+    raw = raw[:300]
+    if not raw:
+        raise RuntimeError("_llm_propose_stop: empty response from LLM")
+    return raw
 
 
 class ProposeStopRequest(BaseModel):
