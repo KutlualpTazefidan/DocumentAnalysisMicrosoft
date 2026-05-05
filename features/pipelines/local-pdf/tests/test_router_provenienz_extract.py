@@ -15,7 +15,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(
         router_mod,
         "_llm_extract_claims",
-        lambda chunk_text, provider: [
+        lambda chunk_text, provider, **_: [
             "Gesamtwärmeleistung beträgt 5.6 kW",
             "Die Baugruppe ist X",
         ],

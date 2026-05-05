@@ -84,3 +84,20 @@ def test_evaluate_rejects_unknown_verdict(monkeypatch):
 def test_propose_stop_returns_trimmed_sentence(monkeypatch):
     _patch(monkeypatch, "  Quelle in Tabelle 4 bestätigt.  ")
     assert router_mod._llm_propose_stop("anchor", "vllm") == "Quelle in Tabelle 4 bestätigt."
+
+
+def test_extra_system_default_does_not_alter_system_prompt(monkeypatch):
+    """Calling the helpers without extra_system keeps the existing system
+    prompt untouched — i.e. the new keyword-only arg has a true no-op default.
+    """
+    fake = _patch(monkeypatch, '["A"]')
+    router_mod._llm_extract_claims("chunk", "vllm")
+    sys_msg = next(m for m in fake.last_messages if m.role == "system").content
+    assert "Frühere Korrekturen" not in sys_msg
+
+
+def test_extra_system_appends_block_to_system_prompt(monkeypatch):
+    fake = _patch(monkeypatch, '["A"]')
+    router_mod._llm_extract_claims("chunk", "vllm", extra_system="\n\nZUSATZ: bitte beachten.")
+    sys_msg = next(m for m in fake.last_messages if m.role == "system").content
+    assert sys_msg.endswith("ZUSATZ: bitte beachten.")

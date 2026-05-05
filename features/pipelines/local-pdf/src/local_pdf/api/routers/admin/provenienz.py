@@ -20,10 +20,11 @@ from local_pdf.llm import get_default_model, get_llm_client
 from local_pdf.provenienz.llm import (
     ActionOption,
     ActionProposalPayload,
+    GuidanceRef,
     build_proposal_node,
     resolve_provider,
 )
-from local_pdf.provenienz.reasons import Reason, append_reason
+from local_pdf.provenienz.reasons import Reason, append_reason, read_reasons
 from local_pdf.provenienz.searcher import InDocSearcher
 from local_pdf.provenienz.storage import (
     Edge,
@@ -184,7 +185,41 @@ def _strip_json_fence(s: str) -> str:
 _EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradicts"}
 
 
-def _llm_extract_claims(chunk_text: str, provider: str) -> list[str]:
+def _format_reason_examples(reasons: list[Reason]) -> str:
+    """Render a list of past overrides as a German-language in-context
+    examples block. Empty list → empty string (no block at all)."""
+    if not reasons:
+        return ""
+    lines = ["", "## Frühere Korrekturen durch den Nutzer"]
+    for r in reasons:
+        lines.append(
+            f"- Empfehlung: {r.proposal_summary}\n"
+            f"  Korrektur:  {r.override_summary}\n"
+            f"  Grund:      {r.reason_text}"
+        )
+    lines.append("Berücksichtige diese Korrekturen, wenn sie auf die aktuelle Aufgabe zutreffen.")
+    return "\n".join(lines)
+
+
+def _gather_reason_guidance(
+    data_root: Path, step_kind: str, last_n: int = 5
+) -> tuple[str, list[GuidanceRef]]:
+    """Fetch up to *last_n* reasons matching *step_kind* and return
+    ``(extra_system_block, guidance_refs)``."""
+    reasons = read_reasons(data_root, step_kind=step_kind, last_n=last_n)
+    block = _format_reason_examples(reasons)
+    refs = [
+        GuidanceRef(
+            kind="reason",
+            id=r.reason_id,
+            summary=(r.reason_text or "")[:80],
+        )
+        for r in reasons
+    ]
+    return block, refs
+
+
+def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "") -> list[str]:
     """Extract verifiable claims from a chunk via the configured LLM.
 
     The ``provider`` arg is plumbed-through but unused today — per-step
@@ -198,6 +233,8 @@ def _llm_extract_claims(chunk_text: str, provider: str) -> list[str]:
         "Beziehung. Antworte ausschließlich als JSON-Array von Strings, ohne Vor- "
         "oder Nachtext. Keine Aufzählungen, keine Markdown-Codeblöcke."
     )
+    if extra_system:
+        system = system + extra_system
     user = f"Textabschnitt:\n{chunk_text}\n\nGib das JSON-Array der Aussagen zurück."
     client = get_llm_client()
     completion = client.complete(
@@ -246,7 +283,12 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         )
 
     actor = resolve_provider(body.provider)
-    claims = _llm_extract_claims(chunk.payload.get("text", ""), body.provider or "vllm")
+    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "extract_claims")
+    claims = _llm_extract_claims(
+        chunk.payload.get("text", ""),
+        body.provider or "vllm",
+        extra_system=extra_system,
+    )
 
     payload = ActionProposalPayload(
         step_kind="extract_claims",
@@ -262,14 +304,14 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
             )
         ],
         reasoning="Heuristik v0: Sätze ≥ 8 Zeichen aus dem Chunk-Text.",
-        guidance_consulted=[],
+        guidance_consulted=guidance_refs,
     )
     node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
     landed = append_node(sd, node)
     return landed.__dict__
 
 
-def _llm_formulate_task(claim_text: str, provider: str) -> str:
+def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "") -> str:
     """Build a short search query for the claim via the configured LLM.
 
     The ``provider`` arg is plumbed-through but unused today. Tests
@@ -283,6 +325,8 @@ def _llm_formulate_task(claim_text: str, provider: str) -> str:
         "Suchanfrage selbst — keine Anführungszeichen, keine Erklärung, kein "
         "Zeilenumbruch davor oder danach."
     )
+    if extra_system:
+        system = system + extra_system
     user = f"Aussage: {claim_text}\nSuchanfrage:"
     client = get_llm_client()
     completion = client.complete(
@@ -322,7 +366,12 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         raise HTTPException(status_code=400, detail=f"anchor must be claim, got kind={claim.kind}")
 
     actor = resolve_provider(body.provider)
-    query = _llm_formulate_task(claim.payload.get("text", ""), body.provider or "vllm")
+    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "formulate_task")
+    query = _llm_formulate_task(
+        claim.payload.get("text", ""),
+        body.provider or "vllm",
+        extra_system=extra_system,
+    )
     payload = ActionProposalPayload(
         step_kind="formulate_task",
         anchor_node_id=body.claim_node_id,
@@ -331,7 +380,7 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
             ActionOption(label="Eigene Suchanfrage formulieren", args={"query": ""}),
         ],
         reasoning="Heuristik v0: Claim-Text als Suchanfrage.",
-        guidance_consulted=[],
+        guidance_consulted=guidance_refs,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
@@ -404,7 +453,13 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
     return landed.__dict__
 
 
-def _llm_evaluate(claim_text: str, candidate_chunk_text: str, provider: str) -> dict:
+def _llm_evaluate(
+    claim_text: str,
+    candidate_chunk_text: str,
+    provider: str,
+    *,
+    extra_system: str = "",
+) -> dict:
     """Ask the LLM whether a candidate chunk is the source of a claim.
 
     Returns a dict with ``verdict`` (constrained set), ``confidence``
@@ -420,6 +475,8 @@ def _llm_evaluate(claim_text: str, candidate_chunk_text: str, provider: str) -> 
         "'contradicts'), confidence (Zahl 0.0-1.0) und reasoning (kurzer "
         "deutscher Satz). Kein Vor- oder Nachtext, keine Codeblöcke."
     )
+    if extra_system:
+        system = system + extra_system
     user = f"Aussage:\n{claim_text}\n\nKandidat:\n{candidate_chunk_text}\n\nJSON:"
     client = get_llm_client()
     completion = client.complete(
@@ -491,10 +548,12 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         )
 
     actor = resolve_provider(body.provider)
+    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "evaluate")
     verdict_payload = _llm_evaluate(
         claim.payload.get("text", ""),
         sr.payload.get("text", ""),
         body.provider or "vllm",
+        extra_system=extra_system,
     )
     verdict = verdict_payload["verdict"]
     confidence = verdict_payload["confidence"]
@@ -524,7 +583,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
             ),
         ],
         reasoning="LLM-Bewertung Kandidat vs. Claim.",
-        guidance_consulted=[],
+        guidance_consulted=guidance_refs,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
@@ -532,7 +591,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     return landed.__dict__
 
 
-def _llm_propose_stop(anchor_text: str, provider: str) -> str:
+def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = "") -> str:
     """Generate a short German sentence justifying a stop on the current node.
 
     The ``provider`` arg is plumbed-through but unused today. Tests
@@ -545,6 +604,8 @@ def _llm_propose_stop(anchor_text: str, provider: str) -> str:
         "gefunden, mehrfach bestätigt, oder Sackgasse). Antworte ausschließlich "
         "mit dem Satz selbst, ohne Anführungszeichen oder Markdown."
     )
+    if extra_system:
+        system = system + extra_system
     user = f"Aktueller Knoten: {anchor_text}\nBegründung für Stopp:"
     client = get_llm_client()
     completion = client.complete(
@@ -581,7 +642,12 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
 
     actor = resolve_provider(body.provider)
-    reason_text = _llm_propose_stop(anchor.payload.get("text", ""), body.provider or "vllm")
+    extra_system, guidance_refs = _gather_reason_guidance(cfg.data_root, "propose_stop")
+    reason_text = _llm_propose_stop(
+        anchor.payload.get("text", ""),
+        body.provider or "vllm",
+        extra_system=extra_system,
+    )
     payload = ActionProposalPayload(
         step_kind="propose_stop",
         anchor_node_id=body.anchor_node_id,
@@ -596,7 +662,7 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
             ),
         ],
         reasoning="Manueller Vorschlag: Recherche abgeschlossen?",
-        guidance_consulted=[],
+        guidance_consulted=guidance_refs,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)

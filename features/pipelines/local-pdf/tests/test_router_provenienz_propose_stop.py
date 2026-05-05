@@ -11,8 +11,8 @@ def client(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
     monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
-    monkeypatch.setattr(router_mod, "_llm_extract_claims", lambda t, p: ["Wärmeleistung"])
-    monkeypatch.setattr(router_mod, "_llm_propose_stop", lambda txt, p: "Quelle gefunden")
+    monkeypatch.setattr(router_mod, "_llm_extract_claims", lambda t, p, **_: ["Wärmeleistung"])
+    monkeypatch.setattr(router_mod, "_llm_propose_stop", lambda txt, p, **_: "Quelle gefunden")
     from fastapi.testclient import TestClient
     from local_pdf.api.app import create_app
 
