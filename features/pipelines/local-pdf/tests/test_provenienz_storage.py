@@ -1,0 +1,66 @@
+from pathlib import Path
+
+from local_pdf.provenienz.storage import (
+    Edge,
+    Node,
+    SessionMeta,
+    append_edge,
+    append_node,
+    read_meta,
+    read_session,
+    write_meta,
+)
+
+
+def test_append_then_read_round_trips_one_node(tmp_path: Path):
+    session_dir = tmp_path / "sess1"
+    n = Node(node_id="n1", session_id="s1", kind="chunk", payload={"text": "hi"}, actor="human")
+    append_node(session_dir, n)
+    nodes, edges = read_session(session_dir)
+    assert len(nodes) == 1
+    assert nodes[0].node_id == "n1"
+    assert nodes[0].kind == "chunk"
+    assert nodes[0].payload["text"] == "hi"
+    assert edges == []
+
+
+def test_append_then_read_round_trips_edge(tmp_path: Path):
+    session_dir = tmp_path / "sess1"
+    append_node(
+        session_dir, Node(node_id="n1", session_id="s1", kind="chunk", payload={}, actor="human")
+    )
+    append_node(
+        session_dir, Node(node_id="n2", session_id="s1", kind="claim", payload={}, actor="llm:vllm")
+    )
+    append_edge(
+        session_dir,
+        Edge(
+            edge_id="e1",
+            session_id="s1",
+            from_node="n2",
+            to_node="n1",
+            kind="extracts-from",
+            reason=None,
+            actor="llm:vllm",
+        ),
+    )
+    nodes, edges = read_session(session_dir)
+    assert len(nodes) == 2
+    assert len(edges) == 1
+    assert edges[0].kind == "extracts-from"
+
+
+def test_meta_round_trip(tmp_path: Path):
+    session_dir = tmp_path / "sess1"
+    meta = SessionMeta(session_id="s1", slug="doc-a", root_chunk_id="p3-b4", status="open")
+    write_meta(session_dir, meta)
+    got = read_meta(session_dir)
+    assert got is not None
+    assert got.session_id == "s1"
+    assert got.status == "open"
+
+
+def test_read_session_returns_empty_when_dir_missing(tmp_path: Path):
+    nodes, edges = read_session(tmp_path / "does-not-exist")
+    assert nodes == []
+    assert edges == []
