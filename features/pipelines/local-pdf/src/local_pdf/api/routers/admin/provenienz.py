@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path  # noqa: TC003
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -19,8 +20,10 @@ from local_pdf.provenienz.llm import (
     resolve_provider,
 )
 from local_pdf.provenienz.storage import (
+    Edge,
     Node,
     SessionMeta,
+    append_edge,
     append_node,
     new_id,
     read_meta,
@@ -218,3 +221,141 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
     node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
     landed = append_node(sd, node)
     return landed.__dict__
+
+
+class DecideRequest(BaseModel):
+    proposal_node_id: str
+    accepted: Literal["recommended", "alt", "override"]
+    alt_index: int | None = None
+    reason: str | None = None
+    override: str | None = None
+
+
+def _resolve_claims(payload: dict, body: DecideRequest) -> list[str]:
+    """Pick the list of claim strings to spawn, based on the user's
+    decision against an extract_claims proposal."""
+    if body.accepted == "recommended":
+        return list(payload["recommended"]["args"].get("claims", []))
+    if body.accepted == "alt":
+        idx = body.alt_index or 0
+        alts = payload.get("alternatives", [])
+        if not (0 <= idx < len(alts)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"alt_index out of range: {idx}",
+            )
+        return list(alts[idx]["args"].get("claims", []))
+    if body.accepted == "override":
+        if not body.override:
+            raise HTTPException(status_code=400, detail="override requires 'override' text")
+        return [body.override]
+    # Pydantic Literal already constrains this, but keep a safety net.
+    raise HTTPException(status_code=400, detail=f"unknown accepted: {body.accepted}")
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/decide",
+    status_code=201,
+)
+async def decide(session_id: str, body: DecideRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _ = read_session(sd)
+    proposal = next((n for n in nodes if n.node_id == body.proposal_node_id), None)
+    if proposal is None:
+        raise HTTPException(
+            status_code=404, detail=f"proposal node not found: {body.proposal_node_id}"
+        )
+    if proposal.kind != "action_proposal":
+        raise HTTPException(
+            status_code=400,
+            detail=f"node is not an action_proposal (kind={proposal.kind})",
+        )
+
+    # 1. Append the decision node + decided-by edge.
+    decision = Node(
+        node_id=new_id(),
+        session_id=session_id,
+        kind="decision",
+        payload={
+            "accepted": body.accepted,
+            "alt_index": body.alt_index,
+            "reason": body.reason,
+            "override": body.override,
+        },
+        actor="human",
+    )
+    decision_landed = append_node(sd, decision)
+    spawned_edges: list[Edge] = []
+    e_decided = append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=decision_landed.node_id,
+            to_node=proposal.node_id,
+            kind="decided-by",
+            reason=None,
+            actor="human",
+        ),
+    )
+    spawned_edges.append(e_decided)
+
+    # 2. Dispatch on step_kind.
+    step_kind = proposal.payload["step_kind"]
+    spawned_nodes: list[Node] = []
+
+    if step_kind == "extract_claims":
+        anchor_chunk = proposal.payload["anchor_node_id"]
+        claim_texts = _resolve_claims(proposal.payload, body)
+        claim_actor = "human" if body.accepted == "override" else proposal.actor
+        for ct in claim_texts:
+            claim = append_node(
+                sd,
+                Node(
+                    node_id=new_id(),
+                    session_id=session_id,
+                    kind="claim",
+                    payload={"text": ct, "source_node_id": anchor_chunk},
+                    actor=claim_actor,
+                ),
+            )
+            spawned_nodes.append(claim)
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=claim.node_id,
+                        to_node=anchor_chunk,
+                        kind="extracts-from",
+                        reason=None,
+                        actor=claim_actor,
+                    ),
+                )
+            )
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=decision_landed.node_id,
+                        to_node=claim.node_id,
+                        kind="triggers",
+                        reason=None,
+                        actor="human",
+                    ),
+                )
+            )
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    raise HTTPException(status_code=501, detail=f"step_kind not yet handled: {step_kind}")
