@@ -67,15 +67,21 @@ def test_read_session_returns_empty_when_dir_missing(tmp_path: Path):
 
 
 def test_new_id_is_unique_and_lexically_sortable():
+    """Two ids generated in order: same millisecond shares the 10-char
+    time prefix (random tail breaks the tie either way), different
+    millisecond strictly increases on the prefix. Sleep across the ms
+    boundary so the assertion isn't flaky."""
+    import time
+
     from local_pdf.provenienz.storage import new_id
 
     a = new_id()
+    time.sleep(0.005)
     b = new_id()
     assert a != b
-    # ULIDs sort by time when generated in order — b should be > a
-    # (or at minimum >= a, since same-millisecond is possible).
-    assert b >= a
     assert len(a) == 26
+    # Time prefix (first 10 chars) is monotonic across ms boundaries.
+    assert b[:10] > a[:10]
 
 
 def test_session_dir_layout(tmp_path: Path):
