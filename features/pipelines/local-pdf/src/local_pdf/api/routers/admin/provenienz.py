@@ -23,6 +23,7 @@ from local_pdf.provenienz.llm import (
     build_proposal_node,
     resolve_provider,
 )
+from local_pdf.provenienz.reasons import Reason, append_reason
 from local_pdf.provenienz.searcher import InDocSearcher
 from local_pdf.provenienz.storage import (
     Edge,
@@ -611,6 +612,42 @@ class DecideRequest(BaseModel):
     override: str | None = None
 
 
+def _override_summary(body: DecideRequest) -> str:
+    """One-line override summary capped at 200 chars."""
+    s = (body.override or "").strip().replace("\n", " ")
+    return s[:200]
+
+
+def _maybe_record_reason(
+    cfg, body: DecideRequest, proposal: Node, step_kind: str, session_id: str
+) -> None:
+    """Append a Reason record if the user overrode with a non-empty reason.
+
+    Stage 6.1: implicit guidance corpus. Skipped for recommended/alt
+    paths and for overrides without a reason or override text.
+    """
+    if body.accepted != "override":
+        return
+    reason_text = (body.reason or "").strip()
+    override_text = (body.override or "").strip()
+    if not reason_text or not override_text:
+        return
+    rec_label = proposal.payload.get("recommended", {}).get("label", "")
+    append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id=new_id(),
+            step_kind=step_kind,
+            session_id=session_id,
+            proposal_id=body.proposal_node_id,
+            proposal_summary=rec_label[:200],
+            override_summary=_override_summary(body),
+            reason_text=reason_text[:200],
+            actor="human",
+        ),
+    )
+
+
 def _resolve_claims(payload: dict, body: DecideRequest) -> list[str]:
     """Pick the list of claim strings to spawn, based on the user's
     decision against an extract_claims proposal."""
@@ -732,6 +769,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     ),
                 )
             )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
@@ -794,6 +832,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 ),
             )
         )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
@@ -927,6 +966,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 ),
             )
         )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
@@ -981,6 +1021,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             meta = read_meta(sd)
             if meta is not None:
                 write_meta(sd, SessionMeta(**{**meta.__dict__, "status": "closed"}))
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
