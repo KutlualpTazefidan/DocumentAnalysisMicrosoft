@@ -19,6 +19,7 @@ from local_pdf.provenienz.llm import (
     build_proposal_node,
     resolve_provider,
 )
+from local_pdf.provenienz.searcher import InDocSearcher
 from local_pdf.provenienz.storage import (
     Edge,
     Node,
@@ -223,6 +224,119 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
     return landed.__dict__
 
 
+def _llm_formulate_task(claim_text: str, provider: str) -> str:
+    """Real LLM call lands in Stage 5.5. v1 stub: pass-through, trimmed.
+
+    Tests monkey-patch this symbol on the module.
+    """
+    return (claim_text or "").strip()[:200]
+
+
+class FormulateTaskRequest(BaseModel):
+    claim_node_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/formulate-task",
+    status_code=201,
+)
+async def formulate_task(session_id: str, body: FormulateTaskRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _ = read_session(sd)
+    claim = next((n for n in nodes if n.node_id == body.claim_node_id), None)
+    if claim is None:
+        raise HTTPException(status_code=404, detail=f"claim node not found: {body.claim_node_id}")
+    if claim.kind != "claim":
+        raise HTTPException(status_code=400, detail=f"anchor must be claim, got kind={claim.kind}")
+
+    actor = resolve_provider(body.provider)
+    query = _llm_formulate_task(claim.payload.get("text", ""), body.provider or "vllm")
+    payload = ActionProposalPayload(
+        step_kind="formulate_task",
+        anchor_node_id=body.claim_node_id,
+        recommended=ActionOption(label=f"Suchanfrage: {query!r}", args={"query": query}),
+        alternatives=[
+            ActionOption(label="Eigene Suchanfrage formulieren", args={"query": ""}),
+        ],
+        reasoning="Heuristik v0: Claim-Text als Suchanfrage.",
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    )
+    return landed.__dict__
+
+
+class SearchStepRequest(BaseModel):
+    task_node_id: str
+    top_k: int = 5
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/search",
+    status_code=201,
+)
+async def search_step(session_id: str, body: SearchStepRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    task = next((n for n in nodes if n.node_id == body.task_node_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
+    if task.kind != "task":
+        raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
+
+    query = task.payload.get("query", "")
+    actor = "system"  # this step doesn't call an LLM in v1
+    searcher = InDocSearcher(
+        data_root=cfg.data_root,
+        slug=meta.slug,
+        exclude_box_ids=(meta.root_chunk_id,),
+    )
+    hits = searcher.search(query, top_k=body.top_k)
+    hits_payload = [
+        {
+            "box_id": h.box_id,
+            "text": h.text,
+            "score": h.score,
+            "doc_slug": h.doc_slug,
+            "searcher": h.searcher,
+        }
+        for h in hits
+    ]
+    top1 = hits_payload[:1]
+    payload = ActionProposalPayload(
+        step_kind="search",
+        anchor_node_id=body.task_node_id,
+        recommended=ActionOption(
+            label=f"{len(hits_payload)} Treffer übernehmen",
+            args={"hits": hits_payload},
+        ),
+        alternatives=[
+            ActionOption(label="Nur Top-1 übernehmen", args={"hits": top1}),
+        ],
+        reasoning=(
+            f"InDocSearcher BM25, exclude root_chunk={meta.root_chunk_id}, "
+            f"top_k={body.top_k}, hits={len(hits_payload)}"
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    )
+    return landed.__dict__
+
+
 class DecideRequest(BaseModel):
     proposal_node_id: str
     accepted: Literal["recommended", "alt", "override"]
@@ -346,6 +460,129 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         session_id=session_id,
                         from_node=decision_landed.node_id,
                         to_node=claim.node_id,
+                        kind="triggers",
+                        reason=None,
+                        actor="human",
+                    ),
+                )
+            )
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "formulate_task":
+        anchor_claim_id = proposal.payload["anchor_node_id"]
+        if body.accepted == "recommended":
+            query = proposal.payload["recommended"]["args"].get("query", "")
+        elif body.accepted == "alt":
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            query = alts[idx]["args"].get("query", "")
+        else:  # override
+            if not body.override:
+                raise HTTPException(status_code=400, detail="override requires 'override' text")
+            query = body.override
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="query is empty")
+        task_actor = "human" if body.accepted == "override" else proposal.actor
+        task_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="task",
+                payload={"query": query, "focus_claim_id": anchor_claim_id},
+                actor=task_actor,
+            ),
+        )
+        spawned_nodes.append(task_node)
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=task_node.node_id,
+                    to_node=anchor_claim_id,
+                    kind="verifies",
+                    reason=None,
+                    actor=task_actor,
+                ),
+            )
+        )
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=decision_landed.node_id,
+                    to_node=task_node.node_id,
+                    kind="triggers",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "search":
+        anchor_task_id = proposal.payload["anchor_node_id"]
+        if body.accepted == "override":
+            raise HTTPException(
+                status_code=400,
+                detail="override path not supported for search step (v1)",
+            )
+        if body.accepted == "recommended":
+            hits = proposal.payload["recommended"]["args"].get("hits", [])
+        else:  # alt
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            hits = alts[idx]["args"].get("hits", [])
+        for h in hits:
+            sr = append_node(
+                sd,
+                Node(
+                    node_id=new_id(),
+                    session_id=session_id,
+                    kind="search_result",
+                    payload={**h, "task_node_id": anchor_task_id},
+                    actor=proposal.actor,
+                ),
+            )
+            spawned_nodes.append(sr)
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=sr.node_id,
+                        to_node=anchor_task_id,
+                        kind="candidates-for",
+                        reason=None,
+                        actor=proposal.actor,
+                    ),
+                )
+            )
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=decision_landed.node_id,
+                        to_node=sr.node_id,
                         kind="triggers",
                         reason=None,
                         actor="human",
