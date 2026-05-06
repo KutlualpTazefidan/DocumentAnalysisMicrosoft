@@ -62,22 +62,41 @@ export function Canvas({
 
   // Position pipeline:
   //   1. Reset → discard everything; use fresh dagre positions
-  //   2. Otherwise prefer (a) the live in-memory drag position, then
-  //      (b) the persisted localStorage position from a prior session
-  //      visit, then (c) dagre's freshly computed position.
+  //   2. Otherwise: live drag > persisted > dagre. New tiles take dagre's
+  //      position, *translated* by the chunk's drag-delta so a new claim
+  //      lands relative to where the user moved the chunk, not where dagre
+  //      assumed it was. Fixes the "all tiles stack at the top" symptom
+  //      after the user drags the root tile away from its dagre default.
   useEffect(() => {
     const isReset = resetSignal > lastResetRef.current;
     lastResetRef.current = resetSignal;
     setRfNodes((prev) => {
-      if (isReset) {
-        return laid.nodes;
-      }
+      if (isReset) return laid.nodes;
       const livePos = new Map(prev.map((n) => [n.id, n.position]));
-      return laid.nodes.map((n) => ({
-        ...n,
-        position:
-          livePos.get(n.id) ?? persisted.loaded.get(n.id) ?? n.position,
-      }));
+
+      // Compute the offset the user/persisted positions imposed on the
+      // chunk root. New tiles will be shifted by the same vector so the
+      // whole subtree visually follows the dragged root.
+      const root = laid.nodes.find((n) => n.type === "chunk");
+      const rootDagre = root?.position ?? { x: 0, y: 0 };
+      const rootEffective =
+        (root && (livePos.get(root.id) ?? persisted.loaded.get(root.id))) ??
+        rootDagre;
+      const offset = {
+        x: rootEffective.x - rootDagre.x,
+        y: rootEffective.y - rootDagre.y,
+      };
+
+      return laid.nodes.map((n) => {
+        const live = livePos.get(n.id);
+        if (live) return { ...n, position: live };
+        const persistedPos = persisted.loaded.get(n.id);
+        if (persistedPos) return { ...n, position: persistedPos };
+        return {
+          ...n,
+          position: { x: n.position.x + offset.x, y: n.position.y + offset.y },
+        };
+      });
     });
     setRfEdges(laid.edges);
   }, [
@@ -89,9 +108,11 @@ export function Canvas({
     persisted.loaded,
   ]);
 
-  // Save positions on every change (debounced inside the hook).
+  // Save positions whenever they change (debounced inside the hook). Gated
+  // on persisted.ready so a fresh remount can't write the dagre defaults
+  // back to localStorage before the saved positions get loaded.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !persisted.ready) return;
     const positions = new Map<string, { x: number; y: number }>();
     for (const n of rfNodes) positions.set(n.id, n.position);
     persisted.save(positions);

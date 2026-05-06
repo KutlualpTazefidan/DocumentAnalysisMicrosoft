@@ -20,29 +20,37 @@ const SAVE_DEBOUNCE_MS = 400;
  */
 export function usePersistedPositions(sessionId: string | null): {
   loaded: Map<string, XY>;
+  ready: boolean;
   save: (positions: Map<string, XY>) => void;
   clear: () => void;
 } {
   const [loaded, setLoaded] = useState<Map<string, XY>>(() => new Map());
+  /** ``ready`` flips true once we've finished reading localStorage. The
+   *  Canvas gates its save-effect on this so a fresh remount can't
+   *  clobber saved positions with the temporary dagre defaults. */
+  const [ready, setReady] = useState(false);
   const saveTimer = useRef<number | null>(null);
 
   // Load on session change.
   useEffect(() => {
+    setReady(false);
     if (!sessionId) {
       setLoaded(new Map());
+      setReady(true);
       return;
     }
     try {
       const raw = localStorage.getItem(KEY_PREFIX + sessionId);
       if (!raw) {
         setLoaded(new Map());
-        return;
+      } else {
+        const obj = JSON.parse(raw) as Record<string, XY>;
+        setLoaded(new Map(Object.entries(obj)));
       }
-      const obj = JSON.parse(raw) as Record<string, XY>;
-      setLoaded(new Map(Object.entries(obj)));
     } catch {
       setLoaded(new Map());
     }
+    setReady(true);
   }, [sessionId]);
 
   const save = useCallback(
@@ -83,5 +91,5 @@ export function usePersistedPositions(sessionId: string | null): {
     };
   }, []);
 
-  return { loaded, save, clear };
+  return { loaded, ready, save, clear };
 }
