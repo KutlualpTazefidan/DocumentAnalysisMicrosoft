@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
@@ -6,6 +6,7 @@ import {
   useFormulateTask,
   useProposeStop,
   useSearchStep,
+  useSetClaimGoal,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
@@ -32,8 +33,31 @@ export function ClaimWithTaskPanel({
   const search = useSearchStep(token, sessionId);
   const stop = useProposeStop(token, sessionId);
   const del = useDeleteNode(token, sessionId);
+  const setClaimGoal = useSetClaimGoal(token, sessionId);
   const { error: toastError } = useToast();
   const [topK, setTopK] = useState(5);
+  const initialGoal = String(claim.payload.goal ?? "");
+  const [goalDraft, setGoalDraft] = useState(initialGoal);
+  const [editingGoal, setEditingGoal] = useState(false);
+  useEffect(() => {
+    if (!editingGoal) setGoalDraft(initialGoal);
+  }, [initialGoal, editingGoal]);
+
+  async function handleSaveGoal(): Promise<void> {
+    if (!goalDraft.trim() || goalDraft.trim() === initialGoal) {
+      setEditingGoal(false);
+      return;
+    }
+    try {
+      await setClaimGoal.mutateAsync({
+        claimId: claim.node_id,
+        goal: goalDraft.trim(),
+      });
+      setEditingGoal(false);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
 
   async function handleFormulate(): Promise<void> {
     try {
@@ -85,6 +109,56 @@ export function ClaimWithTaskPanel({
           <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
             {String(claim.payload.text ?? "")}
           </p>
+        </div>
+        <div className="pt-2 border-t border-navy-700">
+          <p className={`${T.tinyBold} text-pink-300`}>
+            Recherche-Frage zu dieser Aussage
+          </p>
+          {editingGoal ? (
+            <div className="mt-1 space-y-1">
+              <textarea
+                value={goalDraft}
+                onChange={(e) => setGoalDraft(e.target.value)}
+                rows={3}
+                className={`w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+                placeholder="z.B. Wo steht im Korpus, dass die Wärmeleistung 5.6 kW beträgt?"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveGoal()}
+                  disabled={setClaimGoal.isPending || !goalDraft.trim()}
+                  className={`px-2 py-1 rounded bg-pink-600 hover:bg-pink-500 text-white ${T.tiny} disabled:opacity-50`}
+                >
+                  {setClaimGoal.isPending ? "…" : "Speichern"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoalDraft(initialGoal);
+                    setEditingGoal(false);
+                  }}
+                  className={`px-2 py-1 rounded text-slate-300 hover:bg-navy-700 ${T.tiny}`}
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingGoal(true)}
+              className={`mt-1 text-left w-full ${T.body} ${
+                initialGoal
+                  ? "text-pink-100 italic"
+                  : "text-slate-500 italic"
+              } hover:text-pink-200`}
+              title="Klick zum Bearbeiten"
+            >
+              {initialGoal || "(noch nicht gesetzt — klick zum Setzen)"}
+            </button>
+          )}
         </div>
         {task && (
           <div className="pt-2 border-t border-navy-700">

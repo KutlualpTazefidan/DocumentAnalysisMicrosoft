@@ -1,16 +1,19 @@
-import { BookOpen, CheckCircle2, Lock, Quote, Search } from "lucide-react";
+import { BookOpen, CheckCircle2, Lock, Quote, Search, Target } from "lucide-react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
 import type { ClaimWithTaskView } from "../layout";
 
 /**
  * Combines a claim with its (optional) formulated task. 1:1 by construction.
- * Footer summarises downstream state: search-result count + evaluated count.
+ * Shows the per-claim research goal (Recherche-Frage) — distinct from the
+ * session-level goal, so independent claims in the same chunk can be
+ * investigated independently.
  */
 export function ClaimWithTaskTile({
   data,
 }: NodeProps<ClaimWithTaskView>): JSX.Element {
   const text = String((data.claim.payload.text as string) ?? "");
+  const claimGoal = String((data.claim.payload.goal as string) ?? "");
   const query = data.task
     ? String((data.task.payload.query as string) ?? "")
     : null;
@@ -23,6 +26,16 @@ export function ClaimWithTaskTile({
         <Quote className="w-3 h-3" aria-hidden /> Aussage
       </header>
       <p className="text-xs leading-snug mt-1 line-clamp-3">{text}</p>
+      {claimGoal && (
+        <div className="mt-1.5 pt-1.5 border-t border-blue-400/30">
+          <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-pink-300">
+            <Target className="w-3 h-3" aria-hidden /> Recherche-Frage
+          </p>
+          <p className="text-[11px] italic text-pink-100 line-clamp-2 mt-0.5">
+            {claimGoal}
+          </p>
+        </div>
+      )}
       {query !== null && (
         <div className="mt-2 pt-2 border-t border-blue-400/40">
           <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-cyan-200">

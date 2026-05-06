@@ -417,6 +417,48 @@ async def set_goal(session_id: str, body: SetGoalRequest, request: Request) -> d
     return {"meta": _meta_to_response(written).model_dump()}
 
 
+class SetClaimGoalRequest(BaseModel):
+    goal: str
+
+
+@router.put("/api/admin/provenienz/sessions/{session_id}/claims/{claim_id}/goal")
+async def set_claim_goal(
+    session_id: str, claim_id: str, body: SetClaimGoalRequest, request: Request
+) -> dict:
+    """Manual override for a single claim's research goal. Per-claim goals
+    are auto-extracted at /decide time; this route lets the user refine
+    them after the fact. Updates are written as a *new* claim Node with a
+    tombstone on the previous one — keeps the audit trail honest while
+    letting the canvas show the latest version.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    claim = next((n for n in nodes if n.node_id == claim_id), None)
+    if claim is None:
+        raise HTTPException(status_code=404, detail=f"claim not found: {claim_id}")
+    if claim.kind != "claim":
+        raise HTTPException(status_code=400, detail=f"node is not a claim: kind={claim.kind}")
+    new_payload = {**claim.payload, "goal": body.goal.strip()[:300]}
+    # Patch in place via tombstone+respawn would shuffle node_ids and break
+    # references; simpler is to keep the node_id stable and just append a
+    # synthetic "goal_update" event. For v1 we mutate the payload by writing
+    # a new node with the same node_id (events.jsonl is read-replay; the
+    # later record wins because read_session iterates in order).
+    updated = Node(
+        node_id=claim.node_id,
+        session_id=claim.session_id,
+        kind="claim",
+        payload=new_payload,
+        actor="human",
+        created_at=claim.created_at,  # preserved
+    )
+    append_node(sd, updated)
+    return updated.__dict__
+
+
 @router.delete("/api/admin/provenienz/sessions/{session_id}/nodes/{node_id}", status_code=204)
 async def delete_node(session_id: str, node_id: str, request: Request) -> None:
     """Soft-delete a node *and every node that depends on it*. Tombstones
@@ -702,6 +744,15 @@ EXTRACT_GOAL_SYSTEM = (
     "will — eher Frage als Vermutung. Antworte ausschließlich mit dem "
     "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
     "kein Markdown."
+)
+EXTRACT_CLAIM_GOALS_SYSTEM = (
+    "Du formulierst pro Aussage ein spezifisches Recherche-Ziel als "
+    "kurze deutsche Frage (max. 20 Wörter pro Frage). Jede Frage "
+    "beschreibt, was konkret nachgewiesen werden muss — Zahl, Datum, "
+    "technische Spezifikation, Beziehung. Aussagen sind unabhängig "
+    "voneinander, jede Aussage bekommt ihre eigene Frage. Antworte "
+    "ausschließlich als JSON-Array von Strings (selbe Länge wie "
+    "Input), kein Vor- oder Nachtext, kein Markdown, keine Codeblöcke."
 )
 PLAN_SYSTEM = (
     "Du bist der Planer eines Recherche-Agenten. Eingabe: ein Ziel, "
@@ -1190,6 +1241,40 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     return landed.__dict__
 
 
+def _llm_extract_claim_goals(
+    claim_texts: list[str], session_goal: str, provider: str, *, extra_system: str = ""
+) -> list[str]:
+    """Batched per-claim-goal extraction. One LLM call returns N goals
+    for N claims. JSON-array output, length must match input. On any
+    parse / size failure, returns ``[""] * len(claim_texts)`` — best
+    effort, never blocks claim creation.
+    """
+    del provider
+    if not claim_texts:
+        return []
+    system = EXTRACT_CLAIM_GOALS_SYSTEM + (extra_system or "")
+    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(claim_texts))
+    user = (
+        f"Sitzungs-Ziel: {session_goal or '(kein Ziel gesetzt)'}\n\n"
+        f"Aussagen:\n{numbered}\n\n"
+        f"JSON-Array der Recherche-Fragen (selbe Reihenfolge):"
+    )
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return [""] * len(claim_texts)
+    if not isinstance(parsed, list) or len(parsed) != len(claim_texts):
+        return [""] * len(claim_texts)
+    return [str(g).strip()[:200] if isinstance(g, str) else "" for g in parsed]
+
+
 def _llm_extract_goal(
     chunk_text: str,
     first_claim_text: str,
@@ -1305,11 +1390,16 @@ def _summarize_session_state(meta: SessionMeta, nodes: list[Node], edges: list[E
     for c in claims:
         cid = c.node_id
         ctext = str(c.payload.get("text", ""))[:80]
+        cgoal = str(c.payload.get("goal", "")).strip()
+        # When per-claim goal is set, surface it inline so the planner
+        # picks the right next move per claim rather than treating them
+        # as one homogeneous batch.
+        cdesc = f'"{ctext}"' + (f" — Frage: {cgoal}" if cgoal else "")
         if cid in stopped_anchors:
             continue
         if cid not in task_by_claim:
             open_fronts.append(
-                f"- Aussage {cid[:8]}… ({ctext}) → benötigt formulate_task oder propose_stop"
+                f"- Aussage {cid[:8]}… ({cdesc}) → benötigt formulate_task oder propose_stop"
             )
             continue
         task = task_by_claim[cid]
@@ -1715,14 +1805,27 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         anchor_chunk = proposal.payload["anchor_node_id"]
         claim_texts = _resolve_claims(proposal.payload, body)
         claim_actor = "human" if body.accepted == "override" else proposal.actor
-        for ct in claim_texts:
+        # Batched per-claim goal extraction. Best-effort: failure → "" goals.
+        claim_meta = read_meta(sd)
+        session_goal_for_extract = claim_meta.goal if claim_meta else ""
+        try:
+            claim_goals = _llm_extract_claim_goals(claim_texts, session_goal_for_extract, "vllm")
+        except Exception as exc:
+            _log.warning("extract_claim_goals failed: %s", exc)
+            claim_goals = [""] * len(claim_texts)
+        for idx, ct in enumerate(claim_texts):
+            goal_for_claim = claim_goals[idx] if idx < len(claim_goals) else ""
             claim = append_node(
                 sd,
                 Node(
                     node_id=new_id(),
                     session_id=session_id,
                     kind="claim",
-                    payload={"text": ct, "source_node_id": anchor_chunk},
+                    payload={
+                        "text": ct,
+                        "source_node_id": anchor_chunk,
+                        "goal": goal_for_claim,
+                    },
                     actor=claim_actor,
                 ),
             )

@@ -102,11 +102,17 @@ def append_tombstone(session_dir: Path, node_id: str) -> None:
 
 
 def read_session(session_dir: Path) -> tuple[list[Node], list[Edge]]:
-    """Return nodes + edges, filtering out anything tombstoned. Edges that
-    reference a tombstoned node on either end are dropped — orphans don't
-    survive the soft-delete."""
+    """Replay the event log into a current-state view.
+
+    - Tombstoned nodes (and any edge touching them) are filtered out.
+    - Nodes appearing more than once in the log: **the latest write
+      wins** — supports in-place updates (e.g. per-claim goal patches)
+      without inventing a new node id. Insertion order of the *first*
+      appearance is preserved so the canvas layout stays stable.
+    """
     if not _events_path(session_dir).exists():
         return [], []
+    node_index: dict[str, int] = {}  # node_id → position in `nodes`
     nodes: list[Node] = []
     edges: list[Edge] = []
     tombstoned: set[str] = set()
@@ -120,7 +126,12 @@ def read_session(session_dir: Path) -> tuple[list[Node], list[Edge]]:
             if event == "tombstone":
                 tombstoned.add(r["node_id"])
             elif event == "node":
-                nodes.append(Node(**r))
+                n = Node(**r)
+                if n.node_id in node_index:
+                    nodes[node_index[n.node_id]] = n
+                else:
+                    node_index[n.node_id] = len(nodes)
+                    nodes.append(n)
             elif event == "edge":
                 edges.append(Edge(**r))
     if tombstoned:

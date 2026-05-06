@@ -266,6 +266,27 @@ export function useDeleteSession(token: string, slug: string) {
   });
 }
 
+export function useSetClaimGoal(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<ProvNode, Error, { claimId: string; goal: string }>({
+    mutationFn: async ({ claimId, goal }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/claims/${claimId}/goal`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ goal }),
+        },
+        token,
+      );
+      return (await r.json()) as ProvNode;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 export function useSetGoal(token: string, sessionId: string) {
   const qc = useQueryClient();
   return useMutation<SessionMeta, Error, string>({
