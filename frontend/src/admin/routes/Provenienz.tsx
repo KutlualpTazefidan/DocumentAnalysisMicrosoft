@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { GitMerge, Plus, Trash2 } from "lucide-react";
+import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
+import { Canvas } from "../provenienz/Canvas";
 import {
   useCreateSession,
   useDeleteSession,
   useSession,
   useSessions,
-  type SessionDetail,
   type SessionMeta,
 } from "../hooks/useProvenienz";
 import { T } from "../styles/typography";
@@ -140,18 +141,37 @@ export function Provenienz(): JSX.Element {
         </aside>
 
         {/* Right area */}
-        <main className="flex-1 overflow-auto p-4 text-slate-200">
+        <main className="flex-1 min-w-0 flex flex-col text-slate-200">
           {!selectedId && (
-            <p className={`${T.body} text-slate-400 italic`}>
+            <p className={`${T.body} text-slate-400 italic p-4`}>
               Sitzung links auswählen oder neu anlegen.
             </p>
           )}
-          {selectedId && detail.isLoading && <p>Lade Sitzung...</p>}
+          {selectedId && detail.isLoading && <p className="p-4">Lade Sitzung...</p>}
           {selectedId && detail.error && (
-            <p className="text-red-400">{detail.error.message}</p>
+            <p className="p-4 text-red-400">{detail.error.message}</p>
           )}
           {selectedId && detail.data && (
-            <SessionPlaceholder detail={detail.data} />
+            <>
+              <header className="border-b border-navy-700 px-4 py-2">
+                <h2 className={`${T.cardTitle} text-white`}>
+                  Sitzung {detail.data.meta.session_id}
+                </h2>
+                <p className={`text-slate-400 ${T.body}`}>
+                  Wurzel-Chunk: {detail.data.meta.root_chunk_id} · Status:{" "}
+                  {detail.data.meta.status} · {detail.data.nodes.length} Knoten ·{" "}
+                  {detail.data.edges.length} Kanten
+                </p>
+              </header>
+              <div className="flex-1 min-h-0">
+                <ReactFlowProvider>
+                  <Canvas
+                    nodes={detail.data.nodes}
+                    edges={detail.data.edges}
+                  />
+                </ReactFlowProvider>
+              </div>
+            </>
           )}
         </main>
       </div>
@@ -193,45 +213,3 @@ function SessionRow({
   );
 }
 
-function SessionPlaceholder({ detail }: { detail: SessionDetail }): JSX.Element {
-  return (
-    <div className="space-y-4">
-      <header className="border-b border-navy-700 pb-2">
-        <h2 className={`${T.cardTitle} text-white`}>
-          Sitzung {detail.meta.session_id}
-        </h2>
-        <p className={`text-slate-400 ${T.body}`}>
-          Wurzel-Chunk: {detail.meta.root_chunk_id} · Status: {detail.meta.status}
-        </p>
-      </header>
-      <section>
-        <h3 className={`${T.heading} text-slate-200 mb-1`}>
-          Knoten ({detail.nodes.length})
-        </h3>
-        <ul className={`${T.mono} space-y-1`}>
-          {detail.nodes.map((n) => (
-            <li key={n.node_id} className="text-slate-300">
-              <span className="text-blue-300">{n.kind}</span> {n.node_id}
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section>
-        <h3 className={`${T.heading} text-slate-200 mb-1`}>
-          Kanten ({detail.edges.length})
-        </h3>
-        <ul className={`${T.mono} space-y-1`}>
-          {detail.edges.map((e) => (
-            <li key={e.edge_id} className="text-slate-300">
-              <span className="text-blue-300">{e.kind}</span>{" "}
-              {e.from_node.slice(0, 8)}… → {e.to_node.slice(0, 8)}…
-            </li>
-          ))}
-        </ul>
-        <p className={`${T.body} text-slate-400 italic mt-4`}>
-          Graph-Canvas folgt in Stage 8.
-        </p>
-      </section>
-    </div>
-  );
-}
