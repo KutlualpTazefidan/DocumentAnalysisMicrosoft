@@ -1,4 +1,3 @@
-import dagre from "dagre";
 import type { Edge as RfEdge, Node as RfNode } from "reactflow";
 
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
@@ -319,44 +318,184 @@ function mapAnchorToViewId(
 
 // ─── dagre layout over the view graph ────────────────────────────────────────
 
+/**
+ * Subtree-aware tree layout — replaces dagre's rank-based packing.
+ *
+ * Dagre TB packs every node at depth N onto the same horizontal row, so
+ * sibling subtrees visually interleave (Aussage A | Aussage B | Aussage C
+ * lined up, then Bag A | Bag B | Bag C lined up below — but Bag A may sit
+ * directly under Aussage B, not under Aussage A). Our graph IS a tree
+ * (chunk → claims → bags + pending proposals), so we lay out each subtree
+ * as its own vertical column, then place sibling columns side-by-side
+ * with generous horizontal spacing. Result: each branch stays visually
+ * contained.
+ *
+ * For LR direction the same idea applies rotated 90°.
+ */
+
+const TILE_SEP = 56; // sibling-to-sibling padding within a level
+const RANK_SEP = 96; // parent-to-child padding (trunk depth)
+const ROOT_SEP = 160; // gap between independent root subtrees
+const MARGIN = 32;
+
+interface SubtreeBox {
+  width: number;
+  height: number;
+  /** Center coordinate of THIS node within the subtree's local frame. */
+  selfCenter: number;
+  /** Per-node positions inside this subtree, in local coords (top-left). */
+  positions: Map<string, { x: number; y: number }>;
+}
+
+function layoutSubtree(
+  viewId: string,
+  childrenOf: Map<string, string[]>,
+  kindOf: Map<string, ViewNodeKind>,
+  direction: LayoutDirection,
+): SubtreeBox {
+  const dims = NODE_DIMS[kindOf.get(viewId)!];
+  const children = childrenOf.get(viewId) ?? [];
+  const positions = new Map<string, { x: number; y: number }>();
+
+  if (children.length === 0) {
+    positions.set(viewId, { x: 0, y: 0 });
+    if (direction === "TB") {
+      return {
+        width: dims.w,
+        height: dims.h,
+        selfCenter: dims.w / 2,
+        positions,
+      };
+    }
+    return {
+      width: dims.w,
+      height: dims.h,
+      selfCenter: dims.h / 2,
+      positions,
+    };
+  }
+
+  const childBoxes = children.map((c) =>
+    layoutSubtree(c, childrenOf, kindOf, direction),
+  );
+
+  if (direction === "TB") {
+    // Stack children left-to-right; node sits centered above them.
+    const childrenCombinedWidth =
+      childBoxes.reduce((s, b) => s + b.width, 0) +
+      TILE_SEP * (childBoxes.length - 1);
+    const subtreeWidth = Math.max(dims.w, childrenCombinedWidth);
+
+    // Node placement: horizontally centered over the children block.
+    const childrenStartX = (subtreeWidth - childrenCombinedWidth) / 2;
+    const selfX = (subtreeWidth - dims.w) / 2;
+    positions.set(viewId, { x: selfX, y: 0 });
+
+    const childY = dims.h + RANK_SEP;
+    let cursorX = childrenStartX;
+    let maxBottom = dims.h;
+    for (let i = 0; i < children.length; i++) {
+      const cb = childBoxes[i];
+      for (const [k, v] of cb.positions) {
+        positions.set(k, { x: v.x + cursorX, y: v.y + childY });
+      }
+      maxBottom = Math.max(maxBottom, childY + cb.height);
+      cursorX += cb.width + TILE_SEP;
+    }
+    return {
+      width: subtreeWidth,
+      height: maxBottom,
+      selfCenter: selfX + dims.w / 2,
+      positions,
+    };
+  }
+
+  // LR: stack children top-to-bottom; node sits centered to the left.
+  const childrenCombinedHeight =
+    childBoxes.reduce((s, b) => s + b.height, 0) +
+    TILE_SEP * (childBoxes.length - 1);
+  const subtreeHeight = Math.max(dims.h, childrenCombinedHeight);
+
+  const childrenStartY = (subtreeHeight - childrenCombinedHeight) / 2;
+  const selfY = (subtreeHeight - dims.h) / 2;
+  positions.set(viewId, { x: 0, y: selfY });
+
+  const childX = dims.w + RANK_SEP;
+  let cursorY = childrenStartY;
+  let maxRight = dims.w;
+  for (let i = 0; i < children.length; i++) {
+    const cb = childBoxes[i];
+    for (const [k, v] of cb.positions) {
+      positions.set(k, { x: v.x + childX, y: v.y + cursorY });
+    }
+    maxRight = Math.max(maxRight, childX + cb.width);
+    cursorY += cb.height + TILE_SEP;
+  }
+  return {
+    width: maxRight,
+    height: subtreeHeight,
+    selfCenter: selfY + dims.h / 2,
+    positions,
+  };
+}
+
 export function layoutViewGraph(
   viewNodes: ViewNode[],
   viewEdges: ViewEdge[],
   opts: LayoutOptions = {},
 ): { nodes: RfNode[]; edges: RfEdge[] } {
   const direction: LayoutDirection = opts.direction ?? "TB";
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  // Spacing convention: trunk (parent → child) tight, branches (sibling →
-  // sibling) wide. Helps the eye see depth as "down" and breadth as "fan-out".
-  g.setGraph({
-    rankdir: direction,
-    nodesep: 192, // sibling spacing — branches splay wide
-    ranksep: 96, // depth spacing — trunk stays compact
-    marginx: 32,
-    marginy: 32,
-  });
 
+  // Build a parent → children adjacency. Edges that point back into the
+  // tree (e.g. a stop_proposal pointing at a chunk) are silently ignored:
+  // we walk parent-to-child only, every node has at most one parent in
+  // practice.
+  const childrenOf = new Map<string, string[]>();
+  const hasParent = new Set<string>();
+  const kindOf = new Map<string, ViewNodeKind>();
+  const present = new Set<string>();
   for (const v of viewNodes) {
-    const dims = NODE_DIMS[v.kind];
-    g.setNode(v.view_id, dims);
+    kindOf.set(v.view_id, v.kind);
+    present.add(v.view_id);
   }
   for (const e of viewEdges) {
-    if (g.hasNode(e.source) && g.hasNode(e.target)) {
-      g.setEdge(e.source, e.target);
+    if (!present.has(e.source) || !present.has(e.target)) continue;
+    if (hasParent.has(e.target)) continue; // first edge wins
+    if (!childrenOf.has(e.source)) childrenOf.set(e.source, []);
+    childrenOf.get(e.source)!.push(e.target);
+    hasParent.add(e.target);
+  }
+
+  // Roots = nodes with no incoming edge. Lay each out independently.
+  const positions = new Map<string, { x: number; y: number }>();
+  if (direction === "TB") {
+    let cursorX = MARGIN;
+    for (const v of viewNodes) {
+      if (hasParent.has(v.view_id)) continue;
+      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
+      for (const [k, p] of box.positions) {
+        positions.set(k, { x: p.x + cursorX, y: p.y + MARGIN });
+      }
+      cursorX += box.width + ROOT_SEP;
+    }
+  } else {
+    let cursorY = MARGIN;
+    for (const v of viewNodes) {
+      if (hasParent.has(v.view_id)) continue;
+      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
+      for (const [k, p] of box.positions) {
+        positions.set(k, { x: p.x + MARGIN, y: p.y + cursorY });
+      }
+      cursorY += box.height + ROOT_SEP;
     }
   }
-  dagre.layout(g);
 
   const rfNodes: RfNode[] = viewNodes.map((v) => {
-    const pos = g.node(v.view_id);
-    const dims = NODE_DIMS[v.kind];
-    const x = snap((pos?.x ?? 0) - dims.w / 2);
-    const y = snap((pos?.y ?? 0) - dims.h / 2);
+    const p = positions.get(v.view_id) ?? { x: 0, y: 0 };
     return {
       id: v.view_id,
       type: v.kind,
-      position: { x, y },
+      position: { x: snap(p.x), y: snap(p.y) },
       data: v,
     };
   });
