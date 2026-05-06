@@ -200,14 +200,20 @@ async def promote_search_result(
     session_id: str, body: PromoteSearchResultRequest, request: Request
 ) -> dict:
     """Create a new chunk node seeded with a search_result's text, so the
-    user can extract claims and dig deeper from that specific result. The
-    new chunk gets an outgoing ``promoted-from`` edge to the search_result;
-    the frontend reads this to draw the visual link from the result row."""
+    user can extract claims and dig deeper from that specific result.
+
+    The new chunk inherits **breadcrumbs** from its origin: the claim that
+    triggered the search, the search query, and the source chunk. Stored
+    on the chunk payload so the frontend can render context, and so a
+    later ``extract_claims`` call on this chunk can inject those
+    breadcrumbs into the LLM prompt — keeping the recursive exploration
+    on-topic instead of producing arbitrary claims about the result text.
+    """
     cfg = request.app.state.config
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
     if sr is None:
         raise HTTPException(
@@ -215,6 +221,21 @@ async def promote_search_result(
         )
     if sr.kind != "search_result":
         raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
+
+    # Walk back: search_result → task → claim → original chunk.
+    by_id = {n.node_id: n for n in nodes}
+    task_id = sr.payload.get("task_node_id")
+    task = by_id.get(task_id) if isinstance(task_id, str) else None
+    claim_id = task.payload.get("focus_claim_id") if task else None
+    claim = by_id.get(claim_id) if isinstance(claim_id, str) else None
+    origin_chunk_id: str | None = None
+    if claim:
+        for e in edges:
+            if e.from_node == claim.node_id and e.kind == "extracts-from":
+                origin_chunk_id = e.to_node
+                break
+    origin_chunk = by_id.get(origin_chunk_id) if origin_chunk_id else None
+
     text = str(sr.payload.get("text", ""))
     box_id = str(sr.payload.get("box_id", ""))
     doc_slug = str(sr.payload.get("doc_slug", ""))
@@ -229,6 +250,13 @@ async def promote_search_result(
                 "doc_slug": doc_slug,
                 "text": text,
                 "promoted_from": sr.node_id,
+                "origin_claim_id": claim.node_id if claim else None,
+                "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
+                "origin_query": str(task.payload.get("query", "")) if task else None,
+                "origin_chunk_id": origin_chunk.node_id if origin_chunk else None,
+                "origin_chunk_box_id": (
+                    str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
+                ),
             },
             actor="human",
         ),
@@ -246,6 +274,32 @@ async def promote_search_result(
         ),
     )
     return chunk.__dict__
+
+
+def _build_origin_context(chunk: Node) -> str:
+    """Render the breadcrumbs stored on a promoted chunk's payload as a
+    German prompt-prefix the next ``extract_claims`` LLM call can use to
+    stay on-topic. Empty string for chunks that weren't promoted.
+    """
+    p = chunk.payload
+    if not p.get("promoted_from"):
+        return ""
+    parts: list[str] = []
+    origin_claim = p.get("origin_claim_text")
+    if isinstance(origin_claim, str) and origin_claim.strip():
+        parts.append(f'Ursprüngliche Aussage: "{origin_claim.strip()}"')
+    origin_query = p.get("origin_query")
+    if isinstance(origin_query, str) and origin_query.strip():
+        parts.append(f'Damalige Suchanfrage: "{origin_query.strip()}"')
+    if not parts:
+        return ""
+    return (
+        "\n\n## Kontext der Recherche\n"
+        "Dieser Textabschnitt wurde als möglicher Beleg für eine frühere "
+        "Aussage in derselben Sitzung identifiziert. "
+        + " · ".join(parts)
+        + ".\nKonzentriere dich auf Aussagen, die zur ursprünglichen Recherche passen."
+    )
 
 
 class PinApproachRequest(BaseModel):
@@ -497,6 +551,11 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "extract_claims")
+    # Promoted chunks carry breadcrumbs back to the original claim/query;
+    # prepend them so the LLM stays on-topic for the recursive exploration.
+    origin_context = _build_origin_context(chunk)
+    if origin_context:
+        extra_system = origin_context + extra_system
     try:
         claims = _llm_extract_claims(
             chunk.payload.get("text", ""),

@@ -40,10 +40,22 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
         )}
       </header>
       {promoted && (
-        <p className="mt-0.5 text-[10px] text-purple-300 flex items-center gap-1">
-          <CornerDownRight className="w-3 h-3" aria-hidden />
-          aus einem Suchtreffer abgeleitet
-        </p>
+        <div className="mt-1 rounded bg-purple-900/30 border border-purple-700/40 px-1.5 py-1">
+          <p className="text-[10px] text-purple-300 flex items-center gap-1">
+            <CornerDownRight className="w-3 h-3" aria-hidden />
+            abgeleitet aus
+          </p>
+          {data.chunk.payload.origin_claim_text ? (
+            <p className="text-[10px] text-purple-100 italic line-clamp-2 mt-0.5">
+              „{String(data.chunk.payload.origin_claim_text)}"
+            </p>
+          ) : null}
+          {data.chunk.payload.origin_query ? (
+            <p className="text-[10px] text-purple-200 mt-0.5">
+              Suche: „{String(data.chunk.payload.origin_query)}"
+            </p>
+          ) : null}
+        </div>
       )}
       <p className="text-xs leading-snug mt-1 line-clamp-3">{text}</p>
       <footer className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-300/85">
