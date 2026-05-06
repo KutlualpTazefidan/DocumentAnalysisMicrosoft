@@ -53,6 +53,11 @@ class SessionMeta:
     created_at: str = ""
     last_touched_at: str = ""
     pinned_approach_ids: list[str] = field(default_factory=list)
+    # Filled automatically by extract_goal after the first claim is accepted;
+    # also writable via PUT /sessions/{id}/goal so the user can override.
+    # Empty string = not set yet (the Planner falls back to chunk text in that
+    # case — a goal is recommended but not required).
+    goal: str = ""
 
 
 def _now() -> str:
@@ -138,6 +143,7 @@ def read_meta(session_dir: Path) -> SessionMeta | None:
         return None
     raw = json.loads(p.read_text())
     raw.setdefault("pinned_approach_ids", [])
+    raw.setdefault("goal", "")
     return SessionMeta(**raw)
 
 

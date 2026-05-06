@@ -79,6 +79,7 @@ class SessionMetaResponse(BaseModel):
     created_at: str
     last_touched_at: str
     pinned_approach_ids: list[str] = []
+    goal: str = ""
 
 
 def _meta_to_response(m: SessionMeta) -> SessionMetaResponse:
@@ -269,6 +270,28 @@ async def get_agent_info() -> dict:
                 "expected_output": "Ein deutscher Satz (max. 25 Wörter)",
             },
             {
+                "kind": "extract_goal",
+                "label": "Recherche-Ziel ableiten",
+                "input_kind": "chunk + first_claim",
+                "output_kind": "session.goal",
+                "uses_llm": True,
+                "uses_tool": None,
+                "rules": ["approaches"],
+                "system_prompt": EXTRACT_GOAL_SYSTEM,
+                "user_template": (
+                    "Textabschnitt:\n<chunk_text>\n\n"
+                    "Erste überprüfbare Aussage:\n<first_claim_text>\n\n"
+                    "Recherche-Ziel:"
+                ),
+                "expected_output": (
+                    "Ein deutscher Satz (max. 20 Wörter), eher Frage als Vermutung. "
+                    "Wird automatisch nach der ersten /decide-Akzeptanz von "
+                    "extract_claims ausgeführt; Best-Effort, Fehler werden "
+                    "geloggt + verschluckt. Manuell überschreibbar via "
+                    "PUT /sessions/{id}/goal."
+                ),
+            },
+            {
                 "kind": "promote_search_result",
                 "label": "Treffer weiter erforschen",
                 "input_kind": "search_result",
@@ -369,6 +392,29 @@ def _collect_cascade(target_id: str, nodes: list[Node], edges: list[Edge]) -> se
                 deleted.add(e.from_node)
         if len(deleted) == before:
             return deleted
+
+
+class SetGoalRequest(BaseModel):
+    goal: str
+
+
+@router.put("/api/admin/provenienz/sessions/{session_id}/goal")
+async def set_goal(session_id: str, body: SetGoalRequest, request: Request) -> dict:
+    """Manual override for the session goal. Used when the auto-extracted
+    goal is wrong or when the user wants to set it before any claim has
+    been accepted."""
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    new_meta = SessionMeta(**{**meta.__dict__, "goal": body.goal.strip()[:300]})
+    write_meta(sd, new_meta)
+    written = read_meta(sd)
+    assert written is not None
+    return {"meta": _meta_to_response(written).model_dump()}
 
 
 @router.delete("/api/admin/provenienz/sessions/{session_id}/nodes/{node_id}", status_code=204)
@@ -647,6 +693,15 @@ PROPOSE_STOP_SYSTEM = (
     "die Recherche zu einer Aussage abgeschlossen werden kann (Quelle "
     "gefunden, mehrfach bestätigt, oder Sackgasse). Antworte ausschließlich "
     "mit dem Satz selbst, ohne Anführungszeichen oder Markdown."
+)
+EXTRACT_GOAL_SYSTEM = (
+    "Du formulierst das übergeordnete Recherche-Ziel einer Sitzung als "
+    "kurzen deutschen Satz (max. 20 Wörter). Eine Sitzung beginnt mit "
+    "einem Textabschnitt und einer ersten überprüfbaren Aussage daraus. "
+    "Das Ziel beschreibt, was die Recherche herausfinden oder belegen "
+    "will — eher Frage als Vermutung. Antworte ausschließlich mit dem "
+    "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
+    "kein Markdown."
 )
 
 
@@ -1117,6 +1172,71 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     return landed.__dict__
 
 
+def _llm_extract_goal(
+    chunk_text: str,
+    first_claim_text: str,
+    provider: str,
+    *,
+    extra_system: str = "",
+) -> str:
+    """Synthesise the session's overall research goal from its starting
+    chunk + the first claim accepted from it. Called once per session,
+    automatically, when the user lands their first claim. The user can
+    override the result via PUT /sessions/{id}/goal at any time.
+
+    Returns a one-line German sentence (≤200 chars). Failure modes are
+    swallowed by the caller — a missing goal is fine, the Planner falls
+    back to the chunk text.
+    """
+    del provider  # reserved for Stage 6 routing
+    system = EXTRACT_GOAL_SYSTEM + (extra_system or "")
+    user = (
+        f"Textabschnitt:\n{chunk_text}\n\n"
+        f"Erste überprüfbare Aussage:\n{first_claim_text}\n\n"
+        f"Recherche-Ziel:"
+    )
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = (completion.text or "").strip()
+    # Strip outer quote pairs the model sometimes emits.
+    while len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"', "„"):
+        raw = raw[1:-1].strip()
+    raw = raw[:200]
+    if not raw:
+        raise RuntimeError("_llm_extract_goal: empty response from LLM")
+    return raw
+
+
+def _maybe_extract_goal(cfg: object, sd: Path, meta: SessionMeta, claim_text: str) -> SessionMeta:
+    """Auto-trigger goal extraction after the first claim of a session is
+    accepted. Idempotent: if ``meta.goal`` is already set we return meta
+    unchanged. Failures are logged + swallowed — a session is still usable
+    without an extracted goal."""
+    if meta.goal:
+        return meta
+    nodes, _ = read_session(sd)
+    chunk = next((n for n in nodes if n.node_id == meta.root_chunk_id), None)
+    if chunk is None:
+        # Older sessions stored the chunk node under its own node_id, not
+        # the box_id. Fall back to "first chunk in the session".
+        chunk = next((n for n in nodes if n.kind == "chunk"), None)
+    if chunk is None:
+        return meta
+    chunk_text = str(chunk.payload.get("text", ""))
+    extra_system, _ = _gather_guidance(cfg.data_root, meta, "extract_goal")  # type: ignore[attr-defined]
+    try:
+        goal = _llm_extract_goal(chunk_text, claim_text, "vllm", extra_system=extra_system)
+    except Exception as exc:
+        _log.warning("extract_goal failed: %s", exc)
+        return meta
+    new_meta = SessionMeta(**{**meta.__dict__, "goal": goal})
+    write_meta(sd, new_meta)
+    return new_meta
+
+
 def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = "") -> str:
     """Generate a short German sentence justifying a stop on the current node.
 
@@ -1361,6 +1481,12 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 )
             )
         _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
+        # Auto-extract the session goal off the *first* claim. Best-effort —
+        # failures are logged + swallowed inside the helper.
+        if claim_texts:
+            decide_meta = read_meta(sd)
+            if decide_meta is not None:
+                _maybe_extract_goal(cfg, sd, decide_meta, claim_texts[0])
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],

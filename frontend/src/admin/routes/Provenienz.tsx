@@ -8,6 +8,7 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
+import { SessionGoalBar } from "../provenienz/SessionGoalBar";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
@@ -157,15 +158,22 @@ export function Provenienz(): JSX.Element {
           )}
           {!creating && selectedId && detail.data && (
             <>
-              <header className="border-b border-navy-700 px-4 py-2">
-                <h2 className={`${T.cardTitle} text-white`}>
-                  Sitzung {detail.data.meta.session_id}
-                </h2>
-                <p className={`text-slate-400 ${T.body}`}>
-                  Wurzel-Chunk: {detail.data.meta.root_chunk_id} · Status:{" "}
-                  {detail.data.meta.status} · {detail.data.nodes.length} Knoten ·{" "}
-                  {detail.data.edges.length} Kanten
-                </p>
+              <header className="border-b border-navy-700 px-4 py-2 space-y-2">
+                <div>
+                  <h2 className={`${T.cardTitle} text-white`}>
+                    Sitzung {detail.data.meta.session_id}
+                  </h2>
+                  <p className={`text-slate-400 ${T.body}`}>
+                    Wurzel-Chunk: {detail.data.meta.root_chunk_id} · Status:{" "}
+                    {detail.data.meta.status} · {detail.data.nodes.length} Knoten ·{" "}
+                    {detail.data.edges.length} Kanten
+                  </p>
+                </div>
+                <SessionGoalBar
+                  sessionId={detail.data.meta.session_id}
+                  token={tokenStr}
+                  goal={detail.data.meta.goal}
+                />
               </header>
               <div className="flex-1 min-h-0 flex">
                 <div className="flex-1 min-w-0">

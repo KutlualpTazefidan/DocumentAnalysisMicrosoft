@@ -21,6 +21,7 @@ export interface SessionMeta {
   created_at: string;
   last_touched_at: string;
   pinned_approach_ids: string[];
+  goal: string;
 }
 
 export interface ProvNode {
@@ -221,6 +222,29 @@ export function useDeleteSession(token: string, slug: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "sessions", slug] });
+    },
+  });
+}
+
+export function useSetGoal(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<SessionMeta, Error, string>({
+    mutationFn: async (goal) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/goal`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ goal }),
+        },
+        token,
+      );
+      const out = (await r.json()) as { meta: SessionMeta };
+      return out.meta;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+      qc.invalidateQueries({ queryKey: ["provenienz", "sessions"] });
     },
   });
 }
