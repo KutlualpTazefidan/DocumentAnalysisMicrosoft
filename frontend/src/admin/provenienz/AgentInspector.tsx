@@ -166,6 +166,17 @@ function ToolView({
         <Section title="Wann auswählen">
           <p className={`text-slate-200 ${T.body} italic`}>{tool.when_to_use}</p>
         </Section>
+        {tool.agent_hint && (
+          <Section title="Agent-Hinweis (Trigger-Heuristik)">
+            <p className={`text-emerald-200 ${T.body} italic`}>
+              {tool.agent_hint}
+            </p>
+            <p className={`${T.tiny} text-slate-500 mt-1`}>
+              Dieser Hinweis fließt in den Planner-Prompt ein, damit der Agent
+              das Tool beim richtigen Namen anfragt.
+            </p>
+          </Section>
+        )}
         <Section title="Verwendung">
           <p className={`text-slate-200 ${T.body}`}>
             Wird gerufen von:{" "}

@@ -30,6 +30,11 @@ class ToolInfo:
     cost_hint: str  # "schnell" | "moderat" | "teuer" | "extern-API"
     enabled: bool  # if False: Planner sees it but cannot select it
     used_by: list[str] = field(default_factory=list)  # step_kinds that can call it
+    # Concrete trigger heuristics injected into the Planner prompt — tells
+    # the agent *exactly* when to capability_request this tool by its right
+    # name. More specific than ``when_to_use`` (which is a one-sentence
+    # human description) — this is the agent's playbook entry.
+    agent_hint: str = ""
 
 
 # v1 registry. Add a new tool by appending here — the agent-info endpoint
@@ -44,6 +49,10 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="schnell",
         enabled=True,
         used_by=["search"],
+        agent_hint=(
+            "Default-Tool im /search-Step. KEIN capability_request nötig — wähle "
+            "einfach executable_step name='search'."
+        ),
     ),
     ToolInfo(
         name="cross_doc_searcher",
@@ -57,6 +66,12 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="moderat",
         enabled=False,
         used_by=["search"],
+        agent_hint=(
+            "capability_request mit name='CrossDocSearcher' wenn die Aussage explizit "
+            "auf andere Dokumente verweist ('in [3]', 'gemäß DIN', 'siehe Anhang A', "
+            "Zitate, Quellenangaben) ODER wenn InDocSearcher leer geblieben wäre und "
+            "das Thema offensichtlich aus einem Geschwister-Dokument stammt."
+        ),
     ),
     ToolInfo(
         name="semantic_searcher",
@@ -67,6 +82,12 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="moderat",
         enabled=False,
         used_by=["search"],
+        agent_hint=(
+            "capability_request mit name='SemanticSearcher' wenn die Aussage "
+            "umschriebene Konzepte enthält die im Korpus mit anderen Wörtern stehen "
+            "(z.B. 'Heizleistung' vs. 'Wärmeerzeugung'). InDocSearcher findet das "
+            "wegen BM25-Lexikon nicht."
+        ),
     ),
     ToolInfo(
         name="azure_searcher",
@@ -77,6 +98,11 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="extern-API",
         enabled=False,
         used_by=["search"],
+        agent_hint=(
+            "capability_request mit name='AzureSearcher' wenn die Aussage einen "
+            "Kontext erwähnt der wahrscheinlich im Microsoft-Index liegt aber nicht "
+            "im lokalen Korpus (firmen-interne Doks, externe Spezifikationen)."
+        ),
     ),
     ToolInfo(
         name="numeric_extractor",
@@ -90,6 +116,11 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="moderat",
         enabled=False,
         used_by=["extract_claims"],
+        agent_hint=(
+            "capability_request mit name='NumericExtractor' bei Chunks mit dichten "
+            "Zahlen + Einheiten (Datenblätter, Tabellen, Spezifikationen). Bei "
+            "Fließtext: lieber regulär executable_step name='extract_claims'."
+        ),
     ),
     ToolInfo(
         name="calculator",
@@ -100,6 +131,11 @@ TOOL_REGISTRY: list[ToolInfo] = [
         cost_hint="schnell",
         enabled=False,
         used_by=["evaluate"],
+        agent_hint=(
+            "capability_request mit name='Calculator' nur in evaluate-Kontext wenn "
+            "die Aussage eine Rechnung enthält (z.B. '5.6 kW = 2.1+1.5+2.0') und "
+            "der Treffer-Text die Einzelwerte aber nicht die Summe nennt."
+        ),
     ),
 ]
 

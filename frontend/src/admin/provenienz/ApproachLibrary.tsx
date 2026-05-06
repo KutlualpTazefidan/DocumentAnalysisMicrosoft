@@ -12,11 +12,23 @@ import {
 import { T } from "../styles/typography";
 
 const STEP_KIND_OPTIONS = [
+  "next_step",
   "extract_claims",
+  "extract_goal",
   "formulate_task",
   "evaluate",
   "propose_stop",
 ] as const;
+
+const STEP_KIND_HINT: Record<string, string> = {
+  next_step:
+    "🧠 Beeinflusst, WIE der Agent den nächsten Schritt wählt — Heuristiken zu " +
+    "Kapselregeln (capability_request vs. executable_step), Tool-Wahl, " +
+    "Eskalations-Kriterien.",
+  extract_goal:
+    "Beeinflusst die automatische Ableitung des Sitzungs-Ziels aus Chunk + " +
+    "erster Aussage.",
+};
 
 interface Props {
   token: string;
@@ -38,7 +50,10 @@ export function ApproachLibrary({ token }: Props): JSX.Element {
           <h3 className={`${T.heading} text-white`}>Approach-Bibliothek</h3>
           <p className={`${T.body} text-slate-400`}>
             Benannte Prompt-Erweiterungen — werden gepinnten Sitzungen in
-            den System-Prompt eingehängt.
+            den System-Prompt eingehängt. Approaches mit step_kind{" "}
+            <code className="text-amber-300">next_step</code> bringen dem
+            Agent bei <em>wie er denken soll</em> (Kapselregeln,
+            Tool-Auswahl, Eskalation).
           </p>
         </div>
         <button
@@ -110,13 +125,18 @@ function CreateForm({ token, onDone }: { token: string; onDone: () => void }): J
         <div className="flex flex-wrap gap-2 mt-1">
           {STEP_KIND_OPTIONS.map((s) => {
             const checked = stepKinds.includes(s);
+            const isMeta = s === "next_step" || s === "extract_goal";
             return (
               <label
                 key={s}
                 className={`px-2 py-1 rounded cursor-pointer ${T.tiny} ${
                   checked
-                    ? "bg-blue-700 text-white"
-                    : "bg-navy-800 text-slate-300 border border-navy-600"
+                    ? isMeta
+                      ? "bg-amber-700 text-white"
+                      : "bg-blue-700 text-white"
+                    : isMeta
+                      ? "bg-navy-800 text-amber-300 border border-amber-700/40"
+                      : "bg-navy-800 text-slate-300 border border-navy-600"
                 }`}
               >
                 <input
@@ -133,6 +153,17 @@ function CreateForm({ token, onDone }: { token: string; onDone: () => void }): J
             );
           })}
         </div>
+        {stepKinds.some((s) => STEP_KIND_HINT[s]) && (
+          <ul className="mt-2 space-y-1">
+            {stepKinds
+              .filter((s) => STEP_KIND_HINT[s])
+              .map((s) => (
+                <li key={s} className={`${T.tiny} text-amber-300/85 italic`}>
+                  {STEP_KIND_HINT[s]}
+                </li>
+              ))}
+          </ul>
+        )}
       </div>
       <div>
         <label className={`${T.tiny} text-slate-300 block`}>System-Prompt-Erweiterung</label>

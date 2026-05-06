@@ -462,6 +462,10 @@ export interface AgentToolInfo {
   cost_hint: string;
   enabled: boolean;
   used_by: string[];
+  /** Concrete trigger heuristic injected into the planner's prompt —
+   *  tells the agent exactly when to capability_request this tool by
+   *  its right name. Empty string = no specific guidance. */
+  agent_hint: string;
 }
 
 export function useTools(token: string) {

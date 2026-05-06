@@ -792,16 +792,17 @@ PRE_REASON_SYSTEM = (
 NEXT_STEP_SYSTEM = (
     "Du bist der reflektierende Teil eines Recherche-Agenten. Du bekommst "
     "einen Knoten + Sitzungs-Ziel + Liste der verfügbaren Steps + Liste "
-    "der verfügbaren Tools. Wähle den nächsten Schritt — ABER nur wenn "
-    "ein registrierter Step wirklich passt. Wenn kein Step + kein Tool "
+    "der verfügbaren Tools (mit Agent-Hinweisen wann welches Tool zu "
+    "wählen ist). Wähle den nächsten Schritt — ABER nur wenn ein "
+    "registrierter Step wirklich passt. Wenn kein Step + kein Tool "
     "ausreicht, darfst du auch ehrlich sagen: 'wir bräuchten X, das "
     "fehlt' (capability_request) oder 'das ist Mensch-Arbeit' "
     "(manual_review).\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
-    '  "name": <Step-Name (bei executable) ODER kurze Capability-Bezeichnung>,\n'
-    '  "description": <Bei capability_request/manual_review: was fehlt / '
+    '  "name": <siehe unten>,\n'
+    '  "description": <bei capability_request/manual_review: was fehlt / '
     "warum Mensch — deutscher Satz>,\n"
     '  "reasoning": <warum diese Wahl jetzt — deutscher Satz>,\n'
     '  "considered_alternatives": [\n'
@@ -811,8 +812,20 @@ NEXT_STEP_SYSTEM = (
     '  "tool": <Tool-Name oder null>,\n'
     '  "approach_id": <Approach-Name oder null>\n'
     "}\n\n"
-    "Kein Vor- oder Nachtext, keine Codeblöcke. Bei executable_step "
-    "MUSS name aus den verfügbaren Steps stammen."
+    "Kein Vor- oder Nachtext, keine Codeblöcke.\n\n"
+    "REGELN für name:\n"
+    "- executable_step → name = Step-Name aus der verfügbaren Liste "
+    "(extract_claims, formulate_task, search, evaluate, propose_stop, "
+    "promote_search_result).\n"
+    "- capability_request → name = exakter Tool-Name aus dem Tool-Registry "
+    "wenn ein deaktivierter Tool-Stub zur Lücke passt (z.B. "
+    "'CrossDocSearcher', 'SemanticSearcher', 'NumericExtractor'). NICHT "
+    "vage Begriffe wie 'search' oder 'parse' — sondern der spezifische "
+    "Tool-Name. Wenn KEINES der Stubs passt, erfinde eine kurze "
+    "PascalCase-Bezeichnung (z.B. 'TableParser') + erkläre in description "
+    "was es können müsste.\n"
+    "- manual_review → name = kurze Bezeichnung der Mensch-Aufgabe "
+    "(z.B. 'Juristische Bewertung', 'Domain-Expertise erforderlich')."
 )
 PLAN_SYSTEM = (
     "Du bist der Planer eines Recherche-Agenten. Eingabe: ein Ziel, "
@@ -1705,14 +1718,21 @@ def _summarize_session_state(meta: SessionMeta, nodes: list[Node], edges: list[E
 
 
 def _summarize_tools_for_planner() -> str:
-    """One-line-per-tool listing for the Planner's user prompt."""
-    out = []
+    """Multi-line tool listing for the Planner's user prompt. Includes
+    each tool's ``agent_hint`` (concrete trigger heuristic) so the LLM
+    knows exactly when to capability_request a stub by its right name —
+    e.g. ``CrossDocSearcher`` rather than a vague ``"search"``.
+    """
+    out: list[str] = []
     for t in list_tools():
-        status = "verfügbar" if t.enabled else "DEAKTIVIERT (Planner darf nicht wählen)"
+        status = "verfügbar" if t.enabled else "DEAKTIVIERT (capability_request möglich)"
         consumers = ", ".join(t.used_by)
         out.append(
-            f"- {t.name} ({t.scope}, {t.cost_hint}, {status}): {t.when_to_use} | für: {consumers}"
+            f"- {t.name} ({t.scope}, {t.cost_hint}, {status}, für: {consumers})\n"
+            f"    {t.when_to_use}"
         )
+        if t.agent_hint:
+            out.append(f"    Agent-Hinweis: {t.agent_hint}")
     return "\n".join(out)
 
 
