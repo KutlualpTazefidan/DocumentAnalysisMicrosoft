@@ -35,7 +35,7 @@ export function Canvas({
   onViewIndex,
 }: Props): JSX.Element {
   const [direction, setDirection] = useState<LayoutDirection>("TB");
-  const [snap, setSnap] = useState(false);
+  const [snap, setSnap] = useState(true);
 
   const laid = useMemo(
     () => layoutGraph(nodes, edges, { direction }),
@@ -44,8 +44,17 @@ export function Canvas({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
 
+  // Preserve user-dragged positions across refetches: keep the existing
+  // position for any tile the user already moved; only new tiles use the
+  // dagre-computed coordinates.
   useEffect(() => {
-    setRfNodes(laid.nodes);
+    setRfNodes((prev) => {
+      const prevPos = new Map(prev.map((n) => [n.id, n.position]));
+      return laid.nodes.map((n) => ({
+        ...n,
+        position: prevPos.get(n.id) ?? n.position,
+      }));
+    });
     setRfEdges(laid.edges);
   }, [laid.nodes, laid.edges, setRfNodes, setRfEdges]);
 

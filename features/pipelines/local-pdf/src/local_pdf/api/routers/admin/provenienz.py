@@ -213,15 +213,66 @@ async def unpin_approach(session_id: str, body: PinApproachRequest, request: Req
 
 
 def _strip_json_fence(s: str) -> str:
-    """Strip ```json ... ``` or ``` ... ``` fences if present."""
+    """Strip ```json ... ``` or ``` ... ``` fences and extract the first
+    top-level JSON value (object or array) from prose-wrapped output.
+
+    Small models routinely return ``Hier ist die Antwort: {...}`` or wrap
+    JSON in code fences; we want both shapes to parse.
+    """
     s = s.strip()
     if s.startswith("```"):
-        # remove leading fence (```json or ```)
         first_newline = s.find("\n")
         s = s[first_newline + 1 :] if first_newline != -1 else s[3:]
         if s.endswith("```"):
             s = s[:-3]
-    return s.strip()
+    s = s.strip()
+
+    # Already pure JSON? cheap path.
+    if s.startswith("{") or s.startswith("["):
+        return s
+
+    # Otherwise scan for the first balanced JSON object or array.
+    extracted = _extract_first_json_value(s)
+    return extracted if extracted is not None else s
+
+
+def _extract_first_json_value(s: str) -> str | None:
+    """Return the first balanced ``{...}`` or ``[...]`` substring, or None.
+    Tracks string literals so braces inside strings don't throw the count.
+    """
+    start = -1
+    open_ch = ""
+    for i, ch in enumerate(s):
+        if ch == "{" or ch == "[":
+            start = i
+            open_ch = ch
+            break
+    if start < 0:
+        return None
+    close_ch = "}" if open_ch == "{" else "]"
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+    return None
 
 
 _EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradicts"}
@@ -370,11 +421,14 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "extract_claims")
-    claims = _llm_extract_claims(
-        chunk.payload.get("text", ""),
-        body.provider or "vllm",
-        extra_system=extra_system,
-    )
+    try:
+        claims = _llm_extract_claims(
+            chunk.payload.get("text", ""),
+            body.provider or "vllm",
+            extra_system=extra_system,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
 
     payload = ActionProposalPayload(
         step_kind="extract_claims",
@@ -456,11 +510,14 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "formulate_task")
-    query = _llm_formulate_task(
-        claim.payload.get("text", ""),
-        body.provider or "vllm",
-        extra_system=extra_system,
-    )
+    try:
+        query = _llm_formulate_task(
+            claim.payload.get("text", ""),
+            body.provider or "vllm",
+            extra_system=extra_system,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
     payload = ActionProposalPayload(
         step_kind="formulate_task",
         anchor_node_id=body.claim_node_id,
@@ -641,12 +698,15 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "evaluate")
-    verdict_payload = _llm_evaluate(
-        claim.payload.get("text", ""),
-        sr.payload.get("text", ""),
-        body.provider or "vllm",
-        extra_system=extra_system,
-    )
+    try:
+        verdict_payload = _llm_evaluate(
+            claim.payload.get("text", ""),
+            sr.payload.get("text", ""),
+            body.provider or "vllm",
+            extra_system=extra_system,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
     verdict = verdict_payload["verdict"]
     confidence = verdict_payload["confidence"]
     reasoning = verdict_payload["reasoning"]
@@ -738,11 +798,14 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "propose_stop")
-    reason_text = _llm_propose_stop(
-        anchor.payload.get("text", ""),
-        body.provider or "vllm",
-        extra_system=extra_system,
-    )
+    try:
+        reason_text = _llm_propose_stop(
+            anchor.payload.get("text", ""),
+            body.provider or "vllm",
+            extra_system=extra_system,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
     payload = ActionProposalPayload(
         step_kind="propose_stop",
         anchor_node_id=body.anchor_node_id,

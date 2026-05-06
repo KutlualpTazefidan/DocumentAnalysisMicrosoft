@@ -75,12 +75,22 @@ interface LayoutOptions {
   direction?: LayoutDirection;
 }
 
+/**
+ * Dagre uses these dimensions to reserve space; the actual rendered tile may
+ * be slightly smaller, so estimates run a bit large to avoid overlap. Also
+ * align to 16px so positions sit on the same grid as the snap setting.
+ */
 const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
-  chunk: { w: 260, h: 110 },
-  claim_with_task: { w: 280, h: 130 },
-  search_results_bag: { w: 320, h: 200 }, // grows internally; dagre needs an estimate
-  pending_proposal: { w: 240, h: 110 },
+  chunk: { w: 272, h: 144 },
+  claim_with_task: { w: 304, h: 160 },
+  search_results_bag: { w: 336, h: 304 }, // ~10 rows × 28px header + body
+  pending_proposal: { w: 256, h: 144 },
 };
+
+/** Round to the nearest multiple so positions land on the snap grid. */
+function snap(v: number, grid = 16): number {
+  return Math.round(v / grid) * grid;
+}
 
 // ─── view-graph builder ───────────────────────────────────────────────────────
 
@@ -317,7 +327,9 @@ export function layoutViewGraph(
   const direction: LayoutDirection = opts.direction ?? "TB";
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: direction, nodesep: 50, ranksep: 80 });
+  // Generous spacing so dagre's per-rank packing doesn't create overlaps even
+  // when the rendered tile slightly exceeds NODE_DIMS estimates.
+  g.setGraph({ rankdir: direction, nodesep: 80, ranksep: 112, marginx: 16, marginy: 16 });
 
   for (const v of viewNodes) {
     const dims = NODE_DIMS[v.kind];
@@ -333,13 +345,13 @@ export function layoutViewGraph(
   const rfNodes: RfNode[] = viewNodes.map((v) => {
     const pos = g.node(v.view_id);
     const dims = NODE_DIMS[v.kind];
-    const x = (pos?.x ?? 0) - dims.w / 2;
-    const y = (pos?.y ?? 0) - dims.h / 2;
+    const x = snap((pos?.x ?? 0) - dims.w / 2);
+    const y = snap((pos?.y ?? 0) - dims.h / 2);
     return {
       id: v.view_id,
       type: v.kind,
       position: { x, y },
-      data: v, // panel + renderer both read from data.kind
+      data: v,
     };
   });
 
