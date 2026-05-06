@@ -85,9 +85,38 @@ export function ActionProposalPanel({
           <p className={T.tinyBold}>Schritt</p>
           <p className={`text-white ${T.mono}`}>{stepKind}</p>
         </div>
+        {typeof payload.pre_reasoning === "string" && payload.pre_reasoning && (
+          <section className="rounded border border-amber-500/40 bg-amber-900/20 p-2">
+            <p className={`${T.tinyBold} text-amber-300`}>
+              Vor-Reasoning · warum dieser Schritt jetzt
+            </p>
+            <p className={`${T.body} text-amber-100 italic mt-1`}>
+              {String(payload.pre_reasoning)}
+            </p>
+          </section>
+        )}
+        {typeof payload.tool_used === "string" && payload.tool_used && (
+          <div>
+            <p className={T.tinyBold}>Tool verwendet</p>
+            <p className={`text-emerald-300 ${T.mono}`}>
+              {String(payload.tool_used)}
+            </p>
+          </div>
+        )}
+        {typeof payload.system_prompt_used === "string" &&
+          payload.system_prompt_used && (
+            <details className="rounded bg-navy-950 border border-navy-700">
+              <summary className={`${T.tinyBold} cursor-pointer px-2 py-1.5`}>
+                Skill · System-Prompt (mit aktiven Erweiterungen)
+              </summary>
+              <pre className="px-2 pb-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+                {String(payload.system_prompt_used)}
+              </pre>
+            </details>
+          )}
         {reasoning && (
           <div>
-            <p className={T.tinyBold}>Begründung</p>
+            <p className={T.tinyBold}>LLM-Begründung der Empfehlung</p>
             <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
               {reasoning}
             </p>

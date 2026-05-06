@@ -6,7 +6,6 @@ import { ClaimWithTaskTile } from "./ClaimWithTaskTile";
 import { FallbackNode } from "./FallbackNode";
 import { GoalTile } from "./GoalTile";
 import { PendingProposalTile } from "./PendingProposalTile";
-import { PlanProposalTile as PlanProposalCanvasTile } from "./PlanProposalTile";
 import { SearchResultsBagTile } from "./SearchResultsBagTile";
 
 /**
@@ -21,7 +20,6 @@ export const nodeTypes: Record<string, ComponentType<NodeProps>> = {
   claim_with_task: ClaimWithTaskTile,
   search_results_bag: SearchResultsBagTile,
   pending_proposal: PendingProposalTile,
-  plan_proposal: PlanProposalCanvasTile,
   fallback: FallbackNode,
 };
 

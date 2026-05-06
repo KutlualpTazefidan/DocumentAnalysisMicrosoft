@@ -26,8 +26,7 @@ export type ViewNodeKind =
   | "chunk"
   | "claim_with_task"
   | "search_results_bag"
-  | "pending_proposal"
-  | "plan_proposal";
+  | "pending_proposal";
 
 export interface ChunkView {
   view_id: string;
@@ -74,19 +73,12 @@ export interface GoalView {
   session_id: string;
 }
 
-export interface PlanProposalView {
-  view_id: string;
-  kind: "plan_proposal";
-  proposal: ProvNode;
-}
-
 export type ViewNode =
   | GoalView
   | ChunkView
   | ClaimWithTaskView
   | SearchResultsBagView
-  | PendingProposalView
-  | PlanProposalView;
+  | PendingProposalView;
 
 export interface ViewEdge {
   id: string;
@@ -114,8 +106,9 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   chunk: { w: 272, h: 144 },
   claim_with_task: { w: 304, h: 160 },
   search_results_bag: { w: 336, h: 304 },
-  pending_proposal: { w: 256, h: 144 },
-  plan_proposal: { w: 320, h: 192 },
+  // pending_proposal grows with pre-reasoning + skill block — taller to
+  // allow the inline reflection without truncation in dagre's reservation.
+  pending_proposal: { w: 320, h: 240 },
 };
 
 /** Round to the nearest multiple so positions land on the snap grid. */
@@ -394,41 +387,11 @@ export function buildViewGraph(
     }
   }
 
-  // ── 5) Plan proposals (Planner-Vorschläge) ────────────────────────────────
-  // Plan_proposal nodes are written by /plan. They live in the canvas as
-  // their own yellow tile, anchored to the target_anchor_id when available.
-  // Active = not tombstoned (already filtered by read_session). The user
-  // accepts/dismisses via the side panel — no separate banner.
-  for (const n of provNodes) {
-    if (n.kind !== "plan_proposal") continue;
-    const planViewId = `view:${n.node_id}`;
-    viewNodes.push({
-      view_id: planViewId,
-      kind: "plan_proposal",
-      proposal: n,
-    });
-    const targetId = n.payload.target_anchor_id as string | undefined;
-    let parentViewId: string | undefined;
-    if (targetId && g.byId.has(targetId)) {
-      parentViewId = mapAnchorToViewId(targetId, g, taskByClaimId);
-    }
-    // Plans without a valid target attach to the goal tile, so the
-    // Planner's recommendation always sits visually inside the session
-    // narrative.
-    if (!parentViewId && meta) {
-      parentViewId = `view:goal:${meta.session_id}`;
-    } else if (!parentViewId && rootChunkViewId) {
-      parentViewId = rootChunkViewId;
-    }
-    if (parentViewId) {
-      viewEdges.push({
-        id: `e:plan:${n.node_id}`,
-        source: parentViewId,
-        target: planViewId,
-        kind: "planner",
-      });
-    }
-  }
+  // (plan_proposal nodes used to render as their own canvas tile here.
+  // We dropped the separate Vorschlag UI — pre-reasoning is now folded
+  // into every action_proposal directly. plan_proposal entries from
+  // older sessions are silently ignored on the canvas; they remain in
+  // events.jsonl for audit.)
 
   return { viewNodes, viewEdges };
 }

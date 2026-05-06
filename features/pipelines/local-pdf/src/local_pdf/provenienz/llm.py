@@ -39,6 +39,12 @@ class ActionProposalPayload:
     alternatives: list[ActionOption] = field(default_factory=list)
     reasoning: str = ""
     guidance_consulted: list[GuidanceRef] = field(default_factory=list)
+    # Transparency fields — surfaced in the canvas tile so every action
+    # carries its full thinking. Set by the step routes when they call
+    # the LLM.
+    pre_reasoning: str = ""  # ReAct-Thought: why this step now (separate LLM call)
+    system_prompt_used: str = ""  # the literal system prompt sent (with overlays)
+    tool_used: str | None = None  # tool name for search-style steps; None for pure LLM
 
 
 def build_proposal_node(*, session_id: str, actor: str, payload: ActionProposalPayload) -> Node:
@@ -58,6 +64,9 @@ def build_proposal_node(*, session_id: str, actor: str, payload: ActionProposalP
             "alternatives": [asdict(a) for a in payload.alternatives],
             "reasoning": payload.reasoning,
             "guidance_consulted": [asdict(g) for g in payload.guidance_consulted],
+            "pre_reasoning": payload.pre_reasoning,
+            "system_prompt_used": payload.system_prompt_used,
+            "tool_used": payload.tool_used,
         },
         actor=actor,
     )

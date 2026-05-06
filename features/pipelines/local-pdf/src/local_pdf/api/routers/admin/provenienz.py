@@ -754,6 +754,15 @@ EXTRACT_CLAIM_GOALS_SYSTEM = (
     "ausschließlich als JSON-Array von Strings (selbe Länge wie "
     "Input), kein Vor- oder Nachtext, kein Markdown, keine Codeblöcke."
 )
+PRE_REASON_SYSTEM = (
+    "Du bist die reflektierende Schicht eines Recherche-Agenten. Vor "
+    "jeder Aktion erklärst du in EINEM kurzen deutschen Satz (max. "
+    "30 Wörter), was diese Aktion zum Recherche-Ziel beiträgt — warum "
+    "sie jetzt für DIESEN Knoten sinnvoll ist. Beziehe dich konkret "
+    "auf den Knoten und das Ziel. Antworte ausschließlich mit dem "
+    "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
+    "kein Markdown."
+)
 PLAN_SYSTEM = (
     "Du bist der Planer eines Recherche-Agenten. Eingabe: ein Ziel, "
     "der aktuelle Sitzungs-Zustand (Knoten + offene Fronten), die "
@@ -915,6 +924,15 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
     origin_context = _build_origin_context(chunk)
     if origin_context:
         extra_system = origin_context + extra_system
+    # ReAct Thought: why this step now? Best-effort, never blocks the action.
+    pre_reasoning = _llm_pre_reason(
+        step_kind="extract_claims",
+        step_label="Aussagen extrahieren",
+        anchor_summary=str(chunk.payload.get("text", "")),
+        session_goal=meta.goal,
+        claim_goal="",
+    )
+    full_system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "")
     try:
         claims = _llm_extract_claims(
             chunk.payload.get("text", ""),
@@ -939,6 +957,9 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         ],
         reasoning="Heuristik v0: Sätze ≥ 8 Zeichen aus dem Chunk-Text.",
         guidance_consulted=guidance_refs,
+        pre_reasoning=pre_reasoning,
+        system_prompt_used=full_system,
+        tool_used=None,
     )
     node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
     landed = append_node(sd, node)
@@ -996,6 +1017,14 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "formulate_task")
+    pre_reasoning = _llm_pre_reason(
+        step_kind="formulate_task",
+        step_label="Aufgabe formulieren",
+        anchor_summary=str(claim.payload.get("text", "")),
+        session_goal=meta.goal,
+        claim_goal=str(claim.payload.get("goal", "")),
+    )
+    full_system = FORMULATE_TASK_SYSTEM + (extra_system or "")
     try:
         query = _llm_formulate_task(
             claim.payload.get("text", ""),
@@ -1013,6 +1042,9 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         ],
         reasoning="Heuristik v0: Claim-Text als Suchanfrage.",
         guidance_consulted=guidance_refs,
+        pre_reasoning=pre_reasoning,
+        system_prompt_used=full_system,
+        tool_used=None,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
@@ -1196,6 +1228,17 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "evaluate")
+    pre_reasoning = _llm_pre_reason(
+        step_kind="evaluate",
+        step_label="Bewerten",
+        anchor_summary=(
+            f"Treffer: {sr.payload.get('text', '')[:200]} | "
+            f"vs. Aussage: {claim.payload.get('text', '')[:200]}"
+        ),
+        session_goal=meta.goal,
+        claim_goal=str(claim.payload.get("goal", "")),
+    )
+    full_system = EVALUATE_SYSTEM + (extra_system or "")
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
@@ -1234,6 +1277,9 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         ],
         reasoning="LLM-Bewertung Kandidat vs. Claim.",
         guidance_consulted=guidance_refs,
+        pre_reasoning=pre_reasoning,
+        system_prompt_used=full_system,
+        tool_used=None,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
@@ -1273,6 +1319,47 @@ def _llm_extract_claim_goals(
     if not isinstance(parsed, list) or len(parsed) != len(claim_texts):
         return [""] * len(claim_texts)
     return [str(g).strip()[:200] if isinstance(g, str) else "" for g in parsed]
+
+
+def _llm_pre_reason(
+    step_kind: str,
+    step_label: str,
+    anchor_summary: str,
+    session_goal: str,
+    claim_goal: str,
+    *,
+    extra_system: str = "",
+) -> str:
+    """ReAct-style "Thought" before each action: a short German sentence
+    explaining why this step makes sense for this anchor right now,
+    relative to the session goal + the per-claim research question (if
+    relevant). Best-effort: returns "" on parse / LLM failure so the
+    action path never blocks on the reflective layer.
+    """
+    system = PRE_REASON_SYSTEM + (extra_system or "")
+    user = (
+        f"Schritt: {step_label} ({step_kind})\n"
+        f"Knoten-Inhalt: {anchor_summary[:400]}\n"
+        f"Sitzungs-Ziel: {session_goal or '(nicht gesetzt)'}\n"
+        f"Recherche-Frage zur Aussage: {claim_goal or '(nicht relevant)'}\n\n"
+        f"Begründung in einem Satz:"
+    )
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=system),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+        )
+    except Exception as exc:
+        _log.warning("pre_reason LLM call failed: %s", exc)
+        return ""
+    raw = (completion.text or "").strip()
+    while len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"', "„"):
+        raw = raw[1:-1].strip()
+    return raw[:300]
 
 
 def _llm_extract_goal(
@@ -1592,6 +1679,14 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
 
     actor = resolve_provider(body.provider)
     extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "propose_stop")
+    pre_reasoning = _llm_pre_reason(
+        step_kind="propose_stop",
+        step_label="Stopp vorschlagen",
+        anchor_summary=str(anchor.payload.get("text", "") or anchor.payload.get("query", "")),
+        session_goal=meta.goal,
+        claim_goal=str(anchor.payload.get("goal", "")) if anchor.kind == "claim" else "",
+    )
+    full_system = PROPOSE_STOP_SYSTEM + (extra_system or "")
     try:
         reason_text = _llm_propose_stop(
             anchor.payload.get("text", ""),
@@ -1615,6 +1710,9 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         ],
         reasoning="Manueller Vorschlag: Recherche abgeschlossen?",
         guidance_consulted=guidance_refs,
+        pre_reasoning=pre_reasoning,
+        system_prompt_used=full_system,
+        tool_used=None,
     )
     landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, FolderTree, GitMerge, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Bot, FolderTree, GitMerge, Plus, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
@@ -16,7 +16,6 @@ import {
   useAgentInfo,
   useCreateSession,
   useDeleteSession,
-  useGetPlan,
   useSession,
   useSessions,
   type SessionMeta,
@@ -281,39 +280,20 @@ function AgentView({
 
 function SessionHeader({
   detail,
-  token,
 }: {
   detail: { meta: SessionMeta; nodes: { kind: string }[]; edges: unknown[] };
   token: string;
 }): JSX.Element {
-  const plan = useGetPlan(token, detail.meta.session_id);
   return (
     <header className="border-b border-navy-700 px-4 py-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className={`${T.cardTitle} text-white`}>
-            Sitzung {detail.meta.session_id}
-          </h2>
-          <p className={`text-slate-400 ${T.body}`}>
-            Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
-            {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
-            {detail.edges.length} Kanten
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => plan.mutate()}
-          disabled={plan.isPending}
-          className={`px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white ${T.body} flex items-center gap-1 shrink-0 disabled:opacity-50`}
-          title="Planer fragen, was als nächstes zu tun ist — Ergebnis erscheint als Tile im Canvas"
-        >
-          <Sparkles className="w-4 h-4" aria-hidden />
-          {plan.isPending ? "Planer denkt…" : "Vorschlag"}
-        </button>
-      </div>
-      {plan.error && (
-        <p className={`text-red-400 ${T.tiny} mt-1`}>{plan.error.message}</p>
-      )}
+      <h2 className={`${T.cardTitle} text-white`}>
+        Sitzung {detail.meta.session_id}
+      </h2>
+      <p className={`text-slate-400 ${T.body}`}>
+        Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
+        {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
+        {detail.edges.length} Kanten
+      </p>
     </header>
   );
 }
