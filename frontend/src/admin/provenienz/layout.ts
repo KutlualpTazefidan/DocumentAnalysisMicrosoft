@@ -22,10 +22,12 @@ import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
  */
 
 export type ViewNodeKind =
+  | "goal"
   | "chunk"
   | "claim_with_task"
   | "search_results_bag"
-  | "pending_proposal";
+  | "pending_proposal"
+  | "plan_proposal";
 
 export interface ChunkView {
   view_id: string;
@@ -63,11 +65,28 @@ export interface PendingProposalView {
   proposal: ProvNode;
 }
 
+export interface GoalView {
+  view_id: string;
+  kind: "goal";
+  /** Latest goal text. Empty string = not yet set. */
+  text: string;
+  /** session id, so the panel can fire updates. */
+  session_id: string;
+}
+
+export interface PlanProposalView {
+  view_id: string;
+  kind: "plan_proposal";
+  proposal: ProvNode;
+}
+
 export type ViewNode =
+  | GoalView
   | ChunkView
   | ClaimWithTaskView
   | SearchResultsBagView
-  | PendingProposalView;
+  | PendingProposalView
+  | PlanProposalView;
 
 export interface ViewEdge {
   id: string;
@@ -91,10 +110,12 @@ interface LayoutOptions {
  * align to 16px so positions sit on the same grid as the snap setting.
  */
 const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
+  goal: { w: 384, h: 96 },
   chunk: { w: 272, h: 144 },
   claim_with_task: { w: 304, h: 160 },
-  search_results_bag: { w: 336, h: 304 }, // ~10 rows × 28px header + body
+  search_results_bag: { w: 336, h: 304 },
   pending_proposal: { w: 256, h: 144 },
+  plan_proposal: { w: 320, h: 192 },
 };
 
 /** Round to the nearest multiple so positions land on the snap grid. */
@@ -145,12 +166,18 @@ function indexProposalResolution(g: IndexedGraph): {
   return { decisionByProposalId };
 }
 
+interface SessionMetaLike {
+  session_id: string;
+  goal: string;
+}
+
 /**
  * Build the collapsed view graph. See module docstring for the rules.
  */
 export function buildViewGraph(
   provNodes: ProvNode[],
   provEdges: ProvEdge[],
+  meta?: SessionMetaLike,
 ): { viewNodes: ViewNode[]; viewEdges: ViewEdge[] } {
   const g = indexGraph(provNodes, provEdges);
   const { decisionByProposalId } = indexProposalResolution(g);
@@ -222,6 +249,31 @@ export function buildViewGraph(
       if (e.kind === "promoted-from" && g.byId.has(e.to_node)) {
         promotedChunkBySrId.set(e.to_node, n);
       }
+    }
+  }
+
+  // ── 0) Goal tile (top of every session) ───────────────────────────────────
+  // Synthesised — not a real node in the event log. Reads meta.goal so the
+  // user can see the research goal in the canvas alongside everything else.
+  let rootChunkViewId: string | null = null;
+  if (meta) {
+    const rootChunk = provNodes.find(
+      (n) => n.kind === "chunk" && !n.payload.promoted_from,
+    );
+    if (rootChunk) {
+      rootChunkViewId = `view:${rootChunk.node_id}`;
+      viewNodes.push({
+        view_id: `view:goal:${meta.session_id}`,
+        kind: "goal",
+        text: meta.goal,
+        session_id: meta.session_id,
+      });
+      viewEdges.push({
+        id: `e:goal->root`,
+        source: `view:goal:${meta.session_id}`,
+        target: rootChunkViewId,
+        kind: "directs",
+      });
     }
   }
 
@@ -339,6 +391,42 @@ export function buildViewGraph(
           kind: "pending",
         });
       }
+    }
+  }
+
+  // ── 5) Plan proposals (Planner-Vorschläge) ────────────────────────────────
+  // Plan_proposal nodes are written by /plan. They live in the canvas as
+  // their own yellow tile, anchored to the target_anchor_id when available.
+  // Active = not tombstoned (already filtered by read_session). The user
+  // accepts/dismisses via the side panel — no separate banner.
+  for (const n of provNodes) {
+    if (n.kind !== "plan_proposal") continue;
+    const planViewId = `view:${n.node_id}`;
+    viewNodes.push({
+      view_id: planViewId,
+      kind: "plan_proposal",
+      proposal: n,
+    });
+    const targetId = n.payload.target_anchor_id as string | undefined;
+    let parentViewId: string | undefined;
+    if (targetId && g.byId.has(targetId)) {
+      parentViewId = mapAnchorToViewId(targetId, g, taskByClaimId);
+    }
+    // Plans without a valid target attach to the goal tile, so the
+    // Planner's recommendation always sits visually inside the session
+    // narrative.
+    if (!parentViewId && meta) {
+      parentViewId = `view:goal:${meta.session_id}`;
+    } else if (!parentViewId && rootChunkViewId) {
+      parentViewId = rootChunkViewId;
+    }
+    if (parentViewId) {
+      viewEdges.push({
+        id: `e:plan:${n.node_id}`,
+        source: parentViewId,
+        target: planViewId,
+        kind: "planner",
+      });
     }
   }
 
@@ -583,8 +671,9 @@ export function layoutGraph(
   provNodes: ProvNode[],
   provEdges: ProvEdge[],
   opts: LayoutOptions = {},
+  meta?: SessionMetaLike,
 ): { nodes: RfNode[]; edges: RfEdge[]; viewNodes: ViewNode[] } {
-  const { viewNodes, viewEdges } = buildViewGraph(provNodes, provEdges);
+  const { viewNodes, viewEdges } = buildViewGraph(provNodes, provEdges, meta);
   const laid = layoutViewGraph(viewNodes, viewEdges, opts);
   return { ...laid, viewNodes };
 }
@@ -598,7 +687,11 @@ function edgeColor(kind: string): string {
     case "pending":
       return "#fbbf24";
     case "promoted-from":
-      return "#a855f7"; // purple — distinct from the trunk
+      return "#a855f7";
+    case "directs":
+      return "#f472b6"; // pink — goal directs the chunk
+    case "planner":
+      return "#fbbf24"; // amber — planner suggested action here
     default:
       return "#475569";
   }

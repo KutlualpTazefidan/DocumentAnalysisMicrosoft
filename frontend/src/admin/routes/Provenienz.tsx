@@ -8,8 +8,6 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
-import { PlanProposalBanner } from "../provenienz/PlanProposalBanner";
-import { SessionGoalBar } from "../provenienz/SessionGoalBar";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
@@ -21,7 +19,6 @@ import {
   useGetPlan,
   useSession,
   useSessions,
-  type PlanProposal,
   type SessionMeta,
 } from "../hooks/useProvenienz";
 import type { ViewNode } from "../provenienz/layout";
@@ -161,17 +158,14 @@ export function Provenienz(): JSX.Element {
           )}
           {!creating && selectedId && detail.data && (
             <>
-              <SessionHeader
-                detail={detail.data}
-                token={tokenStr}
-              />
-              <PlanBannerSlot detail={detail.data} token={tokenStr} />
+              <SessionHeader detail={detail.data} token={tokenStr} />
               <div className="flex-1 min-h-0 flex">
                 <div className="flex-1 min-w-0">
                   <ReactFlowProvider>
                     <Canvas
                       nodes={detail.data.nodes}
                       edges={detail.data.edges}
+                      meta={detail.data.meta}
                       sessionId={detail.data.meta.session_id}
                       onSelectView={setSelectedViewId}
                       onViewIndex={handleViewIndex}
@@ -294,7 +288,7 @@ function SessionHeader({
 }): JSX.Element {
   const plan = useGetPlan(token, detail.meta.session_id);
   return (
-    <header className="border-b border-navy-700 px-4 py-2 space-y-2">
+    <header className="border-b border-navy-700 px-4 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className={`${T.cardTitle} text-white`}>
@@ -311,51 +305,16 @@ function SessionHeader({
           onClick={() => plan.mutate()}
           disabled={plan.isPending}
           className={`px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white ${T.body} flex items-center gap-1 shrink-0 disabled:opacity-50`}
-          title="Planer fragen, was als nächstes zu tun ist"
+          title="Planer fragen, was als nächstes zu tun ist — Ergebnis erscheint als Tile im Canvas"
         >
           <Sparkles className="w-4 h-4" aria-hidden />
           {plan.isPending ? "Planer denkt…" : "Vorschlag"}
         </button>
       </div>
-      <SessionGoalBar
-        sessionId={detail.meta.session_id}
-        token={token}
-        goal={detail.meta.goal}
-      />
       {plan.error && (
-        <p className={`text-red-400 ${T.tiny}`}>{plan.error.message}</p>
+        <p className={`text-red-400 ${T.tiny} mt-1`}>{plan.error.message}</p>
       )}
     </header>
-  );
-}
-
-function PlanBannerSlot({
-  detail,
-  token,
-}: {
-  detail: { meta: SessionMeta; nodes: PlanProposal[] | unknown[] };
-  token: string;
-}): JSX.Element {
-  // Render the most-recent (un-tombstoned) plan_proposal node, if any.
-  const plans = (detail.nodes as Array<{
-    node_id: string;
-    kind: string;
-    payload: PlanProposal["payload"];
-    actor: string;
-    created_at: string;
-    session_id: string;
-  }>).filter((n) => n.kind === "plan_proposal");
-  if (plans.length === 0) return <></>;
-  const latest = plans[plans.length - 1] as PlanProposal;
-  return (
-    <PlanProposalBanner
-      plan={latest}
-      sessionId={detail.meta.session_id}
-      token={token}
-      onDismiss={() => {
-        /* React Query refetch picks up the tombstone; nothing else needed */
-      }}
-    />
   );
 }
 

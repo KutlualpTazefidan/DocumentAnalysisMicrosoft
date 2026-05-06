@@ -25,6 +25,9 @@ import { usePersistedPositions } from "./usePersistedPositions";
 interface Props {
   nodes: ProvNode[];
   edges: ProvEdge[];
+  /** Session meta — needed to synthesise the Goal tile + position the
+   *  Plan-Vorschlag tile relative to the goal. */
+  meta?: { session_id: string; goal: string };
   /** When provided, tile positions persist across tab navigations under
    *  this session id. Pass null to disable persistence. */
   sessionId?: string | null;
@@ -42,6 +45,7 @@ interface Props {
 export function Canvas({
   nodes,
   edges,
+  meta,
   sessionId,
   onSelectView,
   onViewIndex,
@@ -54,8 +58,8 @@ export function Canvas({
   const persisted = usePersistedPositions(sessionId ?? null);
 
   const laid = useMemo(
-    () => layoutGraph(nodes, edges, { direction }),
-    [nodes, edges, direction],
+    () => layoutGraph(nodes, edges, { direction }, meta),
+    [nodes, edges, direction, meta],
   );
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
