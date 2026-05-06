@@ -129,8 +129,7 @@ export function useSessions(slug: string, token: string) {
         { method: "GET" },
         token,
       );
-      const body = (await r.json()) as { sessions: SessionMeta[] };
-      return body.sessions;
+      return (await r.json()) as SessionMeta[];
     },
   });
 }
@@ -173,14 +172,13 @@ export function useCreateSession(token: string) {
 
 export function useDeleteSession(token: string, slug: string) {
   const qc = useQueryClient();
-  return useMutation<{ ok: boolean }, Error, string>({
+  return useMutation<void, Error, string>({
     mutationFn: async (sessionId) => {
-      const r = await fetchOk(
+      await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions/${sessionId}`,
         { method: "DELETE" },
         token,
       );
-      return (await r.json()) as { ok: boolean };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "sessions", slug] });
