@@ -210,6 +210,46 @@ export function useCreateSession(token: string) {
   });
 }
 
+export interface PlanProposal {
+  node_id: string;
+  session_id: string;
+  kind: "plan_proposal";
+  payload: {
+    next_step: string;
+    target_anchor_id: string;
+    tool: string | null;
+    approach_id: string | null;
+    reasoning: string;
+    expected_outcome: string;
+    confidence: number;
+    fallback_plan: string;
+    guidance_consulted?: GuidanceConsulted[];
+  };
+  actor: string;
+  created_at: string;
+}
+
+export function useGetPlan(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<PlanProposal, Error, void>({
+    mutationFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/plan`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+        token,
+      );
+      return (await r.json()) as PlanProposal;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 export function useDeleteSession(token: string, slug: string) {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({

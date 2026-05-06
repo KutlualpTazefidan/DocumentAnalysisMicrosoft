@@ -703,6 +703,24 @@ EXTRACT_GOAL_SYSTEM = (
     "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
     "kein Markdown."
 )
+PLAN_SYSTEM = (
+    "Du bist der Planer eines Recherche-Agenten. Eingabe: ein Ziel, "
+    "der aktuelle Sitzungs-Zustand (Knoten + offene Fronten), die "
+    "verfügbaren Schritte mit ihren Tools, und die Approach-Bibliothek. "
+    "Du wählst den nächsten sinnvollen Schritt.\n\n"
+    "Ausgabe AUSSCHLIESSLICH als JSON-Objekt mit Feldern: next_step "
+    "(eines von: extract_claims, formulate_task, search, evaluate, "
+    "propose_stop, promote_search_result, stop), target_anchor_id "
+    "(node_id auf den sich der Schritt bezieht; bei stop leer), tool "
+    "(Tool-Name oder null), approach_id (Approach-Name oder null), "
+    "reasoning (deutscher Satz: warum dieser Schritt jetzt), "
+    "expected_outcome (was vom Schritt erwartet wird), confidence "
+    "(0.0-1.0), fallback_plan (Plan B wenn der Schritt scheitert; "
+    "leerer String wenn nicht relevant). Kein Vor- oder Nachtext, "
+    "kein Markdown. Bevorzuge offene Fronten mit hoher erwarteter "
+    "Informationsausbeute. Wähle stop wenn Ziel erreicht oder alle "
+    "Fronten ausgeschöpft."
+)
 
 
 def _format_reason_examples(reasons: list[Reason]) -> str:
@@ -1237,6 +1255,205 @@ def _maybe_extract_goal(cfg: object, sd: Path, meta: SessionMeta, claim_text: st
     return new_meta
 
 
+def _summarize_session_state(meta: SessionMeta, nodes: list[Node], edges: list[Edge]) -> str:
+    """Compact German prose summary of the session state for the Planner.
+
+    Lists the goal, counts each kind, and surfaces the *open fronts* —
+    claims without tasks, tasks without searches, results without
+    evaluations, etc. Truncated to keep the prompt small for big sessions.
+    """
+    chunks = [n for n in nodes if n.kind == "chunk"]
+    claims = [n for n in nodes if n.kind == "claim"]
+    tasks = [n for n in nodes if n.kind == "task"]
+    results = [n for n in nodes if n.kind == "search_result"]
+    evals = [n for n in nodes if n.kind == "evaluation"]
+    stops = [n for n in nodes if n.kind == "stop_proposal"]
+
+    # Walk relationships
+    task_by_claim: dict[str, Node] = {}
+    for t in tasks:
+        cid = t.payload.get("focus_claim_id")
+        if isinstance(cid, str):
+            task_by_claim[cid] = t
+    results_by_task: dict[str, list[Node]] = {}
+    for r in results:
+        tid = r.payload.get("task_node_id")
+        if isinstance(tid, str):
+            results_by_task.setdefault(tid, []).append(r)
+    eval_by_result: dict[str, Node] = {}
+    for ev in evals:
+        for e in edges:
+            if e.from_node == ev.node_id and e.kind == "evaluates":
+                eval_by_result[e.to_node] = ev
+    stopped_anchors = {
+        s.payload.get("anchor_node_id")
+        for s in stops
+        if isinstance(s.payload.get("anchor_node_id"), str)
+    }
+
+    lines: list[str] = []
+    lines.append(f"Ziel: {meta.goal or '(noch nicht gesetzt)'}")
+    lines.append("")
+    lines.append("Bestand:")
+    lines.append(
+        f"  - {len(chunks)} Chunk(s), {len(claims)} Aussage(n), "
+        f"{len(tasks)} Suchanfrage(n), {len(results)} Treffer, "
+        f"{len(evals)} Bewertung(en), {len(stops)} Stopp(s)"
+    )
+
+    open_fronts: list[str] = []
+    for c in claims:
+        cid = c.node_id
+        ctext = str(c.payload.get("text", ""))[:80]
+        if cid in stopped_anchors:
+            continue
+        if cid not in task_by_claim:
+            open_fronts.append(
+                f"- Aussage {cid[:8]}… ({ctext}) → benötigt formulate_task oder propose_stop"
+            )
+            continue
+        task = task_by_claim[cid]
+        rs = results_by_task.get(task.node_id, [])
+        if not rs:
+            open_fronts.append(
+                f'- Suchanfrage {task.node_id[:8]}… für Aussage "{ctext}" → noch nicht gesucht'
+            )
+            continue
+        unevaluated = [r for r in rs if r.node_id not in eval_by_result]
+        if unevaluated:
+            ids = ", ".join(r.node_id[:6] for r in unevaluated[:3])
+            extra = f" + {len(unevaluated) - 3} weitere" if len(unevaluated) > 3 else ""
+            open_fronts.append(
+                f'- {len(unevaluated)} unbewertete Treffer für Aussage "{ctext}" '
+                f"(IDs: {ids}{extra})"
+            )
+            continue
+        # all evaluated — categorise verdicts
+        verdicts = [str(eval_by_result[r.node_id].payload.get("verdict", "?")) for r in rs]
+        verdict_summary = ", ".join(f"{verdicts.count(v)}x {v}" for v in sorted(set(verdicts)))
+        good = any(v in ("likely-source", "partial-support") for v in verdicts)
+        if good:
+            open_fronts.append(
+                f'- Aussage "{ctext}" hat Quelle ({verdict_summary}) → '
+                "Kandidat für propose_stop oder promote_search_result"
+            )
+        else:
+            open_fronts.append(
+                f'- Aussage "{ctext}" → keine Quelle ({verdict_summary}) → '
+                "andere Suchanfrage / propose_stop"
+            )
+
+    # Promoted but un-analysed chunks
+    for ch in chunks:
+        if ch.payload.get("promoted_from") and not any(
+            c.payload.get("source_node_id") == ch.node_id for c in claims
+        ):
+            open_fronts.append(f"- abgeleiteter Chunk {ch.node_id[:8]}… → benötigt extract_claims")
+
+    if open_fronts:
+        lines.append("")
+        lines.append("Offene Fronten:")
+        lines.extend(open_fronts[:12])  # cap
+        if len(open_fronts) > 12:
+            lines.append(f"  … und {len(open_fronts) - 12} weitere")
+    else:
+        lines.append("")
+        lines.append("Keine offenen Fronten — alle Claims bearbeitet.")
+
+    # ID-Index so the Planner can pick a target_anchor_id meaningfully
+    lines.append("")
+    lines.append("Knoten-IDs (für target_anchor_id):")
+    for n in nodes:
+        if n.kind == "decision" or n.kind == "action_proposal":
+            continue
+        text = str(
+            n.payload.get("text") or n.payload.get("query") or n.payload.get("box_id") or ""
+        )[:40]
+        lines.append(f"  - {n.node_id} ({n.kind}): {text}")
+        if len(lines) > 200:  # hard cap
+            break
+
+    return "\n".join(lines)
+
+
+def _summarize_tools_for_planner() -> str:
+    """One-line-per-tool listing for the Planner's user prompt."""
+    out = []
+    for t in list_tools():
+        status = "verfügbar" if t.enabled else "DEAKTIVIERT (Planner darf nicht wählen)"
+        consumers = ", ".join(t.used_by)
+        out.append(
+            f"- {t.name} ({t.scope}, {t.cost_hint}, {status}): {t.when_to_use} | für: {consumers}"
+        )
+    return "\n".join(out)
+
+
+def _llm_plan(
+    goal: str,
+    state_summary: str,
+    tools_summary: str,
+    approaches_summary: str,
+    provider: str,
+    *,
+    extra_system: str = "",
+) -> dict:
+    """Call the Planner LLM. Returns parsed JSON dict with keys: next_step,
+    target_anchor_id, tool, approach_id, reasoning, expected_outcome,
+    confidence, fallback_plan. Tolerant to messy output (uses
+    ``_strip_json_fence`` + extracts first balanced JSON object).
+    """
+    del provider  # reserved for Stage 6 routing
+    system = PLAN_SYSTEM + (extra_system or "")
+    user = (
+        f"## Ziel der Sitzung\n{goal or '(kein Ziel gesetzt — leite aus dem Zustand ab)'}\n\n"
+        f"## Aktueller Zustand\n{state_summary}\n\n"
+        f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
+        f"## Approach-Bibliothek\n{approaches_summary or '(leer)'}\n\n"
+        f"Was ist der nächste sinnvolle Schritt? Antworte als JSON."
+    )
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[Message(role="system", content=system), Message(role="user", content=user)],
+        model=get_default_model(),
+    )
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"_llm_plan: could not parse: {raw[:500]}") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"_llm_plan: not a dict: {raw[:500]}")
+    # Coerce + default missing fields so downstream consumers don't crash.
+    return {
+        "next_step": str(parsed.get("next_step", "stop")),
+        "target_anchor_id": str(parsed.get("target_anchor_id", "")),
+        "tool": parsed.get("tool") if isinstance(parsed.get("tool"), str) else None,
+        "approach_id": parsed.get("approach_id")
+        if isinstance(parsed.get("approach_id"), str)
+        else None,
+        "reasoning": str(parsed.get("reasoning", "")),
+        "expected_outcome": str(parsed.get("expected_outcome", "")),
+        "confidence": float(parsed.get("confidence", 0.5))
+        if isinstance(parsed.get("confidence"), (int, float))
+        else 0.5,
+        "fallback_plan": str(parsed.get("fallback_plan", "")),
+    }
+
+
+def _summarize_approaches_for_planner(data_root: Path) -> str:
+    """One-line-per-approach listing of *enabled* approaches the Planner
+    can pin. Disabled / tombstoned approaches are excluded."""
+    from local_pdf.provenienz.approaches import read_approaches
+
+    items = read_approaches(data_root, enabled_only=True)
+    if not items:
+        return ""
+    return "\n".join(
+        f"- {a.name} (für {', '.join(a.step_kinds)}): {a.extra_system[:120]}" for a in items
+    )
+
+
 def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = "") -> str:
     """Generate a short German sentence justifying a stop on the current node.
 
@@ -1379,6 +1596,64 @@ def _resolve_claims(payload: dict, body: DecideRequest) -> list[str]:
         return [body.override]
     # Pydantic Literal already constrains this, but keep a safety net.
     raise HTTPException(status_code=400, detail=f"unknown accepted: {body.accepted}")
+
+
+class PlanRequest(BaseModel):
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/plan",
+    status_code=201,
+)
+async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
+    """Planner-Schritt: liest Goal + Sitzungs-Zustand + Tool-Registry +
+    Approach-Bibliothek, ruft den LLM-Planner und speichert das Ergebnis
+    als ``plan_proposal``-Node (audit-trail bleibt komplett). Frontend
+    rendert das Resultat als Vorschlag mit "Akzeptieren"-Button, der den
+    empfohlenen Step automatisch auslöst.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+
+    state_summary = _summarize_session_state(meta, nodes, edges)
+    tools_summary = _summarize_tools_for_planner()
+    approaches_summary = _summarize_approaches_for_planner(cfg.data_root)
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "plan")
+
+    try:
+        plan_dict = _llm_plan(
+            meta.goal,
+            state_summary,
+            tools_summary,
+            approaches_summary,
+            body.provider or "vllm",
+            extra_system=extra_system,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Planner-Fehler: {exc}") from exc
+
+    actor = resolve_provider(body.provider)
+    plan_node = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="plan_proposal",
+            payload={
+                **plan_dict,
+                "guidance_consulted": [g.__dict__ for g in guidance_refs],
+            },
+            actor=actor,
+        ),
+    )
+    return plan_node.__dict__
 
 
 @router.post(
