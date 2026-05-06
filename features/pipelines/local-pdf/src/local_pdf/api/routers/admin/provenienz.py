@@ -2105,7 +2105,7 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
 
     available_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
     tools_summary = _summarize_tools_for_planner()
-    extra_system, _ = _gather_guidance(cfg.data_root, meta, "next_step")
+    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "next_step")
     plan = _llm_next_step(
         anchor,
         meta.goal,
@@ -2123,6 +2123,24 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
         "capability_request": "capability_request",
         "manual_review": "manual_review",
     }[plan["kind"]]
+    # Audit: capture the literal system_prompt the LLM saw (NEXT_STEP_SYSTEM
+    # plus any approach overlays) and the input summary so the panel can
+    # show "where this reasoning comes from."
+    full_system = NEXT_STEP_SYSTEM + (extra_system or "")
+    audit = {
+        "source_label": "Was als nächstes? (POST /next-step → _llm_next_step)",
+        "system_prompt_used": full_system,
+        "input_summary": {
+            "anchor_kind": anchor.kind,
+            "anchor_text_preview": str(anchor.payload.get("text", ""))[:300]
+            or str(anchor.payload.get("query", ""))[:300]
+            or "",
+            "session_goal": meta.goal,
+            "available_steps": available_steps,
+            "tools_summary": tools_summary,
+        },
+        "guidance_consulted": [g.__dict__ for g in guidance_refs],
+    }
     node = append_node(
         sd,
         Node(
@@ -2132,6 +2150,7 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
             payload={
                 **plan,
                 "anchor_node_id": body.anchor_node_id,
+                "audit": audit,
             },
             actor=actor,
         ),

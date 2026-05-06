@@ -8,6 +8,7 @@ import {
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { AgentAuditSection } from "./AgentAuditSection";
 
 const STEP_LABEL: Record<string, string> = {
   extract_claims: "Aussagen extrahieren",
@@ -40,6 +41,18 @@ export function PlanProposalPanel({
     tool: string | null;
     approach_id: string | null;
     anchor_node_id: string;
+    audit?: {
+      source_label?: string;
+      system_prompt_used?: string;
+      input_summary?: {
+        anchor_kind?: string;
+        anchor_text_preview?: string;
+        session_goal?: string;
+        available_steps?: string[];
+        tools_summary?: string;
+      };
+      guidance_consulted?: { kind: string; id: string; summary: string }[];
+    };
   };
   const extract = useExtractClaims(token, sessionId);
   const formulate = useFormulateTask(token, sessionId);
@@ -133,6 +146,7 @@ export function PlanProposalPanel({
             </p>
           </div>
         )}
+        <AgentAuditSection audit={p.audit} />
         {p.considered_alternatives.length > 0 && (
           <div>
             <p className={T.tinyBold}>Erwogene Alternativen</p>

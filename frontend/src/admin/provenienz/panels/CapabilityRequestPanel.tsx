@@ -2,6 +2,7 @@ import { useToast } from "../../../shared/components/useToast";
 import { useDeleteNode } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { AgentAuditSection } from "./AgentAuditSection";
 
 /**
  * Read-mostly panel for a capability_request tile. The agent is saying
@@ -23,6 +24,7 @@ export function CapabilityRequestPanel({
     reasoning?: string;
     considered_alternatives?: { name: string; kind: string; why_not: string }[];
     confidence?: number;
+    audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
@@ -95,6 +97,7 @@ export function CapabilityRequestPanel({
             </ul>
           </div>
         )}
+        <AgentAuditSection audit={p.audit} />
         <p className={`${T.tiny} text-slate-500 italic`}>
           Capability-Vermerke sammeln sich als TODO-Liste für künftige
           Tool-/Skill-Entwicklung. Verwerfen löscht den Eintrag aus dem

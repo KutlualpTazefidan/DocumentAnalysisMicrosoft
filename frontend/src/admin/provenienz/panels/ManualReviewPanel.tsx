@@ -2,6 +2,7 @@ import { useToast } from "../../../shared/components/useToast";
 import { useDeleteNode } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { AgentAuditSection } from "./AgentAuditSection";
 
 export function ManualReviewPanel({
   sessionId,
@@ -16,6 +17,7 @@ export function ManualReviewPanel({
     description?: string;
     reasoning?: string;
     confidence?: number;
+    audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
@@ -54,6 +56,7 @@ export function ManualReviewPanel({
             </p>
           </div>
         )}
+        <AgentAuditSection audit={p.audit} />
         <p className={`${T.tiny} text-slate-500 italic`}>
           Der Agent hat eskaliert. Erledige die Aufgabe manuell und
           markiere sie unten als erledigt.
