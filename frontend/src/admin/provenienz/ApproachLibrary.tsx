@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Maximize2, Plus, Trash2 } from "lucide-react";
+
+import { FullscreenTextEditor } from "./FullscreenTextEditor";
 
 import { useToast } from "../../shared/components/useToast";
 import {
@@ -171,6 +173,7 @@ function ApproachGroup({
 function CreateForm({ token, onDone }: { token: string; onDone: () => void }): JSX.Element {
   const [name, setName] = useState("");
   const [stepKinds, setStepKinds] = useState<string[]>(["extract_claims"]);
+  const [showFullEditor, setShowFullEditor] = useState(false);
   const [text, setText] = useState("");
   const create = useCreateApproach(token);
   const { error: toastError } = useToast();
@@ -252,25 +255,46 @@ function CreateForm({ token, onDone }: { token: string; onDone: () => void }): J
           <label className={`${T.tiny} text-slate-300`}>
             System-Prompt-Erweiterung
           </label>
-          <span className={`${T.tiny} text-slate-500`}>
-            {text.length} Zeichen
-          </span>
+          <button
+            type="button"
+            onClick={() => setShowFullEditor(true)}
+            className={`${T.tiny} text-blue-300 hover:text-blue-200 flex items-center gap-1`}
+          >
+            <Maximize2 className="w-3 h-3" aria-hidden /> Vollbild
+          </button>
         </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          rows={14}
+          rows={6}
           placeholder={
-            "Mehrzeilige Heuristik. Beispiel:\n\n" +
-            "ARBEITSWEISE BEI CHUNK-KNOTEN\n" +
-            "1. Inhalt vollständig erfassen.\n" +
-            "2. Mit Sitzungs-Ziel abgleichen.\n" +
-            "3. Nächsten Schritt aus den verfügbaren Steps wählen.\n" +
-            "..."
+            "Kurze Heuristik hier eintippen ODER auf 'Vollbild' für längere Prompts."
           }
-          className={`mt-1 w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-white text-[13px] leading-relaxed font-mono resize-y min-h-[200px]`}
+          className={`mt-1 w-full px-2 py-1.5 rounded bg-navy-900 border border-navy-600 text-white text-[12px] leading-snug font-mono resize-y`}
         />
+        <p className={`${T.tiny} text-slate-500 mt-0.5`}>
+          {text.length} Zeichen
+        </p>
       </div>
+      <FullscreenTextEditor
+        open={showFullEditor}
+        title={`Approach: ${name || "(unbenannt)"}`}
+        subtitle="System-Prompt-Erweiterung — wird an die Step-Prompts angehängt"
+        initialText={text}
+        onSave={(newText) => {
+          setText(newText);
+          setShowFullEditor(false);
+        }}
+        onClose={() => setShowFullEditor(false)}
+        placeholder={
+          "Beispiel:\n\n" +
+          "ARBEITSWEISE BEI CHUNK-KNOTEN\n\n" +
+          "1. Inhalt vollständig erfassen.\n" +
+          "2. Mit Sitzungs-Ziel abgleichen.\n" +
+          "3. Nächsten Schritt aus den verfügbaren Steps wählen.\n" +
+          "..."
+        }
+      />
       <div className="flex gap-2">
         <button
           type="button"
@@ -306,6 +330,7 @@ function ApproachRow({
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(approach.extra_system);
+  const [showFullEditor, setShowFullEditor] = useState(false);
   const patch = usePatchApproach(token);
   const del = useDeleteApproach(token);
   const { error: toastError } = useToast();
@@ -385,13 +410,27 @@ function ApproachRow({
         </div>
       </div>
       {!editing ? (
-        <pre
-          onClick={() => setEditing(true)}
-          className="mt-2 p-2 rounded bg-navy-950 text-slate-200 text-[11px] font-mono whitespace-pre-wrap break-words cursor-text hover:bg-navy-900"
-          title="Klicken zum Bearbeiten"
-        >
-          {approach.extra_system}
-        </pre>
+        <div className="mt-2 relative group">
+          <pre
+            onClick={() => setEditing(true)}
+            className="p-2 rounded bg-navy-950 text-slate-200 text-[11px] font-mono whitespace-pre-wrap break-words cursor-text hover:bg-navy-900"
+            title="Klicken zum Bearbeiten"
+          >
+            {approach.extra_system}
+          </pre>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setText(approach.extra_system);
+              setShowFullEditor(true);
+            }}
+            className={`absolute top-1 right-1 px-2 py-0.5 rounded bg-navy-800/90 text-blue-300 hover:text-blue-200 hover:bg-navy-700 ${T.tiny} flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity`}
+            title="Im Vollbild bearbeiten"
+          >
+            <Maximize2 className="w-3 h-3" aria-hidden /> Vollbild
+          </button>
+        </div>
       ) : (
         <div className="mt-2 space-y-1">
           <div className="flex items-center justify-between">
@@ -399,15 +438,19 @@ function ApproachRow({
               Bearbeiten — Speichern bumpt Version v
               {approach.version + 1}
             </span>
-            <span className={`${T.tiny} text-slate-500`}>
-              {text.length} Zeichen
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowFullEditor(true)}
+              className={`${T.tiny} text-blue-300 hover:text-blue-200 flex items-center gap-1`}
+            >
+              <Maximize2 className="w-3 h-3" aria-hidden /> Vollbild
+            </button>
           </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={14}
-            className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-white text-[13px] leading-relaxed font-mono resize-y min-h-[200px]`}
+            rows={6}
+            className={`w-full px-2 py-1.5 rounded bg-navy-900 border border-navy-600 text-white text-[12px] leading-snug font-mono resize-y`}
             autoFocus
           />
           <div className="flex gap-2">
@@ -435,6 +478,29 @@ function ApproachRow({
       {patch.error && (
         <p className={`text-red-400 ${T.tiny} mt-1`}>{patch.error.message}</p>
       )}
+      <FullscreenTextEditor
+        open={showFullEditor}
+        title={`Approach: ${approach.name}`}
+        subtitle={`v${approach.version} → v${approach.version + 1} · ${approach.step_kinds.join(", ")}`}
+        initialText={text}
+        onSave={async (newText) => {
+          setText(newText);
+          // Persist immediately when saving from the modal — saves the
+          // user a second click; modal closes after.
+          try {
+            await patch.mutateAsync({
+              approachId: approach.approach_id,
+              patch: { extra_system: newText.trim() },
+            });
+            setEditing(false);
+            setShowFullEditor(false);
+          } catch {
+            // error surfaces in the patch.error block below the row
+          }
+        }}
+        onClose={() => setShowFullEditor(false)}
+        saveLabel={patch.isPending ? "Speichere…" : "Speichern"}
+      />
     </li>
   );
 }
