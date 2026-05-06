@@ -41,6 +41,7 @@ from local_pdf.provenienz.storage import (
     session_dir,
     write_meta,
 )
+from local_pdf.provenienz.tools import list_tools
 from local_pdf.storage.sidecar import doc_dir, read_mineru
 
 _log = logging.getLogger(__name__)
@@ -165,6 +166,19 @@ async def get_session(session_id: str, request: Request) -> dict:
     }
 
 
+@router.get("/api/admin/provenienz/tools")
+async def get_tools() -> dict:
+    """Tool/capability registry — what skills the Planner can pick from.
+
+    Adds new tools by appending to ``TOOL_REGISTRY`` in
+    ``local_pdf.provenienz.tools``. The Agent tab + the Planner both
+    consume this list. ``enabled=False`` tools are visible (so the user
+    knows the system *could* do that) but the Planner is constrained from
+    selecting them.
+    """
+    return {"tools": [t.__dict__ for t in list_tools()]}
+
+
 @router.get("/api/admin/provenienz/agent-info")
 async def get_agent_info() -> dict:
     """Static description of the agent's topology, prompts, tools and rules.
@@ -271,18 +285,7 @@ async def get_agent_info() -> dict:
                 ),
             },
         ],
-        "tools": [
-            {
-                "name": "InDocSearcher",
-                "type": "BM25",
-                "scope": "in-document",
-                "params": {
-                    "top_k": "konfigurierbar pro /search-Aufruf (default 5)",
-                    "exclude_box_ids": "Wurzel-Chunk wird ausgeschlossen",
-                },
-                "used_by": ["search"],
-            }
-        ],
+        "tools": [t.__dict__ for t in list_tools()],
         "rules": {
             "reasons": {
                 "summary": "Implizite Hinweise aus früheren Korrekturen",

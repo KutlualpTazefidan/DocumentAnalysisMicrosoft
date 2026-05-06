@@ -370,10 +370,30 @@ export interface AgentStepInfo {
 
 export interface AgentToolInfo {
   name: string;
-  type: string;
+  label: string;
+  description: string;
+  when_to_use: string;
   scope: string;
-  params: Record<string, string>;
+  cost_hint: string;
+  enabled: boolean;
   used_by: string[];
+}
+
+export function useTools(token: string) {
+  return useQuery<AgentToolInfo[]>({
+    queryKey: ["provenienz", "tools"],
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/tools`,
+        { method: "GET" },
+        token,
+      );
+      const body = (await r.json()) as { tools: AgentToolInfo[] };
+      return body.tools;
+    },
+  });
 }
 
 export interface AgentRuleInfo {

@@ -233,8 +233,11 @@ function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } 
     });
   }
 
-  // Tools column
-  info.tools.forEach((tool, idx) => {
+  // Tools column — only enabled tools render on the canvas. Disabled stubs
+  // live in the "Verfügbare Werkzeuge" registry section in the right pane,
+  // which keeps the topology readable while still surfacing dormant capabilities.
+  const enabledTools = info.tools.filter((t) => t.enabled);
+  enabledTools.forEach((tool, idx) => {
     const consumerStep = tool.used_by[0];
     const stepId = `step:${consumerStep}`;
     const stepNode = nodes.find((n) => n.id === stepId);

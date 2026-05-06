@@ -8,6 +8,7 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
+import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
 import { SidePanel } from "../provenienz/SidePanel";
@@ -269,7 +270,8 @@ function AgentView({
             <AgentCanvas info={agentInfo} selectedId={selectedId} onSelect={onSelect} />
           </ReactFlowProvider>
         </div>
-        <div className="border-t border-navy-700 max-h-[40%] overflow-y-auto p-4">
+        <div className="border-t border-navy-700 max-h-[45%] overflow-y-auto p-4">
+          <ToolRegistry tools={agentInfo.tools} onSelect={onSelect} />
           <ApproachLibrary token={token} />
         </div>
       </div>

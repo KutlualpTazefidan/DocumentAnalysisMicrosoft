@@ -143,28 +143,43 @@ function ToolView({
 }): JSX.Element {
   return (
     <div className="flex flex-col h-full">
-      <Header title={tool.name} subtitle={`${tool.type} · ${tool.scope}`} onClose={onClose} />
+      <Header
+        title={tool.label}
+        subtitle={`${tool.scope} · ${tool.cost_hint}`}
+        onClose={onClose}
+      />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <Section title="Status">
+          <span
+            className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide ${
+              tool.enabled
+                ? "bg-emerald-700 text-emerald-100"
+                : "bg-zinc-700 text-zinc-300"
+            }`}
+          >
+            {tool.enabled ? "aktiv" : "deaktiviert (Stub)"}
+          </span>
+        </Section>
+        <Section title="Beschreibung">
+          <p className={`text-slate-200 ${T.body}`}>{tool.description}</p>
+        </Section>
+        <Section title="Wann auswählen">
+          <p className={`text-slate-200 ${T.body} italic`}>{tool.when_to_use}</p>
+        </Section>
         <Section title="Verwendung">
           <p className={`text-slate-200 ${T.body}`}>
             Wird gerufen von:{" "}
-            {tool.used_by.map((s, i) => (
-              <span key={s}>
-                <code className="text-blue-300">{s}</code>
-                {i < tool.used_by.length - 1 ? ", " : ""}
-              </span>
-            ))}
+            {tool.used_by.length === 0 ? (
+              <span className="text-slate-500 italic">– (kein Step)</span>
+            ) : (
+              tool.used_by.map((s, i) => (
+                <span key={s}>
+                  <code className="text-blue-300">{s}</code>
+                  {i < tool.used_by.length - 1 ? ", " : ""}
+                </span>
+              ))
+            )}
           </p>
-        </Section>
-        <Section title="Parameter">
-          <dl className="space-y-1">
-            {Object.entries(tool.params).map(([k, v]) => (
-              <div key={k}>
-                <dt className={`${T.tiny} text-slate-400`}>{k}</dt>
-                <dd className={`${T.body} text-slate-200`}>{v}</dd>
-              </div>
-            ))}
-          </dl>
         </Section>
       </div>
     </div>
