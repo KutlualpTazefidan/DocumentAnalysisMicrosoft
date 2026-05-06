@@ -512,6 +512,48 @@ export function useAgentInfo(token: string) {
   });
 }
 
+export interface NextStepResult {
+  node_id: string;
+  session_id: string;
+  /** out_kind: "plan_proposal" (executable_step), "capability_request",
+   *  or "manual_review". */
+  kind: string;
+  payload: {
+    kind: "executable_step" | "capability_request" | "manual_review";
+    name: string;
+    description: string;
+    reasoning: string;
+    considered_alternatives: { name: string; kind: string; why_not: string }[];
+    confidence: number;
+    tool: string | null;
+    approach_id: string | null;
+    anchor_node_id: string;
+  };
+  actor: string;
+  created_at: string;
+}
+
+export function useNextStep(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<NextStepResult, Error, string>({
+    mutationFn: async (anchorNodeId) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/next-step`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ anchor_node_id: anchorNodeId }),
+        },
+        token,
+      );
+      return (await r.json()) as NextStepResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 export function usePromoteSearchResult(token: string, sessionId: string) {
   const qc = useQueryClient();
   return useMutation<ProvNode, Error, string>({

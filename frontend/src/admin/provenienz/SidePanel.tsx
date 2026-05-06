@@ -2,10 +2,12 @@ import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 import type { ViewNode } from "./layout";
 
 import { ActionProposalPanel } from "./panels/ActionProposalPanel";
+import { CapabilityRequestPanel } from "./panels/CapabilityRequestPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
 import { ClaimPanel } from "./panels/ClaimPanel";
-import { DecisionPanel } from "./panels/DecisionPanel";
 import { GoalPanel } from "./panels/GoalPanel";
+import { ManualReviewPanel } from "./panels/ManualReviewPanel";
+import { PlanProposalPanel } from "./panels/PlanProposalPanel";
 import { SearchResultsBagPanel } from "./panels/SearchResultsBagPanel";
 import { TaskPanel } from "./panels/TaskPanel";
 import { T } from "../styles/typography";
@@ -78,8 +80,12 @@ export function SidePanel({
       return <SearchResultsBagPanel {...common} />;
     case "action_proposal":
       return <ActionProposalPanel {...common} />;
-    case "decision":
-      return <DecisionPanel {...common} />;
+    case "plan_proposal":
+      return <PlanProposalPanel {...common} />;
+    case "capability_request":
+      return <CapabilityRequestPanel {...common} />;
+    case "manual_review":
+      return <ManualReviewPanel {...common} />;
   }
 }
 

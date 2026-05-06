@@ -28,7 +28,9 @@ export type ViewNodeKind =
   | "task"
   | "search_results_bag"
   | "action_proposal"
-  | "decision";
+  | "plan_proposal"
+  | "capability_request"
+  | "manual_review";
 
 export interface ChunkView {
   view_id: string;
@@ -67,17 +69,33 @@ export interface ActionProposalView {
   view_id: string;
   kind: "action_proposal";
   proposal: ProvNode;
-  /** True iff a decision Node points at this proposal via decided-by.
-   *  Decided proposals render dim; pending ones glow yellow. */
-  decided: boolean;
+  /** When set, the proposal is decided. The decision is folded into
+   *  this view (no separate tile) — its panel shows accepted/reason
+   *  inline below the proposal audit. */
+  decision?: ProvNode;
 }
 
-export interface DecisionView {
+export interface PlanProposalView {
   view_id: string;
-  kind: "decision";
-  decision: ProvNode;
-  /** The proposal this decision resolves, for back-reference in the panel. */
-  proposal_node_id: string;
+  kind: "plan_proposal";
+  /** The plan node from /next-step. Carries kind=executable_step plan,
+   *  with chosen step name + considered alternatives + reasoning. The
+   *  user's "Akzeptieren" fires the underlying step from the panel. */
+  plan: ProvNode;
+}
+
+export interface CapabilityRequestView {
+  view_id: string;
+  kind: "capability_request";
+  /** The capability_request node — agent flagged a missing capability. */
+  request: ProvNode;
+}
+
+export interface ManualReviewView {
+  view_id: string;
+  kind: "manual_review";
+  /** The manual_review node — agent escalated to human. */
+  review: ProvNode;
 }
 
 export interface GoalView {
@@ -96,7 +114,9 @@ export type ViewNode =
   | TaskView
   | SearchResultsBagView
   | ActionProposalView
-  | DecisionView;
+  | PlanProposalView
+  | CapabilityRequestView
+  | ManualReviewView;
 
 export interface ViewEdge {
   id: string;
@@ -130,8 +150,10 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   claim: { w: 272, h: 144 },
   task: { w: 256, h: 112 },
   search_results_bag: { w: 336, h: 304 },
-  action_proposal: { w: 320, h: 200 },
-  decision: { w: 224, h: 96 },
+  action_proposal: { w: 320, h: 240 },
+  plan_proposal: { w: 320, h: 220 },
+  capability_request: { w: 320, h: 180 },
+  manual_review: { w: 320, h: 160 },
 };
 
 /** Round to the nearest multiple so positions land on the snap grid. */
@@ -448,10 +470,11 @@ export function buildViewGraph(
     }
   }
 
-  // ── 5) Action-Proposals + Decisions (proposal in trunk, decision aside) ───
-  // Every action_proposal becomes a trunk tile under its anchor. Decision
-  // tiles dock to the side of their proposal — they don't consume a trunk
-  // slot, so the main flow stays linear.
+  // ── 5) Action-Proposals (decision folded inline) ──────────────────────────
+  // Every action_proposal becomes a trunk tile under its anchor. When
+  // decided, the decision Node is folded INTO the proposal view (passed
+  // as `decision` field) — no separate decision tile in the canvas. The
+  // decision Node still lives in events.jsonl for audit.
   for (const n of provNodes) {
     if (n.kind !== "action_proposal") continue;
     const proposalViewId = `view:${n.node_id}`;
@@ -460,13 +483,10 @@ export function buildViewGraph(
       view_id: proposalViewId,
       kind: "action_proposal",
       proposal: n,
-      decided: !!decision,
+      decision,
     });
     const anchorNodeId = n.payload.anchor_node_id as string | undefined;
     if (anchorNodeId && g.byId.has(anchorNodeId)) {
-      // Anchor's view_id depends on what the anchor is. Tasks are now their
-      // own tiles, so a search proposal anchored to a task points at the task
-      // tile (not the claim tile, as it did when task was folded).
       const anchorViewId = mapAnchorToViewId(anchorNodeId, g, taskByClaimId);
       if (anchorViewId) {
         viewEdges.push({
@@ -477,23 +497,64 @@ export function buildViewGraph(
         });
       }
     }
-    if (decision) {
-      const decisionViewId = `view:${decision.node_id}`;
-      viewNodes.push({
-        view_id: decisionViewId,
-        kind: "decision",
-        decision,
-        proposal_node_id: n.node_id,
-      });
-      // SIDE edge — placed manually after layout, doesn't count as tree
-      // parentage. Keeps the trunk linear.
-      viewEdges.push({
-        id: `e:dec:${decision.node_id}`,
-        source: proposalViewId,
-        target: decisionViewId,
-        kind: "decided-by",
-        placement: "side",
-      });
+  }
+
+  // ── 6) Plan-Proposals from /next-step (executable_step path) ──────────────
+  // The agent picked a registered step. The user accepts/dismisses to fire
+  // the step's existing /extract-claims, /formulate-task, etc. route.
+  for (const n of provNodes) {
+    if (n.kind !== "plan_proposal") continue;
+    const planViewId = `view:${n.node_id}`;
+    viewNodes.push({ view_id: planViewId, kind: "plan_proposal", plan: n });
+    const anchor = n.payload.anchor_node_id as string | undefined;
+    if (anchor && g.byId.has(anchor)) {
+      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
+      if (anchorViewId) {
+        viewEdges.push({
+          id: `e:plan:${n.node_id}`,
+          source: anchorViewId,
+          target: planViewId,
+          kind: "planner",
+        });
+      }
+    }
+  }
+
+  // ── 7) Capability-Requests (agent says capability is missing) ─────────────
+  for (const n of provNodes) {
+    if (n.kind !== "capability_request") continue;
+    const cvId = `view:${n.node_id}`;
+    viewNodes.push({ view_id: cvId, kind: "capability_request", request: n });
+    const anchor = n.payload.anchor_node_id as string | undefined;
+    if (anchor && g.byId.has(anchor)) {
+      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
+      if (anchorViewId) {
+        viewEdges.push({
+          id: `e:cap:${n.node_id}`,
+          source: anchorViewId,
+          target: cvId,
+          kind: "needs-capability",
+        });
+      }
+    }
+  }
+
+  // ── 8) Manual-Review (agent escalates to human) ───────────────────────────
+  for (const n of provNodes) {
+    if (n.kind !== "manual_review") continue;
+    const mvId = `view:${n.node_id}`;
+    viewNodes.push({ view_id: mvId, kind: "manual_review", review: n });
+    const anchor = n.payload.anchor_node_id as string | undefined;
+    if (anchor && g.byId.has(anchor)) {
+      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
+      if (anchorViewId) {
+        viewEdges.push({
+          id: `e:mr:${n.node_id}`,
+          source: anchorViewId,
+          target: mvId,
+          kind: "escalates",
+        });
+      }
     }
   }
 
@@ -791,8 +852,10 @@ function edgeColor(kind: string): string {
       return "#06b6d4"; // cyan — task verifies a claim (legacy fallback)
     case "proposed":
       return "#fbbf24"; // amber — anchor proposed an action here
-    case "decided-by":
-      return "#a78bfa"; // violet — side edge to the decision tile
+    case "needs-capability":
+      return "#facc15"; // yellow — capability gap
+    case "escalates":
+      return "#f87171"; // red-ish — manual review
     case "promoted-from":
       return "#a855f7";
     case "directs":

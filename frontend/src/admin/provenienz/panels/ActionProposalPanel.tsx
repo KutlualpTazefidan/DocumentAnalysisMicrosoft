@@ -19,7 +19,7 @@ export function ActionProposalPanel({
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "action_proposal") return <></>;
-  const decided = view.decided;
+  const decided = !!view.decision;
   const node = view.proposal;
   const payload = node.payload;
   const stepKind = String(payload.step_kind ?? "");

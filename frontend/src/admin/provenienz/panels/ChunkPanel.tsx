@@ -1,9 +1,10 @@
-import { CornerDownRight } from "lucide-react";
+import { CornerDownRight, Sparkles } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
   useExtractClaims,
+  useNextStep,
   type ProvNode,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
@@ -22,8 +23,17 @@ export function ChunkPanel({
   const closed = !!view.closedByStop;
 
   const extract = useExtractClaims(token, sessionId);
+  const nextStep = useNextStep(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
+
+  async function handleNextStep(): Promise<void> {
+    try {
+      await nextStep.mutateAsync(chunk.node_id);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
 
   async function handleExtract(): Promise<void> {
     try {
@@ -73,12 +83,28 @@ export function ChunkPanel({
       <footer className="p-3 border-t border-navy-700 space-y-2">
         <button
           type="button"
-          onClick={() => void handleExtract()}
-          disabled={extract.isPending}
-          className={`w-full px-3 py-2 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} disabled:opacity-50`}
+          onClick={() => void handleNextStep()}
+          disabled={nextStep.isPending}
+          className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
         >
-          {extract.isPending ? "Extrahiere…" : "Aussagen extrahieren"}
+          <Sparkles className="w-4 h-4" aria-hidden />
+          {nextStep.isPending ? "Agent denkt…" : "Was als nächstes?"}
         </button>
+        <details className="rounded border border-navy-700 bg-navy-900/40">
+          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+            Manuell wählen
+          </summary>
+          <div className="p-2 space-y-2">
+            <button
+              type="button"
+              onClick={() => void handleExtract()}
+              disabled={extract.isPending}
+              className={`w-full px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny} disabled:opacity-50`}
+            >
+              {extract.isPending ? "…" : "Aussagen extrahieren"}
+            </button>
+          </div>
+        </details>
         <button
           type="button"
           onClick={() => void handleDelete()}
@@ -87,9 +113,9 @@ export function ChunkPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(extract.error || del.error) && (
+        {(extract.error || nextStep.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(extract.error ?? del.error)?.message}
+            {(extract.error ?? nextStep.error ?? del.error)?.message}
           </p>
         )}
       </footer>

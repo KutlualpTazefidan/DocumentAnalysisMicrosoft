@@ -763,6 +763,31 @@ PRE_REASON_SYSTEM = (
     "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
     "kein Markdown."
 )
+NEXT_STEP_SYSTEM = (
+    "Du bist der reflektierende Teil eines Recherche-Agenten. Du bekommst "
+    "einen Knoten + Sitzungs-Ziel + Liste der verfügbaren Steps + Liste "
+    "der verfügbaren Tools. Wähle den nächsten Schritt — ABER nur wenn "
+    "ein registrierter Step wirklich passt. Wenn kein Step + kein Tool "
+    "ausreicht, darfst du auch ehrlich sagen: 'wir bräuchten X, das "
+    "fehlt' (capability_request) oder 'das ist Mensch-Arbeit' "
+    "(manual_review).\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
+    "{\n"
+    '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
+    '  "name": <Step-Name (bei executable) ODER kurze Capability-Bezeichnung>,\n'
+    '  "description": <Bei capability_request/manual_review: was fehlt / '
+    "warum Mensch — deutscher Satz>,\n"
+    '  "reasoning": <warum diese Wahl jetzt — deutscher Satz>,\n'
+    '  "considered_alternatives": [\n'
+    '    {"name": <name>, "kind": <kind>, "why_not": <Grund>}\n'
+    "  ],\n"
+    '  "confidence": <0.0-1.0>,\n'
+    '  "tool": <Tool-Name oder null>,\n'
+    '  "approach_id": <Approach-Name oder null>\n'
+    "}\n\n"
+    "Kein Vor- oder Nachtext, keine Codeblöcke. Bei executable_step "
+    "MUSS name aus den verfügbaren Steps stammen."
+)
 PLAN_SYSTEM = (
     "Du bist der Planer eines Recherche-Agenten. Eingabe: ein Ziel, "
     "der aktuelle Sitzungs-Zustand (Knoten + offene Fronten), die "
@@ -1321,6 +1346,106 @@ def _llm_extract_claim_goals(
     return [str(g).strip()[:200] if isinstance(g, str) else "" for g in parsed]
 
 
+def _llm_next_step(
+    anchor: Node,
+    session_goal: str,
+    available_steps: list[str],
+    tools_summary: str,
+    *,
+    extra_system: str = "",
+) -> dict:
+    """Open-ended planner. Returns a dict with discriminator ``kind``:
+
+    - ``executable_step``: pick a registered step. Caller routes to the
+      matching step LLM, creates an action_proposal.
+    - ``capability_request``: nothing in the registry fits. Caller
+      creates a capability_request Node carrying the description.
+    - ``manual_review``: only a human can resolve this. Caller creates
+      a manual_review Node.
+
+    Tolerant parser: on any LLM/parse failure returns a safe fallback
+    that defaults to manual_review, so the user always sees *something*.
+    """
+    anchor_summary = (
+        f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}"
+    )
+    system = NEXT_STEP_SYSTEM + (extra_system or "")
+    user = (
+        f"## Knoten\n{anchor_summary}\n\n"
+        f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
+        f"## Verfügbare Steps\n{', '.join(available_steps)}\n\n"
+        f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
+        f"Was schlägst du vor? JSON:"
+    )
+    fallback: dict = {
+        "kind": "manual_review",
+        "name": "LLM-Antwort nicht verfügbar",
+        "description": "Der Agent konnte keinen Vorschlag generieren — bitte manuell entscheiden.",
+        "reasoning": "Fallback bei Parse-Fehler.",
+        "considered_alternatives": [],
+        "confidence": 0.0,
+        "tool": None,
+        "approach_id": None,
+    }
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=system),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+        )
+    except Exception as exc:
+        _log.warning("next_step LLM call failed: %s", exc)
+        fallback["description"] = f"LLM-Aufruf fehlgeschlagen: {exc}"
+        return fallback
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        fallback["description"] = f"LLM-Antwort nicht parsbar: {raw[:200]}"
+        return fallback
+    if not isinstance(parsed, dict):
+        return fallback
+    kind = str(parsed.get("kind", "")).strip()
+    if kind not in ("executable_step", "capability_request", "manual_review"):
+        kind = "manual_review"
+    return {
+        "kind": kind,
+        "name": str(parsed.get("name", "") or ""),
+        "description": str(parsed.get("description", "") or ""),
+        "reasoning": str(parsed.get("reasoning", "") or ""),
+        "considered_alternatives": (
+            parsed.get("considered_alternatives", [])
+            if isinstance(parsed.get("considered_alternatives"), list)
+            else []
+        ),
+        "confidence": (
+            float(parsed["confidence"])
+            if isinstance(parsed.get("confidence"), (int, float))
+            else 0.5
+        ),
+        "tool": parsed.get("tool") if isinstance(parsed.get("tool"), str) else None,
+        "approach_id": (
+            parsed.get("approach_id") if isinstance(parsed.get("approach_id"), str) else None
+        ),
+    }
+
+
+# Anchor-kind → list of steps the planner may pick. Open-ended: when none of
+# these fit, the planner is allowed to escape into capability_request /
+# manual_review instead.
+_VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
+    "chunk": ["extract_claims", "propose_stop"],
+    "claim": ["formulate_task", "propose_stop"],
+    "task": ["search", "propose_stop"],
+    "search_result": ["evaluate", "promote_search_result", "propose_stop"],
+    "evaluation": ["propose_stop"],
+}
+
+
 def _llm_pre_reason(
     step_kind: str,
     step_label: str,
@@ -1842,6 +1967,80 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
         ),
     )
     return plan_node.__dict__
+
+
+class NextStepRequest(BaseModel):
+    anchor_node_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/next-step",
+    status_code=201,
+)
+async def next_step(session_id: str, body: NextStepRequest, request: Request) -> dict:
+    """Open-ended planner — the primary "Was als nächstes?" surface.
+
+    Calls _llm_next_step which returns one of three outcomes:
+
+      - executable_step: caller would route to the matching step LLM,
+        but for v1 we just emit the planner's recommendation as a
+        plan_proposal Node. The user clicks Akzeptieren on the tile
+        which fires the matching step route from the frontend.
+      - capability_request: emits a capability_request Node with the
+        agent's description of what's missing. No further LLM call.
+      - manual_review: emits a manual_review Node — terminal, the
+        user reads it and decides offline.
+
+    All three outcomes are fully audited: every event lands in
+    events.jsonl as a node line.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
+    if anchor is None:
+        raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
+
+    available_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
+    tools_summary = _summarize_tools_for_planner()
+    extra_system, _ = _gather_guidance(cfg.data_root, meta, "next_step")
+    plan = _llm_next_step(
+        anchor,
+        meta.goal,
+        available_steps,
+        tools_summary,
+        extra_system=extra_system,
+    )
+
+    actor = resolve_provider(body.provider)
+    # All three outcomes share the same Node shape, only the kind differs.
+    # That keeps the audit trail uniform: one Node per "what the agent said
+    # to do next", with kind discriminating the type.
+    out_kind = {
+        "executable_step": "plan_proposal",
+        "capability_request": "capability_request",
+        "manual_review": "manual_review",
+    }[plan["kind"]]
+    node = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind=out_kind,
+            payload={
+                **plan,
+                "anchor_node_id": body.anchor_node_id,
+            },
+            actor=actor,
+        ),
+    )
+    return node.__dict__
 
 
 @router.post(

@@ -37,7 +37,7 @@ export function ActionProposalTile({
     : 0;
   const tool = p.tool_used ?? null;
 
-  const containerClass = data.decided
+  const containerClass = !!data.decision
     ? "rounded-lg border border-amber-700/60 bg-amber-900/40 px-3 py-2 text-white shadow w-72 opacity-80"
     : "rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow";
 
@@ -49,7 +49,7 @@ export function ActionProposalTile({
           <Lightbulb className="w-3 h-3" aria-hidden />
           {STEP_LABEL[stepKind] ?? stepKind}
         </span>
-        {data.decided ? (
+        {!!data.decision ? (
           <span className="flex items-center gap-1 text-amber-200/80 normal-case">
             <CheckCircle2 className="w-3 h-3" aria-hidden /> entschieden
           </span>
@@ -89,7 +89,7 @@ export function ActionProposalTile({
         )}
       </div>
       <p className="text-[10px] italic text-amber-200 mt-1">
-        {data.decided
+        {!!data.decision
           ? "→ Klicken für Audit"
           : "→ Klicken für Skill-Prompt + Entscheidung"}
       </p>

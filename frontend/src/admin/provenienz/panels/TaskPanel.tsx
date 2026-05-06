@@ -1,7 +1,12 @@
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
-import { useDeleteNode, useSearchStep } from "../../hooks/useProvenienz";
+import {
+  useDeleteNode,
+  useNextStep,
+  useSearchStep,
+} from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
@@ -20,8 +25,17 @@ export function TaskPanel({
   const task = view.task;
   const search = useSearchStep(token, sessionId);
   const del = useDeleteNode(token, sessionId);
+  const nextStep = useNextStep(token, sessionId);
   const { error: toastError } = useToast();
   const [topK, setTopK] = useState(5);
+
+  async function handleNextStep(): Promise<void> {
+    try {
+      await nextStep.mutateAsync(task.node_id);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
 
   async function handleSearch(): Promise<void> {
     try {
@@ -58,29 +72,45 @@ export function TaskPanel({
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
         {!view.hasResults && (
-          <>
-            <div className="flex items-center gap-2">
-              <label className={`${T.tiny} text-slate-300`}>top_k</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={topK}
-                onChange={(e) =>
-                  setTopK(Math.max(1, Math.min(20, Number(e.target.value))))
-                }
-                className={`w-16 px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
-              />
+          <button
+            type="button"
+            onClick={() => void handleNextStep()}
+            disabled={nextStep.isPending}
+            className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
+          >
+            <Sparkles className="w-4 h-4" aria-hidden />
+            {nextStep.isPending ? "Agent denkt…" : "Was als nächstes?"}
+          </button>
+        )}
+        {!view.hasResults && (
+          <details className="rounded border border-navy-700 bg-navy-900/40">
+            <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+              Manuell suchen
+            </summary>
+            <div className="p-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <label className={`${T.tiny} text-slate-300`}>top_k</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={topK}
+                  onChange={(e) =>
+                    setTopK(Math.max(1, Math.min(20, Number(e.target.value))))
+                  }
+                  className={`w-16 px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.tiny}`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSearch()}
+                disabled={search.isPending}
+                className={`w-full px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white ${T.tiny} disabled:opacity-50`}
+              >
+                {search.isPending ? "Suche…" : "Suchen"}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleSearch()}
-              disabled={search.isPending}
-              className={`w-full px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white ${T.body} disabled:opacity-50`}
-            >
-              {search.isPending ? "Suche…" : "Suchen"}
-            </button>
-          </>
+          </details>
         )}
         <button
           type="button"
@@ -90,9 +120,9 @@ export function TaskPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(search.error || del.error) && (
+        {(search.error || nextStep.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(search.error ?? del.error)?.message}
+            {(search.error ?? nextStep.error ?? del.error)?.message}
           </p>
         )}
       </footer>
