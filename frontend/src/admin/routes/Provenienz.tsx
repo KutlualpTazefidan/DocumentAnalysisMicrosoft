@@ -6,6 +6,7 @@ import { ReactFlowProvider } from "reactflow";
 import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { Canvas } from "../provenienz/Canvas";
+import { ChunkPicker } from "../provenienz/ChunkPicker";
 import { SidePanel } from "../provenienz/SidePanel";
 import {
   useCreateSession,
@@ -24,7 +25,6 @@ export function Provenienz(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [rootChunkInput, setRootChunkInput] = useState("");
 
   const { data: sessions, isLoading, error } = useSessions(slug, tokenStr);
   const create = useCreateSession(tokenStr);
@@ -35,14 +35,10 @@ export function Provenienz(): JSX.Element {
     return <div className="p-6 text-slate-300">Bitte zuerst anmelden.</div>;
   }
 
-  async function handleCreate() {
-    if (!rootChunkInput.trim()) return;
-    const m = await create.mutateAsync({
-      slug,
-      root_chunk_id: rootChunkInput.trim(),
-    });
+  async function handlePickChunk(boxId: string) {
+    const m = await create.mutateAsync({ slug, root_chunk_id: boxId });
     setSelectedId(m.session_id);
-    setRootChunkInput("");
+    setSelectedNodeId(null);
     setCreating(false);
   }
 
@@ -76,45 +72,6 @@ export function Provenienz(): JSX.Element {
               <Plus className="w-4 h-4" aria-hidden /> Neu
             </button>
           </div>
-
-          {creating && (
-            <div className="p-3 border-b border-navy-700 space-y-2">
-              <label className={`${T.body} text-slate-300 block`}>
-                Wurzel-Chunk (z.B. p1-b0)
-              </label>
-              <input
-                type="text"
-                value={rootChunkInput}
-                onChange={(e) => setRootChunkInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleCreate();
-                  if (e.key === "Escape") setCreating(false);
-                }}
-                className={`w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleCreate()}
-                  disabled={!rootChunkInput.trim() || create.isPending}
-                  className={`px-2 py-1 rounded bg-blue-500 text-white ${T.tiny} disabled:opacity-50`}
-                >
-                  {create.isPending ? "..." : "Anlegen"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCreating(false)}
-                  className={`px-2 py-1 rounded text-slate-300 ${T.tiny} hover:bg-navy-700`}
-                >
-                  Abbrechen
-                </button>
-              </div>
-              {create.error && (
-                <p className={`text-red-400 ${T.tiny}`}>{create.error.message}</p>
-              )}
-            </div>
-          )}
 
           {isLoading && (
             <p className={`px-3 py-2 text-slate-400 ${T.body}`}>Lade...</p>
@@ -150,16 +107,26 @@ export function Provenienz(): JSX.Element {
 
         {/* Right area */}
         <main className="flex-1 min-w-0 flex flex-col text-slate-200">
-          {!selectedId && (
+          {creating && (
+            <ChunkPicker
+              slug={slug}
+              token={tokenStr}
+              onPick={(boxId) => void handlePickChunk(boxId)}
+              onCancel={() => setCreating(false)}
+              pending={create.isPending}
+              errorMessage={create.error?.message}
+            />
+          )}
+          {!creating && !selectedId && (
             <p className={`${T.body} text-slate-400 italic p-4`}>
               Sitzung links auswählen oder neu anlegen.
             </p>
           )}
-          {selectedId && detail.isLoading && <p className="p-4">Lade Sitzung...</p>}
-          {selectedId && detail.error && (
+          {!creating && selectedId && detail.isLoading && <p className="p-4">Lade Sitzung...</p>}
+          {!creating && selectedId && detail.error && (
             <p className="p-4 text-red-400">{detail.error.message}</p>
           )}
-          {selectedId && detail.data && (
+          {!creating && selectedId && detail.data && (
             <>
               <header className="border-b border-navy-700 px-4 py-2">
                 <h2 className={`${T.cardTitle} text-white`}>

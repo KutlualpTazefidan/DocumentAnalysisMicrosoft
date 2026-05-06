@@ -119,6 +119,45 @@ async function fetchOk(url: string, init: RequestInit, token: string): Promise<R
 
 // ---- Hooks ----
 
+export interface DocElement {
+  box_id: string;
+  html_snippet: string;
+  page: number; // parsed from "p<page>-..."
+  text_preview: string; // HTML stripped, trimmed
+}
+
+export function useDocElements(slug: string, token: string) {
+  return useQuery<DocElement[]>({
+    queryKey: ["provenienz", "doc-elements", slug],
+    enabled: !!slug && !!token,
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/mineru`,
+        { method: "GET" },
+        token,
+      );
+      const body = (await r.json()) as {
+        elements?: { box_id: string; html_snippet?: string }[];
+      };
+      const els = body.elements ?? [];
+      return els.map((e) => {
+        const m = /^p(\d+)-/.exec(e.box_id);
+        const page = m ? Number(m[1]) : 0;
+        const stripped = (e.html_snippet ?? "")
+          .replace(/<[^>]*>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return {
+          box_id: e.box_id,
+          html_snippet: e.html_snippet ?? "",
+          page,
+          text_preview: stripped,
+        };
+      });
+    },
+  });
+}
+
 export function useSessions(slug: string, token: string) {
   return useQuery<SessionMeta[]>({
     queryKey: ["provenienz", "sessions", slug],
