@@ -1,14 +1,18 @@
 import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import { GitMerge, Plus, Trash2 } from "lucide-react";
+import { Bot, FolderTree, GitMerge, Plus, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
+import { AgentCanvas } from "../provenienz/AgentCanvas";
+import { AgentInspector } from "../provenienz/AgentInspector";
+import { ApproachLibrary } from "../provenienz/ApproachLibrary";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
 import { SidePanel } from "../provenienz/SidePanel";
 import {
+  useAgentInfo,
   useCreateSession,
   useDeleteSession,
   useSession,
@@ -18,17 +22,22 @@ import {
 import type { ViewNode } from "../provenienz/layout";
 import { T } from "../styles/typography";
 
+type View = "sessions" | "agent";
+
 export function Provenienz(): JSX.Element {
   const { slug = "" } = useParams<{ slug: string }>();
   const { token } = useAuth();
   const tokenStr = token ?? "";
 
+  const [view, setView] = useState<View>("sessions");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
   const [viewIndex, setViewIndex] = useState<Map<string, ViewNode>>(
     () => new Map(),
   );
   const [creating, setCreating] = useState(false);
+  const [agentSelectedId, setAgentSelectedId] = useState<string | null>(null);
+  const agentInfo = useAgentInfo(tokenStr);
 
   const handleViewIndex = useCallback((idx: Map<string, ViewNode>) => {
     setViewIndex(idx);
@@ -61,10 +70,21 @@ export function Provenienz(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full bg-navy-900">
-      <div className="flex items-center px-4 py-2 bg-navy-800 text-white border-b border-navy-700">
+      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700">
         <DocStepTabs slug={slug} />
+        <ViewToggle view={view} onChange={setView} />
       </div>
 
+      {view === "agent" ? (
+        <AgentView
+          agentInfo={agentInfo.data}
+          isLoading={agentInfo.isLoading}
+          error={agentInfo.error}
+          token={tokenStr}
+          selectedId={agentSelectedId}
+          onSelect={setAgentSelectedId}
+        />
+      ) : (
       <div className="flex flex-1 min-h-0">
         {/* Left rail */}
         <aside className="w-72 shrink-0 border-r border-navy-700 bg-navy-800/50 overflow-y-auto">
@@ -174,6 +194,92 @@ export function Provenienz(): JSX.Element {
           )}
         </main>
       </div>
+      )}
+    </div>
+  );
+}
+
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: View;
+  onChange: (v: View) => void;
+}): JSX.Element {
+  const item = (key: View, label: string, Icon: typeof FolderTree): JSX.Element => {
+    const active = key === view;
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(key)}
+        className={`px-3 py-1 rounded flex items-center gap-1.5 ${T.body} transition-colors ${
+          active
+            ? "bg-blue-600 text-white"
+            : "text-slate-300 hover:bg-navy-700"
+        }`}
+      >
+        <Icon className="w-4 h-4" aria-hidden />
+        {label}
+      </button>
+    );
+  };
+  return (
+    <nav className="flex items-center gap-1 bg-navy-900/60 border border-navy-600 rounded p-0.5">
+      {item("sessions", "Sitzungen", FolderTree)}
+      {item("agent", "Agent", Bot)}
+    </nav>
+  );
+}
+
+function AgentView({
+  agentInfo,
+  isLoading,
+  error,
+  token,
+  selectedId,
+  onSelect,
+}: {
+  agentInfo: ReturnType<typeof useAgentInfo>["data"];
+  isLoading: boolean;
+  error: Error | null;
+  token: string;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}): JSX.Element {
+  if (isLoading) {
+    return <p className={`p-6 text-slate-400 ${T.body}`}>Lade Agent-Topologie…</p>;
+  }
+  if (error) {
+    return <p className={`p-6 text-red-400 ${T.body}`}>{error.message}</p>;
+  }
+  if (!agentInfo) return <></>;
+  return (
+    <div className="flex flex-1 min-h-0">
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="px-4 py-3 border-b border-navy-700">
+          <p className={`${T.tinyBold}`}>Modell aktiv</p>
+          <p className="text-white">
+            <code className="text-amber-300">{agentInfo.llm.backend}</code>
+            {" · "}
+            <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
+          </p>
+        </header>
+        <div className="flex-1 min-h-0">
+          <ReactFlowProvider>
+            <AgentCanvas info={agentInfo} selectedId={selectedId} onSelect={onSelect} />
+          </ReactFlowProvider>
+        </div>
+        <div className="border-t border-navy-700 max-h-[40%] overflow-y-auto p-4">
+          <ApproachLibrary token={token} />
+        </div>
+      </div>
+      <aside className="w-80 shrink-0 border-l border-navy-700 bg-navy-800/40 overflow-y-auto">
+        <AgentInspector
+          info={agentInfo}
+          selectedId={selectedId}
+          onClose={() => onSelect(null)}
+        />
+      </aside>
     </div>
   );
 }
