@@ -84,6 +84,10 @@ def create_app() -> FastAPI:
     from local_pdf.api.routers.admin.extract import router as extract_router
     from local_pdf.api.routers.admin.llm_server import router as llm_server_router
     from local_pdf.api.routers.admin.pipelines import router as pipelines_router
+    from local_pdf.api.routers.admin.provenienz import router as provenienz_router
+    from local_pdf.api.routers.admin.provenienz_approaches import (
+        router as provenienz_approaches_router,
+    )
     from local_pdf.api.routers.admin.segments import router as segments_router
     from local_pdf.api.routers.admin.synthesise import router as synthesise_router
     from local_pdf.api.routers.auth import router as auth_router
@@ -99,6 +103,8 @@ def create_app() -> FastAPI:
     app.include_router(synthesise_router)
     app.include_router(comparison_router)
     app.include_router(pipelines_router)
+    app.include_router(provenienz_router)
+    app.include_router(provenienz_approaches_router)
     app.include_router(llm_server_router)
     app.include_router(admin_curators_router)
     app.include_router(curate_docs_router)
