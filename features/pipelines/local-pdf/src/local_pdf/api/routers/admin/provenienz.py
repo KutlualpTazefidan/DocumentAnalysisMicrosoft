@@ -631,23 +631,43 @@ def _llm_evaluate(
     )
     raw = completion.text or ""
     cleaned = _strip_json_fence(raw)
+    parsed: object | None = None
     try:
         parsed = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}") from exc
-    if not isinstance(parsed, dict):
-        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}")
-    verdict = parsed.get("verdict")
-    confidence = parsed.get("confidence")
-    reasoning = parsed.get("reasoning")
-    if (
-        not isinstance(verdict, str)
-        or verdict not in _EVALUATE_VERDICTS
-        or not isinstance(confidence, (int, float))
-        or not (0.0 <= float(confidence) <= 1.0)
-        or not isinstance(reasoning, str)
-    ):
-        raise RuntimeError(f"_llm_evaluate: could not parse: {raw[:500]}")
+    except json.JSONDecodeError:
+        parsed = None
+
+    # Coerce many model-output shapes into our expected (verdict, conf, reasoning).
+    # Degrades gracefully — never raises — so the side-panel always shows
+    # *something*, even if the LLM was creative. Frontend handles unknown
+    # verdicts by falling back to the neutral chip color.
+    verdict = "unknown"
+    confidence = 0.0
+    reasoning = f"LLM-Antwort konnte nicht interpretiert werden: {raw[:200]}"
+
+    if isinstance(parsed, dict):
+        v = parsed.get("verdict")
+        c = parsed.get("confidence")
+        r = parsed.get("reasoning")
+        if isinstance(v, str) and v.strip():
+            verdict = v.strip()
+        if isinstance(c, (int, float)) and 0.0 <= float(c) <= 1.0:
+            confidence = float(c)
+        if isinstance(r, str) and r.strip():
+            reasoning = r.strip()
+    elif isinstance(parsed, list) and len(parsed) >= 1:
+        # Positional fallback: [verdict, confidence, reasoning]
+        if isinstance(parsed[0], str) and parsed[0].strip():
+            verdict = parsed[0].strip()
+        if (
+            len(parsed) >= 2
+            and isinstance(parsed[1], (int, float))
+            and 0.0 <= float(parsed[1]) <= 1.0
+        ):
+            confidence = float(parsed[1])
+        if len(parsed) >= 3 and isinstance(parsed[2], str) and parsed[2].strip():
+            reasoning = parsed[2].strip()
+
     return {
         "verdict": verdict,
         "confidence": float(confidence),

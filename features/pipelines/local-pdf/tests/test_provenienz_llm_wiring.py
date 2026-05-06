@@ -75,10 +75,35 @@ def test_evaluate_parses_full_dict(monkeypatch):
     assert out["reasoning"] == "Tabelle Spalte 3."
 
 
-def test_evaluate_rejects_unknown_verdict(monkeypatch):
+def test_evaluate_passes_through_unknown_verdict(monkeypatch):
+    """Unknown verdicts are accepted as-is — frontend's badge styling
+    falls back to a neutral chip color. The strict 4-set is a
+    convention, not a hard contract."""
     _patch(monkeypatch, '{"verdict":"banana","confidence":0.5,"reasoning":"r"}')
-    with pytest.raises(RuntimeError):
-        router_mod._llm_evaluate("c", "k", "vllm")
+    out = router_mod._llm_evaluate("c", "k", "vllm")
+    assert out["verdict"] == "banana"
+    assert out["confidence"] == 0.5
+
+
+def test_evaluate_accepts_positional_array_form(monkeypatch):
+    """Qwen et al. occasionally emit ``[verdict, confidence, reasoning]``
+    as a JSON array instead of an object. Coerce."""
+    _patch(monkeypatch, '["partial-support",0.6,"Verweis auf Abbildung 3."]')
+    out = router_mod._llm_evaluate("c", "k", "vllm")
+    assert out["verdict"] == "partial-support"
+    assert out["confidence"] == 0.6
+    assert "Abbildung 3" in out["reasoning"]
+
+
+def test_evaluate_degrades_gracefully_on_unparseable(monkeypatch):
+    """When the response can't be parsed at all, we still return a
+    dict so the downstream evaluation node spawns. Verdict is
+    'unknown' and reasoning carries the raw output for inspection."""
+    _patch(monkeypatch, "this is not JSON at all, sorry")
+    out = router_mod._llm_evaluate("c", "k", "vllm")
+    assert out["verdict"] == "unknown"
+    assert out["confidence"] == 0.0
+    assert "this is not JSON" in out["reasoning"]
 
 
 def test_propose_stop_returns_trimmed_sentence(monkeypatch):

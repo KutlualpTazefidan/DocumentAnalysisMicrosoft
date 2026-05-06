@@ -327,9 +327,15 @@ export function layoutViewGraph(
   const direction: LayoutDirection = opts.direction ?? "TB";
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  // Generous spacing so dagre's per-rank packing doesn't create overlaps even
-  // when the rendered tile slightly exceeds NODE_DIMS estimates.
-  g.setGraph({ rankdir: direction, nodesep: 80, ranksep: 112, marginx: 16, marginy: 16 });
+  // Spacing convention: trunk (parent → child) tight, branches (sibling →
+  // sibling) wide. Helps the eye see depth as "down" and breadth as "fan-out".
+  g.setGraph({
+    rankdir: direction,
+    nodesep: 192, // sibling spacing — branches splay wide
+    ranksep: 96, // depth spacing — trunk stays compact
+    marginx: 32,
+    marginy: 32,
+  });
 
   for (const v of viewNodes) {
     const dims = NODE_DIMS[v.kind];
