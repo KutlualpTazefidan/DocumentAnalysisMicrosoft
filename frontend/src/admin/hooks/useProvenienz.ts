@@ -54,6 +54,49 @@ export interface CreateSessionRequest {
   root_chunk_id: string;
 }
 
+// ---- Step / decide types ----
+
+export interface ActionProposalAlternative {
+  label: string;
+  args: Record<string, unknown>;
+}
+
+export interface GuidanceConsulted {
+  kind: "reason" | "approach";
+  id: string;
+  summary: string;
+}
+
+export interface ActionProposal {
+  node_id: string;
+  session_id: string;
+  kind: "action_proposal";
+  payload: {
+    step_kind: string;
+    anchor_node_id: string;
+    recommended: ActionProposalAlternative;
+    alternatives: ActionProposalAlternative[];
+    reasoning: string;
+    guidance_consulted: GuidanceConsulted[];
+  };
+  actor: string;
+  created_at: string;
+}
+
+export interface DecideResponse {
+  decision_node: ProvNode;
+  spawned_nodes: ProvNode[];
+  spawned_edges: ProvEdge[];
+}
+
+export interface DecideRequest {
+  proposal_node_id: string;
+  accepted: "recommended" | "alt" | "override";
+  alt_index?: number;
+  reason?: string;
+  override?: string;
+}
+
 // ---- fetchOk (shared util — duplicated from useComparison rather than refactored) ----
 
 async function fetchOk(url: string, init: RequestInit, token: string): Promise<Response> {
@@ -141,6 +184,122 @@ export function useDeleteSession(token: string, slug: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "sessions", slug] });
+    },
+  });
+}
+
+// ---- Step routes ----
+
+function stepRoutePost<TBody>(
+  token: string,
+  sessionId: string,
+  path: string,
+): (body: TBody) => Promise<ActionProposal> {
+  return async (body: TBody) => {
+    const r = await fetchOk(
+      `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/${path}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      token,
+    );
+    return (await r.json()) as ActionProposal;
+  };
+}
+
+export function useExtractClaims(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    { chunk_node_id: string; provider?: string }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "extract-claims"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useFormulateTask(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    { claim_node_id: string; provider?: string }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "formulate-task"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useSearchStep(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    { task_node_id: string; top_k?: number }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "search"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useEvaluate(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    {
+      search_result_node_id: string;
+      against_claim_id: string;
+      provider?: string;
+    }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "evaluate"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useProposeStop(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    { anchor_node_id: string; provider?: string }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "propose-stop"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useDecide(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<DecideResponse, Error, DecideRequest>({
+    mutationFn: async (body) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/decide`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
+      return (await r.json()) as DecideResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
     },
   });
 }
