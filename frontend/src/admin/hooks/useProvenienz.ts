@@ -241,6 +241,172 @@ export function useDeleteNode(token: string, sessionId: string) {
   });
 }
 
+// ---- Approach library ----
+
+export interface Approach {
+  approach_id: string;
+  name: string;
+  version: number;
+  step_kinds: string[];
+  extra_system: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function useApproaches(token: string, opts?: { stepKind?: string; enabledOnly?: boolean }) {
+  const stepKind = opts?.stepKind;
+  const enabledOnly = opts?.enabledOnly ?? false;
+  return useQuery<Approach[]>({
+    queryKey: ["provenienz", "approaches", stepKind ?? "all", enabledOnly],
+    enabled: !!token,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (stepKind) params.set("step_kind", stepKind);
+      params.set("enabled_only", String(enabledOnly));
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/approaches?${params}`,
+        { method: "GET" },
+        token,
+      );
+      const body = (await r.json()) as { approaches: Approach[] };
+      return body.approaches;
+    },
+  });
+}
+
+export interface CreateApproachRequest {
+  name: string;
+  step_kinds: string[];
+  extra_system: string;
+}
+
+export function useCreateApproach(token: string) {
+  const qc = useQueryClient();
+  return useMutation<Approach, Error, CreateApproachRequest>({
+    mutationFn: async (body) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/approaches`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
+      const out = (await r.json()) as { approach: Approach };
+      return out.approach;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "approaches"] });
+    },
+  });
+}
+
+export interface PatchApproachRequest {
+  enabled?: boolean;
+  extra_system?: string;
+  step_kinds?: string[];
+}
+
+export function usePatchApproach(token: string) {
+  const qc = useQueryClient();
+  return useMutation<Approach, Error, { approachId: string; patch: PatchApproachRequest }>({
+    mutationFn: async ({ approachId, patch }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/approaches/${approachId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+        token,
+      );
+      const out = (await r.json()) as { approach: Approach };
+      return out.approach;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "approaches"] });
+    },
+  });
+}
+
+export function useDeleteApproach(token: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (approachId) => {
+      await fetchOk(
+        `${apiBase()}/api/admin/provenienz/approaches/${approachId}`,
+        { method: "DELETE" },
+        token,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "approaches"] });
+    },
+  });
+}
+
+// ---- Agent introspection ----
+
+export interface AgentLlmInfo {
+  backend: string;
+  model: string;
+  base_url: string;
+}
+
+export interface AgentStepInfo {
+  kind: string;
+  label: string;
+  input_kind: string;
+  output_kind: string;
+  uses_llm: boolean;
+  uses_tool: string | null;
+  rules: string[];
+  system_prompt: string;
+  user_template: string;
+  expected_output: string;
+}
+
+export interface AgentToolInfo {
+  name: string;
+  type: string;
+  scope: string;
+  params: Record<string, string>;
+  used_by: string[];
+}
+
+export interface AgentRuleInfo {
+  summary: string;
+  trigger: string;
+  storage: string;
+  injection: string;
+  applies_to: string[];
+}
+
+export interface AgentInfo {
+  llm: AgentLlmInfo;
+  steps: AgentStepInfo[];
+  tools: AgentToolInfo[];
+  rules: Record<string, AgentRuleInfo>;
+}
+
+export function useAgentInfo(token: string) {
+  return useQuery<AgentInfo>({
+    queryKey: ["provenienz", "agent-info"],
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000, // info is static between deploys
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/agent-info`,
+        { method: "GET" },
+        token,
+      );
+      return (await r.json()) as AgentInfo;
+    },
+  });
+}
+
 export function usePromoteSearchResult(token: string, sessionId: string) {
   const qc = useQueryClient();
   return useMutation<ProvNode, Error, string>({

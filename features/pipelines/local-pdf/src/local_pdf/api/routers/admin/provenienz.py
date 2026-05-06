@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 from pathlib import Path  # noqa: TC003
@@ -161,6 +162,152 @@ async def get_session(session_id: str, request: Request) -> dict:
         "meta": _meta_to_response(meta).model_dump() if meta else None,
         "nodes": [n.__dict__ for n in nodes],
         "edges": [e.__dict__ for e in edges],
+    }
+
+
+@router.get("/api/admin/provenienz/agent-info")
+async def get_agent_info() -> dict:
+    """Static description of the agent's topology, prompts, tools and rules.
+
+    Surfaced so the Agent tab can render a flowchart of the system itself
+    without duplicating any prompt strings on the frontend. Read-only —
+    editing prompts/models requires a redeploy today (a future "live edit"
+    feature would land its own POST endpoint).
+    """
+    backend = os.environ.get("LLM_BACKEND", "ollama_local")
+    if backend == "vllm_remote":
+        model = os.environ.get("VLLM_MODEL", "")
+        base_url = os.environ.get("VLLM_BASE_URL", "")
+    elif backend == "azure_openai":
+        model = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT", "")
+        base_url = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    else:
+        model = os.environ.get("LLM_MODEL", "qwen2.5:7b-instruct")
+        base_url = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+
+    return {
+        "llm": {"backend": backend, "model": model, "base_url": base_url},
+        "steps": [
+            {
+                "kind": "extract_claims",
+                "label": "Aussagen extrahieren",
+                "input_kind": "chunk",
+                "output_kind": "claim",
+                "uses_llm": True,
+                "uses_tool": None,
+                "rules": ["reasons", "approaches", "origin_context"],
+                "system_prompt": EXTRACT_CLAIMS_SYSTEM,
+                "user_template": (
+                    "Textabschnitt:\n<chunk_text>\n\nGib das JSON-Array der Aussagen zurück."
+                ),
+                "expected_output": "JSON-Array von Strings (eine Aussage pro Eintrag)",
+            },
+            {
+                "kind": "formulate_task",
+                "label": "Aufgabe formulieren",
+                "input_kind": "claim",
+                "output_kind": "task",
+                "uses_llm": True,
+                "uses_tool": None,
+                "rules": ["reasons", "approaches"],
+                "system_prompt": FORMULATE_TASK_SYSTEM,
+                "user_template": "Aussage: <claim_text>\nSuchanfrage:",
+                "expected_output": "Eine Suchanfrage (max. 12 Wörter)",
+            },
+            {
+                "kind": "search",
+                "label": "Suchen",
+                "input_kind": "task",
+                "output_kind": "search_result",
+                "uses_llm": False,
+                "uses_tool": "InDocSearcher",
+                "rules": [],
+                "system_prompt": "",
+                "user_template": "",
+                "expected_output": "Liste von SearchHits (top_k konfigurierbar, default 5)",
+            },
+            {
+                "kind": "evaluate",
+                "label": "Bewerten",
+                "input_kind": "search_result",
+                "output_kind": "evaluation",
+                "uses_llm": True,
+                "uses_tool": None,
+                "rules": ["reasons", "approaches"],
+                "system_prompt": EVALUATE_SYSTEM,
+                "user_template": ("Aussage:\n<claim_text>\n\nKandidat:\n<candidate_text>\n\nJSON:"),
+                "expected_output": (
+                    "JSON-Objekt mit verdict, confidence, reasoning. "
+                    "Tolerant: akzeptiert auch [verdict, conf, reasoning]-Array; "
+                    "fällt bei unparsbarer Ausgabe auf verdict='unknown' zurück."
+                ),
+            },
+            {
+                "kind": "propose_stop",
+                "label": "Stopp vorschlagen",
+                "input_kind": "any",
+                "output_kind": "stop_proposal",
+                "uses_llm": True,
+                "uses_tool": None,
+                "rules": ["reasons", "approaches"],
+                "system_prompt": PROPOSE_STOP_SYSTEM,
+                "user_template": "Aktueller Knoten: <anchor_text>\nBegründung für Stopp:",
+                "expected_output": "Ein deutscher Satz (max. 25 Wörter)",
+            },
+            {
+                "kind": "promote_search_result",
+                "label": "Treffer weiter erforschen",
+                "input_kind": "search_result",
+                "output_kind": "chunk",
+                "uses_llm": False,
+                "uses_tool": None,
+                "rules": ["origin_context"],
+                "system_prompt": "",
+                "user_template": "",
+                "expected_output": (
+                    "Neuer Chunk-Knoten mit Recherche-Kontext (origin_claim, "
+                    "origin_query, origin_chunk). Anschließendes extract_claims "
+                    "auf diesem Chunk erhält den Kontext im System-Prompt."
+                ),
+            },
+        ],
+        "tools": [
+            {
+                "name": "InDocSearcher",
+                "type": "BM25",
+                "scope": "in-document",
+                "params": {
+                    "top_k": "konfigurierbar pro /search-Aufruf (default 5)",
+                    "exclude_box_ids": "Wurzel-Chunk wird ausgeschlossen",
+                },
+                "used_by": ["search"],
+            }
+        ],
+        "rules": {
+            "reasons": {
+                "summary": "Implizite Hinweise aus früheren Korrekturen",
+                "trigger": "Nutzer wählt 'Eigene Eingabe' bei /decide + füllt 'Begründung'",
+                "storage": "{data_root}/provenienz/reasons.jsonl (global)",
+                "injection": "letzte N=5 passende step_kind-Reasons in System-Prompt",
+                "applies_to": ["extract_claims", "formulate_task", "evaluate", "propose_stop"],
+            },
+            "approaches": {
+                "summary": "Explizite, benannte Prompt-Erweiterungen",
+                "trigger": "Curator legt einen Approach an + Sitzung pinnt ihn",
+                "storage": "{data_root}/provenienz/approaches.jsonl (global)",
+                "injection": (
+                    "extra_system aller gepinnten + aktivierten + step_kind-passenden Approaches"
+                ),
+                "applies_to": ["extract_claims", "formulate_task", "evaluate", "propose_stop"],
+            },
+            "origin_context": {
+                "summary": "Recherche-Kontext bei abgeleiteten Chunks",
+                "trigger": "Chunk wurde via promote-search-result erzeugt",
+                "storage": "Auf chunk.payload (origin_claim_text, origin_query, …)",
+                "injection": "Als 'Kontext der Recherche'-Block vor extra_system",
+                "applies_to": ["extract_claims"],
+            },
+        },
     }
 
 
@@ -464,6 +611,42 @@ def _extract_first_json_value(s: str) -> str | None:
 _EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradicts"}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompts — single source of truth.
+#
+# Surfaced via /api/admin/provenienz/agent-info so the Agent tab can render
+# the actual strings the LLM sees, instead of duplicating them in TypeScript.
+# Edit here → both the live LLM call and the docs UI update.
+# ─────────────────────────────────────────────────────────────────────────────
+
+EXTRACT_CLAIMS_SYSTEM = (
+    "Du extrahierst überprüfbare Aussagen aus einem Textabschnitt. Eine Aussage "
+    "ist eine spezifische, faktische Behauptung — Zahl, Datum, Eigenschaft, "
+    "Beziehung. Antworte ausschließlich als JSON-Array von Strings, ohne Vor- "
+    "oder Nachtext. Keine Aufzählungen, keine Markdown-Codeblöcke."
+)
+FORMULATE_TASK_SYSTEM = (
+    "Du formulierst eine knappe Suchanfrage (max. 12 Wörter, deutsch oder "
+    "englisch je nach Claim-Sprache), mit der die Quelle einer Aussage in "
+    "einem Korpus gefunden werden kann. Antworte ausschließlich mit der "
+    "Suchanfrage selbst — keine Anführungszeichen, keine Erklärung, kein "
+    "Zeilenumbruch davor oder danach."
+)
+EVALUATE_SYSTEM = (
+    "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer Aussage "
+    "ist. Antworte ausschließlich als JSON-Objekt mit den Feldern verdict "
+    "(eines von: 'likely-source', 'partial-support', 'unrelated', "
+    "'contradicts'), confidence (Zahl 0.0-1.0) und reasoning (kurzer "
+    "deutscher Satz). Kein Vor- oder Nachtext, keine Codeblöcke."
+)
+PROPOSE_STOP_SYSTEM = (
+    "Du formulierst einen kurzen deutschen Satz (max. 25 Wörter), warum "
+    "die Recherche zu einer Aussage abgeschlossen werden kann (Quelle "
+    "gefunden, mehrfach bestätigt, oder Sackgasse). Antworte ausschließlich "
+    "mit dem Satz selbst, ohne Anführungszeichen oder Markdown."
+)
+
+
 def _format_reason_examples(reasons: list[Reason]) -> str:
     """Render a list of past overrides as a German-language in-context
     examples block. Empty list → empty string (no block at all)."""
@@ -547,14 +730,7 @@ def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = (
-        "Du extrahierst überprüfbare Aussagen aus einem Textabschnitt. Eine Aussage "
-        "ist eine spezifische, faktische Behauptung — Zahl, Datum, Eigenschaft, "
-        "Beziehung. Antworte ausschließlich als JSON-Array von Strings, ohne Vor- "
-        "oder Nachtext. Keine Aufzählungen, keine Markdown-Codeblöcke."
-    )
-    if extra_system:
-        system = system + extra_system
+    system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "")
     user = f"Textabschnitt:\n{chunk_text}\n\nGib das JSON-Array der Aussagen zurück."
     client = get_llm_client()
     completion = client.complete(
@@ -649,15 +825,7 @@ def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = (
-        "Du formulierst eine knappe Suchanfrage (max. 12 Wörter, deutsch oder "
-        "englisch je nach Claim-Sprache), mit der die Quelle einer Aussage in "
-        "einem Korpus gefunden werden kann. Antworte ausschließlich mit der "
-        "Suchanfrage selbst — keine Anführungszeichen, keine Erklärung, kein "
-        "Zeilenumbruch davor oder danach."
-    )
-    if extra_system:
-        system = system + extra_system
+    system = FORMULATE_TASK_SYSTEM + (extra_system or "")
     user = f"Aussage: {claim_text}\nSuchanfrage:"
     client = get_llm_client()
     completion = client.complete(
@@ -805,15 +973,7 @@ def _llm_evaluate(
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = (
-        "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer Aussage "
-        "ist. Antworte ausschließlich als JSON-Objekt mit den Feldern verdict "
-        "(eines von: 'likely-source', 'partial-support', 'unrelated', "
-        "'contradicts'), confidence (Zahl 0.0-1.0) und reasoning (kurzer "
-        "deutscher Satz). Kein Vor- oder Nachtext, keine Codeblöcke."
-    )
-    if extra_system:
-        system = system + extra_system
+    system = EVALUATE_SYSTEM + (extra_system or "")
     user = f"Aussage:\n{claim_text}\n\nKandidat:\n{candidate_chunk_text}\n\nJSON:"
     client = get_llm_client()
     completion = client.complete(
@@ -961,14 +1121,7 @@ def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = ""
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = (
-        "Du formulierst einen kurzen deutschen Satz (max. 25 Wörter), warum "
-        "die Recherche zu einer Aussage abgeschlossen werden kann (Quelle "
-        "gefunden, mehrfach bestätigt, oder Sackgasse). Antworte ausschließlich "
-        "mit dem Satz selbst, ohne Anführungszeichen oder Markdown."
-    )
-    if extra_system:
-        system = system + extra_system
+    system = PROPOSE_STOP_SYSTEM + (extra_system or "")
     user = f"Aktueller Knoten: {anchor_text}\nBegründung für Stopp:"
     client = get_llm_client()
     completion = client.complete(
