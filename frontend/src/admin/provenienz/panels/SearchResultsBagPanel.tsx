@@ -1,5 +1,7 @@
+import { Trash2 } from "lucide-react";
+
 import { useToast } from "../../../shared/components/useToast";
-import { useEvaluate } from "../../hooks/useProvenienz";
+import { useDeleteNode, useEvaluate } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
@@ -25,6 +27,7 @@ export function SearchResultsBagPanel({
   if (view.kind !== "search_results_bag") return <></>;
   const claimId = String(view.task.payload.focus_claim_id ?? "");
   const evaluate = useEvaluate(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleEvaluate(resultId: string): Promise<void> {
@@ -39,6 +42,15 @@ export function SearchResultsBagPanel({
         search_result_node_id: resultId,
         against_claim_id: claimId,
       });
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
+  async function handleDeleteRow(resultId: string, evalId?: string): Promise<void> {
+    try {
+      await del.mutateAsync(resultId);
+      if (evalId) await del.mutateAsync(evalId);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -98,16 +110,30 @@ export function SearchResultsBagPanel({
                   „{reasoning}"
                 </p>
               )}
-              {!evalNode && (
+              <div className="mt-2 flex gap-2">
+                {!evalNode && (
+                  <button
+                    type="button"
+                    onClick={() => void handleEvaluate(result.node_id)}
+                    disabled={evaluate.isPending}
+                    className={`flex-1 px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white ${T.tiny} disabled:opacity-50`}
+                  >
+                    {evaluate.isPending ? "…" : "Bewerten"}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => void handleEvaluate(result.node_id)}
-                  disabled={evaluate.isPending}
-                  className={`mt-2 w-full px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white ${T.tiny} disabled:opacity-50`}
+                  onClick={() =>
+                    void handleDeleteRow(result.node_id, evalNode?.node_id)
+                  }
+                  disabled={del.isPending}
+                  className={`px-2 py-1 rounded text-red-400 hover:bg-red-900/30 ${T.tiny} disabled:opacity-50`}
+                  title="Treffer entfernen"
+                  aria-label="Treffer entfernen"
                 >
-                  {evaluate.isPending ? "…" : "Bewerten"}
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
-              )}
+              </div>
             </div>
           );
         })}

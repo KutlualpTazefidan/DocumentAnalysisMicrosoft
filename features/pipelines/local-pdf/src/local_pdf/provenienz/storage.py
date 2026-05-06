@@ -85,11 +85,26 @@ def append_edge(session_dir: Path, e: Edge) -> Edge:
     return e2
 
 
+def append_tombstone(session_dir: Path, node_id: str) -> None:
+    """Soft-delete a Node. Subsequent ``read_session`` calls hide both the
+    Node and any Edge that references it. The original ``node`` event line
+    stays in events.jsonl — audit trail is intact, the tombstone is just
+    another append-only record."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    rec = {"_event": "tombstone", "node_id": node_id, "deleted_at": _now()}
+    with _events_path(session_dir).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 def read_session(session_dir: Path) -> tuple[list[Node], list[Edge]]:
+    """Return nodes + edges, filtering out anything tombstoned. Edges that
+    reference a tombstoned node on either end are dropped — orphans don't
+    survive the soft-delete."""
     if not _events_path(session_dir).exists():
         return [], []
     nodes: list[Node] = []
     edges: list[Edge] = []
+    tombstoned: set[str] = set()
     with _events_path(session_dir).open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -97,10 +112,15 @@ def read_session(session_dir: Path) -> tuple[list[Node], list[Edge]]:
                 continue
             r = json.loads(line)
             event = r.pop("_event")
-            if event == "node":
+            if event == "tombstone":
+                tombstoned.add(r["node_id"])
+            elif event == "node":
                 nodes.append(Node(**r))
             elif event == "edge":
                 edges.append(Edge(**r))
+    if tombstoned:
+        nodes = [n for n in nodes if n.node_id not in tombstoned]
+        edges = [e for e in edges if e.from_node not in tombstoned and e.to_node not in tombstoned]
     return nodes, edges
 
 

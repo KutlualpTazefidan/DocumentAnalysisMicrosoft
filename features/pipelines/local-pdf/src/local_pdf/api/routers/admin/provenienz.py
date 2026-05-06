@@ -33,6 +33,7 @@ from local_pdf.provenienz.storage import (
     SessionMeta,
     append_edge,
     append_node,
+    append_tombstone,
     new_id,
     read_meta,
     read_session,
@@ -170,6 +171,21 @@ async def delete_session(session_id: str, request: Request) -> None:
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     shutil.rmtree(sd)
+
+
+@router.delete("/api/admin/provenienz/sessions/{session_id}/nodes/{node_id}", status_code=204)
+async def delete_node(session_id: str, node_id: str, request: Request) -> None:
+    """Soft-delete a single node by appending a tombstone event. The Node
+    line stays in events.jsonl for audit; subsequent ``read_session`` calls
+    hide it and any edge touching it."""
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    if not any(n.node_id == node_id for n in nodes):
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+    append_tombstone(sd, node_id)
 
 
 class PinApproachRequest(BaseModel):

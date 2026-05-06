@@ -89,3 +89,41 @@ def test_session_dir_layout(tmp_path: Path):
 
     d = session_dir(tmp_path, "my-slug", "01H123")
     assert d == tmp_path / "my-slug" / "provenienz" / "01H123"
+
+
+def test_tombstone_hides_node_and_dangling_edges(tmp_path: Path):
+    from local_pdf.provenienz.storage import append_tombstone
+
+    sd = tmp_path / "sess1"
+    append_node(sd, Node(node_id="A", session_id="s1", kind="chunk", payload={}, actor="human"))
+    append_node(sd, Node(node_id="B", session_id="s1", kind="claim", payload={}, actor="llm"))
+    append_node(sd, Node(node_id="C", session_id="s1", kind="claim", payload={}, actor="llm"))
+    append_edge(
+        sd,
+        Edge(
+            edge_id="e1",
+            session_id="s1",
+            from_node="B",
+            to_node="A",
+            kind="extracts-from",
+            reason=None,
+            actor="llm",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id="e2",
+            session_id="s1",
+            from_node="C",
+            to_node="A",
+            kind="extracts-from",
+            reason=None,
+            actor="llm",
+        ),
+    )
+    append_tombstone(sd, "B")
+    nodes, edges = read_session(sd)
+    assert {n.node_id for n in nodes} == {"A", "C"}
+    # Edge e1 (B → A) is hidden because B is gone; e2 (C → A) survives.
+    assert {e.edge_id for e in edges} == {"e2"}

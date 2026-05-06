@@ -225,6 +225,22 @@ export function useDeleteSession(token: string, slug: string) {
   });
 }
 
+export function useDeleteNode(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (nodeId) => {
+      await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/nodes/${nodeId}`,
+        { method: "DELETE" },
+        token,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 // ---- Step routes ----
 
 function stepRoutePost<TBody>(

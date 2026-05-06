@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useDeleteNode,
   useFormulateTask,
   useProposeStop,
   useSearchStep,
@@ -30,6 +31,7 @@ export function ClaimWithTaskPanel({
   const formulate = useFormulateTask(token, sessionId);
   const search = useSearchStep(token, sessionId);
   const stop = useProposeStop(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
   const [topK, setTopK] = useState(5);
 
@@ -51,6 +53,27 @@ export function ClaimWithTaskPanel({
   async function handleStop(): Promise<void> {
     try {
       await stop.mutateAsync({ anchor_node_id: claim.node_id });
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+  async function handleDelete(): Promise<void> {
+    if (
+      !window.confirm(
+        "Aussage löschen? Die abhängige Suchanfrage und ihre Treffer bleiben " +
+          "im Audit-Log, werden aber im Canvas ausgeblendet.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await del.mutateAsync(claim.node_id);
+      if (task) {
+        // Also tombstone the folded task — otherwise it survives as an
+        // orphan that won't render but clutters the audit view.
+        await del.mutateAsync(task.node_id);
+      }
+      onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -122,9 +145,17 @@ export function ClaimWithTaskPanel({
         >
           {stop.isPending ? "…" : "Stopp vorschlagen"}
         </button>
-        {(formulate.error || search.error || stop.error) && (
+        <button
+          type="button"
+          onClick={() => void handleDelete()}
+          disabled={del.isPending}
+          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+        >
+          {del.isPending ? "…" : "Tile löschen"}
+        </button>
+        {(formulate.error || search.error || stop.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(formulate.error ?? search.error ?? stop.error)?.message}
+            {(formulate.error ?? search.error ?? stop.error ?? del.error)?.message}
           </p>
         )}
       </footer>

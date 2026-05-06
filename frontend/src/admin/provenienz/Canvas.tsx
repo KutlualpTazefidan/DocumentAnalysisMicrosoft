@@ -20,10 +20,14 @@ import {
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 import { layoutGraph, type LayoutDirection, type ViewNode } from "./layout";
 import { nodeTypes } from "./nodes";
+import { usePersistedPositions } from "./usePersistedPositions";
 
 interface Props {
   nodes: ProvNode[];
   edges: ProvEdge[];
+  /** When provided, tile positions persist across tab navigations under
+   *  this session id. Pass null to disable persistence. */
+  sessionId?: string | null;
   /** Receives the view_id of the clicked tile. */
   onSelectView?: (viewId: string | null) => void;
   /** Map view_id → ViewNode so the side panel can render kind-specific UI. */
@@ -38,6 +42,7 @@ interface Props {
 export function Canvas({
   nodes,
   edges,
+  sessionId,
   onSelectView,
   onViewIndex,
 }: Props): JSX.Element {
@@ -46,6 +51,8 @@ export function Canvas({
   const [resetSignal, setResetSignal] = useState(0);
   const lastResetRef = useRef(0);
 
+  const persisted = usePersistedPositions(sessionId ?? null);
+
   const laid = useMemo(
     () => layoutGraph(nodes, edges, { direction }),
     [nodes, edges, direction],
@@ -53,25 +60,42 @@ export function Canvas({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
 
-  // Preserve user-dragged positions across refetches: keep the existing
-  // position for any tile the user already moved; only new tiles take
-  // dagre's coordinates. When the user hits Reset, the resetSignal bumps
-  // and we discard preserved positions for one cycle.
+  // Position pipeline:
+  //   1. Reset → discard everything; use fresh dagre positions
+  //   2. Otherwise prefer (a) the live in-memory drag position, then
+  //      (b) the persisted localStorage position from a prior session
+  //      visit, then (c) dagre's freshly computed position.
   useEffect(() => {
     const isReset = resetSignal > lastResetRef.current;
     lastResetRef.current = resetSignal;
     setRfNodes((prev) => {
-      if (isReset || prev.length === 0) {
+      if (isReset) {
         return laid.nodes;
       }
-      const prevPos = new Map(prev.map((n) => [n.id, n.position]));
+      const livePos = new Map(prev.map((n) => [n.id, n.position]));
       return laid.nodes.map((n) => ({
         ...n,
-        position: prevPos.get(n.id) ?? n.position,
+        position:
+          livePos.get(n.id) ?? persisted.loaded.get(n.id) ?? n.position,
       }));
     });
     setRfEdges(laid.edges);
-  }, [laid.nodes, laid.edges, setRfNodes, setRfEdges, resetSignal]);
+  }, [
+    laid.nodes,
+    laid.edges,
+    setRfNodes,
+    setRfEdges,
+    resetSignal,
+    persisted.loaded,
+  ]);
+
+  // Save positions on every change (debounced inside the hook).
+  useEffect(() => {
+    if (!sessionId) return;
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const n of rfNodes) positions.set(n.id, n.position);
+    persisted.save(positions);
+  }, [rfNodes, sessionId, persisted]);
 
   useEffect(() => {
     if (!onViewIndex) return;
@@ -110,7 +134,10 @@ export function Canvas({
           }
           snap={snap}
           onToggleSnap={() => setSnap((s) => !s)}
-          onReset={() => setResetSignal((n) => n + 1)}
+          onReset={() => {
+            persisted.clear();
+            setResetSignal((n) => n + 1);
+          }}
         />
       </ReactFlow>
     </div>

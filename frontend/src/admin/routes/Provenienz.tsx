@@ -152,6 +152,7 @@ export function Provenienz(): JSX.Element {
                     <Canvas
                       nodes={detail.data.nodes}
                       edges={detail.data.edges}
+                      sessionId={detail.data.meta.session_id}
                       onSelectView={setSelectedViewId}
                       onViewIndex={handleViewIndex}
                     />

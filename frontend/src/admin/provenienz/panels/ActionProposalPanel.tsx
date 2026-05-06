@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDecide,
+  useDeleteNode,
   type ActionProposalAlternative,
   type GuidanceConsulted,
 } from "../../hooks/useProvenienz";
@@ -48,6 +49,7 @@ export function ActionProposalPanel({
   const [reason, setReason] = useState<string>("");
 
   const decide = useDecide(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
 
   const overrideEmpty = choice === "override" && !overrideText.trim();
@@ -231,8 +233,25 @@ export function ActionProposalPanel({
         >
           {decide.isPending ? "Entscheide…" : "Entscheiden"}
         </button>
-        {decide.error && (
-          <p className={`text-red-400 ${T.tiny}`}>{decide.error.message}</p>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await del.mutateAsync(node.node_id);
+              onSelectView(null);
+            } catch (e) {
+              toastError(e instanceof Error ? e.message : "Fehler");
+            }
+          }}
+          disabled={del.isPending || decide.isPending}
+          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+        >
+          {del.isPending ? "…" : "Vorschlag verwerfen"}
+        </button>
+        {(decide.error || del.error) && (
+          <p className={`text-red-400 ${T.tiny}`}>
+            {(decide.error ?? del.error)?.message}
+          </p>
         )}
       </footer>
     </div>
