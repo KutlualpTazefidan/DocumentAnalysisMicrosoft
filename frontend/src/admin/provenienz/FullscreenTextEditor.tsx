@@ -93,7 +93,7 @@ export function FullscreenTextEditor({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={placeholder}
-            className="w-full h-full p-4 rounded bg-navy-950 border border-navy-700 text-white text-[14px] leading-relaxed font-mono resize-none"
+            className="w-full h-full p-4 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 text-[14px] leading-relaxed font-mono resize-none"
             autoFocus
           />
         </div>

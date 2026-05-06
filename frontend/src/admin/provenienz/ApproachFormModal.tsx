@@ -146,7 +146,7 @@ export function ApproachFormModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. umgang-chunk"
-              className={`w-full px-3 py-2 rounded bg-navy-950 border border-navy-700 text-white ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               autoFocus={mode === "create"}
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
@@ -227,7 +227,7 @@ export function ApproachFormModal({
                 "3. Nächsten Schritt aus den verfügbaren Steps wählen.\n" +
                 "..."
               }
-              className="min-h-[280px] w-full p-4 rounded bg-navy-950 border border-navy-700 text-white text-[14px] leading-relaxed font-mono resize-y"
+              className="min-h-[280px] w-full p-4 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 text-[14px] leading-relaxed font-mono resize-y"
             />
           </div>
 
