@@ -1,7 +1,11 @@
-import { Trash2 } from "lucide-react";
+import { CornerDownRight, Trash2 } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
-import { useDeleteNode, useEvaluate } from "../../hooks/useProvenienz";
+import {
+  useDeleteNode,
+  useEvaluate,
+  usePromoteSearchResult,
+} from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
@@ -28,6 +32,7 @@ export function SearchResultsBagPanel({
   const claimId = String(view.task.payload.focus_claim_id ?? "");
   const evaluate = useEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
+  const promote = usePromoteSearchResult(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleEvaluate(resultId: string): Promise<void> {
@@ -51,6 +56,16 @@ export function SearchResultsBagPanel({
     try {
       await del.mutateAsync(resultId);
       if (evalId) await del.mutateAsync(evalId);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
+  async function handlePromote(resultId: string): Promise<void> {
+    try {
+      const newChunk = await promote.mutateAsync(resultId);
+      // Land on the new chunk so the user sees it spawn + can extract from it.
+      onSelectView(`view:${newChunk.node_id}`);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -121,6 +136,16 @@ export function SearchResultsBagPanel({
                     {evaluate.isPending ? "…" : "Bewerten"}
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => void handlePromote(result.node_id)}
+                  disabled={promote.isPending}
+                  className={`flex-1 px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white ${T.tiny} disabled:opacity-50 flex items-center justify-center gap-1`}
+                  title="Diesen Treffer als neuen Chunk öffnen"
+                >
+                  <CornerDownRight className="w-3 h-3" aria-hidden />
+                  {promote.isPending ? "…" : "Weiter erforschen"}
+                </button>
                 <button
                   type="button"
                   onClick={() =>

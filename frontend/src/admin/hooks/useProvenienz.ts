@@ -241,6 +241,27 @@ export function useDeleteNode(token: string, sessionId: string) {
   });
 }
 
+export function usePromoteSearchResult(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<ProvNode, Error, string>({
+    mutationFn: async (searchResultNodeId) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/promote-search-result`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ search_result_node_id: searchResultNodeId }),
+        },
+        token,
+      );
+      return (await r.json()) as ProvNode;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 // ---- Step routes ----
 
 function stepRoutePost<TBody>(

@@ -11,17 +11,22 @@ const VERDICT_STYLE: Record<string, string> = {
   manual: "bg-purple-600 text-purple-100",
 };
 
+const ROW_HEIGHT_PX = 44; // approximate; aligns the per-row handles
+
 /**
  * One tile per task that has search_results, listing all results as rows.
- * Per-result evaluations fold in as small verdict badges next to the score.
- * Clicking the tile opens the side panel with row-level actions.
+ * Each row exposes its own bottom-edge source handle (id="row-{nodeId}") so
+ * a "promote-to-chunk" action can attach a new exploration tile to *that
+ * specific row* rather than the bag as a whole.
  */
 export function SearchResultsBagTile({
   data,
 }: NodeProps<SearchResultsBagView>): JSX.Element {
   const evaluatedCount = data.rows.filter((r) => r.evaluation).length;
+  const rows = data.rows.slice(0, 10);
+
   return (
-    <div className="rounded-lg border border-emerald-500 bg-emerald-800/90 text-white shadow-md w-80">
+    <div className="rounded-lg border border-emerald-500 bg-emerald-800/90 text-white shadow-md w-80 relative">
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-emerald-600/60">
         <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-emerald-200">
@@ -31,8 +36,8 @@ export function SearchResultsBagTile({
           {data.rows.length} Treffer · {evaluatedCount} bewertet
         </span>
       </header>
-      <ul className="max-h-48 overflow-y-auto divide-y divide-emerald-600/40">
-        {data.rows.slice(0, 10).map((row) => {
+      <ul className="divide-y divide-emerald-600/40">
+        {rows.map((row, idx) => {
           const boxId = String((row.result.payload.box_id as string) ?? "");
           const score = Number((row.result.payload.score as number) ?? 0);
           const text = String((row.result.payload.text as string) ?? "");
@@ -40,7 +45,11 @@ export function SearchResultsBagTile({
             ? String((row.evaluation.payload.verdict as string) ?? "")
             : null;
           return (
-            <li key={row.result.node_id} className="px-3 py-1.5">
+            <li
+              key={row.result.node_id}
+              className="px-3 py-1.5 relative"
+              style={{ minHeight: ROW_HEIGHT_PX }}
+            >
               <div className="flex items-center gap-2 text-[10px]">
                 <span className="font-mono text-emerald-200">{boxId}</span>
                 <span className="text-emerald-100/70">
@@ -59,6 +68,18 @@ export function SearchResultsBagTile({
               <p className="text-[11px] text-white/85 line-clamp-1 mt-0.5">
                 {text}
               </p>
+              {/* Per-row source handle, anchored at the right edge so the
+                  outgoing edge to a promoted chunk emerges from the row
+                  itself rather than the tile bottom. */}
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`row-${row.result.node_id}`}
+                className="!bg-purple-400 !w-2 !h-2 !border-purple-200"
+                style={{ top: "50%", transform: "translateY(-50%)" }}
+                isConnectable={false}
+              />
+              <RowIndex index={idx} />
             </li>
           );
         })}
@@ -68,7 +89,15 @@ export function SearchResultsBagTile({
           </li>
         )}
       </ul>
-      <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>
+  );
+}
+
+/** Tiny marker so the user can pair side-panel rows with canvas rows. */
+function RowIndex({ index }: { index: number }): JSX.Element {
+  return (
+    <span className="absolute top-1 right-2 text-[9px] text-emerald-200/50 font-mono">
+      #{index + 1}
+    </span>
   );
 }

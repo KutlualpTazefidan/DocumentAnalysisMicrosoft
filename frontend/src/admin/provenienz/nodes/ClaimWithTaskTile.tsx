@@ -1,11 +1,11 @@
-import { Lock, Quote, Search } from "lucide-react";
+import { BookOpen, CheckCircle2, Lock, Quote, Search } from "lucide-react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
 import type { ClaimWithTaskView } from "../layout";
 
 /**
- * Combines a claim with its (optional) formulated task. 1:1 by construction —
- * one claim has at most one task.
+ * Combines a claim with its (optional) formulated task. 1:1 by construction.
+ * Footer summarises downstream state: search-result count + evaluated count.
  */
 export function ClaimWithTaskTile({
   data,
@@ -15,6 +15,7 @@ export function ClaimWithTaskTile({
     ? String((data.task.payload.query as string) ?? "")
     : null;
   const closed = !!data.closedByStop;
+
   return (
     <div className="rounded-lg border border-blue-500 bg-blue-700/90 px-3 py-2 text-white shadow-md w-72">
       <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -30,11 +31,35 @@ export function ClaimWithTaskTile({
           <p className="text-xs italic mt-0.5 line-clamp-2">{query}</p>
         </div>
       )}
-      {closed && (
-        <p className="mt-1 text-[10px] text-amber-300 flex items-center gap-1">
-          <Lock className="w-3 h-3" aria-hidden /> abgeschlossen
-        </p>
-      )}
+      <footer className="mt-1.5 flex items-center gap-2 text-[10px] text-blue-100/85">
+        {data.task === undefined && (
+          <span className="italic text-blue-200/75">
+            keine Suchanfrage formuliert
+          </span>
+        )}
+        {data.task !== undefined && data.searchResultCount === 0 && (
+          <span className="italic text-blue-200/75">noch nicht gesucht</span>
+        )}
+        {data.searchResultCount > 0 && (
+          <>
+            <span className="flex items-center gap-1">
+              <BookOpen className="w-3 h-3" aria-hidden />
+              {data.searchResultCount} Treffer
+            </span>
+            {data.evaluatedCount > 0 && (
+              <span className="flex items-center gap-1 text-rose-200">
+                <CheckCircle2 className="w-3 h-3" aria-hidden />
+                {data.evaluatedCount} bewertet
+              </span>
+            )}
+          </>
+        )}
+        {closed && (
+          <span className="ml-auto text-amber-300 flex items-center gap-1">
+            <Lock className="w-3 h-3" aria-hidden /> abgeschlossen
+          </span>
+        )}
+      </footer>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>
   );

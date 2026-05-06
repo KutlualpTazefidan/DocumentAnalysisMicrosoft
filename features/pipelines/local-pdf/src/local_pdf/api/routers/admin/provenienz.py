@@ -188,6 +188,66 @@ async def delete_node(session_id: str, node_id: str, request: Request) -> None:
     append_tombstone(sd, node_id)
 
 
+class PromoteSearchResultRequest(BaseModel):
+    search_result_node_id: str
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/promote-search-result",
+    status_code=201,
+)
+async def promote_search_result(
+    session_id: str, body: PromoteSearchResultRequest, request: Request
+) -> dict:
+    """Create a new chunk node seeded with a search_result's text, so the
+    user can extract claims and dig deeper from that specific result. The
+    new chunk gets an outgoing ``promoted-from`` edge to the search_result;
+    the frontend reads this to draw the visual link from the result row."""
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
+    text = str(sr.payload.get("text", ""))
+    box_id = str(sr.payload.get("box_id", ""))
+    doc_slug = str(sr.payload.get("doc_slug", ""))
+    chunk = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="chunk",
+            payload={
+                "box_id": box_id,
+                "doc_slug": doc_slug,
+                "text": text,
+                "promoted_from": sr.node_id,
+            },
+            actor="human",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=chunk.node_id,
+            to_node=sr.node_id,
+            kind="promoted-from",
+            reason=None,
+            actor="human",
+        ),
+    )
+    return chunk.__dict__
+
+
 class PinApproachRequest(BaseModel):
     approach_id: str
 

@@ -31,15 +31,23 @@ export interface ChunkView {
   view_id: string;
   kind: "chunk";
   chunk: ProvNode;
-  closedByStop?: ProvNode; // a stop_proposal anchored to this chunk
+  closedByStop?: ProvNode;
+  /** Number of claim children currently extracted from this chunk. */
+  claimCount: number;
+  /** True if this chunk was created via promote-search-result. */
+  promoted: boolean;
 }
 
 export interface ClaimWithTaskView {
   view_id: string;
   kind: "claim_with_task";
   claim: ProvNode;
-  task?: ProvNode; // 1:1 derivation if formulated
+  task?: ProvNode;
   closedByStop?: ProvNode;
+  /** Number of search results currently in this claim's bag (0 if no bag). */
+  searchResultCount: number;
+  /** Of those, how many have been evaluated. */
+  evaluatedCount: number;
 }
 
 export interface SearchResultsBagView {
@@ -66,6 +74,9 @@ export interface ViewEdge {
   source: string; // view_id
   target: string; // view_id
   kind: string;
+  /** Per-row handle id when the source tile exposes multiple ports
+   *  (currently only the SearchResultsBag does this). */
+  sourceHandle?: string;
 }
 
 export type LayoutDirection = "TB" | "LR";
@@ -188,37 +199,90 @@ export function buildViewGraph(
     if (anchor) stopByAnchorId.set(anchor, n);
   }
 
+  // Pre-compute: claim count per chunk (for the "N Aussagen extrahiert" badge).
+  const claimCountByChunkId = new Map<string, number>();
+  for (const n of provNodes) {
+    if (n.kind !== "claim") continue;
+    const out = g.outEdges.get(n.node_id) ?? [];
+    for (const e of out) {
+      if (e.kind === "extracts-from" && g.byId.has(e.to_node)) {
+        const prev = claimCountByChunkId.get(e.to_node) ?? 0;
+        claimCountByChunkId.set(e.to_node, prev + 1);
+      }
+    }
+  }
+
+  // Pre-compute: chunks promoted from a search_result, keyed by source result.
+  // Used to draw the bag → new-chunk edge with a per-row sourceHandle.
+  const promotedChunkBySrId = new Map<string, ProvNode>();
+  for (const n of provNodes) {
+    if (n.kind !== "chunk") continue;
+    const out = g.outEdges.get(n.node_id) ?? [];
+    for (const e of out) {
+      if (e.kind === "promoted-from" && g.byId.has(e.to_node)) {
+        promotedChunkBySrId.set(e.to_node, n);
+      }
+    }
+  }
+
   // ── 1) Chunks ─────────────────────────────────────────────────────────────
   const chunkNodes = provNodes.filter((n) => n.kind === "chunk");
   for (const chunk of chunkNodes) {
+    const promoted = !!chunk.payload.promoted_from;
     viewNodes.push({
       view_id: `view:${chunk.node_id}`,
       kind: "chunk",
       chunk,
       closedByStop: stopByAnchorId.get(chunk.node_id),
+      claimCount: claimCountByChunkId.get(chunk.node_id) ?? 0,
+      promoted,
     });
+
+    // If this chunk was promoted from a search_result, draw the link from
+    // the originating bag's per-row handle to this new chunk.
+    if (promoted) {
+      const srId = String(chunk.payload.promoted_from);
+      const sr = g.byId.get(srId);
+      if (sr && sr.kind === "search_result") {
+        const taskId = sr.payload.task_node_id as string | undefined;
+        if (taskId && resultsByTaskId.has(taskId)) {
+          viewEdges.push({
+            id: `e:promoted:${chunk.node_id}`,
+            source: `view:bag:${taskId}`,
+            target: `view:${chunk.node_id}`,
+            kind: "promoted-from",
+            sourceHandle: `row-${srId}`,
+          });
+        }
+      }
+    }
   }
 
   // ── 2) Claims + their tasks ───────────────────────────────────────────────
   const claimNodes = provNodes.filter((n) => n.kind === "claim");
   for (const claim of claimNodes) {
+    const task = taskByClaimId.get(claim.node_id);
+    const taskResults = task ? (resultsByTaskId.get(task.node_id) ?? []) : [];
+    const evaluatedCount = taskResults.filter(
+      (r) => evaluationByResultId.has(r.node_id),
+    ).length;
     const view: ClaimWithTaskView = {
       view_id: `view:${claim.node_id}`,
       kind: "claim_with_task",
       claim,
-      task: taskByClaimId.get(claim.node_id),
+      task,
       closedByStop: stopByAnchorId.get(claim.node_id),
+      searchResultCount: taskResults.length,
+      evaluatedCount,
     };
     viewNodes.push(view);
 
-    // Edge: chunk → claim_with_task. Find the chunk this claim was extracted
-    // from via `extracts-from` edge (claim → chunk).
     const out = g.outEdges.get(claim.node_id) ?? [];
     for (const e of out) {
       if (e.kind === "extracts-from" && g.byId.has(e.to_node)) {
         viewEdges.push({
           id: `e:${e.edge_id}`,
-          source: `view:${e.to_node}`, // chunk view
+          source: `view:${e.to_node}`,
           target: view.view_id,
           kind: "extracts-from",
         });
@@ -504,6 +568,7 @@ export function layoutViewGraph(
     id: e.id,
     source: e.source,
     target: e.target,
+    sourceHandle: e.sourceHandle,
     type: "default",
     style: { stroke: edgeColor(e.kind), strokeWidth: 1.5 },
   }));
@@ -532,6 +597,8 @@ function edgeColor(kind: string): string {
       return "#10b981";
     case "pending":
       return "#fbbf24";
+    case "promoted-from":
+      return "#a855f7"; // purple — distinct from the trunk
     default:
       return "#475569";
   }
