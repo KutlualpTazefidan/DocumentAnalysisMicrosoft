@@ -6,6 +6,7 @@ import { ReactFlowProvider } from "reactflow";
 import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { Canvas } from "../provenienz/Canvas";
+import { SidePanel } from "../provenienz/SidePanel";
 import {
   useCreateSession,
   useDeleteSession,
@@ -21,6 +22,7 @@ export function Provenienz(): JSX.Element {
   const tokenStr = token ?? "";
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [rootChunkInput, setRootChunkInput] = useState("");
 
@@ -47,7 +49,10 @@ export function Provenienz(): JSX.Element {
   async function handleDelete(sessionId: string) {
     if (!window.confirm("Sitzung wirklich löschen?")) return;
     await del.mutateAsync(sessionId);
-    if (selectedId === sessionId) setSelectedId(null);
+    if (selectedId === sessionId) {
+      setSelectedId(null);
+      setSelectedNodeId(null);
+    }
   }
 
   return (
@@ -129,7 +134,10 @@ export function Provenienz(): JSX.Element {
                 className={`px-3 py-2 cursor-pointer hover:bg-navy-700/40 ${
                   selectedId === s.session_id ? "bg-navy-700/60" : ""
                 }`}
-                onClick={() => setSelectedId(s.session_id)}
+                onClick={() => {
+                  setSelectedId(s.session_id);
+                  setSelectedNodeId(null);
+                }}
               >
                 <SessionRow
                   session={s}
@@ -163,13 +171,26 @@ export function Provenienz(): JSX.Element {
                   {detail.data.edges.length} Kanten
                 </p>
               </header>
-              <div className="flex-1 min-h-0">
-                <ReactFlowProvider>
-                  <Canvas
+              <div className="flex-1 min-h-0 flex">
+                <div className="flex-1 min-w-0">
+                  <ReactFlowProvider>
+                    <Canvas
+                      nodes={detail.data.nodes}
+                      edges={detail.data.edges}
+                      onSelectNode={setSelectedNodeId}
+                    />
+                  </ReactFlowProvider>
+                </div>
+                <aside className="w-80 shrink-0 border-l border-navy-700 bg-navy-800/40 overflow-y-auto">
+                  <SidePanel
+                    sessionId={detail.data.meta.session_id}
+                    token={tokenStr}
+                    selectedNodeId={selectedNodeId}
                     nodes={detail.data.nodes}
                     edges={detail.data.edges}
+                    onSelectNode={setSelectedNodeId}
                   />
-                </ReactFlowProvider>
+                </aside>
               </div>
             </>
           )}
