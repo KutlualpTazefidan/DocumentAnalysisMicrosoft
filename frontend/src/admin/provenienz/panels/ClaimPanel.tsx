@@ -5,37 +5,33 @@ import {
   useDeleteNode,
   useFormulateTask,
   useProposeStop,
-  useSearchStep,
   useSetClaimGoal,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 /**
- * Combined panel for the claim+task tile. Shows the claim text + (if any) the
- * formulated task query. Action buttons depend on state:
- *   - no task yet → "Aufgabe formulieren" + "Stopp vorschlagen"
- *   - task exists, no search yet → "Suchen" + "Stopp vorschlagen"
- *   - task already searched → search bag tile carries the next actions
+ * Side panel for a Claim tile. Actions: formulate the search task,
+ * propose stop, edit the per-claim research goal, delete (cascade).
+ * The task itself is a downstream tile with its own panel — this one
+ * doesn't show search/top_k controls anymore.
  */
-export function ClaimWithTaskPanel({
+export function ClaimPanel({
   sessionId,
   token,
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "claim_with_task") return <></>;
+  if (view.kind !== "claim") return <></>;
   const claim = view.claim;
-  const task = view.task;
   const closed = !!view.closedByStop;
 
   const formulate = useFormulateTask(token, sessionId);
-  const search = useSearchStep(token, sessionId);
   const stop = useProposeStop(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const setClaimGoal = useSetClaimGoal(token, sessionId);
   const { error: toastError } = useToast();
-  const [topK, setTopK] = useState(5);
+
   const initialGoal = String(claim.payload.goal ?? "");
   const [goalDraft, setGoalDraft] = useState(initialGoal);
   const [editingGoal, setEditingGoal] = useState(false);
@@ -43,33 +39,9 @@ export function ClaimWithTaskPanel({
     if (!editingGoal) setGoalDraft(initialGoal);
   }, [initialGoal, editingGoal]);
 
-  async function handleSaveGoal(): Promise<void> {
-    if (!goalDraft.trim() || goalDraft.trim() === initialGoal) {
-      setEditingGoal(false);
-      return;
-    }
-    try {
-      await setClaimGoal.mutateAsync({
-        claimId: claim.node_id,
-        goal: goalDraft.trim(),
-      });
-      setEditingGoal(false);
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
-  }
-
   async function handleFormulate(): Promise<void> {
     try {
       await formulate.mutateAsync({ claim_node_id: claim.node_id });
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
-  }
-  async function handleSearch(): Promise<void> {
-    if (!task) return;
-    try {
-      await search.mutateAsync({ task_node_id: task.node_id, top_k: topK });
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -84,17 +56,29 @@ export function ClaimWithTaskPanel({
   async function handleDelete(): Promise<void> {
     if (
       !window.confirm(
-        "Aussage und alle abhängigen Knoten (Suchanfrage, Treffer, " +
-          "Bewertungen, abgeleitete Chunks) löschen? Die Einträge bleiben " +
-          "im Audit-Log, werden aber im Canvas ausgeblendet.",
+        "Aussage und alle abhängigen Knoten (Aufgabe, Treffer, Bewertungen) löschen?",
       )
     ) {
       return;
     }
     try {
-      // Backend cascades automatically — single call removes the whole subtree.
       await del.mutateAsync(claim.node_id);
       onSelectView(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+  async function handleSaveGoal(): Promise<void> {
+    if (!goalDraft.trim() || goalDraft.trim() === initialGoal) {
+      setEditingGoal(false);
+      return;
+    }
+    try {
+      await setClaimGoal.mutateAsync({
+        claimId: claim.node_id,
+        goal: goalDraft.trim(),
+      });
+      setEditingGoal(false);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -150,9 +134,7 @@ export function ClaimWithTaskPanel({
               type="button"
               onClick={() => setEditingGoal(true)}
               className={`mt-1 text-left w-full ${T.body} ${
-                initialGoal
-                  ? "text-pink-100 italic"
-                  : "text-slate-500 italic"
+                initialGoal ? "text-pink-100 italic" : "text-slate-500 italic"
               } hover:text-pink-200`}
               title="Klick zum Bearbeiten"
             >
@@ -160,14 +142,6 @@ export function ClaimWithTaskPanel({
             </button>
           )}
         </div>
-        {task && (
-          <div className="pt-2 border-t border-navy-700">
-            <p className={T.tinyBold}>Suchanfrage</p>
-            <p className={`text-cyan-200 italic ${T.body}`}>
-              {String(task.payload.query ?? "")}
-            </p>
-          </div>
-        )}
         {closed && (
           <p className={`${T.body} text-amber-300 italic`}>
             Diese Untersuchung wurde abgeschlossen.
@@ -175,39 +149,14 @@ export function ClaimWithTaskPanel({
         )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
-        {!task && (
-          <button
-            type="button"
-            onClick={() => void handleFormulate()}
-            disabled={formulate.isPending}
-            className={`w-full px-3 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white ${T.body} disabled:opacity-50`}
-          >
-            {formulate.isPending ? "…" : "Aufgabe formulieren"}
-          </button>
-        )}
-        {task && (
-          <>
-            <div className="flex items-center gap-2">
-              <label className={`${T.tiny} text-slate-300`}>top_k</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={topK}
-                onChange={(e) => setTopK(Math.max(1, Math.min(20, Number(e.target.value))))}
-                className={`w-16 px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleSearch()}
-              disabled={search.isPending}
-              className={`w-full px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white ${T.body} disabled:opacity-50`}
-            >
-              {search.isPending ? "Suche…" : "Suchen"}
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          onClick={() => void handleFormulate()}
+          disabled={formulate.isPending}
+          className={`w-full px-3 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white ${T.body} disabled:opacity-50`}
+        >
+          {formulate.isPending ? "…" : "Aufgabe formulieren"}
+        </button>
         <button
           type="button"
           onClick={() => void handleStop()}
@@ -224,9 +173,9 @@ export function ClaimWithTaskPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(formulate.error || search.error || stop.error || del.error) && (
+        {(formulate.error || stop.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(formulate.error ?? search.error ?? stop.error ?? del.error)?.message}
+            {(formulate.error ?? stop.error ?? del.error)?.message}
           </p>
         )}
       </footer>

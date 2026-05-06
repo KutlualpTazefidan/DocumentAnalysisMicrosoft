@@ -3,11 +3,12 @@ import type { NodeProps } from "reactflow";
 
 import { ActionProposalTile } from "./ActionProposalTile";
 import { ChunkTile } from "./ChunkTile";
-import { ClaimWithTaskTile } from "./ClaimWithTaskTile";
+import { ClaimTile } from "./ClaimTile";
 import { DecisionTile } from "./DecisionTile";
 import { FallbackNode } from "./FallbackNode";
 import { GoalTile } from "./GoalTile";
 import { SearchResultsBagTile } from "./SearchResultsBagTile";
+import { TaskTile } from "./TaskTile";
 
 /**
  * View-graph renderers. Keys match `ViewNodeKind` in layout.ts.
@@ -20,7 +21,8 @@ import { SearchResultsBagTile } from "./SearchResultsBagTile";
 export const nodeTypes: Record<string, ComponentType<NodeProps>> = {
   goal: GoalTile,
   chunk: ChunkTile,
-  claim_with_task: ClaimWithTaskTile,
+  claim: ClaimTile,
+  task: TaskTile,
   search_results_bag: SearchResultsBagTile,
   action_proposal: ActionProposalTile,
   decision: DecisionTile,

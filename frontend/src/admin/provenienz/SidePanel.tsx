@@ -3,10 +3,11 @@ import type { ViewNode } from "./layout";
 
 import { ActionProposalPanel } from "./panels/ActionProposalPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
-import { ClaimWithTaskPanel } from "./panels/ClaimWithTaskPanel";
+import { ClaimPanel } from "./panels/ClaimPanel";
 import { DecisionPanel } from "./panels/DecisionPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { SearchResultsBagPanel } from "./panels/SearchResultsBagPanel";
+import { TaskPanel } from "./panels/TaskPanel";
 import { T } from "../styles/typography";
 
 export interface PanelCommonProps {
@@ -69,8 +70,10 @@ export function SidePanel({
       return <GoalPanel {...common} />;
     case "chunk":
       return <ChunkPanel {...common} />;
-    case "claim_with_task":
-      return <ClaimWithTaskPanel {...common} />;
+    case "claim":
+      return <ClaimPanel {...common} />;
+    case "task":
+      return <TaskPanel {...common} />;
     case "search_results_bag":
       return <SearchResultsBagPanel {...common} />;
     case "action_proposal":

@@ -24,7 +24,8 @@ import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 export type ViewNodeKind =
   | "goal"
   | "chunk"
-  | "claim_with_task"
+  | "claim"
+  | "task"
   | "search_results_bag"
   | "action_proposal"
   | "decision";
@@ -40,16 +41,19 @@ export interface ChunkView {
   promoted: boolean;
 }
 
-export interface ClaimWithTaskView {
+export interface ClaimView {
   view_id: string;
-  kind: "claim_with_task";
+  kind: "claim";
   claim: ProvNode;
-  task?: ProvNode;
   closedByStop?: ProvNode;
-  /** Number of search results currently in this claim's bag (0 if no bag). */
-  searchResultCount: number;
-  /** Of those, how many have been evaluated. */
-  evaluatedCount: number;
+}
+
+export interface TaskView {
+  view_id: string;
+  kind: "task";
+  task: ProvNode;
+  /** True if a search has been run on this task. */
+  hasResults: boolean;
 }
 
 export interface SearchResultsBagView {
@@ -88,7 +92,8 @@ export interface GoalView {
 export type ViewNode =
   | GoalView
   | ChunkView
-  | ClaimWithTaskView
+  | ClaimView
+  | TaskView
   | SearchResultsBagView
   | ActionProposalView
   | DecisionView;
@@ -101,6 +106,11 @@ export interface ViewEdge {
   /** Per-row handle id when the source tile exposes multiple ports
    *  (currently only the SearchResultsBag does this). */
   sourceHandle?: string;
+  /** "trunk" defines tree-layout parentage; "side" is rendered as a
+   *  visual edge but skipped by the tree-layout walker — used to dock
+   *  decision tiles next to their proposal without consuming a tree
+   *  slot. Default: "trunk". */
+  placement?: "trunk" | "side";
 }
 
 export type LayoutDirection = "TB" | "LR";
@@ -117,10 +127,11 @@ interface LayoutOptions {
 const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   goal: { w: 384, h: 96 },
   chunk: { w: 272, h: 144 },
-  claim_with_task: { w: 304, h: 160 },
+  claim: { w: 272, h: 144 },
+  task: { w: 256, h: 112 },
   search_results_bag: { w: 336, h: 304 },
   action_proposal: { w: 320, h: 200 },
-  decision: { w: 240, h: 96 },
+  decision: { w: 224, h: 96 },
 };
 
 /** Round to the nearest multiple so positions land on the snap grid. */
@@ -282,6 +293,28 @@ export function buildViewGraph(
     }
   }
 
+  // For each spawned node we look up the proposal that produced it.
+  // Decision-via-triggers → proposal-via-decided-by → proposal_node.
+  const proposalSpawningNode = new Map<string, ProvNode>(); // spawned_node_id → proposal
+  for (const n of provNodes) {
+    if (n.kind !== "decision") continue;
+    let parentProposalId: string | null = null;
+    for (const e of g.outEdges.get(n.node_id) ?? []) {
+      if (e.kind === "decided-by") {
+        parentProposalId = e.to_node;
+        break;
+      }
+    }
+    if (!parentProposalId) continue;
+    const proposal = g.byId.get(parentProposalId);
+    if (!proposal) continue;
+    for (const e of g.outEdges.get(n.node_id) ?? []) {
+      if (e.kind === "triggers" && g.byId.has(e.to_node)) {
+        proposalSpawningNode.set(e.to_node, proposal);
+      }
+    }
+  }
+
   // ── 1) Chunks ─────────────────────────────────────────────────────────────
   const chunkNodes = provNodes.filter((n) => n.kind === "chunk");
   for (const chunk of chunkNodes) {
@@ -295,8 +328,7 @@ export function buildViewGraph(
       promoted,
     });
 
-    // If this chunk was promoted from a search_result, draw the link from
-    // the originating bag's per-row handle to this new chunk.
+    // Promoted chunks: bag → new chunk (trunk continuation through the loop).
     if (promoted) {
       const srId = String(chunk.payload.promoted_from);
       const sr = g.byId.get(srId);
@@ -315,42 +347,74 @@ export function buildViewGraph(
     }
   }
 
-  // ── 2) Claims + their tasks ───────────────────────────────────────────────
+  // ── 2) Claims (own tile, spawned by extract_claims action_proposal) ───────
   const claimNodes = provNodes.filter((n) => n.kind === "claim");
   for (const claim of claimNodes) {
-    const task = taskByClaimId.get(claim.node_id);
-    const taskResults = task ? (resultsByTaskId.get(task.node_id) ?? []) : [];
-    const evaluatedCount = taskResults.filter(
-      (r) => evaluationByResultId.has(r.node_id),
-    ).length;
-    const view: ClaimWithTaskView = {
+    viewNodes.push({
       view_id: `view:${claim.node_id}`,
-      kind: "claim_with_task",
+      kind: "claim",
       claim,
-      task,
       closedByStop: stopByAnchorId.get(claim.node_id),
-      searchResultCount: taskResults.length,
-      evaluatedCount,
-    };
-    viewNodes.push(view);
+    });
+    // Trunk: parent = the action_proposal that spawned this claim.
+    // Fallback: chunk via extracts-from (e.g. for legacy data without a
+    // proposal/decision pair).
+    const proposal = proposalSpawningNode.get(claim.node_id);
+    if (proposal) {
+      viewEdges.push({
+        id: `e:claim-from-prop:${claim.node_id}`,
+        source: `view:${proposal.node_id}`,
+        target: `view:${claim.node_id}`,
+        kind: "spawns",
+      });
+    } else {
+      for (const e of g.outEdges.get(claim.node_id) ?? []) {
+        if (e.kind === "extracts-from" && g.byId.has(e.to_node)) {
+          viewEdges.push({
+            id: `e:${e.edge_id}`,
+            source: `view:${e.to_node}`,
+            target: `view:${claim.node_id}`,
+            kind: "extracts-from",
+          });
+        }
+      }
+    }
+  }
 
-    const out = g.outEdges.get(claim.node_id) ?? [];
-    for (const e of out) {
-      if (e.kind === "extracts-from" && g.byId.has(e.to_node)) {
+  // ── 3) Tasks (own tile, spawned by formulate_task action_proposal) ────────
+  for (const task of provNodes.filter((n) => n.kind === "task")) {
+    const results = resultsByTaskId.get(task.node_id) ?? [];
+    viewNodes.push({
+      view_id: `view:${task.node_id}`,
+      kind: "task",
+      task,
+      hasResults: results.length > 0,
+    });
+    const proposal = proposalSpawningNode.get(task.node_id);
+    if (proposal) {
+      viewEdges.push({
+        id: `e:task-from-prop:${task.node_id}`,
+        source: `view:${proposal.node_id}`,
+        target: `view:${task.node_id}`,
+        kind: "spawns",
+      });
+    } else {
+      // Fallback: claim via focus_claim_id
+      const claimId = task.payload.focus_claim_id as string | undefined;
+      if (claimId && g.byId.has(claimId)) {
         viewEdges.push({
-          id: `e:${e.edge_id}`,
-          source: `view:${e.to_node}`,
-          target: view.view_id,
-          kind: "extracts-from",
+          id: `e:task-claim:${task.node_id}`,
+          source: `view:${claimId}`,
+          target: `view:${task.node_id}`,
+          kind: "verifies",
         });
       }
     }
   }
 
-  // ── 3) Search results bags (one per task that has results) ────────────────
+  // ── 4) Search results bags (one per task that has results) ────────────────
   for (const [taskId, results] of resultsByTaskId.entries()) {
     const task = g.byId.get(taskId)!;
-    const claimId = task.payload.focus_claim_id as string | undefined;
     const bagViewId = `view:bag:${taskId}`;
     viewNodes.push({
       view_id: bagViewId,
@@ -361,22 +425,33 @@ export function buildViewGraph(
         evaluation: evaluationByResultId.get(r.node_id),
       })),
     });
-    // Edge: claim_with_task → bag (the bag hangs off the claim's tile, since
-    // the task is folded inside that tile).
-    if (claimId && g.byId.has(claimId)) {
+    // Trunk: parent = the search action_proposal that triggered the search.
+    // Fallback: the task itself (if no proposal recorded — legacy path).
+    const firstResult = results[0];
+    const searchProposal = firstResult
+      ? proposalSpawningNode.get(firstResult.node_id)
+      : undefined;
+    if (searchProposal) {
       viewEdges.push({
         id: `e:bag:${taskId}`,
-        source: `view:${claimId}`,
+        source: `view:${searchProposal.node_id}`,
+        target: bagViewId,
+        kind: "spawns",
+      });
+    } else if (g.byId.has(taskId)) {
+      viewEdges.push({
+        id: `e:bag-task:${taskId}`,
+        source: `view:${taskId}`,
         target: bagViewId,
         kind: "candidates-for",
       });
     }
   }
 
-  // ── 4) Action-Proposals (always visible, full audit) ──────────────────────
-  // Every action_proposal becomes a tile — decided or pending. Decision
-  // nodes also get tiles, sitting between proposal and spawned children.
-  // Trace-everything mode: nothing vanishes once it lands in events.jsonl.
+  // ── 5) Action-Proposals + Decisions (proposal in trunk, decision aside) ───
+  // Every action_proposal becomes a trunk tile under its anchor. Decision
+  // tiles dock to the side of their proposal — they don't consume a trunk
+  // slot, so the main flow stays linear.
   for (const n of provNodes) {
     if (n.kind !== "action_proposal") continue;
     const proposalViewId = `view:${n.node_id}`;
@@ -387,9 +462,11 @@ export function buildViewGraph(
       proposal: n,
       decided: !!decision,
     });
-    // Edge: anchor → proposal.
     const anchorNodeId = n.payload.anchor_node_id as string | undefined;
     if (anchorNodeId && g.byId.has(anchorNodeId)) {
+      // Anchor's view_id depends on what the anchor is. Tasks are now their
+      // own tiles, so a search proposal anchored to a task points at the task
+      // tile (not the claim tile, as it did when task was folded).
       const anchorViewId = mapAnchorToViewId(anchorNodeId, g, taskByClaimId);
       if (anchorViewId) {
         viewEdges.push({
@@ -400,7 +477,6 @@ export function buildViewGraph(
         });
       }
     }
-    // If decided: emit decision view + edge proposal → decision.
     if (decision) {
       const decisionViewId = `view:${decision.node_id}`;
       viewNodes.push({
@@ -409,11 +485,14 @@ export function buildViewGraph(
         decision,
         proposal_node_id: n.node_id,
       });
+      // SIDE edge — placed manually after layout, doesn't count as tree
+      // parentage. Keeps the trunk linear.
       viewEdges.push({
         id: `e:dec:${decision.node_id}`,
         source: proposalViewId,
         target: decisionViewId,
         kind: "decided-by",
+        placement: "side",
       });
     }
   }
@@ -443,12 +522,9 @@ function mapAnchorToViewId(
     case "chunk":
     case "claim":
       return `view:${anchorNodeId}`;
-    case "task": {
-      // task is folded into its claim's view
-      const claimId = anchor.payload.focus_claim_id as string | undefined;
-      if (claimId) return `view:${claimId}`;
-      return undefined;
-    }
+    case "task":
+      // task is now its own view tile
+      return `view:${anchorNodeId}`;
     case "search_result": {
       // result is folded into its task's bag view
       const taskId = anchor.payload.task_node_id as string | undefined;
@@ -604,7 +680,13 @@ export function layoutViewGraph(
     kindOf.set(v.view_id, v.kind);
     present.add(v.view_id);
   }
-  for (const e of viewEdges) {
+  // Trunk edges define tree parentage; side edges are skipped here and
+  // post-positioned next to their source after the trunk lands.
+  const trunkEdges = viewEdges.filter(
+    (e) => (e.placement ?? "trunk") === "trunk",
+  );
+  const sideEdges = viewEdges.filter((e) => e.placement === "side");
+  for (const e of trunkEdges) {
     if (!present.has(e.source) || !present.has(e.target)) continue;
     if (hasParent.has(e.target)) continue; // first edge wins
     if (!childrenOf.has(e.source)) childrenOf.set(e.source, []);
@@ -612,7 +694,7 @@ export function layoutViewGraph(
     hasParent.add(e.target);
   }
 
-  // Roots = nodes with no incoming edge. Lay each out independently.
+  // Roots = nodes with no incoming trunk edge. Lay each out independently.
   const positions = new Map<string, { x: number; y: number }>();
   if (direction === "TB") {
     let cursorX = MARGIN;
@@ -633,6 +715,31 @@ export function layoutViewGraph(
         positions.set(k, { x: p.x + MARGIN, y: p.y + cursorY });
       }
       cursorY += box.height + ROOT_SEP;
+    }
+  }
+
+  // Side placement: dock each side-edge target next to its source. For
+  // TB direction the target sits to the right of the source at the same
+  // vertical centre; for LR direction it sits below.
+  const SIDE_GAP = 64;
+  for (const e of sideEdges) {
+    const sourcePos = positions.get(e.source);
+    if (!sourcePos) continue;
+    const sourceKind = kindOf.get(e.source);
+    const targetKind = kindOf.get(e.target);
+    if (!sourceKind || !targetKind) continue;
+    const srcDims = NODE_DIMS[sourceKind];
+    const tgtDims = NODE_DIMS[targetKind];
+    if (direction === "TB") {
+      positions.set(e.target, {
+        x: sourcePos.x + srcDims.w + SIDE_GAP,
+        y: sourcePos.y + (srcDims.h - tgtDims.h) / 2,
+      });
+    } else {
+      positions.set(e.target, {
+        x: sourcePos.x + (srcDims.w - tgtDims.w) / 2,
+        y: sourcePos.y + srcDims.h + SIDE_GAP,
+      });
     }
   }
 
@@ -678,10 +785,14 @@ function edgeColor(kind: string): string {
       return "#60a5fa";
     case "candidates-for":
       return "#10b981";
+    case "spawns":
+      return "#60a5fa"; // blue — proposal spawned this trunk node
+    case "verifies":
+      return "#06b6d4"; // cyan — task verifies a claim (legacy fallback)
     case "proposed":
-      return "#fbbf24"; // amber — action proposed here
+      return "#fbbf24"; // amber — anchor proposed an action here
     case "decided-by":
-      return "#a78bfa"; // violet — decision resolves the proposal
+      return "#a78bfa"; // violet — side edge to the decision tile
     case "promoted-from":
       return "#a855f7";
     case "directs":
