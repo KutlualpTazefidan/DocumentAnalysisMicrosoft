@@ -77,12 +77,94 @@ export function ApproachLibrary({ token }: Props): JSX.Element {
         </p>
       )}
 
-      <ul className="mt-3 space-y-2">
-        {approaches?.map((a) => (
-          <ApproachRow key={a.approach_id} approach={a} token={token} />
-        ))}
-      </ul>
+      <ApproachGroups approaches={approaches ?? []} token={token} />
     </div>
+  );
+}
+
+const STEP_KIND_GROUP_LABEL: Record<string, string> = {
+  next_step: "🧠 Agent-Denkregeln (next_step)",
+  extract_goal: "🎯 Ziel-Ableitung (extract_goal)",
+  extract_claims: "📜 Aussagen extrahieren",
+  formulate_task: "🔍 Aufgabe formulieren",
+  evaluate: "⚖ Bewerten",
+  propose_stop: "🛑 Stopp vorschlagen",
+};
+
+/** Group approaches by their primary (first) step_kind. Approaches with
+ *  multiple step_kinds are placed under the first, with the rest shown
+ *  as additional badges on the row. */
+function ApproachGroups({
+  approaches,
+  token,
+}: {
+  approaches: Approach[];
+  token: string;
+}): JSX.Element {
+  const groups = new Map<string, Approach[]>();
+  for (const a of approaches) {
+    const primary = a.step_kinds[0] ?? "(ohne Step)";
+    if (!groups.has(primary)) groups.set(primary, []);
+    groups.get(primary)!.push(a);
+  }
+  // Render in the canonical STEP_KIND_OPTIONS order, then any extras.
+  const orderedKinds = [
+    ...STEP_KIND_OPTIONS.filter((s) => groups.has(s)),
+    ...[...groups.keys()].filter(
+      (k) => !STEP_KIND_OPTIONS.includes(k as (typeof STEP_KIND_OPTIONS)[number]),
+    ),
+  ];
+  if (orderedKinds.length === 0) return <></>;
+  return (
+    <div className="mt-3 space-y-3">
+      {orderedKinds.map((kind) => (
+        <ApproachGroup
+          key={kind}
+          stepKind={kind}
+          approaches={groups.get(kind) ?? []}
+          token={token}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ApproachGroup({
+  stepKind,
+  approaches,
+  token,
+}: {
+  stepKind: string;
+  approaches: Approach[];
+  token: string;
+}): JSX.Element {
+  const [collapsed, setCollapsed] = useState(false);
+  const enabledCount = approaches.filter((a) => a.enabled).length;
+  const label = STEP_KIND_GROUP_LABEL[stepKind] ?? stepKind;
+  return (
+    <section className="rounded border border-navy-700 bg-navy-900/30">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-navy-800/40"
+      >
+        <div className="flex items-center gap-2 text-left">
+          <span className={`${T.tinyBold} text-slate-200`}>
+            {collapsed ? "▸" : "▾"} {label}
+          </span>
+          <span className={`${T.tiny} text-slate-400`}>
+            {approaches.length} ({enabledCount} aktiv)
+          </span>
+        </div>
+      </button>
+      {!collapsed && (
+        <ul className="px-3 pb-3 space-y-2">
+          {approaches.map((a) => (
+            <ApproachRow key={a.approach_id} approach={a} token={token} />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -166,13 +248,27 @@ function CreateForm({ token, onDone }: { token: string; onDone: () => void }): J
         )}
       </div>
       <div>
-        <label className={`${T.tiny} text-slate-300 block`}>System-Prompt-Erweiterung</label>
+        <div className="flex items-center justify-between">
+          <label className={`${T.tiny} text-slate-300`}>
+            System-Prompt-Erweiterung
+          </label>
+          <span className={`${T.tiny} text-slate-500`}>
+            {text.length} Zeichen
+          </span>
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          rows={4}
-          placeholder="Sei besonders gründlich bei Zahlen und Einheiten…"
-          className={`mt-0.5 w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body} font-mono`}
+          rows={14}
+          placeholder={
+            "Mehrzeilige Heuristik. Beispiel:\n\n" +
+            "ARBEITSWEISE BEI CHUNK-KNOTEN\n" +
+            "1. Inhalt vollständig erfassen.\n" +
+            "2. Mit Sitzungs-Ziel abgleichen.\n" +
+            "3. Nächsten Schritt aus den verfügbaren Steps wählen.\n" +
+            "..."
+          }
+          className={`mt-1 w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-white text-[13px] leading-relaxed font-mono resize-y min-h-[200px]`}
         />
       </div>
       <div className="flex gap-2">
@@ -298,11 +394,20 @@ function ApproachRow({
         </pre>
       ) : (
         <div className="mt-2 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className={`${T.tiny} text-slate-400`}>
+              Bearbeiten — Speichern bumpt Version v
+              {approach.version + 1}
+            </span>
+            <span className={`${T.tiny} text-slate-500`}>
+              {text.length} Zeichen
+            </span>
+          </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={4}
-            className={`w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white text-[11px] font-mono`}
+            rows={14}
+            className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-white text-[13px] leading-relaxed font-mono resize-y min-h-[200px]`}
             autoFocus
           />
           <div className="flex gap-2">
@@ -310,9 +415,9 @@ function ApproachRow({
               type="button"
               onClick={() => void handleSaveText()}
               disabled={patch.isPending}
-              className={`px-2 py-1 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny}`}
+              className={`px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny}`}
             >
-              {patch.isPending ? "…" : "Speichern (v" + (approach.version + 1) + ")"}
+              {patch.isPending ? "…" : "Speichern"}
             </button>
             <button
               type="button"
@@ -320,7 +425,7 @@ function ApproachRow({
                 setText(approach.extra_system);
                 setEditing(false);
               }}
-              className={`px-2 py-1 rounded text-slate-300 hover:bg-navy-700 ${T.tiny}`}
+              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-navy-700 ${T.tiny}`}
             >
               Abbrechen
             </button>
