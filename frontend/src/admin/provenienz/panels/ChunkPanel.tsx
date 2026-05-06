@@ -6,20 +6,22 @@ import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 export function ChunkPanel({
   sessionId,
   token,
-  node,
-  onSelectNode,
+  view,
+  onSelectView,
 }: PanelCommonProps): JSX.Element {
-  const payload = node.payload;
-  const text = String(payload.text ?? "");
-  const boxId = payload.box_id ? String(payload.box_id) : null;
+  if (view.kind !== "chunk") return <></>;
+  const chunk = view.chunk;
+  const text = String(chunk.payload.text ?? "");
+  const boxId = chunk.payload.box_id ? String(chunk.payload.box_id) : null;
+  const closed = !!view.closedByStop;
 
   const extract = useExtractClaims(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleExtract(): Promise<void> {
     try {
-      const proposal = await extract.mutateAsync({ chunk_node_id: node.node_id });
-      onSelectNode(proposal.node_id);
+      await extract.mutateAsync({ chunk_node_id: chunk.node_id });
+      // The new pending_proposal view tile takes over; auto-select it.
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -27,18 +29,23 @@ export function ChunkPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <PanelHeader node={node} onClose={() => onSelectNode(null)} />
+      <PanelHeader
+        title="Chunk"
+        subtitle={boxId ?? undefined}
+        onClose={() => onSelectView(null)}
+      />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
-        {boxId && (
-          <div>
-            <p className={T.tinyBold}>Box</p>
-            <p className={`text-white ${T.mono}`}>{boxId}</p>
-          </div>
-        )}
         <div>
           <p className={T.tinyBold}>Text</p>
-          <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>{text}</p>
+          <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+            {text}
+          </p>
         </div>
+        {closed && (
+          <p className={`${T.body} text-amber-300 italic`}>
+            Diese Chunk-Untersuchung wurde abgeschlossen.
+          </p>
+        )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
         <button

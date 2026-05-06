@@ -14,9 +14,11 @@ type Choice = "recommended" | "alt" | "override";
 export function ActionProposalPanel({
   sessionId,
   token,
-  node,
-  onSelectNode,
+  view,
+  onSelectView,
 }: PanelCommonProps): JSX.Element {
+  if (view.kind !== "pending_proposal") return <></>;
+  const node = view.proposal;
   const payload = node.payload;
   const stepKind = String(payload.step_kind ?? "");
   const reasoning = payload.reasoning ? String(payload.reasoning) : "";
@@ -62,9 +64,9 @@ export function ActionProposalPanel({
       if (choice === "alt") body.alt_index = altIndex;
       if (choice === "override") body.override = overrideText;
       if (reason.trim()) body.reason = reason.trim();
-      const res = await decide.mutateAsync(body);
-      // Land on the new decision node so the user sees the result.
-      onSelectNode(res.decision_node.node_id);
+      await decide.mutateAsync(body);
+      // The pending tile vanishes on refetch; clear selection.
+      onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -72,7 +74,10 @@ export function ActionProposalPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <PanelHeader node={node} onClose={() => onSelectNode(null)} />
+      <PanelHeader
+        title={`Vorschlag · ${stepKind}`}
+        onClose={() => onSelectView(null)}
+      />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
         <div>
           <p className={T.tinyBold}>Schritt</p>

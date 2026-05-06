@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
 import { GitMerge, Plus, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
@@ -15,6 +15,7 @@ import {
   useSessions,
   type SessionMeta,
 } from "../hooks/useProvenienz";
+import type { ViewNode } from "../provenienz/layout";
 import { T } from "../styles/typography";
 
 export function Provenienz(): JSX.Element {
@@ -23,8 +24,15 @@ export function Provenienz(): JSX.Element {
   const tokenStr = token ?? "";
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [viewIndex, setViewIndex] = useState<Map<string, ViewNode>>(
+    () => new Map(),
+  );
   const [creating, setCreating] = useState(false);
+
+  const handleViewIndex = useCallback((idx: Map<string, ViewNode>) => {
+    setViewIndex(idx);
+  }, []);
 
   const { data: sessions, isLoading, error } = useSessions(slug, tokenStr);
   const create = useCreateSession(tokenStr);
@@ -38,7 +46,7 @@ export function Provenienz(): JSX.Element {
   async function handlePickChunk(boxId: string) {
     const m = await create.mutateAsync({ slug, root_chunk_id: boxId });
     setSelectedId(m.session_id);
-    setSelectedNodeId(null);
+    setSelectedViewId(null);
     setCreating(false);
   }
 
@@ -47,7 +55,7 @@ export function Provenienz(): JSX.Element {
     await del.mutateAsync(sessionId);
     if (selectedId === sessionId) {
       setSelectedId(null);
-      setSelectedNodeId(null);
+      setSelectedViewId(null);
     }
   }
 
@@ -93,7 +101,7 @@ export function Provenienz(): JSX.Element {
                 }`}
                 onClick={() => {
                   setSelectedId(s.session_id);
-                  setSelectedNodeId(null);
+                  setSelectedViewId(null);
                 }}
               >
                 <SessionRow
@@ -144,7 +152,8 @@ export function Provenienz(): JSX.Element {
                     <Canvas
                       nodes={detail.data.nodes}
                       edges={detail.data.edges}
-                      onSelectNode={setSelectedNodeId}
+                      onSelectView={setSelectedViewId}
+                      onViewIndex={handleViewIndex}
                     />
                   </ReactFlowProvider>
                 </div>
@@ -152,10 +161,11 @@ export function Provenienz(): JSX.Element {
                   <SidePanel
                     sessionId={detail.data.meta.session_id}
                     token={tokenStr}
-                    selectedNodeId={selectedNodeId}
+                    selectedViewId={selectedViewId}
+                    viewIndex={viewIndex}
                     nodes={detail.data.nodes}
                     edges={detail.data.edges}
-                    onSelectNode={setSelectedNodeId}
+                    onSelectView={setSelectedViewId}
                   />
                 </aside>
               </div>

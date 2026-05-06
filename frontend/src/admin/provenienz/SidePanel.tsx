@@ -1,59 +1,54 @@
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
+import type { ViewNode } from "./layout";
 
 import { ActionProposalPanel } from "./panels/ActionProposalPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
-import { ClaimPanel } from "./panels/ClaimPanel";
-import { DecisionPanel } from "./panels/DecisionPanel";
-import { EvaluationPanel } from "./panels/EvaluationPanel";
-import { SearchResultPanel } from "./panels/SearchResultPanel";
-import { StopProposalPanel } from "./panels/StopProposalPanel";
-import { TaskPanel } from "./panels/TaskPanel";
+import { ClaimWithTaskPanel } from "./panels/ClaimWithTaskPanel";
+import { SearchResultsBagPanel } from "./panels/SearchResultsBagPanel";
 import { T } from "../styles/typography";
 
 export interface PanelCommonProps {
   sessionId: string;
   token: string;
-  node: ProvNode;
+  view: ViewNode;
+  /** Full raw node list — panels that need cross-references (e.g. the
+   *  evaluate-step claim picker) read from here. */
   nodes: ProvNode[];
   edges: ProvEdge[];
-  onSelectNode: (id: string | null) => void;
+  onSelectView: (viewId: string | null) => void;
 }
 
 interface Props {
   sessionId: string;
   token: string;
-  selectedNodeId: string | null;
+  selectedViewId: string | null;
+  viewIndex: Map<string, ViewNode>;
   nodes: ProvNode[];
   edges: ProvEdge[];
-  onSelectNode: (id: string | null) => void;
+  onSelectView: (viewId: string | null) => void;
 }
 
-/**
- * Side-panel dispatch shell. Looks up the selected node and renders
- * the kind-specific detail/action panel. Each per-kind panel takes
- * `PanelCommonProps`, fires the matching backend route, and relies on
- * React Query invalidation to refresh the canvas.
- */
 export function SidePanel({
   sessionId,
   token,
-  selectedNodeId,
+  selectedViewId,
+  viewIndex,
   nodes,
   edges,
-  onSelectNode,
+  onSelectView,
 }: Props): JSX.Element {
-  if (!selectedNodeId) {
+  if (!selectedViewId) {
     return (
       <div className={`p-4 ${T.body} text-slate-500 italic`}>
-        Knoten auf dem Canvas auswählen, um Details und Aktionen zu sehen.
+        Tile auf dem Canvas auswählen, um Details und Aktionen zu sehen.
       </div>
     );
   }
-  const node = nodes.find((n) => n.node_id === selectedNodeId);
-  if (!node) {
+  const view = viewIndex.get(selectedViewId);
+  if (!view) {
     return (
       <div className={`p-4 ${T.body} text-slate-500 italic`}>
-        Knoten nicht gefunden.
+        Tile nicht gefunden.
       </div>
     );
   }
@@ -61,62 +56,40 @@ export function SidePanel({
   const common: PanelCommonProps = {
     sessionId,
     token,
-    node,
+    view,
     nodes,
     edges,
-    onSelectNode,
+    onSelectView,
   };
 
-  switch (node.kind) {
+  switch (view.kind) {
     case "chunk":
       return <ChunkPanel {...common} />;
-    case "claim":
-      return <ClaimPanel {...common} />;
-    case "task":
-      return <TaskPanel {...common} />;
-    case "search_result":
-      return <SearchResultPanel {...common} />;
-    case "action_proposal":
+    case "claim_with_task":
+      return <ClaimWithTaskPanel {...common} />;
+    case "search_results_bag":
+      return <SearchResultsBagPanel {...common} />;
+    case "pending_proposal":
       return <ActionProposalPanel {...common} />;
-    case "decision":
-      return <DecisionPanel {...common} />;
-    case "evaluation":
-      return <EvaluationPanel {...common} />;
-    case "stop_proposal":
-      return <StopProposalPanel {...common} />;
-    default:
-      return (
-        <div className="p-4 text-slate-300">
-          <p className={`${T.tinyBold}`}>Unbekannter Knotentyp</p>
-          <p className={`${T.mono}`}>{node.kind}</p>
-          <pre className="mt-2 text-[11px] whitespace-pre-wrap break-words bg-navy-900 p-2 rounded">
-            {JSON.stringify(node.payload, null, 2)}
-          </pre>
-        </div>
-      );
   }
 }
 
-/**
- * Reusable header rendered at the top of every per-kind panel. Shows
- * the node kind, id, actor + timestamp, and a close button that calls
- * `onClose` (typically `() => onSelectNode(null)`).
- */
 export function PanelHeader({
-  node,
+  title,
+  subtitle,
   onClose,
 }: {
-  node: ProvNode;
+  title: string;
+  subtitle?: string;
   onClose: () => void;
 }): JSX.Element {
   return (
     <header className="px-4 py-3 border-b border-navy-700 flex items-start justify-between gap-2">
       <div className="min-w-0">
-        <p className={T.tinyBold}>{node.kind}</p>
-        <p className={`text-white ${T.mono} truncate`}>{node.node_id}</p>
-        <p className="text-slate-500 text-[10px]">
-          {node.actor} · {node.created_at}
-        </p>
+        <p className={T.tinyBold}>{title}</p>
+        {subtitle && (
+          <p className={`text-slate-400 ${T.body} truncate`}>{subtitle}</p>
+        )}
       </div>
       <button
         type="button"
