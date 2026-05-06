@@ -489,8 +489,22 @@ export interface AgentRuleInfo {
   applies_to: string[];
 }
 
+export interface AgentNextStepInfo {
+  kind: "next_step";
+  label: string;
+  input_kind: string;
+  output_kind: string;
+  uses_llm: boolean;
+  uses_tool: string | null;
+  rules: string[];
+  system_prompt: string;
+  expected_output: string;
+}
+
 export interface AgentInfo {
   llm: AgentLlmInfo;
+  next_step: AgentNextStepInfo;
+  valid_steps_per_anchor: Record<string, string[]>;
   steps: AgentStepInfo[];
   tools: AgentToolInfo[];
   rules: Record<string, AgentRuleInfo>;

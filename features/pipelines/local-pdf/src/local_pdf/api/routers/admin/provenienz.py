@@ -202,6 +202,32 @@ async def get_agent_info() -> dict:
 
     return {
         "llm": {"backend": backend, "model": model, "base_url": base_url},
+        "next_step": {
+            "kind": "next_step",
+            "label": "Was als nächstes?",
+            "input_kind": "any node (chunk / claim / task / search_result)",
+            "output_kind": ("plan_proposal | capability_request | manual_review"),
+            "uses_llm": True,
+            "uses_tool": None,
+            "rules": ["approaches", "reasons"],
+            "system_prompt": NEXT_STEP_SYSTEM,
+            "expected_output": (
+                "JSON-Objekt mit kind-Diskriminator. Drei Modi:\n"
+                "  - executable_step: Agent wählt einen registrierten Step "
+                "aus _VALID_STEPS_FOR_KIND und übergibt name + tool + "
+                "approach_id. Frontend feuert den passenden /step-Endpoint "
+                "via 'Akzeptieren'.\n"
+                "  - capability_request: kein registrierter Step + Tool "
+                "passt. name = Bezeichnung der fehlenden Capability, "
+                "description = was nötig wäre. Wird zur TODO-Liste für "
+                "Tool-Entwicklung.\n"
+                "  - manual_review: nur Mensch kann lösen. description = "
+                "warum, name = kurze Bezeichnung der Aufgabe."
+            ),
+        },
+        "valid_steps_per_anchor": {
+            kind: list(steps) for kind, steps in _VALID_STEPS_FOR_KIND.items()
+        },
         "steps": [
             {
                 "kind": "extract_claims",
