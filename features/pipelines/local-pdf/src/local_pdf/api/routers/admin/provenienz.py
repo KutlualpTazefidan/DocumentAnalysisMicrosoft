@@ -167,6 +167,56 @@ async def get_session(session_id: str, request: Request) -> dict:
     }
 
 
+@router.get("/api/admin/provenienz/capability-requests")
+async def list_capability_requests(request: Request) -> dict:
+    """Aggregate every ``capability_request`` Node across all sessions
+    into a TODO list grouped by name. Powers the "Capability-Wünsche"
+    tab on the Agent page — turns the agent's lived experience of
+    "what's missing" into a data-driven roadmap.
+
+    Sorted by count descending. Each entry carries a few example
+    occurrences so the user can see the actual sessions / contexts.
+    """
+    cfg = request.app.state.config
+    aggregated: dict[str, list[dict]] = {}
+    for slug_dir in cfg.data_root.iterdir():
+        if not slug_dir.is_dir():
+            continue
+        prov = slug_dir / "provenienz"
+        if not prov.exists():
+            continue
+        for sd in sorted(prov.iterdir()):
+            if not sd.is_dir():
+                continue
+            try:
+                nodes, _ = read_session(sd)
+            except Exception:
+                continue
+            for n in nodes:
+                if n.kind != "capability_request":
+                    continue
+                name = str(n.payload.get("name", "")).strip() or "(unnamed)"
+                aggregated.setdefault(name, []).append(
+                    {
+                        "session_id": n.session_id,
+                        "slug": slug_dir.name,
+                        "node_id": n.node_id,
+                        "description": str(n.payload.get("description", "")),
+                        "reasoning": str(n.payload.get("reasoning", "")),
+                        "created_at": n.created_at,
+                    }
+                )
+    pairs: list[tuple[int, str, list[dict]]] = [
+        (len(items), name, items[:5]) for name, items in aggregated.items()
+    ]
+    pairs.sort(key=lambda p: (-p[0], p[1]))
+    return {
+        "requests": [
+            {"name": name, "count": count, "examples": examples} for count, name, examples in pairs
+        ]
+    }
+
+
 @router.get("/api/admin/provenienz/tools")
 async def get_tools() -> dict:
     """Tool/capability registry — what skills the Planner can pick from.

@@ -8,6 +8,7 @@ import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
+import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
@@ -224,6 +225,8 @@ function ViewToggle({
   );
 }
 
+type AgentTab = "auswahl" | "tools" | "heuristiken" | "wuensche";
+
 function AgentView({
   agentInfo,
   isLoading,
@@ -239,6 +242,21 @@ function AgentView({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }): JSX.Element {
+  const [tab, setTab] = useState<AgentTab>("auswahl");
+
+  // When the user clicks anything on the canvas → jump to the Auswahl tab
+  // so the inspector content is visible. Tool clicks specifically jump
+  // to the Tools tab so the user lands on the broader tool registry.
+  const handleSelect = useCallback(
+    (id: string | null): void => {
+      onSelect(id);
+      if (id === null) return;
+      if (id.startsWith("tool:")) setTab("tools");
+      else setTab("auswahl");
+    },
+    [onSelect],
+  );
+
   if (isLoading) {
     return <p className={`p-6 text-slate-400 ${T.body}`}>Lade Agent-Topologie…</p>;
   }
@@ -246,35 +264,93 @@ function AgentView({
     return <p className={`p-6 text-red-400 ${T.body}`}>{error.message}</p>;
   }
   if (!agentInfo) return <></>;
+
   return (
     <div className="flex flex-1 min-h-0">
+      {/* Left pane: model header + canvas */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="px-4 py-3 border-b border-navy-700">
-          <p className={`${T.tinyBold}`}>Modell aktiv</p>
-          <p className="text-white">
+        <header className="px-4 py-3 border-b border-navy-700 space-y-1">
+          <div className="flex items-baseline gap-3">
+            <span className={T.tinyBold}>Modell aktiv:</span>
             <code className="text-amber-300">{agentInfo.llm.backend}</code>
-            {" · "}
             <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
+          </div>
+          <p className={`${T.tiny} text-slate-400`}>
+            Klick im Diagramm → Detail rechts. Reiter zeigen Werkzeuge (was er
+            kann), Heuristiken (wie ihm beigebracht wurde zu denken),
+            Capability-Wünsche (was er sagt fehlt).
           </p>
         </header>
         <div className="flex-1 min-h-0">
           <ReactFlowProvider>
-            <AgentCanvas info={agentInfo} selectedId={selectedId} onSelect={onSelect} />
+            <AgentCanvas
+              info={agentInfo}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+            />
           </ReactFlowProvider>
         </div>
-        <div className="border-t border-navy-700 max-h-[45%] overflow-y-auto p-4">
-          <ToolRegistry tools={agentInfo.tools} onSelect={onSelect} />
-          <ApproachLibrary token={token} />
-        </div>
       </div>
-      <aside className="w-80 shrink-0 border-l border-navy-700 bg-navy-800/40 overflow-y-auto">
-        <AgentInspector
-          info={agentInfo}
-          selectedId={selectedId}
-          onClose={() => onSelect(null)}
-        />
+
+      {/* Right pane: tab-bar + active tab content */}
+      <aside className="w-[420px] shrink-0 border-l border-navy-700 bg-navy-800/40 flex flex-col">
+        <AgentTabBar tab={tab} onChange={setTab} />
+        <div className="flex-1 overflow-y-auto">
+          {tab === "auswahl" && (
+            <AgentInspector
+              info={agentInfo}
+              selectedId={selectedId}
+              onClose={() => handleSelect(null)}
+            />
+          )}
+          {tab === "tools" && (
+            <div className="p-4">
+              <ToolRegistry tools={agentInfo.tools} onSelect={handleSelect} />
+            </div>
+          )}
+          {tab === "heuristiken" && (
+            <div className="p-4">
+              <ApproachLibrary token={token} />
+            </div>
+          )}
+          {tab === "wuensche" && <CapabilityRequestsTab token={token} />}
+        </div>
       </aside>
     </div>
+  );
+}
+
+function AgentTabBar({
+  tab,
+  onChange,
+}: {
+  tab: AgentTab;
+  onChange: (t: AgentTab) => void;
+}): JSX.Element {
+  const item = (key: AgentTab, label: string): JSX.Element => {
+    const active = tab === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onChange(key)}
+        className={`px-3 py-2 ${T.body} font-medium transition-colors border-b-2 ${
+          active
+            ? "border-blue-400 text-white"
+            : "border-transparent text-slate-400 hover:text-white"
+        }`}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <nav className="flex items-center border-b border-navy-700 px-2 bg-navy-900/40">
+      {item("auswahl", "Auswahl")}
+      {item("tools", "Werkzeuge")}
+      {item("heuristiken", "Heuristiken")}
+      {item("wuensche", "Wünsche")}
+    </nav>
   );
 }
 

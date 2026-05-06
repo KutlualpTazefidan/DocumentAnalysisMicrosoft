@@ -468,6 +468,38 @@ export interface AgentToolInfo {
   agent_hint: string;
 }
 
+export interface CapabilityRequestExample {
+  session_id: string;
+  slug: string;
+  node_id: string;
+  description: string;
+  reasoning: string;
+  created_at: string;
+}
+
+export interface CapabilityRequestAggregation {
+  name: string;
+  count: number;
+  examples: CapabilityRequestExample[];
+}
+
+export function useCapabilityRequests(token: string) {
+  return useQuery<CapabilityRequestAggregation[]>({
+    queryKey: ["provenienz", "capability-requests"],
+    enabled: !!token,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/capability-requests`,
+        { method: "GET" },
+        token,
+      );
+      const body = (await r.json()) as { requests: CapabilityRequestAggregation[] };
+      return body.requests;
+    },
+  });
+}
+
 export function useTools(token: string) {
   return useQuery<AgentToolInfo[]>({
     queryKey: ["provenienz", "tools"],
