@@ -26,7 +26,8 @@ export type ViewNodeKind =
   | "chunk"
   | "claim_with_task"
   | "search_results_bag"
-  | "pending_proposal";
+  | "action_proposal"
+  | "decision";
 
 export interface ChunkView {
   view_id: string;
@@ -58,10 +59,21 @@ export interface SearchResultsBagView {
   rows: { result: ProvNode; evaluation?: ProvNode }[];
 }
 
-export interface PendingProposalView {
+export interface ActionProposalView {
   view_id: string;
-  kind: "pending_proposal";
+  kind: "action_proposal";
   proposal: ProvNode;
+  /** True iff a decision Node points at this proposal via decided-by.
+   *  Decided proposals render dim; pending ones glow yellow. */
+  decided: boolean;
+}
+
+export interface DecisionView {
+  view_id: string;
+  kind: "decision";
+  decision: ProvNode;
+  /** The proposal this decision resolves, for back-reference in the panel. */
+  proposal_node_id: string;
 }
 
 export interface GoalView {
@@ -78,7 +90,8 @@ export type ViewNode =
   | ChunkView
   | ClaimWithTaskView
   | SearchResultsBagView
-  | PendingProposalView;
+  | ActionProposalView
+  | DecisionView;
 
 export interface ViewEdge {
   id: string;
@@ -106,9 +119,8 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   chunk: { w: 272, h: 144 },
   claim_with_task: { w: 304, h: 160 },
   search_results_bag: { w: 336, h: 304 },
-  // pending_proposal grows with pre-reasoning + skill block — taller to
-  // allow the inline reflection without truncation in dagre's reservation.
-  pending_proposal: { w: 320, h: 240 },
+  action_proposal: { w: 320, h: 200 },
+  decision: { w: 240, h: 96 },
 };
 
 /** Round to the nearest multiple so positions land on the snap grid. */
@@ -361,29 +373,48 @@ export function buildViewGraph(
     }
   }
 
-  // ── 4) Pending proposals (undecided) ──────────────────────────────────────
+  // ── 4) Action-Proposals (always visible, full audit) ──────────────────────
+  // Every action_proposal becomes a tile — decided or pending. Decision
+  // nodes also get tiles, sitting between proposal and spawned children.
+  // Trace-everything mode: nothing vanishes once it lands in events.jsonl.
   for (const n of provNodes) {
     if (n.kind !== "action_proposal") continue;
-    if (decisionByProposalId.has(n.node_id)) continue; // resolved → hidden
     const proposalViewId = `view:${n.node_id}`;
+    const decision = decisionByProposalId.get(n.node_id);
     viewNodes.push({
       view_id: proposalViewId,
-      kind: "pending_proposal",
+      kind: "action_proposal",
       proposal: n,
+      decided: !!decision,
     });
-    // Edge: anchor → pending_proposal.
+    // Edge: anchor → proposal.
     const anchorNodeId = n.payload.anchor_node_id as string | undefined;
     if (anchorNodeId && g.byId.has(anchorNodeId)) {
-      // Anchor's view_id depends on what the anchor is. Map raw node_id → view_id.
       const anchorViewId = mapAnchorToViewId(anchorNodeId, g, taskByClaimId);
       if (anchorViewId) {
         viewEdges.push({
-          id: `e:pp:${n.node_id}`,
+          id: `e:ap:${n.node_id}`,
           source: anchorViewId,
           target: proposalViewId,
-          kind: "pending",
+          kind: "proposed",
         });
       }
+    }
+    // If decided: emit decision view + edge proposal → decision.
+    if (decision) {
+      const decisionViewId = `view:${decision.node_id}`;
+      viewNodes.push({
+        view_id: decisionViewId,
+        kind: "decision",
+        decision,
+        proposal_node_id: n.node_id,
+      });
+      viewEdges.push({
+        id: `e:dec:${decision.node_id}`,
+        source: proposalViewId,
+        target: decisionViewId,
+        kind: "decided-by",
+      });
     }
   }
 
@@ -647,14 +678,16 @@ function edgeColor(kind: string): string {
       return "#60a5fa";
     case "candidates-for":
       return "#10b981";
-    case "pending":
-      return "#fbbf24";
+    case "proposed":
+      return "#fbbf24"; // amber — action proposed here
+    case "decided-by":
+      return "#a78bfa"; // violet — decision resolves the proposal
     case "promoted-from":
       return "#a855f7";
     case "directs":
-      return "#f472b6"; // pink — goal directs the chunk
+      return "#f472b6";
     case "planner":
-      return "#fbbf24"; // amber — planner suggested action here
+      return "#fbbf24";
     default:
       return "#475569";
   }

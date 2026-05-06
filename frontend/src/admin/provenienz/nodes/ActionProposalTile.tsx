@@ -1,7 +1,7 @@
-import { Brain, Lightbulb } from "lucide-react";
+import { Brain, CheckCircle2, Lightbulb } from "lucide-react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
-import type { PendingProposalView } from "../layout";
+import type { ActionProposalView } from "../layout";
 
 const STEP_LABEL: Record<string, string> = {
   extract_claims: "Aussagen extrahieren",
@@ -12,18 +12,14 @@ const STEP_LABEL: Record<string, string> = {
 };
 
 /**
- * Yellow call-to-action tile representing an LLM recommendation that hasn't
- * been resolved yet. Each tile carries the agent's full thinking inline:
- *   - 🧠 Vor-Reasoning ("Warum dieser Schritt jetzt")  — ReAct Thought
- *   - 💡 Empfehlung (the action output)                — Action
- *   - badges for alternatives + consulted rules        — Skill context
- *
- * Tap to open the side panel for the system_prompt, full reasoning,
- * decision form.
+ * Action-Proposal tile — visible for every proposal in the session,
+ * decided or pending. Two visual variants:
+ *   - pending  → bright yellow + pulse, "klicken für Entscheidung"
+ *   - decided  → dim grey-yellow, "✓ entschieden" marker, click for audit
  */
-export function PendingProposalTile({
+export function ActionProposalTile({
   data,
-}: NodeProps<PendingProposalView>): JSX.Element {
+}: NodeProps<ActionProposalView>): JSX.Element {
   const p = data.proposal.payload as {
     step_kind?: string;
     recommended?: { label?: string };
@@ -41,12 +37,23 @@ export function PendingProposalTile({
     : 0;
   const tool = p.tool_used ?? null;
 
+  const containerClass = data.decided
+    ? "rounded-lg border border-amber-700/60 bg-amber-900/40 px-3 py-2 text-white shadow w-72 opacity-80"
+    : "rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow";
+
   return (
-    <div className="rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow">
+    <div className={containerClass}>
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-amber-100">
-        <Lightbulb className="w-3 h-3" aria-hidden />
-        {STEP_LABEL[stepKind] ?? stepKind}
+      <header className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-wide text-amber-100">
+        <span className="flex items-center gap-1">
+          <Lightbulb className="w-3 h-3" aria-hidden />
+          {STEP_LABEL[stepKind] ?? stepKind}
+        </span>
+        {data.decided ? (
+          <span className="flex items-center gap-1 text-amber-200/80 normal-case">
+            <CheckCircle2 className="w-3 h-3" aria-hidden /> entschieden
+          </span>
+        ) : null}
       </header>
       {preReasoning && (
         <div className="mt-1.5 rounded bg-amber-900/30 border border-amber-500/40 px-1.5 py-1">
@@ -75,18 +82,16 @@ export function PendingProposalTile({
           </span>
         )}
         {altCount > 0 && (
-          <span className="text-[9px] text-amber-100/85">
-            {altCount} Alt.
-          </span>
+          <span className="text-[9px] text-amber-100/85">{altCount} Alt.</span>
         )}
         {guidanceCount > 0 && (
-          <span className="text-[9px] text-amber-100/85">
-            🛡 {guidanceCount}
-          </span>
+          <span className="text-[9px] text-amber-100/85">🛡 {guidanceCount}</span>
         )}
       </div>
       <p className="text-[10px] italic text-amber-200 mt-1">
-        → Klicken für Skill-Prompt + Entscheidung
+        {data.decided
+          ? "→ Klicken für Audit"
+          : "→ Klicken für Skill-Prompt + Entscheidung"}
       </p>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>

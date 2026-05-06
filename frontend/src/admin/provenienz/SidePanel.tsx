@@ -4,6 +4,7 @@ import type { ViewNode } from "./layout";
 import { ActionProposalPanel } from "./panels/ActionProposalPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
 import { ClaimWithTaskPanel } from "./panels/ClaimWithTaskPanel";
+import { DecisionPanel } from "./panels/DecisionPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { SearchResultsBagPanel } from "./panels/SearchResultsBagPanel";
 import { T } from "../styles/typography";
@@ -72,8 +73,10 @@ export function SidePanel({
       return <ClaimWithTaskPanel {...common} />;
     case "search_results_bag":
       return <SearchResultsBagPanel {...common} />;
-    case "pending_proposal":
+    case "action_proposal":
       return <ActionProposalPanel {...common} />;
+    case "decision":
+      return <DecisionPanel {...common} />;
   }
 }
 

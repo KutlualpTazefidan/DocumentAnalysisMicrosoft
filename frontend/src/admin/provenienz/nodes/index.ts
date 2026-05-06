@@ -1,25 +1,29 @@
 import type { ComponentType } from "react";
 import type { NodeProps } from "reactflow";
 
+import { ActionProposalTile } from "./ActionProposalTile";
 import { ChunkTile } from "./ChunkTile";
 import { ClaimWithTaskTile } from "./ClaimWithTaskTile";
+import { DecisionTile } from "./DecisionTile";
 import { FallbackNode } from "./FallbackNode";
 import { GoalTile } from "./GoalTile";
-import { PendingProposalTile } from "./PendingProposalTile";
 import { SearchResultsBagTile } from "./SearchResultsBagTile";
 
 /**
- * View-graph renderers. Keys match `ViewNodeKind` in layout.ts. The raw event
- * log's `kind` (claim, task, search_result, action_proposal, decision,
- * evaluation, stop_proposal) never reaches the canvas — those fold into one
- * of these four tiles.
+ * View-graph renderers. Keys match `ViewNodeKind` in layout.ts.
+ *
+ * Trace-everything model: every event in events.jsonl that lands on the
+ * canvas as a tile here. Folding only happens for 1:1 derivations
+ * (claim+task) or for items that cluster naturally (search-results bag).
+ * Proposals + decisions are NEVER folded — they are the audit chain.
  */
 export const nodeTypes: Record<string, ComponentType<NodeProps>> = {
   goal: GoalTile,
   chunk: ChunkTile,
   claim_with_task: ClaimWithTaskTile,
   search_results_bag: SearchResultsBagTile,
-  pending_proposal: PendingProposalTile,
+  action_proposal: ActionProposalTile,
+  decision: DecisionTile,
   fallback: FallbackNode,
 };
 

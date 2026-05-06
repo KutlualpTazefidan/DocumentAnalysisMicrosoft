@@ -18,7 +18,8 @@ export function ActionProposalPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "pending_proposal") return <></>;
+  if (view.kind !== "action_proposal") return <></>;
+  const decided = view.decided;
   const node = view.proposal;
   const payload = node.payload;
   const stepKind = String(payload.step_kind ?? "");
@@ -150,6 +151,15 @@ export function ActionProposalPanel({
           </div>
         )}
 
+        {decided && (
+          <p className={`${T.body} text-amber-300 italic pt-2 border-t border-navy-700`}>
+            Dieser Vorschlag wurde bereits entschieden — Folge-Knoten zeigen
+            das Ergebnis.
+          </p>
+        )}
+
+        {!decided && (
+        <>
         <div className="space-y-2 pt-2 border-t border-navy-700">
           <label className="flex items-start gap-2">
             <input
@@ -252,31 +262,37 @@ export function ActionProposalPanel({
             Begründung hilft dem System, beim nächsten Mal besser zu empfehlen.
           </p>
         </div>
+        </>
+        )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
-        <button
-          type="button"
-          onClick={() => void handleDecide()}
-          disabled={disabled}
-          className={`w-full px-3 py-2 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} disabled:opacity-50`}
-        >
-          {decide.isPending ? "Entscheide…" : "Entscheiden"}
-        </button>
-        <button
-          type="button"
-          onClick={async () => {
-            try {
-              await del.mutateAsync(node.node_id);
-              onSelectView(null);
-            } catch (e) {
-              toastError(e instanceof Error ? e.message : "Fehler");
-            }
-          }}
-          disabled={del.isPending || decide.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
-        >
-          {del.isPending ? "…" : "Vorschlag verwerfen"}
-        </button>
+        {!decided && (
+          <>
+            <button
+              type="button"
+              onClick={() => void handleDecide()}
+              disabled={disabled}
+              className={`w-full px-3 py-2 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} disabled:opacity-50`}
+            >
+              {decide.isPending ? "Entscheide…" : "Entscheiden"}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await del.mutateAsync(node.node_id);
+                  onSelectView(null);
+                } catch (e) {
+                  toastError(e instanceof Error ? e.message : "Fehler");
+                }
+              }}
+              disabled={del.isPending || decide.isPending}
+              className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+            >
+              {del.isPending ? "…" : "Vorschlag verwerfen"}
+            </button>
+          </>
+        )}
         {(decide.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
             {(decide.error ?? del.error)?.message}
