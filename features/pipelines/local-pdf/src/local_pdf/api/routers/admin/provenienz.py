@@ -173,19 +173,75 @@ async def delete_session(session_id: str, request: Request) -> None:
     shutil.rmtree(sd)
 
 
+_DEPENDS_ON_EDGE_KINDS: set[str] = {
+    "extracts-from",  # claim → chunk
+    "verifies",  # task → claim
+    "candidates-for",  # search_result → task
+    "evaluates",  # evaluation → search_result
+    "promoted-from",  # promoted chunk → search_result
+}
+
+
+def _collect_cascade(target_id: str, nodes: list[Node], edges: list[Edge]) -> set[str]:
+    """Walk the dependency graph and return every node that should be
+    tombstoned together with *target_id*.
+
+    A node X depends on Y when there's an edge X → Y whose kind is in
+    ``_DEPENDS_ON_EDGE_KINDS``. Deleting Y means X must go too. We also
+    sweep up: action_proposals + stop_proposals anchored to anything in
+    the deleted set, and decisions resolving those proposals. The pass
+    repeats until the set stabilises.
+    """
+    deleted: set[str] = {target_id}
+    while True:
+        before = len(deleted)
+        # 1) Domain-dependency cascade: child → parent edges
+        for e in edges:
+            if (
+                e.to_node in deleted
+                and e.kind in _DEPENDS_ON_EDGE_KINDS
+                and e.from_node not in deleted
+            ):
+                deleted.add(e.from_node)
+        # 2) Anchor cascade: action_proposal / stop_proposal anchored to
+        #    a deleted node
+        for n in nodes:
+            if n.node_id in deleted:
+                continue
+            if n.kind not in {"action_proposal", "stop_proposal"}:
+                continue
+            anchor = n.payload.get("anchor_node_id")
+            if isinstance(anchor, str) and anchor in deleted:
+                deleted.add(n.node_id)
+        # 3) Decision cascade: decided-by → proposal
+        for e in edges:
+            if e.kind == "decided-by" and e.to_node in deleted and e.from_node not in deleted:
+                deleted.add(e.from_node)
+        if len(deleted) == before:
+            return deleted
+
+
 @router.delete("/api/admin/provenienz/sessions/{session_id}/nodes/{node_id}", status_code=204)
 async def delete_node(session_id: str, node_id: str, request: Request) -> None:
-    """Soft-delete a single node by appending a tombstone event. The Node
-    line stays in events.jsonl for audit; subsequent ``read_session`` calls
-    hide it and any edge touching it."""
+    """Soft-delete a node *and every node that depends on it*. Tombstones
+    are appended to events.jsonl one line per cascaded node — the Node
+    events themselves stay intact for audit; subsequent ``read_session``
+    calls hide all tombstoned nodes plus any edge touching them.
+
+    Cascade rules: claims under a chunk go with it, tasks under a claim,
+    search_results under a task, evaluations of those results, chunks
+    promoted from those results (and *their* whole subtree), plus any
+    proposals/decisions/stop_proposals anchored to the deleted set.
+    """
     cfg = request.app.state.config
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     if not any(n.node_id == node_id for n in nodes):
         raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
-    append_tombstone(sd, node_id)
+    for nid in _collect_cascade(node_id, nodes, edges):
+        append_tombstone(sd, nid)
 
 
 class PromoteSearchResultRequest(BaseModel):

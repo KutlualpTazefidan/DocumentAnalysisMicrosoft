@@ -52,10 +52,11 @@ export function SearchResultsBagPanel({
     }
   }
 
-  async function handleDeleteRow(resultId: string, evalId?: string): Promise<void> {
+  async function handleDeleteRow(resultId: string): Promise<void> {
     try {
+      // Backend cascades — deletes the result + its evaluation + any
+      // promoted-chunk subtree rooted at it.
       await del.mutateAsync(resultId);
-      if (evalId) await del.mutateAsync(evalId);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -148,9 +149,7 @@ export function SearchResultsBagPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    void handleDeleteRow(result.node_id, evalNode?.node_id)
-                  }
+                  onClick={() => void handleDeleteRow(result.node_id)}
                   disabled={del.isPending}
                   className={`px-2 py-1 rounded text-red-400 hover:bg-red-900/30 ${T.tiny} disabled:opacity-50`}
                   title="Treffer entfernen"

@@ -1,7 +1,11 @@
 import { CornerDownRight } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
-import { useExtractClaims, type ProvNode } from "../../hooks/useProvenienz";
+import {
+  useDeleteNode,
+  useExtractClaims,
+  type ProvNode,
+} from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
@@ -18,12 +22,28 @@ export function ChunkPanel({
   const closed = !!view.closedByStop;
 
   const extract = useExtractClaims(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleExtract(): Promise<void> {
     try {
       await extract.mutateAsync({ chunk_node_id: chunk.node_id });
-      // The new pending_proposal view tile takes over; auto-select it.
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
+  async function handleDelete(): Promise<void> {
+    const isPromoted = view.kind === "chunk" && view.promoted;
+    const message = isPromoted
+      ? "Diesen abgeleiteten Chunk und alle abhängigen Aussagen + Suchen löschen?"
+      : "Diesen Chunk und seinen gesamten Untersuchungsbaum löschen? " +
+        "(Aussagen, Suchanfragen, Treffer, Bewertungen werden ausgeblendet — " +
+        "bleiben aber im Audit-Log.)";
+    if (!window.confirm(message)) return;
+    try {
+      await del.mutateAsync(chunk.node_id);
+      onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -59,8 +79,18 @@ export function ChunkPanel({
         >
           {extract.isPending ? "Extrahiere…" : "Aussagen extrahieren"}
         </button>
-        {extract.error && (
-          <p className={`text-red-400 ${T.tiny}`}>{extract.error.message}</p>
+        <button
+          type="button"
+          onClick={() => void handleDelete()}
+          disabled={del.isPending}
+          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+        >
+          {del.isPending ? "…" : "Tile löschen"}
+        </button>
+        {(extract.error || del.error) && (
+          <p className={`text-red-400 ${T.tiny}`}>
+            {(extract.error ?? del.error)?.message}
+          </p>
         )}
       </footer>
     </div>

@@ -127,3 +127,89 @@ def test_tombstone_hides_node_and_dangling_edges(tmp_path: Path):
     assert {n.node_id for n in nodes} == {"A", "C"}
     # Edge e1 (B → A) is hidden because B is gone; e2 (C → A) survives.
     assert {e.edge_id for e in edges} == {"e2"}
+
+
+def test_cascade_helper_walks_dependency_chain():
+    """Smoke: deleting a chunk should cascade to claims under it, tasks
+    under those claims, results under those tasks, evaluations of those
+    results, plus any anchored proposal+decision pair."""
+    from local_pdf.api.routers.admin.provenienz import _collect_cascade
+
+    nodes = [
+        Node(node_id="chunk1", session_id="s", kind="chunk", payload={}, actor="h"),
+        Node(node_id="claim1", session_id="s", kind="claim", payload={}, actor="h"),
+        Node(
+            node_id="task1",
+            session_id="s",
+            kind="task",
+            payload={"focus_claim_id": "claim1"},
+            actor="h",
+        ),
+        Node(
+            node_id="sr1",
+            session_id="s",
+            kind="search_result",
+            payload={"task_node_id": "task1"},
+            actor="h",
+        ),
+        Node(node_id="eval1", session_id="s", kind="evaluation", payload={}, actor="h"),
+        Node(
+            node_id="prop1",
+            session_id="s",
+            kind="action_proposal",
+            payload={"anchor_node_id": "claim1"},
+            actor="h",
+        ),
+        Node(node_id="dec1", session_id="s", kind="decision", payload={}, actor="h"),
+        Node(node_id="bystander", session_id="s", kind="claim", payload={}, actor="h"),
+    ]
+    edges = [
+        Edge(
+            edge_id="e1",
+            session_id="s",
+            from_node="claim1",
+            to_node="chunk1",
+            kind="extracts-from",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e2",
+            session_id="s",
+            from_node="task1",
+            to_node="claim1",
+            kind="verifies",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e3",
+            session_id="s",
+            from_node="sr1",
+            to_node="task1",
+            kind="candidates-for",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e4",
+            session_id="s",
+            from_node="eval1",
+            to_node="sr1",
+            kind="evaluates",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e5",
+            session_id="s",
+            from_node="dec1",
+            to_node="prop1",
+            kind="decided-by",
+            reason=None,
+            actor="h",
+        ),
+    ]
+    cascade = _collect_cascade("chunk1", nodes, edges)
+    assert cascade == {"chunk1", "claim1", "task1", "sr1", "eval1", "prop1", "dec1"}
+    assert "bystander" not in cascade

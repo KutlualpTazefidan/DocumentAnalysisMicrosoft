@@ -60,19 +60,16 @@ export function ClaimWithTaskPanel({
   async function handleDelete(): Promise<void> {
     if (
       !window.confirm(
-        "Aussage löschen? Die abhängige Suchanfrage und ihre Treffer bleiben " +
+        "Aussage und alle abhängigen Knoten (Suchanfrage, Treffer, " +
+          "Bewertungen, abgeleitete Chunks) löschen? Die Einträge bleiben " +
           "im Audit-Log, werden aber im Canvas ausgeblendet.",
       )
     ) {
       return;
     }
     try {
+      // Backend cascades automatically — single call removes the whole subtree.
       await del.mutateAsync(claim.node_id);
-      if (task) {
-        // Also tombstone the folded task — otherwise it survives as an
-        // orphan that won't render but clutters the audit view.
-        await del.mutateAsync(task.node_id);
-      }
       onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
