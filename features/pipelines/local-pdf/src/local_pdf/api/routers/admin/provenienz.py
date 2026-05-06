@@ -2114,6 +2114,30 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
         extra_system=extra_system,
     )
 
+    # Validate executable_step output: the picked name MUST be in the
+    # registered list for this anchor kind. LLM hallucinations (e.g.
+    # picking "search" for a chunk where only extract_claims is valid)
+    # get demoted to manual_review with the inconsistency captured in
+    # description — visible in audit, doesn't trigger an invalid step.
+    if (
+        plan["kind"] == "executable_step"
+        and available_steps
+        and plan["name"] not in available_steps
+    ):
+        invalid_name = plan["name"]
+        plan = {
+            **plan,
+            "kind": "manual_review",
+            "name": "Ungültige Step-Wahl",
+            "description": (
+                f"Der Agent hat '{invalid_name}' für einen Knoten vom Typ "
+                f"'{anchor.kind}' gewählt — das steht aber nicht in den "
+                f"verfügbaren Steps ({', '.join(available_steps)}). "
+                "Wahrscheinlich LLM-Halluzination. Bitte manuell prüfen "
+                "oder den Vorschlag verwerfen."
+            ),
+        }
+
     actor = resolve_provider(body.provider)
     # All three outcomes share the same Node shape, only the kind differs.
     # That keeps the audit trail uniform: one Node per "what the agent said
