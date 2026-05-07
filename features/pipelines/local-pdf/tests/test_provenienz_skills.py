@@ -382,3 +382,122 @@ def test_run_enrichment_skill_handles_parse_failure(monkeypatch):
     monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
     out = run_enrichment_skill(skill, ["c1", "c2"], chunk_text="x")
     assert out == ["", ""]
+
+
+def test_skill_run_audit_appended_on_enrichment_invocation(tmp_path, monkeypatch):
+    """Each run_enrichment_skill call appends one record to skill_runs.jsonl."""
+    import json
+
+    from local_pdf.provenienz.skill_dispatcher import run_enrichment_skill
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=2,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="claim_background", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["a", "b"]'
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+
+    out = run_enrichment_skill(skill, ["c1", "c2"], chunk_text="x", data_root=tmp_path)
+    assert out == ["a", "b"]
+    runs = (tmp_path / "skills" / "skill_runs.jsonl").read_text().strip().splitlines()
+    assert len(runs) == 1
+    r = json.loads(runs[0])
+    assert r["skill_id"] == "s1"
+    assert r["skill_name"] == "bg"
+    assert r["skill_version"] == 2
+    assert r["n_inputs"] == 2
+    assert r["n_outputs"] == 2
+    assert r["success"] is True
+    assert "ts" in r
+
+
+def test_skill_run_audit_records_failure(tmp_path, monkeypatch):
+    """Parse failure is logged with success=False."""
+    import json
+
+    from local_pdf.provenienz.skill_dispatcher import run_enrichment_skill
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = "garbage"
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    out = run_enrichment_skill(skill, ["c1"], chunk_text="x", data_root=tmp_path)
+    assert out == [""]
+    runs = (tmp_path / "skills" / "skill_runs.jsonl").read_text().strip().splitlines()
+    r = json.loads(runs[0])
+    assert r["success"] is False
+
+
+def test_skill_run_without_data_root_is_silent(tmp_path, monkeypatch):
+    """Calls without data_root don't crash and don't write."""
+    from local_pdf.provenienz.skill_dispatcher import run_enrichment_skill
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["x"]'
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    out = run_enrichment_skill(skill, ["c1"], chunk_text="x")  # no data_root
+    assert out == ["x"]
+    # Audit file should NOT exist
+    assert not (tmp_path / "skills" / "skill_runs.jsonl").exists()

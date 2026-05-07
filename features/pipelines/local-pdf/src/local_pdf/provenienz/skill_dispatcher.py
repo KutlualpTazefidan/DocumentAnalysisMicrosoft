@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from llm_clients.base import Message
@@ -82,6 +83,7 @@ def run_enrichment_skill(
     inputs: list[str],
     *,
     chunk_text: str = "",
+    data_root: Path | None = None,
     extra_system: str = "",
 ) -> list[str]:
     """Run an enrichment skill: returns a list of N strings (one per
@@ -116,7 +118,9 @@ def run_enrichment_skill(
             max_tokens=2048,
         )
     except Exception:
-        return [""] * len(inputs)
+        out = [""] * len(inputs)
+        _append_skill_run_audit(skill, inputs, out, data_root)
+        return out
     raw = (completion.text or "").strip()
     # Strip ``` fences if present
     if raw.startswith("```"):
@@ -126,7 +130,46 @@ def run_enrichment_skill(
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        return [""] * len(inputs)
+        out = [""] * len(inputs)
+        _append_skill_run_audit(skill, inputs, out, data_root)
+        return out
     if not isinstance(parsed, list) or len(parsed) != len(inputs):
-        return [""] * len(inputs)
-    return [str(x).strip()[:1500] if isinstance(x, str) else "" for x in parsed]
+        out = [""] * len(inputs)
+        _append_skill_run_audit(skill, inputs, out, data_root)
+        return out
+    out = [str(x).strip()[:1500] if isinstance(x, str) else "" for x in parsed]
+    _append_skill_run_audit(skill, inputs, out, data_root)
+    return out
+
+
+def _append_skill_run_audit(
+    skill: Skill,
+    inputs: list[str],
+    outputs: list[str],
+    data_root: Path | None,
+) -> None:
+    """Append one JSONL record to {data_root}/skills/skill_runs.jsonl.
+
+    Best-effort: any exception is swallowed — audit failure must never
+    break the skill run. Only the future SkillDetailPanel UI reads this
+    file; it's never consumed by the dispatcher itself.
+    """
+    if data_root is None:
+        return
+    try:
+        non_empty = sum(1 for x in outputs if x)
+        record = {
+            "skill_id": skill.skill_id,
+            "skill_name": skill.name,
+            "skill_version": skill.version,
+            "n_inputs": len(inputs),
+            "n_outputs": non_empty,
+            "success": non_empty > 0,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+        skills_dir = data_root / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        with (skills_dir / "skill_runs.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass

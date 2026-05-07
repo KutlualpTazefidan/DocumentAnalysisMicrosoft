@@ -3777,7 +3777,10 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         for skill in enrichment_skills:
             try:
                 skill_results[skill.skill_id] = run_enrichment_skill(
-                    skill, claim_texts, chunk_text=chunk_text_for_goals
+                    skill,
+                    claim_texts,
+                    chunk_text=chunk_text_for_goals,
+                    data_root=cfg.data_root,
                 )
             except Exception as exc:
                 _log.warning("enrichment skill %s failed: %s", skill.name, exc)
