@@ -11,6 +11,7 @@ import {
 } from "../../hooks/useSkills";
 import { T } from "../../styles/typography";
 import { AgentRuleForm } from "./templates/AgentRuleForm";
+import { CustomForm } from "./templates/CustomForm";
 import { EnrichmentForm } from "./templates/EnrichmentForm";
 import { NoteForm } from "./templates/NoteForm";
 import { PromptOverlayForm } from "./templates/PromptOverlayForm";
@@ -36,11 +37,6 @@ export function SkillLibrary({ token }: Props): JSX.Element {
 
   function handleTemplate(template: TemplateKind): void {
     setPickerOpen(false);
-    if (template === "custom") {
-      // Task 16 will replace this with the full power-user form.
-      window.alert(`Template "${template}" — Form folgt in Task 16.`);
-      return;
-    }
     setOpenForm(template);
   }
 
@@ -103,6 +99,11 @@ export function SkillLibrary({ token }: Props): JSX.Element {
       />
       <AgentRuleForm
         open={openForm === "agent-rule"}
+        onClose={() => setOpenForm(null)}
+        token={token}
+      />
+      <CustomForm
+        open={openForm === "custom"}
         onClose={() => setOpenForm(null)}
         token={token}
       />
