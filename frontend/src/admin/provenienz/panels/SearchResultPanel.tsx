@@ -10,6 +10,7 @@ import {
 import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
 
 const VERDICT_STYLE: Record<string, string> = {
   "likely-source": "bg-emerald-700 text-emerald-100",
@@ -29,11 +30,21 @@ export function SearchResultPanel({
   sessionId,
   token,
   view,
+  nodes,
+  edges,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "search_result") return <></>;
   const result = view.result;
   const evalNode = view.evaluation;
+  // Forward-compat: enrichment skills with `output.attaches_to ==
+  // "search_result"` will surface here automatically once any are
+  // configured. Today no such skills exist, so this renders nothing.
+  const annotationGroups = groupAnnotationsByKind(
+    nodes,
+    edges,
+    result.node_id,
+  );
   const p = result.payload as { box_id?: string; score?: number; text?: string };
   const verdict = evalNode
     ? String((evalNode.payload as { verdict?: string }).verdict ?? "")
@@ -102,6 +113,9 @@ export function SearchResultPanel({
         <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
           {String(p.text ?? "")}
         </p>
+        {annotationGroups.map((group) => (
+          <AnnotationCard key={group.kind} group={group} />
+        ))}
         {reasoning && (
           <div>
             <p className={T.tinyBold}>Bewertungs-Begründung</p>

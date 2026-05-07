@@ -16,6 +16,7 @@ import { EnrichmentForm } from "./templates/EnrichmentForm";
 import { NoteForm } from "./templates/NoteForm";
 import { PromptOverlayForm } from "./templates/PromptOverlayForm";
 import { ReactiveForm } from "./templates/ReactiveForm";
+import { SkillDetailPanel } from "./SkillDetailPanel";
 import { TemplatePicker, type TemplateKind } from "./TemplatePicker";
 
 interface Props {
@@ -34,6 +35,7 @@ export function SkillLibrary({ token }: Props): JSX.Element {
   const { data: skills, isLoading, error } = useSkills(token);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [openForm, setOpenForm] = useState<TemplateKind | null>(null);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
 
   function handleTemplate(template: TemplateKind): void {
     setPickerOpen(false);
@@ -70,7 +72,17 @@ export function SkillLibrary({ token }: Props): JSX.Element {
         </p>
       )}
 
-      <SkillKindGroups skills={skills ?? []} token={token} />
+      <SkillKindGroups
+        skills={skills ?? []}
+        token={token}
+        onEdit={setEditingSkill}
+      />
+
+      <SkillDetailPanel
+        skill={editingSkill}
+        onClose={() => setEditingSkill(null)}
+        token={token}
+      />
 
       <TemplatePicker
         open={pickerOpen}
@@ -142,9 +154,11 @@ const SKILL_KIND_BADGE: Record<SkillKind, string> = {
 function SkillKindGroups({
   skills,
   token,
+  onEdit,
 }: {
   skills: Skill[];
   token: string;
+  onEdit: (skill: Skill) => void;
 }): JSX.Element {
   const groups = new Map<SkillKind, Skill[]>();
   for (const s of skills) {
@@ -165,6 +179,7 @@ function SkillKindGroups({
           kind={kind}
           skills={groups.get(kind) ?? []}
           token={token}
+          onEdit={onEdit}
         />
       ))}
     </div>
@@ -175,10 +190,12 @@ function SkillKindGroup({
   kind,
   skills,
   token,
+  onEdit,
 }: {
   kind: SkillKind;
   skills: Skill[];
   token: string;
+  onEdit: (skill: Skill) => void;
 }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false);
   const enabledCount = skills.filter((s) => s.enabled).length;
@@ -202,7 +219,12 @@ function SkillKindGroup({
       {!collapsed && (
         <ul className="px-3 pb-3 space-y-2">
           {skills.map((s) => (
-            <SkillRow key={s.skill_id} skill={s} token={token} />
+            <SkillRow
+              key={s.skill_id}
+              skill={s}
+              token={token}
+              onEdit={onEdit}
+            />
           ))}
         </ul>
       )}
@@ -214,7 +236,15 @@ function SkillKindGroup({
 // Row
 // ---------------------------------------------------------------------------
 
-function SkillRow({ skill, token }: { skill: Skill; token: string }): JSX.Element {
+function SkillRow({
+  skill,
+  token,
+  onEdit,
+}: {
+  skill: Skill;
+  token: string;
+  onEdit: (skill: Skill) => void;
+}): JSX.Element {
   const update = useUpdateSkill(token);
   const del = useDeleteSkill(token);
   const { error: toastError } = useToast();
@@ -231,8 +261,7 @@ function SkillRow({ skill, token }: { skill: Skill; token: string }): JSX.Elemen
   }
 
   function handleEdit(): void {
-    // Placeholder — Task 16 replaces this with the appropriate template form.
-    window.alert(`Edit-Form für "${skill.name}" — folgt in Task 16.`);
+    onEdit(skill);
   }
 
   async function handleDelete(): Promise<void> {

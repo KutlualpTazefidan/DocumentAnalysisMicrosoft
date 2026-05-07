@@ -14,6 +14,7 @@ import {
 import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
 
 /**
  * Side panel for a Claim tile. Actions: formulate the search task,
@@ -26,6 +27,7 @@ export function ClaimPanel({
   token,
   view,
   nodes,
+  edges,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "claim") return <></>;
@@ -44,18 +46,18 @@ export function ClaimPanel({
   // Don't show the chunk twice if it equals the claim (single-sentence).
   const showSourceChunk =
     sourceChunkText.length > 0 && sourceChunkText !== claimText.trim();
-  // Latest claim_background Node attached to this claim (chunk-
-  // comprehension result, auto-spawned at extract_claims accept time).
-  const backgroundNodes = nodes
-    .filter(
-      (n) =>
-        n.kind === "claim_background" &&
-        String(n.payload.claim_node_id ?? "") === claim.node_id,
-    )
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-  const backgroundText = backgroundNodes[0]
-    ? String(backgroundNodes[0].payload.text ?? "").trim()
-    : "";
+  // Generic enrichment-annotation pickup: every Node connected to
+  // this claim via an `enriches` edge is treated as an annotation
+  // produced by an `enrichment` skill. Grouped by Node `kind`,
+  // newest-first per group so we can show the latest annotation.
+  // (The seeded default skill emits `kind="claim_background"`;
+  // future enrichment skills can use any kind, e.g.
+  // `claim_translation`.)
+  const annotationGroups = groupAnnotationsByKind(
+    nodes,
+    edges,
+    claim.node_id,
+  );
 
   const formulate = useFormulateTask(token, sessionId);
   const stop = useProposeStop(token, sessionId);
@@ -136,19 +138,9 @@ export function ClaimPanel({
             {claimText}
           </p>
         </div>
-        {backgroundText && (
-          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
-            <p className={`${T.tinyBold} text-cyan-300 flex items-center gap-2`}>
-              🧠 Aussage-Hintergrund{" "}
-              <span className="font-normal text-slate-500">
-                (aus Chunk extrahiert)
-              </span>
-            </p>
-            <p className={`text-cyan-100 ${T.body} mt-1 whitespace-pre-wrap`}>
-              {backgroundText}
-            </p>
-          </div>
-        )}
+        {annotationGroups.map((group) => (
+          <AnnotationCard key={group.kind} group={group} />
+        ))}
         {showSourceChunk && (
           <details
             className="rounded border border-navy-700 bg-navy-900/40"
@@ -287,3 +279,4 @@ export function ClaimPanel({
     </div>
   );
 }
+

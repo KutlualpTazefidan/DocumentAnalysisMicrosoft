@@ -4,7 +4,9 @@ import { X } from "lucide-react";
 import { useToast } from "../../../../shared/components/useToast";
 import {
   useCreateSkill,
+  useUpdateSkill,
   type CreateSkillRequest,
+  type Skill,
   type SkillKind,
   type TriggerConditions,
 } from "../../../hooks/useSkills";
@@ -14,6 +16,15 @@ interface CustomFormProps {
   open: boolean;
   onClose: () => void;
   token: string;
+  /**
+   * If set, the form opens in edit mode: every field is pre-filled from
+   * this skill, the title becomes "Skill bearbeiten", and Submit
+   * triggers PATCH /skills/{skill_id} (rather than POST).
+   * Name stays editable; on the backend, an unchanged name keeps the
+   * skill_id, while a renamed skill is treated as a fresh insert
+   * (legacy bump-version behavior).
+   */
+  initialSkill?: Skill | null;
 }
 
 // ----- option pools ------------------------------------------------------
@@ -125,7 +136,10 @@ export function CustomForm({
   open,
   onClose,
   token,
+  initialSkill,
 }: CustomFormProps): JSX.Element | null {
+  const isEdit = !!initialSkill;
+
   // Basis
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -158,33 +172,68 @@ export function CustomForm({
   const [parentSkill, setParentSkill] = useState("");
 
   const createMutation = useCreateSkill(token);
+  const updateMutation = useUpdateSkill(token);
   const { error: toastError, success: toastSuccess } = useToast();
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setDescription("");
-      setEnabled(true);
-      setSkillKind("enrichment");
-      setFiresOn([]);
-      setFreeText("");
-      setQuestionsText("");
-      setDomainRules("");
-      setVerdicts([]);
-      setSentenceRegexText("");
-      setClaimRegexText("");
-      setTopicKeywords("");
-      setAnchorKinds([]);
-      setGoalContains("");
-      setTextContains("");
-      setAnnotationKind("");
-      setAttachesTo("");
-      setConsumedBy("");
-      setParentSkill("");
+      if (initialSkill) {
+        // Edit mode — pre-fill every field from the existing skill.
+        setName(initialSkill.name);
+        setDescription(initialSkill.description ?? "");
+        setEnabled(initialSkill.enabled);
+        setSkillKind(initialSkill.skill_kind);
+        setFiresOn([...initialSkill.fires_on]);
+        setFreeText(initialSkill.prompt?.free_text ?? "");
+        setQuestionsText((initialSkill.prompt?.questions ?? []).join("\n"));
+        setDomainRules(initialSkill.prompt?.domain_rules ?? "");
+        setVerdicts([...(initialSkill.conditions?.verdicts ?? [])]);
+        setSentenceRegexText(
+          (initialSkill.conditions?.sentence_regex ?? []).join("\n"),
+        );
+        setClaimRegexText(
+          (initialSkill.conditions?.claim_regex ?? []).join("\n"),
+        );
+        setTopicKeywords(
+          (initialSkill.conditions?.topic_keywords ?? []).join(", "),
+        );
+        setAnchorKinds([...(initialSkill.conditions?.anchor_kinds ?? [])]);
+        setGoalContains(
+          (initialSkill.conditions?.goal_contains ?? []).join(", "),
+        );
+        setTextContains(
+          (initialSkill.conditions?.text_contains ?? []).join(", "),
+        );
+        setAnnotationKind(initialSkill.output?.annotation_kind ?? "");
+        setAttachesTo(initialSkill.output?.attaches_to ?? "");
+        setConsumedBy((initialSkill.output?.consumed_by ?? []).join(", "));
+        setParentSkill(initialSkill.parent_skill ?? "");
+      } else {
+        setName("");
+        setDescription("");
+        setEnabled(true);
+        setSkillKind("enrichment");
+        setFiresOn([]);
+        setFreeText("");
+        setQuestionsText("");
+        setDomainRules("");
+        setVerdicts([]);
+        setSentenceRegexText("");
+        setClaimRegexText("");
+        setTopicKeywords("");
+        setAnchorKinds([]);
+        setGoalContains("");
+        setTextContains("");
+        setAnnotationKind("");
+        setAttachesTo("");
+        setConsumedBy("");
+        setParentSkill("");
+      }
       createMutation.reset();
+      updateMutation.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, initialSkill]);
 
   function toggleIn(list: string[], v: string): string[] {
     return list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -235,14 +284,44 @@ export function CustomForm({
 
   async function handleSubmit(): Promise<void> {
     if (!canSubmit) return;
+    const draft = buildSkill();
     try {
-      await createMutation.mutateAsync(buildSkill());
-      toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      if (isEdit && initialSkill) {
+        // PATCH only the mutable fields. Name is part of the body —
+        // backend treats a renamed skill as a fresh insert (legacy
+        // bump-version path); same name = in-place update + version bump.
+        await updateMutation.mutateAsync({
+          skill_id: initialSkill.skill_id,
+          patch: {
+            skill_kind: draft.skill_kind,
+            fires_on: draft.fires_on,
+            conditions: draft.conditions,
+            parent_skill: draft.parent_skill,
+            prompt: draft.prompt,
+            output: draft.output,
+            description: draft.description,
+            enabled: draft.enabled,
+          },
+        });
+        toastSuccess(`Skill "${name.trim()}" aktualisiert.`);
+      } else {
+        await createMutation.mutateAsync(draft);
+        toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      }
       onClose();
     } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler beim Erstellen");
+      toastError(
+        e instanceof Error
+          ? e.message
+          : isEdit
+            ? "Fehler beim Speichern"
+            : "Fehler beim Erstellen",
+      );
     }
   }
+
+  const submitPending = isEdit ? updateMutation.isPending : createMutation.isPending;
+  const submitError = isEdit ? updateMutation.error : createMutation.error;
 
   // ESC closes; Cmd/Ctrl-Enter submits.
   useEffect(() => {
@@ -256,7 +335,7 @@ export function CustomForm({
         e.key === "Enter" &&
         (e.metaKey || e.ctrlKey) &&
         canSubmit &&
-        !createMutation.isPending
+        !submitPending
       ) {
         e.preventDefault();
         void handleSubmit();
@@ -268,7 +347,7 @@ export function CustomForm({
   }, [
     open,
     canSubmit,
-    createMutation.isPending,
+    submitPending,
     name,
     description,
     enabled,
@@ -302,18 +381,19 @@ export function CustomForm({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Eigener Skill"
+        aria-label={isEdit ? "Skill bearbeiten" : "Eigener Skill"}
         className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>
-              Eigener Skill
+              {isEdit ? "Skill bearbeiten" : "Eigener Skill"}
             </h2>
             <p className={`${T.tiny} text-slate-400`}>
-              Volle Kontrolle — alle Felder sichtbar. Backend validiert
-              kind-spezifisch.
+              {isEdit
+                ? `${initialSkill?.name} · v${initialSkill?.version} · ${initialSkill?.skill_kind}`
+                : "Volle Kontrolle — alle Felder sichtbar. Backend validiert kind-spezifisch."}
             </p>
           </div>
           <button
@@ -816,10 +896,8 @@ export function CustomForm({
             </p>
           )}
 
-          {createMutation.error && (
-            <p className={`${T.body} text-red-400`}>
-              {createMutation.error.message}
-            </p>
+          {submitError && (
+            <p className={`${T.body} text-red-400`}>{submitError.message}</p>
           )}
         </div>
 
@@ -838,10 +916,16 @@ export function CustomForm({
             <button
               type="button"
               onClick={() => void handleSubmit()}
-              disabled={!canSubmit || createMutation.isPending}
+              disabled={!canSubmit || submitPending}
               className={`px-4 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} font-semibold disabled:opacity-50`}
             >
-              {createMutation.isPending ? "Erstelle…" : "Erstellen"}
+              {submitPending
+                ? isEdit
+                  ? "Speichere…"
+                  : "Erstelle…"
+                : isEdit
+                  ? "Speichern"
+                  : "Erstellen"}
             </button>
           </div>
         </footer>
