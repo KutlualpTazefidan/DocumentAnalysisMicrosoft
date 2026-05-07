@@ -16,6 +16,7 @@ import { T } from "../styles/typography";
 const STEP_KIND_OPTIONS = [
   "next_step",
   "extract_claims",
+  "extract_claim_background",
   "extract_goal",
   "formulate_task",
   "evaluate",
@@ -76,6 +77,11 @@ export function ApproachLibrary({ token }: Props): JSX.Element {
           name: "",
           step_kinds: ["next_step"],
           extra_system: "",
+          selection_criteria: {},
+          mode: "passive",
+          triggers: {},
+          parent_capability: "",
+          domain_rules: "",
         }}
         onSubmit={handleCreate}
         onClose={() => setCreating(false)}
@@ -102,6 +108,7 @@ const STEP_KIND_GROUP_LABEL: Record<string, string> = {
   next_step: "🧠 Agent-Denkregeln (next_step)",
   extract_goal: "🎯 Ziel-Ableitung (extract_goal)",
   extract_claims: "📜 Aussagen extrahieren",
+  extract_claim_background: "🧠 Aussage-Hintergrund (extract_claim_background)",
   formulate_task: "🔍 Aufgabe formulieren",
   evaluate: "⚖ Bewerten",
   propose_stop: "🛑 Stopp vorschlagen",
@@ -213,6 +220,11 @@ function ApproachRow({
         patch: {
           extra_system: values.extra_system,
           step_kinds: values.step_kinds,
+          selection_criteria: values.selection_criteria,
+          mode: values.mode,
+          triggers: values.triggers,
+          parent_capability: values.parent_capability,
+          domain_rules: values.domain_rules,
         },
       });
       setEditOpen(false);
@@ -239,11 +251,44 @@ function ApproachRow({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-white font-semibold">
+          <p className="text-white font-semibold flex items-center gap-2 flex-wrap">
             {approach.name}{" "}
             <span className={`${T.tiny} text-slate-400 font-normal`}>
               v{approach.version}
             </span>
+            {approach.mode === "active" && (
+              <span
+                className="px-1.5 py-px rounded text-[10px] font-semibold bg-emerald-700 text-white"
+                title="Aktive Skill: eigener LLM-Reasoning-Call im next_step"
+              >
+                aktiv
+              </span>
+            )}
+            {(() => {
+              const t = approach.triggers;
+              const hasTrig =
+                !!t &&
+                ((t.verdicts?.length ?? 0) > 0 ||
+                  (t.sentence_regex?.length ?? 0) > 0 ||
+                  (t.claim_regex?.length ?? 0) > 0 ||
+                  (t.topic_keywords?.length ?? 0) > 0);
+              return hasTrig ? (
+                <span
+                  className="px-1.5 py-px rounded text-[10px] font-semibold bg-orange-700 text-white"
+                  title="Reaktive Capability: feuert nach evaluate via Trigger-Match"
+                >
+                  🔧 reactive
+                </span>
+              ) : null;
+            })()}
+            {approach.parent_capability && (
+              <span
+                className="px-1.5 py-px rounded text-[10px] font-mono bg-orange-900/50 text-orange-200"
+                title={`Sub-Skill von ${approach.parent_capability}`}
+              >
+                ↳ {approach.parent_capability}
+              </span>
+            )}
           </p>
           <p className={`${T.tiny} text-slate-400`}>
             Schritte: {approach.step_kinds.join(", ")}
@@ -299,6 +344,11 @@ function ApproachRow({
           name: approach.name,
           step_kinds: approach.step_kinds,
           extra_system: approach.extra_system,
+          selection_criteria: approach.selection_criteria ?? {},
+          mode: approach.mode ?? "passive",
+          triggers: approach.triggers ?? {},
+          parent_capability: approach.parent_capability ?? "",
+          domain_rules: approach.domain_rules ?? "",
         }}
         versionPreview={`v${approach.version} → v${approach.version + 1} · ${approach.step_kinds.join(", ")}`}
         onSubmit={handleEditSave}

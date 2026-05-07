@@ -9,6 +9,7 @@ import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
 import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
+import { StepRegistry } from "../provenienz/StepRegistry";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
@@ -225,7 +226,7 @@ function ViewToggle({
   );
 }
 
-type AgentTab = "auswahl" | "tools" | "heuristiken" | "wuensche";
+type AgentTab = "auswahl" | "schritte" | "tools" | "heuristiken" | "wuensche";
 
 function AgentView({
   agentInfo,
@@ -303,6 +304,11 @@ function AgentView({
               onClose={() => handleSelect(null)}
             />
           )}
+          {tab === "schritte" && (
+            <div className="p-4">
+              <StepRegistry info={agentInfo} onSelect={handleSelect} />
+            </div>
+          )}
           {tab === "tools" && (
             <div className="p-4">
               <ToolRegistry tools={agentInfo.tools} onSelect={handleSelect} />
@@ -347,6 +353,7 @@ function AgentTabBar({
   return (
     <nav className="flex items-center border-b border-navy-700 px-2 bg-navy-900/40">
       {item("auswahl", "Auswahl")}
+      {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
       {item("heuristiken", "Heuristiken")}
       {item("wuensche", "Wünsche")}

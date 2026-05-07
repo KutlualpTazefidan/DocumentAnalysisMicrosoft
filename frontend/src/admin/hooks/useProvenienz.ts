@@ -1,3 +1,4 @@
+import { useCallback, useReducer, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiBase } from "../api/adminClient";
 
@@ -66,6 +67,13 @@ export interface GuidanceConsulted {
   kind: "reason" | "approach";
   id: string;
   summary: string;
+  /** Approaches: false = manually pinned, true = auto-selected by
+   *  matching selection_criteria. Reasons are always implicit-corpus
+   *  (false). */
+  auto_selected?: boolean;
+  /** When auto_selected, the human-readable triggers that matched
+   *  ("Anker-Typ 'chunk' in [chunk, claim]", "Ziel enthält: Beleg"). */
+  selection_reasons?: string[];
 }
 
 export interface ActionProposal {
@@ -328,6 +336,25 @@ export function useDeleteNode(token: string, sessionId: string) {
 
 // ---- Approach library ----
 
+/** Auto-pin rules. Empty / missing fields = manual-pin only. AND-logic
+ *  across present keys; OR-logic within each list. */
+export interface ApproachSelectionCriteria {
+  anchor_kinds?: string[];
+  goal_contains?: string[];
+  text_contains?: string[];
+}
+
+export type ApproachMode = "passive" | "active";
+
+/** Reactive-Capability triggers (RC layer). Empty dict = non-reactive
+ *  approach. AND across keys, OR within each list. */
+export interface ApproachTriggers {
+  verdicts?: string[];
+  sentence_regex?: string[];
+  claim_regex?: string[];
+  topic_keywords?: string[];
+}
+
 export interface Approach {
   approach_id: string;
   name: string;
@@ -337,6 +364,18 @@ export interface Approach {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  selection_criteria: ApproachSelectionCriteria;
+  /** "passive" = text-overlay im Meta-Planer-Prompt (Default).
+   *  "active" = eigener LLM-Reasoning-Call als Sub-Agent + Beitrag
+   *  zum Coordinator. Greift heute nur im next_step-Pfad. */
+  mode: ApproachMode;
+  /** Reactive-Capability triggers. Empty = non-reactive. */
+  triggers: ApproachTriggers;
+  /** "" = top-level. Non-empty = sub-skill of named parent. */
+  parent_capability: string;
+  /** Block injected into re_evaluate's extra_system when this
+   *  capability fires + user accepts. */
+  domain_rules: string;
 }
 
 export function useApproaches(token: string, opts?: { stepKind?: string; enabledOnly?: boolean }) {
@@ -364,6 +403,11 @@ export interface CreateApproachRequest {
   name: string;
   step_kinds: string[];
   extra_system: string;
+  selection_criteria?: ApproachSelectionCriteria;
+  mode?: ApproachMode;
+  triggers?: ApproachTriggers;
+  parent_capability?: string;
+  domain_rules?: string;
 }
 
 export function useCreateApproach(token: string) {
@@ -392,6 +436,11 @@ export interface PatchApproachRequest {
   enabled?: boolean;
   extra_system?: string;
   step_kinds?: string[];
+  selection_criteria?: ApproachSelectionCriteria;
+  mode?: ApproachMode;
+  triggers?: ApproachTriggers;
+  parent_capability?: string;
+  domain_rules?: string;
 }
 
 export function usePatchApproach(token: string) {
@@ -573,6 +622,9 @@ export interface NextStepResult {
     name: string;
     description: string;
     reasoning: string;
+    /** Phase-1.5 required field: how this step serves the session goal.
+     *  Empty string when the LLM omitted it (UI shows a warning). */
+    goal_alignment: string;
     considered_alternatives: { name: string; kind: string; why_not: string }[];
     confidence: number;
     tool: string | null;
@@ -597,6 +649,334 @@ export function useNextStep(token: string, sessionId: string) {
         token,
       );
       return (await r.json()) as NextStepResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+// ---- Live-Run streaming ----
+//
+// /next-step/stream emits SSE events as the planner walks its phases:
+//   event: phase    → started / completed / failed for one phase
+//   event: complete → final persisted Node
+//   event: error    → unexpected backend exception
+//
+// useNextStepStream consumes that stream into an evolving phase-list +
+// final result. The LiveRunPanel renders each phase as a card.
+
+export type LiveRunPhaseStatus = "running" | "completed" | "failed";
+
+/** One phase of a live run (gather_guidance, gather_tools, llm_call,
+ *  validate, persist). Started + completed events of the same phase
+ *  collapse into one record so the UI renders a single card per phase. */
+export interface LiveRunPhase {
+  phase: string;
+  label: string;
+  status: LiveRunPhaseStatus;
+  startedAtMs: number;
+  completedAtMs: number | null;
+  durationMs: number | null;
+  /** Merged payload: started-event fields are kept, completed-event
+   *  fields overlay them (since "completed" carries the actual result). */
+  payload: Record<string, unknown>;
+  error: string | null;
+}
+
+interface BackendPhaseEvent {
+  type: "phase";
+  phase: string;
+  status: "started" | "completed" | "failed";
+  label: string;
+  ms_since_run_start: number;
+  ms_elapsed: number;
+  payload: Record<string, unknown>;
+  error: string | null;
+}
+
+interface BackendCompleteEvent {
+  type: "complete";
+  node: NextStepResult;
+}
+
+interface RunState {
+  phases: LiveRunPhase[];
+  result: NextStepResult | null;
+  error: string | null;
+  isRunning: boolean;
+  /** Wall-clock start (Date.now()), null when idle. */
+  startedAt: number | null;
+}
+
+const INITIAL_RUN: RunState = {
+  phases: [],
+  result: null,
+  error: null,
+  isRunning: false,
+  startedAt: null,
+};
+
+type RunAction =
+  | { type: "start" }
+  | { type: "phase"; ev: BackendPhaseEvent }
+  | { type: "complete"; node: NextStepResult }
+  | { type: "error"; message: string }
+  | { type: "reset" };
+
+function runReducer(state: RunState, action: RunAction): RunState {
+  switch (action.type) {
+    case "start":
+      return { ...INITIAL_RUN, isRunning: true, startedAt: Date.now() };
+    case "phase": {
+      const { ev } = action;
+      const phases = [...state.phases];
+      const idx = phases.findIndex((p) => p.phase === ev.phase);
+      if (ev.status === "started") {
+        const next: LiveRunPhase = {
+          phase: ev.phase,
+          label: ev.label,
+          status: "running",
+          startedAtMs: ev.ms_since_run_start,
+          completedAtMs: null,
+          durationMs: null,
+          payload: ev.payload,
+          error: null,
+        };
+        if (idx === -1) phases.push(next);
+        else phases[idx] = next;
+      } else {
+        // completed / failed — merge onto the existing record.
+        const existing = idx === -1 ? null : phases[idx];
+        const merged: LiveRunPhase = {
+          phase: ev.phase,
+          label: ev.label,
+          status: ev.status === "failed" ? "failed" : "completed",
+          startedAtMs: existing?.startedAtMs ?? ev.ms_since_run_start - ev.ms_elapsed,
+          completedAtMs: ev.ms_since_run_start,
+          durationMs: ev.ms_elapsed,
+          payload: { ...(existing?.payload ?? {}), ...ev.payload },
+          error: ev.error,
+        };
+        if (idx === -1) phases.push(merged);
+        else phases[idx] = merged;
+      }
+      return { ...state, phases };
+    }
+    case "complete":
+      return { ...state, result: action.node, isRunning: false };
+    case "error":
+      return { ...state, error: action.message, isRunning: false };
+    case "reset":
+      return INITIAL_RUN;
+  }
+}
+
+/** Parse one ``event: X\ndata: Y`` SSE block. Returns null on malformed
+ *  input — caller skips and keeps reading. */
+function parseSseBlock(
+  block: string,
+): BackendPhaseEvent | BackendCompleteEvent | { type: "error"; message: string } | null {
+  const lines = block.split("\n");
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const ln of lines) {
+    if (ln.startsWith("event:")) event = ln.slice(6).trim();
+    else if (ln.startsWith("data:")) dataLines.push(ln.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    const data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
+    if (event === "phase") return data as unknown as BackendPhaseEvent;
+    if (event === "complete") return data as unknown as BackendCompleteEvent;
+    if (event === "error") return data as unknown as { type: "error"; message: string };
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export interface UseNextStepStream extends RunState {
+  start: (anchorNodeId: string) => Promise<void>;
+  reset: () => void;
+}
+
+export function useNextStepStream(
+  token: string,
+  sessionId: string,
+): UseNextStepStream {
+  const [state, dispatch] = useReducer(runReducer, INITIAL_RUN);
+  const abortRef = useRef<AbortController | null>(null);
+  const qc = useQueryClient();
+
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    dispatch({ type: "reset" });
+  }, []);
+
+  const start = useCallback(
+    async (anchorNodeId: string): Promise<void> => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      dispatch({ type: "start" });
+
+      try {
+        const r = await fetch(
+          `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/next-step/stream`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Auth-Token": token,
+              Accept: "text/event-stream",
+            },
+            body: JSON.stringify({ anchor_node_id: anchorNodeId }),
+            signal: ctrl.signal,
+          },
+        );
+        if (!r.ok) {
+          let detail = `${r.status} ${r.statusText}`;
+          try {
+            const body = (await r.json()) as { detail?: string };
+            if (body && typeof body.detail === "string") detail = body.detail;
+          } catch {
+            /* keep status fallback */
+          }
+          dispatch({ type: "error", message: detail });
+          return;
+        }
+        if (!r.body) {
+          dispatch({ type: "error", message: "Keine Stream-Antwort vom Server" });
+          return;
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx = buf.indexOf("\n\n");
+          while (idx !== -1) {
+            const block = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const parsed = parseSseBlock(block);
+            if (parsed) {
+              if (parsed.type === "phase") dispatch({ type: "phase", ev: parsed });
+              else if (parsed.type === "complete")
+                dispatch({ type: "complete", node: parsed.node });
+              else dispatch({ type: "error", message: parsed.message });
+            }
+            idx = buf.indexOf("\n\n");
+          }
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        dispatch({
+          type: "error",
+          message: e instanceof Error ? e.message : "Stream fehlgeschlagen",
+        });
+      } finally {
+        // Always refetch the session — the run wrote a Node either way
+        // (final on success, audit-only on early error after persist).
+        qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+      }
+    },
+    [token, sessionId, qc],
+  );
+
+  return { ...state, start, reset };
+}
+
+export interface ReflectionResult {
+  node_id: string;
+  session_id: string;
+  kind: "reflection";
+  payload: {
+    anchor_node_id: string;
+    step_kind_reviewed: string;
+    self_assessment: "vollständig" | "lückenhaft" | "fehlerhaft";
+    missed_statements: string[];
+    concerns: string[];
+    recommendation: "accept" | "re-evaluate" | "expand-context";
+    recommended_focus: string;
+    audit?: Record<string, unknown>;
+  };
+  actor: string;
+  created_at: string;
+}
+
+export function useReflect(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<ReflectionResult, Error, string>({
+    mutationFn: async (proposalNodeId) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/reflect`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ proposal_node_id: proposalNodeId }),
+        },
+        token,
+      );
+      return (await r.json()) as ReflectionResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export interface ReEvaluateResult {
+  action_proposal: ActionProposal;
+  gate_update: ProvNode;
+}
+
+export function useReEvaluate(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ReEvaluateResult,
+    Error,
+    { gateNodeId: string; capabilityIds: string[] }
+  >({
+    mutationFn: async ({ gateNodeId, capabilityIds }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/re-evaluate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            capability_gate_node_id: gateNodeId,
+            capability_ids: capabilityIds,
+          }),
+        },
+        token,
+      );
+      return (await r.json()) as ReEvaluateResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useDecomposeHit(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<ActionProposal, Error, string>({
+    mutationFn: async (searchResultNodeId) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/decompose-hit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ search_result_node_id: searchResultNodeId }),
+        },
+        token,
+      );
+      return (await r.json()) as ActionProposal;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
@@ -695,7 +1075,11 @@ export function useEvaluate(token: string, sessionId: string) {
     Error,
     {
       search_result_node_id: string;
-      against_claim_id: string;
+      /** Optional — backend resolves from the search_result chain
+       *  (search_result → task.focus_claim_id) when omitted. Lets the
+       *  agent's plan_proposal flow accept evaluate without the panel
+       *  having to know the upstream claim. */
+      against_claim_id?: string;
       provider?: string;
     }
   >({

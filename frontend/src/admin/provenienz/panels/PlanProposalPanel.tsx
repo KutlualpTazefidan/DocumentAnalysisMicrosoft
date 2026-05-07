@@ -1,9 +1,12 @@
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useDecomposeHit,
   useDeleteNode,
+  useEvaluate,
   useExtractClaims,
   useFormulateTask,
   useProposeStop,
+  usePromoteSearchResult,
   useSearchStep,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
@@ -21,8 +24,10 @@ const STEP_LABEL: Record<string, string> = {
 /**
  * Side-panel for a plan_proposal tile from /next-step. Shows the agent's
  * picked step + reasoning + considered alternatives. "Akzeptieren" fires
- * the matching step route and tombstones this plan_proposal so the canvas
- * cleans up automatically.
+ * the matching step route AND keeps the plan_proposal tile in the canvas
+ * — the audit trail is the point of Provenienz, the resulting
+ * action_proposal renders alongside it. User can manually "Verwerfen"
+ * to tombstone if a tile turned out to be noise.
  */
 export function PlanProposalPanel({
   sessionId,
@@ -58,6 +63,9 @@ export function PlanProposalPanel({
   const formulate = useFormulateTask(token, sessionId);
   const search = useSearchStep(token, sessionId);
   const stop = useProposeStop(token, sessionId);
+  const evaluate = useEvaluate(token, sessionId);
+  const promote = usePromoteSearchResult(token, sessionId);
+  const decompose = useDecomposeHit(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
   const isPending =
@@ -65,6 +73,9 @@ export function PlanProposalPanel({
     formulate.isPending ||
     search.isPending ||
     stop.isPending ||
+    evaluate.isPending ||
+    promote.isPending ||
+    decompose.isPending ||
     del.isPending;
 
   async function handleAccept(): Promise<void> {
@@ -83,16 +94,27 @@ export function PlanProposalPanel({
           await stop.mutateAsync({ anchor_node_id: p.anchor_node_id });
           break;
         case "evaluate":
+          // Backend resolves against_claim_id from the search_result
+          // chain (sr → task.focus_claim_id) when omitted.
+          await evaluate.mutateAsync({
+            search_result_node_id: p.anchor_node_id,
+          });
+          break;
         case "promote_search_result":
-          toastError(
-            `${p.name} braucht eine konkrete Treffer-Zeile — bitte direkt am Bag wählen.`,
-          );
-          return;
+          await promote.mutateAsync(p.anchor_node_id);
+          break;
+        case "decompose_hit":
+          await decompose.mutateAsync(p.anchor_node_id);
+          break;
         default:
           toastError(`Unbekannter Schritt: ${p.name}`);
           return;
       }
-      await del.mutateAsync(node.node_id);
+      // Do NOT auto-delete the plan_proposal here. The audit trail is
+      // the point of Provenienz: keep the tile visible alongside the
+      // resulting action_proposal so reviewers see "agent suggested X
+      // → step Y produced Z". Use "Verwerfen" below to tombstone an
+      // individual proposal manually.
       onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");

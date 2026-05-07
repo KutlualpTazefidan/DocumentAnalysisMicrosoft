@@ -4,6 +4,7 @@ import { useToast } from "../../../shared/components/useToast";
 import {
   useDecide,
   useDeleteNode,
+  useReflect,
   type ActionProposalAlternative,
   type GuidanceConsulted,
 } from "../../hooks/useProvenienz";
@@ -51,6 +52,7 @@ export function ActionProposalPanel({
 
   const decide = useDecide(token, sessionId);
   const del = useDeleteNode(token, sessionId);
+  const reflect = useReflect(token, sessionId);
   const { error: toastError } = useToast();
 
   const overrideEmpty = choice === "override" && !overrideText.trim();
@@ -293,9 +295,29 @@ export function ActionProposalPanel({
             </button>
           </>
         )}
-        {(decide.error || del.error) && (
+        {/* Reflektieren — only available for evaluate-style proposals
+            today (backend's /reflect surface). Other step_kinds get
+            covered later as the reflect helper extends. */}
+        {stepKind === "evaluate" && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await reflect.mutateAsync(node.node_id);
+              } catch (e) {
+                toastError(e instanceof Error ? e.message : "Fehler");
+              }
+            }}
+            disabled={reflect.isPending}
+            className={`w-full px-3 py-2 rounded border border-violet-600 text-violet-200 hover:bg-violet-900/30 ${T.body} disabled:opacity-50`}
+            title="Selbst-Kritik anstoßen — prüfe ob ein Satz im Treffer übersehen wurde"
+          >
+            {reflect.isPending ? "Reflektiert…" : "🪞 Reflektieren"}
+          </button>
+        )}
+        {(decide.error || del.error || reflect.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(decide.error ?? del.error)?.message}
+            {(decide.error ?? del.error ?? reflect.error)?.message}
           </p>
         )}
       </footer>

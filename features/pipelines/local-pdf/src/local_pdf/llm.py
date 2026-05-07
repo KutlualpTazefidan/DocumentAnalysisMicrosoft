@@ -38,10 +38,19 @@ def get_llm_client() -> LLMClient:
 def get_default_model() -> str:
     """Return the model id for the configured backend.
 
-    ``vllm_remote`` reads ``VLLM_MODEL`` (always set when the backend is
-    in use). Other backends read ``LLM_MODEL`` with the historic ollama
-    qwen2.5 default.
+    ``vllm_remote`` reads vllm-server/config.toml so the model name
+    follows whatever the picker last selected. Falls back to the
+    ``VLLM_MODEL`` env var if config.toml is missing (early-boot
+    or non-vllm-server deployments). Other backends read
+    ``LLM_MODEL`` with the historic ollama qwen2.5 default.
     """
     if os.environ.get("LLM_BACKEND") == "vllm_remote":
+        # Late import to avoid a hard dep on llm_server when this
+        # backend isn't selected.
+        from local_pdf.llm_server.process import configured_model_name
+
+        configured = configured_model_name()
+        if configured:
+            return configured
         return os.environ.get("VLLM_MODEL", "")
     return os.environ.get("LLM_MODEL", "qwen2.5:7b-instruct")

@@ -4,10 +4,11 @@ import { Sparkles } from "lucide-react";
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
-  useNextStep,
+  useNextStepStream,
   useSearchStep,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
+import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 /**
@@ -25,16 +26,12 @@ export function TaskPanel({
   const task = view.task;
   const search = useSearchStep(token, sessionId);
   const del = useDeleteNode(token, sessionId);
-  const nextStep = useNextStep(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
   const [topK, setTopK] = useState(5);
 
   async function handleNextStep(): Promise<void> {
-    try {
-      await nextStep.mutateAsync(task.node_id);
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
+    await stream.start(task.node_id);
   }
 
   async function handleSearch(): Promise<void> {
@@ -69,17 +66,24 @@ export function TaskPanel({
             Suchtreffer-Bag liegt im nächsten Schritt.
           </p>
         )}
+        {!view.hasResults && (
+          <LiveRunPanel
+            run={stream}
+            anchorPreview={String(task.payload.query ?? "").slice(0, 120)}
+            onClose={() => stream.reset()}
+          />
+        )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
         {!view.hasResults && (
           <button
             type="button"
             onClick={() => void handleNextStep()}
-            disabled={nextStep.isPending}
+            disabled={stream.isRunning}
             className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
           >
             <Sparkles className="w-4 h-4" aria-hidden />
-            {nextStep.isPending ? "Agent denkt…" : "Was als nächstes?"}
+            {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
           </button>
         )}
         {!view.hasResults && (
@@ -120,9 +124,9 @@ export function TaskPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(search.error || nextStep.error || del.error) && (
+        {(search.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(search.error ?? nextStep.error ?? del.error)?.message}
+            {(search.error ?? del.error)?.message}
           </p>
         )}
       </footer>

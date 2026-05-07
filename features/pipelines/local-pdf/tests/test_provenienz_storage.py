@@ -213,3 +213,113 @@ def test_cascade_helper_walks_dependency_chain():
     cascade = _collect_cascade("chunk1", nodes, edges)
     assert cascade == {"chunk1", "claim1", "task1", "sr1", "eval1", "prop1", "dec1"}
     assert "bystander" not in cascade
+
+
+def test_cascade_deletes_search_bag_via_action_proposal():
+    """Deleting a search-action_proposal must cascade through its
+    decision's `triggers` edges to every search_result it spawned, plus
+    any evaluations or capability_gates anchored to those results.
+    """
+    from local_pdf.api.routers.admin.provenienz import _collect_cascade
+
+    nodes = [
+        Node(node_id="task1", session_id="s", kind="task", payload={}, actor="h"),
+        Node(
+            node_id="search_prop",
+            session_id="s",
+            kind="action_proposal",
+            payload={"anchor_node_id": "task1", "step_kind": "search"},
+            actor="h",
+        ),
+        Node(node_id="search_dec", session_id="s", kind="decision", payload={}, actor="h"),
+        Node(
+            node_id="sr_a",
+            session_id="s",
+            kind="search_result",
+            payload={"task_node_id": "task1"},
+            actor="h",
+        ),
+        Node(
+            node_id="sr_b",
+            session_id="s",
+            kind="search_result",
+            payload={"task_node_id": "task1"},
+            actor="h",
+        ),
+        Node(node_id="eval_a", session_id="s", kind="evaluation", payload={}, actor="h"),
+        Node(node_id="bystander", session_id="s", kind="search_result", payload={}, actor="h"),
+    ]
+    edges = [
+        Edge(
+            edge_id="e_dec",
+            session_id="s",
+            from_node="search_dec",
+            to_node="search_prop",
+            kind="decided-by",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_trig_a",
+            session_id="s",
+            from_node="search_dec",
+            to_node="sr_a",
+            kind="triggers",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_trig_b",
+            session_id="s",
+            from_node="search_dec",
+            to_node="sr_b",
+            kind="triggers",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_eval",
+            session_id="s",
+            from_node="eval_a",
+            to_node="sr_a",
+            kind="evaluates",
+            reason=None,
+            actor="h",
+        ),
+    ]
+    cascade = _collect_cascade("search_prop", nodes, edges)
+    assert cascade == {"search_prop", "search_dec", "sr_a", "sr_b", "eval_a"}
+    assert "bystander" not in cascade
+    assert "task1" not in cascade  # task itself must survive
+
+
+def test_cascade_deletes_claim_background_with_claim():
+    """Deleting a claim must cascade to its claim_background nodes via
+    the `enriches` edge (chunk-comprehension result)."""
+    from local_pdf.api.routers.admin.provenienz import _collect_cascade
+
+    nodes = [
+        Node(node_id="claim1", session_id="s", kind="claim", payload={}, actor="h"),
+        Node(
+            node_id="bg1",
+            session_id="s",
+            kind="claim_background",
+            payload={"claim_node_id": "claim1", "text": "Hintergrund …"},
+            actor="system",
+        ),
+        Node(node_id="bystander", session_id="s", kind="claim", payload={}, actor="h"),
+    ]
+    edges = [
+        Edge(
+            edge_id="e_enr",
+            session_id="s",
+            from_node="bg1",
+            to_node="claim1",
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    ]
+    cascade = _collect_cascade("claim1", nodes, edges)
+    assert cascade == {"claim1", "bg1"}
+    assert "bystander" not in cascade

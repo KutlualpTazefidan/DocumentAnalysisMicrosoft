@@ -10,8 +10,10 @@ Kept in its own module so :mod:`provenienz` doesn't keep ballooning.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from local_pdf.provenienz.approaches import (
     Approach,
@@ -28,12 +30,22 @@ class CreateApproachRequest(BaseModel):
     name: str
     step_kinds: list[str]
     extra_system: str
+    selection_criteria: dict[str, Any] = Field(default_factory=dict)
+    mode: str = "passive"
+    triggers: dict[str, Any] = Field(default_factory=dict)
+    parent_capability: str = ""
+    domain_rules: str = ""
 
 
 class PatchApproachRequest(BaseModel):
     enabled: bool | None = None
     extra_system: str | None = None
     step_kinds: list[str] | None = None
+    selection_criteria: dict[str, Any] | None = None
+    mode: str | None = None
+    triggers: dict[str, Any] | None = None
+    parent_capability: str | None = None
+    domain_rules: str | None = None
 
 
 class ApproachResponse(BaseModel):
@@ -45,6 +57,11 @@ class ApproachResponse(BaseModel):
     enabled: bool
     created_at: str
     updated_at: str
+    selection_criteria: dict[str, Any] = Field(default_factory=dict)
+    mode: str = "passive"
+    triggers: dict[str, Any] = Field(default_factory=dict)
+    parent_capability: str = ""
+    domain_rules: str = ""
 
 
 def _to_response(a: Approach) -> ApproachResponse:
@@ -75,6 +92,11 @@ async def create_approach(body: CreateApproachRequest, request: Request) -> dict
         name=name,
         step_kinds=list(body.step_kinds),
         extra_system=body.extra_system or "",
+        selection_criteria=dict(body.selection_criteria or {}),
+        mode=body.mode or "passive",
+        triggers=dict(body.triggers or {}),
+        parent_capability=body.parent_capability or "",
+        domain_rules=body.domain_rules or "",
     )
     return {"approach": _to_response(a).model_dump()}
 
@@ -90,12 +112,28 @@ async def patch_approach(approach_id: str, body: PatchApproachRequest, request: 
     new_kinds = list(current.step_kinds) if body.step_kinds is None else list(body.step_kinds)
     if not new_kinds:
         raise HTTPException(status_code=400, detail="step_kinds must be non-empty")
+    new_criteria = (
+        dict(current.selection_criteria)
+        if body.selection_criteria is None
+        else dict(body.selection_criteria)
+    )
+    new_mode = current.mode if body.mode is None else body.mode
+    new_triggers = dict(current.triggers) if body.triggers is None else dict(body.triggers)
+    new_parent = (
+        current.parent_capability if body.parent_capability is None else body.parent_capability
+    )
+    new_domain_rules = current.domain_rules if body.domain_rules is None else body.domain_rules
     a = upsert_approach(
         cfg.data_root,
         name=current.name,
         step_kinds=new_kinds,
         extra_system=new_extra,
         enabled=new_enabled,
+        selection_criteria=new_criteria,
+        mode=new_mode,
+        triggers=new_triggers,
+        parent_capability=new_parent,
+        domain_rules=new_domain_rules,
     )
     return {"approach": _to_response(a).model_dump()}
 

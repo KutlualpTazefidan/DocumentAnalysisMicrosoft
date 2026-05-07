@@ -21,7 +21,7 @@ class _FakeClient:
         self.last_messages = None
         self.last_model = None
 
-    def complete(self, *, messages, model):
+    def complete(self, *, messages, model, max_tokens=None, **_):
         self.last_messages = messages
         self.last_model = model
         return SimpleNamespace(text=self._text)
@@ -125,4 +125,7 @@ def test_extra_system_appends_block_to_system_prompt(monkeypatch):
     fake = _patch(monkeypatch, '["A"]')
     router_mod._llm_extract_claims("chunk", "vllm", extra_system="\n\nZUSATZ: bitte beachten.")
     sys_msg = next(m for m in fake.last_messages if m.role == "system").content
-    assert sys_msg.endswith("ZUSATZ: bitte beachten.")
+    # Phase-1.5+: every system prompt now ends with the /no_think
+    # suffix. Assert containment rather than exact suffix match.
+    assert "ZUSATZ: bitte beachten." in sys_msg
+    assert sys_msg.rstrip().endswith("/no_think")

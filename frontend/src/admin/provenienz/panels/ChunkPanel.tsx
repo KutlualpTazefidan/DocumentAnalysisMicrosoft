@@ -4,10 +4,11 @@ import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
   useExtractClaims,
-  useNextStep,
+  useNextStepStream,
   type ProvNode,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
+import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 export function ChunkPanel({
@@ -23,16 +24,12 @@ export function ChunkPanel({
   const closed = !!view.closedByStop;
 
   const extract = useExtractClaims(token, sessionId);
-  const nextStep = useNextStep(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleNextStep(): Promise<void> {
-    try {
-      await nextStep.mutateAsync(chunk.node_id);
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
+    await stream.start(chunk.node_id);
   }
 
   async function handleExtract(): Promise<void> {
@@ -79,16 +76,21 @@ export function ChunkPanel({
             Diese Chunk-Untersuchung wurde abgeschlossen.
           </p>
         )}
+        <LiveRunPanel
+          run={stream}
+          anchorPreview={text.slice(0, 120)}
+          onClose={() => stream.reset()}
+        />
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
-          disabled={nextStep.isPending}
+          disabled={stream.isRunning}
           className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
         >
           <Sparkles className="w-4 h-4" aria-hidden />
-          {nextStep.isPending ? "Agent denkt…" : "Was als nächstes?"}
+          {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
         <details className="rounded border border-navy-700 bg-navy-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
@@ -113,9 +115,9 @@ export function ChunkPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(extract.error || nextStep.error || del.error) && (
+        {(extract.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(extract.error ?? nextStep.error ?? del.error)?.message}
+            {(extract.error ?? del.error)?.message}
           </p>
         )}
       </footer>

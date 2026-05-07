@@ -6,11 +6,13 @@ import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
   useFormulateTask,
-  useNextStep,
+  useNextStepStream,
   useProposeStop,
+  useSession,
   useSetClaimGoal,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
+import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 /**
@@ -23,25 +25,47 @@ export function ClaimPanel({
   sessionId,
   token,
   view,
+  nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "claim") return <></>;
   const claim = view.claim;
   const closed = !!view.closedByStop;
+  const session = useSession(sessionId, token);
+  const sessionGoal = String(session.data?.meta.goal ?? "").trim();
+  const sourceNodeId = String(claim.payload.source_node_id ?? "");
+  const sourceChunk = sourceNodeId
+    ? nodes.find((n) => n.node_id === sourceNodeId)
+    : undefined;
+  const sourceChunkText = sourceChunk
+    ? String(sourceChunk.payload.text ?? "").trim()
+    : "";
+  const claimText = String(claim.payload.text ?? "");
+  // Don't show the chunk twice if it equals the claim (single-sentence).
+  const showSourceChunk =
+    sourceChunkText.length > 0 && sourceChunkText !== claimText.trim();
+  // Latest claim_background Node attached to this claim (chunk-
+  // comprehension result, auto-spawned at extract_claims accept time).
+  const backgroundNodes = nodes
+    .filter(
+      (n) =>
+        n.kind === "claim_background" &&
+        String(n.payload.claim_node_id ?? "") === claim.node_id,
+    )
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const backgroundText = backgroundNodes[0]
+    ? String(backgroundNodes[0].payload.text ?? "").trim()
+    : "";
 
   const formulate = useFormulateTask(token, sessionId);
   const stop = useProposeStop(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const setClaimGoal = useSetClaimGoal(token, sessionId);
-  const nextStep = useNextStep(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
 
   async function handleNextStep(): Promise<void> {
-    try {
-      await nextStep.mutateAsync(claim.node_id);
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
+    await stream.start(claim.node_id);
   }
 
   const initialGoal = String(claim.payload.goal ?? "");
@@ -100,12 +124,59 @@ export function ClaimPanel({
     <div className="flex flex-col h-full">
       <PanelHeader title="Aussage" onClose={() => onSelectView(null)} />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
+        {sessionGoal && (
+          <div className="rounded border border-amber-700/40 bg-amber-950/20 px-3 py-2">
+            <p className={`${T.tinyBold} text-amber-300`}>Sitzungs-Ziel</p>
+            <p className={`text-amber-100 ${T.body} mt-0.5`}>{sessionGoal}</p>
+          </div>
+        )}
         <div>
           <p className={T.tinyBold}>Text</p>
           <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
-            {String(claim.payload.text ?? "")}
+            {claimText}
           </p>
         </div>
+        {backgroundText && (
+          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
+            <p className={`${T.tinyBold} text-cyan-300 flex items-center gap-2`}>
+              🧠 Aussage-Hintergrund{" "}
+              <span className="font-normal text-slate-500">
+                (aus Chunk extrahiert)
+              </span>
+            </p>
+            <p className={`text-cyan-100 ${T.body} mt-1 whitespace-pre-wrap`}>
+              {backgroundText}
+            </p>
+          </div>
+        )}
+        {showSourceChunk && (
+          <details
+            className="rounded border border-navy-700 bg-navy-900/40"
+          >
+            <summary
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-300`}
+            >
+              Quell-Textabschnitt{" "}
+              <span className="font-normal text-slate-500">
+                ({sourceChunkText.length} Zeichen)
+              </span>
+            </summary>
+            <p
+              className={`px-3 pb-3 pt-1 text-slate-300 ${T.tiny} whitespace-pre-wrap italic`}
+            >
+              {sourceChunkText.length > 1500
+                ? sourceChunkText.slice(0, 1500) + " […]"
+                : sourceChunkText}
+            </p>
+            <button
+              type="button"
+              onClick={() => onSelectView(`view:${sourceNodeId}`)}
+              className={`mx-3 mb-3 px-2 py-1 rounded bg-navy-800 hover:bg-navy-700 text-slate-300 ${T.tiny}`}
+            >
+              Chunk-Tile öffnen →
+            </button>
+          </details>
+        )}
         <div className="pt-2 border-t border-navy-700">
           <p className={`${T.tinyBold} text-pink-300`}>
             Recherche-Frage zu dieser Aussage
@@ -159,16 +230,22 @@ export function ClaimPanel({
             Diese Untersuchung wurde abgeschlossen.
           </p>
         )}
+        <LiveRunPanel
+          run={stream}
+          anchorPreview={String(claim.payload.text ?? "").slice(0, 120)}
+          goal={initialGoal || undefined}
+          onClose={() => stream.reset()}
+        />
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
-          disabled={nextStep.isPending}
+          disabled={stream.isRunning}
           className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
         >
           <Sparkles className="w-4 h-4" aria-hidden />
-          {nextStep.isPending ? "Agent denkt…" : "Was als nächstes?"}
+          {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
         <details className="rounded border border-navy-700 bg-navy-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
@@ -201,9 +278,9 @@ export function ClaimPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(formulate.error || stop.error || nextStep.error || del.error) && (
+        {(formulate.error || stop.error || del.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(formulate.error ?? stop.error ?? nextStep.error ?? del.error)?.message}
+            {(formulate.error ?? stop.error ?? del.error)?.message}
           </p>
         )}
       </footer>
