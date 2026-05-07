@@ -133,20 +133,19 @@ def _approach_to_skill(rec: dict) -> Skill:
 
 
 def _reason_to_skill(rec: dict) -> Skill:
+    prose = rec.get("reason_text") or rec.get("text", "")
     return Skill(
         skill_id=rec.get("reason_id", new_id()),
         name=f"note-{rec.get('reason_id', new_id())[:8]}",
         version=1,
         enabled=True,
-        description=rec.get("text", "")[:80],
+        description=prose[:80],
         created_at=rec.get("created_at", ""),
         updated_at=rec.get("created_at", ""),
         skill_kind=SkillKind.NOTE,
         fires_on=[rec["step_kind"]],
-        conditions=TriggerConditions(
-            anchor_kinds=rec.get("applies_to_anchor_kinds") or [],
-        ),
-        prompt=SkillPrompt(free_text=rec.get("text", "")),
+        conditions=TriggerConditions(),
+        prompt=SkillPrompt(free_text=prose),
     )
 
 

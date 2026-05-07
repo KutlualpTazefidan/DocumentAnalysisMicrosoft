@@ -75,9 +75,10 @@ def test_migration_translates_reactive_capability(tmp_path):
 def test_migration_translates_reasons_to_notes(tmp_path):
     (tmp_path / "provenienz").mkdir()
     (tmp_path / "provenienz" / "reasons.jsonl").write_text(
-        '{"reason_id":"r1","step_kind":"evaluate","text":"check unit",'
-        '"applies_to_anchor_kinds":["search_result"],'
-        '"created_at":"","author":"human"}\n'
+        '{"reason_id":"r1","step_kind":"evaluate","session_id":"s1",'
+        '"proposal_id":"p1","proposal_summary":"summary",'
+        '"override_summary":"","reason_text":"check unit",'
+        '"actor":"human","created_at":"2026-01-01"}\n'
     )
     migrate_legacy_to_skills(tmp_path)
     skills = read_skills(tmp_path)
