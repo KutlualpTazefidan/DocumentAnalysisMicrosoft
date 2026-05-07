@@ -685,6 +685,8 @@ def _build_decision_context(
     *,
     task: Node | None = None,
     max_chunk_chars: int = 1500,
+    consuming_step: str = "",
+    data_root: Path | None = None,
 ) -> str:
     """Render the decision-support bundle (Ziel + Recherche-Frage +
     Quell-Chunk + Such-Aufgabe) as a system-prompt prefix.
@@ -701,6 +703,16 @@ def _build_decision_context(
             yet at that point).
         max_chunk_chars: cap on the inlined chunk text (chunks can be
             multi-page). Truncated with " […]" suffix.
+        consuming_step: name of the step that will consume this context
+            (e.g. ``"formulate_task"`` / ``"evaluate"``). Used to filter
+            enrichment-skill annotations by their declared
+            ``output.consumed_by``. Empty string → include any
+            ``enriches``-edged annotation on the claim.
+        data_root: workspace root, needed to look up enrichment skills
+            and decide which annotation kinds belong to ``consuming_step``.
+            Optional; when omitted, falls back to including any
+            annotation with ``payload.claim_node_id == claim.node_id``
+            and a non-empty ``text`` field.
     """
     parts: list[str] = []
 
@@ -730,19 +742,53 @@ def _build_decision_context(
                     "Auswertung."
                 )
 
-    # Per-claim background — chunk-comprehension Nodes attached via
-    # `enriches` edge. Latest one wins (claims can have backgrounds
-    # re-extracted manually later).
-    background_nodes = [
+    # Per-claim enrichment annotations — produced by enrichment skills
+    # at extract_claims time, attached to the claim via an `enriches`
+    # edge. Skills whose ``output.consumed_by`` includes the current
+    # ``consuming_step`` contribute their latest annotation. Latest one
+    # wins per (skill_id, kind) pair.
+    relevant_annotation_kinds: set[str] | None = None
+    if data_root is not None:
+        try:
+            from local_pdf.provenienz.skills import read_skills
+
+            relevant_annotation_kinds = set()
+            # Pick up enrichment skills that attach to claims, regardless
+            # of ``fires_on`` (which describes when they run, not when
+            # they're consumed).
+            for s in read_skills(data_root):
+                if not s.enabled:
+                    continue
+                if s.output.attaches_to != "claim":
+                    continue
+                if not s.output.annotation_kind:
+                    continue
+                if consuming_step and consuming_step not in s.output.consumed_by:
+                    continue
+                relevant_annotation_kinds.add(s.output.annotation_kind)
+        except Exception:  # pragma: no cover - defensive
+            relevant_annotation_kinds = None
+
+    annotation_nodes = [
         n
         for n in nodes
-        if n.kind == "claim_background" and n.payload.get("claim_node_id") == claim.node_id
+        if n.payload.get("claim_node_id") == claim.node_id
+        and (relevant_annotation_kinds is None or n.kind in relevant_annotation_kinds)
+        and str(n.payload.get("text", "")).strip()
     ]
-    if background_nodes:
-        latest_bg = max(background_nodes, key=lambda n: n.created_at)
-        bg_text = str(latest_bg.payload.get("text", "")).strip()
-        if bg_text:
-            parts.append(f"## AUSSAGE-HINTERGRUND (aus Chunk extrahiert)\n{bg_text}")
+    # Group by kind, take the latest per kind.
+    latest_by_kind: dict[str, Node] = {}
+    for n in annotation_nodes:
+        prev = latest_by_kind.get(n.kind)
+        if prev is None or n.created_at > prev.created_at:
+            latest_by_kind[n.kind] = n
+    for kind in sorted(latest_by_kind):
+        ann = latest_by_kind[kind]
+        ann_text = str(ann.payload.get("text", "")).strip()
+        if not ann_text:
+            continue
+        heading = ann.payload.get("skill_name") or kind
+        parts.append(f"## ANNOTATION ({heading})\n{ann_text}")
 
     if task is not None and task.kind == "task":
         task_text = str(task.payload.get("query") or task.payload.get("text") or "").strip()
@@ -1053,21 +1099,6 @@ EXTRACT_CLAIM_GOALS_SYSTEM = (
     "voneinander, jede Aussage bekommt ihre eigene Frage. Antworte "
     "ausschließlich als JSON-Array von Strings (selbe Länge wie "
     "Input), kein Vor- oder Nachtext, kein Markdown, keine Codeblöcke."
-)
-EXTRACT_CLAIM_BACKGROUND_SYSTEM = (
-    "Du extrahierst pro Aussage den IMPLIZITEN Hintergrund aus dem "
-    "Quell-Textabschnitt. Ziel: was steht im Chunk, das die Aussage "
-    "kontextualisiert (Bezugsgrößen, Voraussetzungen, definierende "
-    "Begriffe, Zeitpunkte, Standortinformationen, Einheitensystem) — "
-    "und das in der Aussage selbst NICHT explizit steht? Diese "
-    "Hintergrund-Information wird später in die Recherche-Aufgabe + "
-    "Bewertung eingespeist, damit Suche und Quellen-Vergleich nicht "
-    "generisch werden. Antworte pro Aussage in 2-4 deutschen Sätzen, "
-    "knapp und faktisch, ohne Spekulation. Wenn der Chunk KEINEN "
-    "weiterführenden Kontext zur Aussage liefert, gib einen leeren "
-    "String zurück. Antworte ausschließlich als JSON-Array von "
-    "Strings (selbe Länge wie Input), kein Vor- oder Nachtext, kein "
-    "Markdown, keine Codeblöcke."
 )
 PRE_REASON_SYSTEM = (
     "Du bist die reflektierende Schicht eines Recherche-Agenten. Vor "
@@ -1485,7 +1516,16 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
     extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "formulate_task")
     # Prepend session-goal + per-claim research-question + source-chunk
     # so the LLM can form a search query that's targeted, not generic.
-    extra_system = _build_decision_context(claim, nodes, meta) + extra_system
+    extra_system = (
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            consuming_step="formulate_task",
+            data_root=cfg.data_root,
+        )
+        + extra_system
+    )
     pre_reasoning = _llm_pre_reason(
         step_kind="formulate_task",
         step_label="Aufgabe formulieren",
@@ -1837,7 +1877,17 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         if isinstance(eval_task_id, str)
         else None
     )
-    extra_system = _build_decision_context(claim, nodes, meta, task=eval_task) + extra_system
+    extra_system = (
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            task=eval_task,
+            consuming_step="evaluate",
+            data_root=cfg.data_root,
+        )
+        + extra_system
+    )
     pre_reasoning = _llm_pre_reason(
         step_kind="evaluate",
         step_label="Bewerten",
@@ -2073,7 +2123,14 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
         else None
     )
     extra_system = (
-        _build_decision_context(claim, nodes, meta, task=re_task)
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            task=re_task,
+            consuming_step="evaluate",
+            data_root=cfg.data_root,
+        )
         + "\n\n# GELADENE DOMÄNEN-CAPABILITIES\n\n"
         + "\n\n".join(rules_blocks)
         + "\n\n# WICHTIG\n"
@@ -2277,50 +2334,6 @@ async def decompose_hit_step(session_id: str, body: DecomposeHitRequest, request
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
     )
     return landed.__dict__
-
-
-def _llm_extract_claim_backgrounds(
-    claim_texts: list[str],
-    chunk_text: str,
-    *,
-    extra_system: str = "",
-) -> list[str]:
-    """Batched per-claim chunk-comprehension. One LLM call returns N
-    background snippets for N claims. Each snippet captures the
-    surrounding context that disambiguates the claim's topic + units +
-    references but is NOT in the claim itself.
-
-    Returns ``[""] * len(claim_texts)`` on any parse / size failure
-    (best-effort, never blocks claim creation). Empty strings are also
-    valid for individual claims when the chunk doesn't add anything.
-    """
-    if not claim_texts or not chunk_text or not chunk_text.strip():
-        return [""] * len(claim_texts)
-    system = EXTRACT_CLAIM_BACKGROUND_SYSTEM + (extra_system or "") + _NO_THINK
-    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(claim_texts))
-    truncated = chunk_text.strip()[:1500]
-    if len(chunk_text) > 1500:
-        truncated += " […]"
-    user = (
-        f"Quell-Textabschnitt:\n{truncated}\n\n"
-        f"Aussagen:\n{numbered}\n\n"
-        f"JSON-Array der Hintergrund-Snippets (selbe Reihenfolge):"
-    )
-    client = get_llm_client()
-    completion = client.complete(
-        messages=[Message(role="system", content=system), Message(role="user", content=user)],
-        model=get_default_model(),
-        max_tokens=_MAX_TOKENS_STRUCTURED,
-    )
-    raw = completion.text or ""
-    cleaned = _strip_json_fence(raw)
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
-        return [""] * len(claim_texts)
-    if not isinstance(parsed, list) or len(parsed) != len(claim_texts):
-        return [""] * len(claim_texts)
-    return [str(b).strip()[:1200] if isinstance(b, str) else "" for b in parsed]
 
 
 def _llm_extract_claim_goals(
@@ -3721,24 +3734,30 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         except Exception as exc:
             _log.warning("extract_claim_goals failed: %s", exc)
             claim_goals = [""] * len(claim_texts)
-        # Auto-extract per-claim background from the chunk: 2-4 sentences
-        # of context the claim doesn't carry on its own. Best-effort.
-        # User can override the prompt via an Approach with
-        # step_kind="extract_claim_background".
-        bg_extra_system = ""
-        if claim_meta is not None:
-            bg_extra_system, _ = _gather_guidance_via_skills(
-                cfg.data_root, claim_meta, "extract_claim_background"
-            )
-        try:
-            claim_backgrounds = _llm_extract_claim_backgrounds(
-                claim_texts,
-                chunk_text_for_goals,
-                extra_system=bg_extra_system,
-            )
-        except Exception as exc:
-            _log.warning("extract_claim_backgrounds failed: %s", exc)
-            claim_backgrounds = [""] * len(claim_texts)
+        # Auto-extract per-claim enrichment annotations via enrichment
+        # skills that fire on ``extract_claims`` and attach to claims.
+        # The default ``claim_background`` skill is seeded by the
+        # legacy-to-skills migration; users can register additional
+        # skills (or disable the default) without touching this code.
+        from local_pdf.provenienz.skill_dispatcher import (
+            list_enrichment_skills,
+            run_enrichment_skill,
+        )
+
+        enrichment_skills = [
+            s
+            for s in list_enrichment_skills(cfg.data_root, fires_on="extract_claims")
+            if s.output.attaches_to == "claim"
+        ]
+        skill_results: dict[str, list[str]] = {}
+        for skill in enrichment_skills:
+            try:
+                skill_results[skill.skill_id] = run_enrichment_skill(
+                    skill, claim_texts, chunk_text=chunk_text_for_goals
+                )
+            except Exception as exc:
+                _log.warning("enrichment skill %s failed: %s", skill.name, exc)
+                skill_results[skill.skill_id] = [""] * len(claim_texts)
         for idx, ct in enumerate(claim_texts):
             goal_for_claim = claim_goals[idx] if idx < len(claim_goals) else ""
             claim = append_node(
@@ -3784,32 +3803,40 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     ),
                 )
             )
-            # Per-claim chunk-comprehension Node. Empty → skip (LLM said
-            # the chunk adds nothing, or the call failed).
-            bg_text = claim_backgrounds[idx] if idx < len(claim_backgrounds) else ""
-            if bg_text and bg_text.strip():
-                bg_node = append_node(
+            # Per-claim enrichment annotations — one Node per enrichment
+            # skill that produced a non-empty result for this claim.
+            # Empty results are LLM-signalled "nothing to add" / parse
+            # failure → skipped silently.
+            for skill in enrichment_skills:
+                results = skill_results.get(skill.skill_id, [])
+                ann_text = results[idx] if idx < len(results) else ""
+                if not ann_text or not ann_text.strip():
+                    continue
+                ann_node = append_node(
                     sd,
                     Node(
                         node_id=new_id(),
                         session_id=session_id,
-                        kind="claim_background",
+                        kind=skill.output.annotation_kind,
                         payload={
-                            "text": bg_text.strip(),
+                            "text": ann_text.strip(),
                             "claim_node_id": claim.node_id,
                             "source_chunk_node_id": anchor_chunk,
+                            "skill_id": skill.skill_id,
+                            "skill_name": skill.name,
+                            "skill_version": skill.version,
                         },
                         actor="system",
                     ),
                 )
-                spawned_nodes.append(bg_node)
+                spawned_nodes.append(ann_node)
                 spawned_edges.append(
                     append_edge(
                         sd,
                         Edge(
                             edge_id=new_id(),
                             session_id=session_id,
-                            from_node=bg_node.node_id,
+                            from_node=ann_node.node_id,
                             to_node=claim.node_id,
                             kind="enriches",
                             reason=None,
