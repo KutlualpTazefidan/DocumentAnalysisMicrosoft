@@ -130,3 +130,50 @@ def test_is_migrated_flag_returns_true_after_run(tmp_path):
     assert is_migrated(tmp_path) is False
     migrate_legacy_to_skills(tmp_path)
     assert is_migrated(tmp_path) is True
+
+
+def test_migration_handles_tombstoned_approach(tmp_path):
+    """Tombstoned approaches in legacy data must NOT migrate as skills."""
+    (tmp_path / "provenienz").mkdir()
+    (tmp_path / "provenienz" / "approaches.jsonl").write_text(
+        '{"approach_id":"a1","name":"alive","version":1,'
+        '"step_kinds":["evaluate"],"extra_system":"x","enabled":true,'
+        '"mode":"passive","triggers":{},"parent_capability":"",'
+        '"domain_rules":"","created_at":"","updated_at":"",'
+        '"selection_criteria":{}}\n'
+        '{"approach_id":"a2","name":"dead","version":1,'
+        '"step_kinds":["evaluate"],"extra_system":"y","enabled":true,'
+        '"mode":"passive","triggers":{},"parent_capability":"",'
+        '"domain_rules":"","created_at":"","updated_at":"",'
+        '"selection_criteria":{}}\n'
+        '{"_tombstone":true,"approach_id":"a2"}\n'
+    )
+    migrate_legacy_to_skills(tmp_path)
+    skills = read_skills(tmp_path)
+    names = {s.name for s in skills}
+    assert "alive" in names
+    assert "dead" not in names
+
+
+def test_migration_handles_both_approaches_and_reasons(tmp_path):
+    """Both legacy data sources are processed in the same run."""
+    (tmp_path / "provenienz").mkdir()
+    (tmp_path / "provenienz" / "approaches.jsonl").write_text(
+        '{"approach_id":"a1","name":"my-rule","version":1,'
+        '"step_kinds":["evaluate"],"extra_system":"x","enabled":true,'
+        '"mode":"passive","triggers":{},"parent_capability":"",'
+        '"domain_rules":"","created_at":"","updated_at":"",'
+        '"selection_criteria":{}}\n'
+    )
+    (tmp_path / "provenienz" / "reasons.jsonl").write_text(
+        '{"reason_id":"r1","step_kind":"evaluate","session_id":"s1",'
+        '"proposal_id":"p1","proposal_summary":"sum",'
+        '"override_summary":"","reason_text":"check unit",'
+        '"actor":"human","created_at":"2026-01-01"}\n'
+    )
+    migrate_legacy_to_skills(tmp_path)
+    skills = read_skills(tmp_path)
+    assert len(skills) == 2
+    kinds = {s.skill_kind for s in skills}
+    assert SkillKind.PROMPT_OVERLAY in kinds
+    assert SkillKind.NOTE in kinds

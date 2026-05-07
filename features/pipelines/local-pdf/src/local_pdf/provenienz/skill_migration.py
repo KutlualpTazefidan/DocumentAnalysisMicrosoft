@@ -19,6 +19,7 @@ behaviour matches the prior hardcoded claim-background path.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003
 
@@ -31,6 +32,8 @@ from local_pdf.provenienz.skills import (
     append_skill_event,
 )
 from local_pdf.provenienz.storage import new_id
+
+_log = logging.getLogger(__name__)
 
 
 def is_migrated(data_root: Path) -> bool:
@@ -152,6 +155,8 @@ def _reason_to_skill(rec: dict) -> Skill:
 def _rename_with_suffix(src: Path) -> None:
     if not src.exists():
         return
+    if ".migrated-" in src.name:
+        return  # Already renamed by a previous run
     suffix = datetime.now(UTC).strftime("%Y-%m-%d")
     dst = src.with_suffix(src.suffix + f".migrated-{suffix}")
     src.rename(dst)
@@ -190,13 +195,19 @@ def migrate_legacy_to_skills(data_root: Path) -> None:
         by_name[rec["name"]] = rec
 
     for rec in by_name.values():
-        skill = _approach_to_skill(rec)
-        append_skill_event(data_root, skill)
+        try:
+            skill = _approach_to_skill(rec)
+            append_skill_event(data_root, skill)
+        except Exception as exc:
+            _log.warning("skipping malformed record: %s", exc)
 
     reason_records = [r for r in _read_legacy_jsonl(reasons_path) if not r.get("_tombstone")]
     for rec in reason_records:
-        skill = _reason_to_skill(rec)
-        append_skill_event(data_root, skill)
+        try:
+            skill = _reason_to_skill(rec)
+            append_skill_event(data_root, skill)
+        except Exception as exc:
+            _log.warning("skipping malformed record: %s", exc)
 
     # Seed factory-default claim_background skill only when there is no
     # legacy data at all — otherwise a curator's existing setup would
@@ -208,6 +219,12 @@ def migrate_legacy_to_skills(data_root: Path) -> None:
     if not has_legacy and "claim_background" not in existing_names:
         _seed_default_claim_background_skill(data_root)
 
+    # Set the flag BEFORE renaming legacy files so a crash between flag
+    # and rename leaves a consistent state: re-run is a no-op (flag set
+    # → skills already populated), legacy files just stay un-renamed.
+    # The reverse ordering would seed a hybrid state if a crash hit
+    # between rename and flag (re-run would re-seed defaults on top of
+    # already-migrated skills).
+    _set_migrated_flag(data_root)
     _rename_with_suffix(approaches_path)
     _rename_with_suffix(reasons_path)
-    _set_migrated_flag(data_root)
