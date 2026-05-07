@@ -155,6 +155,26 @@ def test_migration_handles_tombstoned_approach(tmp_path):
     assert "dead" not in names
 
 
+def test_app_startup_runs_migration(tmp_path, monkeypatch):
+    """Service start triggers migration if not yet migrated."""
+    monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
+    (tmp_path / "provenienz").mkdir()
+    (tmp_path / "provenienz" / "approaches.jsonl").write_text(
+        '{"approach_id":"a1","name":"x","version":1,"step_kinds":["evaluate"],'
+        '"extra_system":"r","enabled":true,"mode":"passive","triggers":{},'
+        '"parent_capability":"","domain_rules":"",'
+        '"created_at":"","updated_at":"","selection_criteria":{}}\n'
+    )
+    # Construct the app — this should trigger migration synchronously
+    from local_pdf.api.app import create_app
+
+    create_app()
+    from local_pdf.provenienz.skill_migration import is_migrated
+
+    assert is_migrated(tmp_path)
+
+
 def test_migration_handles_both_approaches_and_reasons(tmp_path):
     """Both legacy data sources are processed in the same run."""
     (tmp_path / "provenienz").mkdir()

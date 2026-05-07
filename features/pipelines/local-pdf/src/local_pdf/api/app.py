@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 from local_pdf.api.auth import install_auth_middleware
 from local_pdf.api.config import ApiConfig
 from local_pdf.api.schemas import HealthResponse
+
+_log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -54,6 +57,17 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     cfg = ApiConfig()
     cfg.data_root.mkdir(parents=True, exist_ok=True)
+
+    # Run skill-system migration at startup so the first request after
+    # deploy already has skills.jsonl populated. Idempotent — no-op if
+    # the _meta.json flag exists. Failure must NOT prevent boot: log and
+    # degrade rather than crash.
+    try:
+        from local_pdf.provenienz.skill_migration import migrate_legacy_to_skills
+
+        migrate_legacy_to_skills(cfg.data_root)
+    except Exception as exc:
+        _log.warning("skill migration at startup failed: %s", exc)
 
     app = FastAPI(
         title="local-pdf-api",
