@@ -1501,7 +1501,7 @@ def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "
         model=get_default_model(),
         max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     # strip outer matching single/double quotes if present
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
         raw = raw[1:-1].strip()
@@ -2802,7 +2802,7 @@ def _llm_extract_goal(
         model=get_default_model(),
         max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     # Strip outer quote pairs the model sometimes emits.
     while len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"', "„"):
         raw = raw[1:-1].strip()
@@ -3066,7 +3066,7 @@ def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = ""
         model=get_default_model(),
         max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
         raw = raw[1:-1].strip()
     raw = raw[:300]
