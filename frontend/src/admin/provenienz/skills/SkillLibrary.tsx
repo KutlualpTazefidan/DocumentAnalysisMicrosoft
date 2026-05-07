@@ -10,6 +10,7 @@ import {
   type SkillKind,
 } from "../../hooks/useSkills";
 import { T } from "../../styles/typography";
+import { EnrichmentForm } from "./templates/EnrichmentForm";
 import { TemplatePicker, type TemplateKind } from "./TemplatePicker";
 
 interface Props {
@@ -19,18 +20,23 @@ interface Props {
 /**
  * Unified Skill library — the post-migration successor of
  * {@link ApproachLibrary}. Lists every skill (enabled + disabled),
- * grouped by `skill_kind`. The "+ Neu" button is wired to a stub
- * here; Task 13 connects it to the TemplatePicker modal, and Task 16
- * replaces the stub Edit button with an actual form.
+ * grouped by `skill_kind`. The "+ Neu" button opens the TemplatePicker
+ * which dispatches into per-template forms (Tasks 14-16). Only the
+ * Enrichment template is wired up so far; the rest fall back to a
+ * "noch nicht implementiert"-Hinweis.
  */
 export function SkillLibrary({ token }: Props): JSX.Element {
   const { data: skills, isLoading, error } = useSkills(token);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [openForm, setOpenForm] = useState<TemplateKind | null>(null);
 
   function handleTemplate(template: TemplateKind): void {
-    // Tasks 14-16 replace this with the actual template form modals.
     setPickerOpen(false);
-    window.alert(`Template-Form für ${template} kommt in Task 14-16`);
+    if (template === "enrichment") {
+      setOpenForm(template);
+    } else {
+      window.alert(`Template "${template}" — Form folgt in Task 15/16.`);
+    }
   }
 
   return (
@@ -69,6 +75,11 @@ export function SkillLibrary({ token }: Props): JSX.Element {
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={handleTemplate}
+      />
+      <EnrichmentForm
+        open={openForm === "enrichment"}
+        onClose={() => setOpenForm(null)}
+        token={token}
       />
     </div>
   );
