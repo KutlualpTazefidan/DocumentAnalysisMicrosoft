@@ -1,8 +1,10 @@
 """Implicit guidance corpus: every override becomes a reason record.
 
-Stored at ``{LOCAL_PDF_DATA_ROOT}/provenienz/reasons.jsonl`` (global, not
-per-session) so cross-session learning works. Append-only; one JSON
-record per line.
+Reasons are now persisted in the unified skill store as ``NOTE`` skills
+in ``{LOCAL_PDF_DATA_ROOT}/provenienz/skills.jsonl``. This module is
+the legacy translation surface that renders NOTE-flavoured Skills as
+``Reason`` instances for callers that still walk the legacy shape
+(the override-recording path on /decide and the reason-prompt-injector).
 
 Read access is filtered + bounded — Stage 6.2's prompt injector calls
 ``read_reasons(step_kind=..., last_n=5)`` to fetch the most recent
@@ -11,7 +13,6 @@ relevant overrides for in-context examples.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING
@@ -35,13 +36,12 @@ class Reason:
     created_at: str = ""
 
 
-def _reasons_path(data_root: Path) -> Path:
-    return data_root / "provenienz" / "reasons.jsonl"
-
-
 def append_reason(data_root: Path, r: Reason) -> Reason:
-    path = _reasons_path(data_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Persist this reason as a NOTE skill in skills.jsonl.
+
+    Auto-fills ``reason_id`` and ``created_at`` if the caller left them
+    blank, then defers to ``_persist_reason_as_skill``.
+    """
     r2 = Reason(
         **{
             **r.__dict__,
@@ -49,26 +49,18 @@ def append_reason(data_root: Path, r: Reason) -> Reason:
             "created_at": r.created_at or _now(),
         }
     )
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(r2.__dict__, ensure_ascii=False) + "\n")
-    # Write-through to the unified skill store so the new
-    # apply_skills() reader picks up reasons via fires_on filtering.
-    # Kept alongside the legacy file path while _gather_guidance_split
-    # (multi-agent next_step) still reads from reasons.jsonl directly.
-    _write_through_to_skills(data_root, r2)
+    _persist_reason_as_skill(data_root, r2)
     return r2
 
 
-def _write_through_to_skills(data_root: Path, r: Reason) -> None:
-    """Mirror this reason as a NOTE skill in skills.jsonl.
-
-    Lazy import keeps the legacy reason path standalone for tests that
-    only exercise reasons.jsonl (test_provenienz_reasons.py).
+def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
+    """Write this reason to the unified skill store as a NOTE skill.
 
     The NOTE skill's ``skill_id`` is set to the reason's
     ``reason_id`` so that GuidanceRef.id (emitted by the prompt
     injector against the skill record) round-trips back to the original
-    reason — keeping the legacy ref shape contract intact.
+    reason — keeping the legacy ref shape contract intact. Lazy import
+    avoids a circular dependency at module load.
     """
     from local_pdf.provenienz.skills import (
         Skill,

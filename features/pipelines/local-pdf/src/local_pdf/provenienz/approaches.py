@@ -1,10 +1,11 @@
 """Explicit guidance corpus: named, versioned system-prompt overlays.
 
-Stored at ``{LOCAL_PDF_DATA_ROOT}/provenienz/approaches.jsonl`` (global,
-not per-session). Append-only event log: each line is either a full
-Approach record (latest record per *name* wins on read) or a tombstone
-``{"_tombstone": true, "approach_id": "..."}`` that suppresses an
-approach from subsequent reads.
+Approaches are now persisted in the unified skill store
+(``{LOCAL_PDF_DATA_ROOT}/provenienz/skills.jsonl``); this module is the
+legacy translation surface that renders Approach-flavoured Skills as
+``Approach`` instances for callers that still walk the legacy shape
+(the ``/approaches`` admin API, the reactive-capability scanner, and
+the auto-selection helpers).
 
 Curators author approaches via the admin CRUD HTTP routes; sessions
 pin approach IDs they want active. On every LLM step the
@@ -16,7 +17,6 @@ on the resulting action_proposal.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Any
@@ -77,61 +77,11 @@ class Approach:
     domain_rules: str = ""
 
 
-def _approaches_path(data_root: Path) -> Path:
-    return data_root / "provenienz" / "approaches.jsonl"
-
-
-def _append_record(data_root: Path, record: dict) -> None:
-    path = _approaches_path(data_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def append_approach_event(data_root: Path, approach: Approach) -> Approach:
-    """Append a versioned Approach record verbatim."""
-    _append_record(data_root, dict(approach.__dict__))
-    return approach
-
-
-def _read_all_records(data_root: Path) -> list[dict]:
-    path = _approaches_path(data_root)
-    if not path.exists():
-        return []
-    out: list[dict] = []
-    with path.open("r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            out.append(json.loads(line))
-    return out
-
-
-def _latest_by_name(data_root: Path) -> dict[str, Approach]:
-    """Replay the event log; latest non-tombstoned record per *name* wins.
-
-    Tombstones suppress the approach by approach_id (look up name from
-    prior records, then drop that name).
+def _latest_approach_by_name(data_root: Path) -> dict[str, Approach]:
+    """Index the latest approach-flavoured skills by ``name`` so
+    ``upsert_approach`` can find an existing record to bump-version.
     """
-    by_name: dict[str, Approach] = {}
-    name_by_id: dict[str, str] = {}
-    suppressed_names: set[str] = set()
-    for rec in _read_all_records(data_root):
-        if rec.get("_tombstone"):
-            aid = rec.get("approach_id", "")
-            n = name_by_id.get(aid)
-            if n is not None:
-                suppressed_names.add(n)
-                by_name.pop(n, None)
-            continue
-        a = Approach(**rec)
-        name_by_id[a.approach_id] = a.name
-        if a.name in suppressed_names:
-            # Re-creating an approach under a tombstoned name un-suppresses it.
-            suppressed_names.discard(a.name)
-        by_name[a.name] = a
-    return by_name
+    return {a.name: a for a in read_approaches(data_root, enabled_only=False)}
 
 
 def upsert_approach(
@@ -154,7 +104,7 @@ def upsert_approach(
     and ``mode`` default to the previous version's value on update,
     or to their schema defaults on create.
     """
-    latest = _latest_by_name(data_root).get(name)
+    latest = _latest_approach_by_name(data_root).get(name)
     now = _now()
     if latest is None:
         new = Approach(
@@ -192,22 +142,16 @@ def upsert_approach(
             ),
             domain_rules=(domain_rules if domain_rules is not None else latest.domain_rules),
         )
-    append_approach_event(data_root, new)
-    # Write-through to the unified skill store so the new
-    # apply_skills() reader picks up legacy-API-created approaches.
-    # Kept alongside the legacy file path while the reactive-capability
-    # scan + pinned-approach paths still read from approaches.jsonl.
-    _write_through_to_skills(data_root, new)
+    _persist_approach_as_skill(data_root, new)
     return new
 
 
-def _write_through_to_skills(data_root: Path, a: Approach) -> None:
-    """Mirror this Approach as a Skill in skills.jsonl.
-
-    The Skill's ``skill_id`` is set to the Approach's ``approach_id`` so
-    that the legacy ``/approaches`` API (which now reads skills.jsonl)
-    can find it by approach_id without a separate index. Lazy import
-    avoids a circular dependency at module load.
+def _persist_approach_as_skill(data_root: Path, a: Approach) -> None:
+    """Write this Approach to the unified skill store as the matching
+    Skill kind. The Skill's ``skill_id`` is set to the Approach's
+    ``approach_id`` so the legacy ``/approaches`` API (which reads
+    skills.jsonl) can find it by approach_id without a separate index.
+    Lazy import avoids a circular dependency at module load.
     """
     from local_pdf.provenienz.skills import (
         Skill,
@@ -358,10 +302,8 @@ def delete_approach(data_root: Path, approach_id: str) -> bool:
     current = get_approach(data_root, approach_id)
     if current is None:
         return False
-    _append_record(data_root, {"_tombstone": True, "approach_id": approach_id})
-    # Mirror the tombstone into skills.jsonl so the unified reader
-    # also drops this record. Lazy import for the same reason as the
-    # write-through above.
+    # Tombstone in skills.jsonl — the unified reader drops this record
+    # from subsequent walks. Lazy import avoids the circular dep.
     from local_pdf.provenienz.skills import tombstone_skill as _tombstone_skill
 
     _tombstone_skill(data_root, approach_id)

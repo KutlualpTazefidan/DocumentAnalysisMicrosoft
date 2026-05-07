@@ -164,10 +164,10 @@ def test_upsert_roundtrips_selection_criteria(tmp_path):
         "anchor_kinds": ["chunk"],
         "goal_contains": ["foo"],
     }
-    # On disk: full record persisted.
-    raw_lines = (tmp_path / "provenienz" / "approaches.jsonl").read_text().splitlines()
+    # On disk: full record persisted to the unified skill store.
+    raw_lines = (tmp_path / "skills" / "skills.jsonl").read_text().splitlines()
     rec = json.loads(raw_lines[-1])
-    assert rec["selection_criteria"]["anchor_kinds"] == ["chunk"]
+    assert rec["conditions"]["anchor_kinds"] == ["chunk"]
 
 
 def test_skill_without_conditions_renders_as_empty_selection_criteria(tmp_path):
