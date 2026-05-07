@@ -185,6 +185,37 @@ def read_skills(
     return items
 
 
+def read_skill_events(
+    data_root: Path,
+    *,
+    kind: SkillKind | None = None,
+) -> list[Skill]:
+    """Return every non-tombstoned skill record in file (insertion)
+    order, with no name-dedup.
+
+    Use this for append-only skill kinds (e.g. NOTE) where ``read_skills``'s
+    ``_latest_by_name`` collapse would drop earlier records. ``_now()``
+    has only second-level granularity, so callers that need to preserve
+    write order across fast bursts must use this reader, not sort by
+    ``created_at``.
+    """
+    tombstoned: set[str] = set()
+    records: list[Skill] = []
+    for rec in _read_all_records(data_root):
+        if rec.get("_tombstone"):
+            sid = rec.get("skill_id", "")
+            if sid:
+                tombstoned.add(sid)
+            continue
+        s = Skill.model_validate(rec)
+        if s.skill_id in tombstoned:
+            continue
+        if kind is not None and s.skill_kind != kind:
+            continue
+        records.append(s)
+    return records
+
+
 def get_skill(data_root: Path, skill_id: str) -> Skill | None:
     """Return the latest record for *skill_id*, or None if missing or
     tombstoned."""

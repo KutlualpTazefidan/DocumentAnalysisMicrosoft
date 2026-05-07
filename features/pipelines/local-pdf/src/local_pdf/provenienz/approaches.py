@@ -19,9 +19,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from local_pdf.provenienz.storage import _now, new_id
+
+if TYPE_CHECKING:
+    from local_pdf.provenienz.skills import Skill
 
 
 @dataclass(frozen=True)
@@ -251,31 +254,80 @@ def _write_through_to_skills(data_root: Path, a: Approach) -> None:
     append_skill_event(data_root, skill)
 
 
+def _skill_to_approach(s: Skill) -> Approach:
+    """Inverse of skill_migration._approach_to_skill: render a Skill
+    record as a legacy Approach instance, so existing code that walks
+    Approaches keeps working without changes."""
+    from local_pdf.provenienz.skills import SkillKind
+
+    mode = "active" if s.skill_kind == SkillKind.SUBAGENT else "passive"
+    triggers: dict[str, Any] = {}
+    if s.conditions.verdicts:
+        triggers["verdicts"] = list(s.conditions.verdicts)
+    if s.conditions.sentence_regex:
+        triggers["sentence_regex"] = list(s.conditions.sentence_regex)
+    if s.conditions.claim_regex:
+        triggers["claim_regex"] = list(s.conditions.claim_regex)
+    if s.conditions.topic_keywords:
+        triggers["topic_keywords"] = list(s.conditions.topic_keywords)
+    selection_criteria: dict[str, Any] = {}
+    if s.conditions.anchor_kinds:
+        selection_criteria["anchor_kinds"] = list(s.conditions.anchor_kinds)
+    if s.conditions.goal_contains:
+        selection_criteria["goal_contains"] = list(s.conditions.goal_contains)
+    if s.conditions.text_contains:
+        selection_criteria["text_contains"] = list(s.conditions.text_contains)
+    return Approach(
+        approach_id=s.skill_id,
+        name=s.name,
+        version=s.version,
+        step_kinds=list(s.fires_on),
+        extra_system=s.prompt.free_text,
+        enabled=s.enabled,
+        created_at=s.created_at,
+        updated_at=s.updated_at,
+        selection_criteria=selection_criteria,
+        mode=mode,
+        triggers=triggers,
+        parent_capability=s.parent_skill,
+        domain_rules=s.prompt.domain_rules,
+    )
+
+
 def read_approaches(
     data_root: Path,
     *,
     step_kind: str | None = None,
     enabled_only: bool = True,
 ) -> list[Approach]:
-    """Return latest record per name, sorted by name. Drops tombstoned
-    names. By default also drops disabled approaches and filters by
-    *step_kind* if supplied."""
-    items = list(_latest_by_name(data_root).values())
-    if enabled_only:
-        items = [a for a in items if a.enabled]
+    """Return latest approach-flavoured skills as legacy Approach
+    instances, sorted by name. Reads from skills.jsonl (the unified
+    store). Only kinds that map back to legacy Approach are surfaced:
+    PROMPT_OVERLAY, SUBAGENT, REACTIVE. ENRICHMENT and NOTE are
+    intentionally hidden."""
+    from local_pdf.provenienz.skills import SkillKind, read_skills
+
+    skills = read_skills(data_root, enabled_only=enabled_only)
+    approach_kinds = {SkillKind.PROMPT_OVERLAY, SkillKind.SUBAGENT, SkillKind.REACTIVE}
+    apps = [_skill_to_approach(s) for s in skills if s.skill_kind in approach_kinds]
     if step_kind is not None:
-        items = [a for a in items if step_kind in a.step_kinds]
-    items.sort(key=lambda a: a.name)
-    return items
+        apps = [a for a in apps if step_kind in a.step_kinds]
+    apps.sort(key=lambda a: a.name)
+    return apps
 
 
 def get_approach(data_root: Path, approach_id: str) -> Approach | None:
-    """Return the latest record for *approach_id* (regardless of enabled
-    flag), or None if missing or tombstoned."""
-    for a in _latest_by_name(data_root).values():
-        if a.approach_id == approach_id:
-            return a
-    return None
+    """Return the approach-flavoured skill with skill_id == *approach_id*
+    rendered as a legacy Approach instance (regardless of enabled
+    flag), or None if missing, tombstoned, or not approach-shaped."""
+    from local_pdf.provenienz.skills import SkillKind, get_skill
+
+    s = get_skill(data_root, approach_id)
+    if s is None:
+        return None
+    if s.skill_kind not in {SkillKind.PROMPT_OVERLAY, SkillKind.SUBAGENT, SkillKind.REACTIVE}:
+        return None
+    return _skill_to_approach(s)
 
 
 def disable_approach(data_root: Path, approach_id: str) -> Approach | None:

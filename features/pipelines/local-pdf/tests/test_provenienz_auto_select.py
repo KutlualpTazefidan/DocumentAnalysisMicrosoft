@@ -170,23 +170,34 @@ def test_upsert_roundtrips_selection_criteria(tmp_path):
     assert rec["selection_criteria"]["anchor_kinds"] == ["chunk"]
 
 
-def test_legacy_record_without_field_reads_as_empty_dict(tmp_path):
-    """Records written before Phase 2 have no selection_criteria. The
-    Approach dataclass default ({}) must kick in."""
-    path = tmp_path / "provenienz" / "approaches.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    legacy = {
-        "approach_id": "legacy-id",
-        "name": "legacy",
-        "version": 1,
-        "step_kinds": ["next_step"],
-        "extra_system": "old",
-        "enabled": True,
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-01-01T00:00:00Z",
-    }
-    path.write_text(json.dumps(legacy) + "\n")
+def test_skill_without_conditions_renders_as_empty_selection_criteria(tmp_path):
+    """A Skill record with no conditions must render back as an Approach
+    with an empty selection_criteria dict. (Previously this test seeded
+    a legacy approaches.jsonl row without the Phase-2 selection_criteria
+    field; now that read_approaches reads from skills.jsonl, the
+    equivalent seed is a Skill with default-empty TriggerConditions.)"""
     from local_pdf.provenienz.approaches import read_approaches
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillPrompt,
+        append_skill_event,
+    )
+
+    append_skill_event(
+        tmp_path,
+        Skill(
+            skill_id="legacy-id",
+            name="legacy",
+            version=1,
+            enabled=True,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+            skill_kind=SkillKind.PROMPT_OVERLAY,
+            fires_on=["next_step"],
+            prompt=SkillPrompt(free_text="old"),
+        ),
+    )
 
     items = read_approaches(tmp_path, enabled_only=False)
     assert len(items) == 1
