@@ -260,3 +260,56 @@ def test_read_skills_with_enabled_only_false_includes_disabled(tmp_path):
     full = read_skills(tmp_path, enabled_only=False)
     assert len(full) == 2
     assert {s.name for s in full} == {"active", "off"}
+
+
+def test_apply_skills_returns_prompt_overlay_text(tmp_path):
+    from local_pdf.provenienz.skill_dispatcher import apply_skills
+    from local_pdf.provenienz.skills import upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="r",
+        skill_kind=SkillKind.PROMPT_OVERLAY,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="check units"),
+    )
+    bundle = apply_skills(tmp_path, step_kind="evaluate", anchor=None)
+    assert "check units" in bundle.extra_system
+
+
+def test_apply_skills_filters_by_step_kind(tmp_path):
+    from local_pdf.provenienz.skill_dispatcher import apply_skills
+    from local_pdf.provenienz.skills import upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="a",
+        skill_kind=SkillKind.PROMPT_OVERLAY,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+    )
+    upsert_skill(
+        tmp_path,
+        name="b",
+        skill_kind=SkillKind.PROMPT_OVERLAY,
+        fires_on=["formulate_task"],
+        prompt=SkillPrompt(free_text="y"),
+    )
+    bundle = apply_skills(tmp_path, step_kind="evaluate", anchor=None)
+    assert "x" in bundle.extra_system
+    assert "y" not in bundle.extra_system
+
+
+def test_apply_skills_returns_notes_separately(tmp_path):
+    from local_pdf.provenienz.skill_dispatcher import apply_skills
+    from local_pdf.provenienz.skills import upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="n",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="reminder"),
+    )
+    bundle = apply_skills(tmp_path, step_kind="evaluate", anchor=None)
+    assert any("reminder" in n for n in bundle.notes)
