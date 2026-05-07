@@ -77,3 +77,106 @@ def test_skill_serialises_round_trip():
     raw = s.model_dump()
     s2 = Skill.model_validate(raw)
     assert s2 == s
+
+
+def test_append_and_read_single_skill(tmp_path):
+    from local_pdf.provenienz.skills import read_skills, upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="watch units"),
+    )
+    out = read_skills(tmp_path)
+    assert len(out) == 1
+    assert out[0].name == "bg"
+    assert out[0].version == 1
+
+
+def test_upsert_bumps_version(tmp_path):
+    from local_pdf.provenienz.skills import read_skills, upsert_skill
+
+    a = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="v1"),
+    )
+    b = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="v2"),
+    )
+    assert a.skill_id == b.skill_id
+    assert b.version == 2
+    out = read_skills(tmp_path)
+    assert len(out) == 1
+    assert out[0].prompt.free_text == "v2"
+
+
+def test_tombstone_removes_skill_from_read(tmp_path):
+    from local_pdf.provenienz.skills import (
+        read_skills,
+        tombstone_skill,
+        upsert_skill,
+    )
+
+    s = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+    )
+    tombstone_skill(tmp_path, s.skill_id)
+    out = read_skills(tmp_path)
+    assert out == []
+
+
+def test_read_skills_filters_by_kind(tmp_path):
+    from local_pdf.provenienz.skills import read_skills, upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="a",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+    )
+    upsert_skill(
+        tmp_path,
+        name="b",
+        skill_kind=SkillKind.PROMPT_OVERLAY,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="y"),
+    )
+    notes = read_skills(tmp_path, kind=SkillKind.NOTE)
+    assert len(notes) == 1
+    assert notes[0].name == "a"
+
+
+def test_read_skills_filters_by_fires_on(tmp_path):
+    from local_pdf.provenienz.skills import read_skills, upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="a",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+    )
+    upsert_skill(
+        tmp_path,
+        name="b",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["formulate_task"],
+        prompt=SkillPrompt(free_text="y"),
+    )
+    fired = read_skills(tmp_path, fires_on="evaluate")
+    assert len(fired) == 1
+    assert fired[0].name == "a"
