@@ -1255,32 +1255,38 @@ def _build_passive_block(passive: list[tuple[Approach, GuidanceRef]]) -> str:
     return "\n\n" + "\n\n".join(parts)
 
 
-def _gather_guidance(
+def _gather_guidance_via_skills(
     data_root: Path,
-    meta: SessionMeta,
+    meta: SessionMeta | None,
     step_kind: str,
     *,
     anchor: Node | None = None,
 ) -> tuple[str, list[GuidanceRef]]:
-    """Legacy guidance API — returns ``(extra_system, refs)``.
+    """Skills-backed replacement for the legacy ``_gather_guidance``.
 
-    Active approaches are deliberately **excluded** from both the text
-    block and the refs list: they only fire as sub-agents in the
-    next_step multi-agent pipeline (see :func:`_gather_guidance_split`).
-    Listing them here would mislead callers (extract_claims, etc.)
-    into showing approaches that won't actually influence their step.
+    Returns the same ``(extra_system, refs)`` tuple shape so callers do
+    not need to change. References point to ``skill_id``\\ s now — the
+    unified ``skills.jsonl`` storage replaces the approaches+reasons
+    split. Active/sub-agent skills are deliberately **not** mixed into
+    the passive overlay text (they fire via the multi-agent pipeline in
+    :func:`_gather_guidance_split`).
     """
-    passive, _active = _walk_approaches(data_root, meta, step_kind, anchor=anchor)
-    blocks: list[str] = []
-    extra = _build_passive_block(passive)
-    if extra:
-        blocks.append(extra)
-    refs: list[GuidanceRef] = [ref for _a, ref in passive]
-    reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind)
-    if reason_block:
-        blocks.append(reason_block)
-        refs.extend(reason_refs)
-    return ("".join(blocks), refs)
+    from local_pdf.provenienz.skill_dispatcher import apply_skills
+
+    bundle = apply_skills(
+        data_root,
+        step_kind=step_kind,
+        anchor=anchor,
+        session_goal=meta.goal if meta else "",
+    )
+    text = bundle.extra_system
+    if bundle.notes:
+        text += "\n\n## Lehr-Notizen\n" + "\n".join(f"- {n}" for n in bundle.notes)
+    refs = [
+        GuidanceRef(kind="skill", id=sid, summary="")  # type: ignore[arg-type]
+        for sid in bundle.consulted_skill_ids
+    ]
+    return text, refs
 
 
 def _gather_guidance_split(
@@ -1377,7 +1383,7 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "extract_claims")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "extract_claims")
     # Promoted chunks carry breadcrumbs back to the original claim/query;
     # prepend them so the LLM stays on-topic for the recursive exploration.
     origin_context = _build_origin_context(chunk)
@@ -1476,7 +1482,7 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         raise HTTPException(status_code=400, detail=f"anchor must be claim, got kind={claim.kind}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "formulate_task")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "formulate_task")
     # Prepend session-goal + per-claim research-question + source-chunk
     # so the LLM can form a search query that's targeted, not generic.
     extra_system = _build_decision_context(claim, nodes, meta) + extra_system
@@ -1821,7 +1827,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "evaluate")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "evaluate")
     # Decision-support bundle: Sitzungs-Ziel + Recherche-Frage zur
     # Aussage + Original-Chunk + Such-Aufgabe. Resolve task via
     # search_result → task chain.
@@ -1964,7 +1970,7 @@ async def reflect_step(session_id: str, body: ReflectRequest, request: Request) 
             detail="Konnte den ursprünglichen claim nicht auflösen — kann nicht reflektieren.",
         )
 
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "reflect")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "reflect")
     critique = _llm_reflect_evaluate(
         claim_text=str(claim.payload.get("text", "")),
         candidate_text=str(sr.payload.get("text", "")),
@@ -2238,7 +2244,7 @@ async def decompose_hit_step(session_id: str, body: DecomposeHitRequest, request
             status_code=400,
             detail=f"node not a search_result: {body.search_result_node_id}",
         )
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "decompose_hit")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "decompose_hit")
     try:
         sub_statements = _llm_decompose_hit(
             str(sr.payload.get("text", "")), extra_system=extra_system
@@ -2785,7 +2791,7 @@ def _maybe_extract_goal(cfg: object, sd: Path, meta: SessionMeta, claim_text: st
     if chunk is None:
         return meta
     chunk_text = str(chunk.payload.get("text", ""))
-    extra_system, _ = _gather_guidance(cfg.data_root, meta, "extract_goal")  # type: ignore[attr-defined]
+    extra_system, _ = _gather_guidance_via_skills(cfg.data_root, meta, "extract_goal")  # type: ignore[attr-defined]
     try:
         goal = _llm_extract_goal(chunk_text, claim_text, "vllm", extra_system=extra_system)
     except Exception as exc:
@@ -3056,7 +3062,7 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "propose_stop")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "propose_stop")
     pre_reasoning = _llm_pre_reason(
         step_kind="propose_stop",
         step_label="Stopp vorschlagen",
@@ -3191,7 +3197,7 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
     state_summary = _summarize_session_state(meta, nodes, edges)
     tools_summary = _summarize_tools_for_planner()
     approaches_summary = _summarize_approaches_for_planner(cfg.data_root)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "plan")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "plan")
 
     try:
         plan_dict = _llm_plan(
@@ -3721,7 +3727,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         # step_kind="extract_claim_background".
         bg_extra_system = ""
         if claim_meta is not None:
-            bg_extra_system, _ = _gather_guidance(
+            bg_extra_system, _ = _gather_guidance_via_skills(
                 cfg.data_root, claim_meta, "extract_claim_background"
             )
         try:
