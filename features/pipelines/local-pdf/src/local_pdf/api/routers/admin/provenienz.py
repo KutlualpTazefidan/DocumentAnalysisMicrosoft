@@ -1296,27 +1296,51 @@ def _gather_guidance_via_skills(
     """Skills-backed replacement for the legacy ``_gather_guidance``.
 
     Returns the same ``(extra_system, refs)`` tuple shape so callers do
-    not need to change. References point to ``skill_id``\\ s now — the
-    unified ``skills.jsonl`` storage replaces the approaches+reasons
-    split. Active/sub-agent skills are deliberately **not** mixed into
-    the passive overlay text (they fire via the multi-agent pipeline in
-    :func:`_gather_guidance_split`).
+    not need to change. The unified ``skills.jsonl`` storage replaces
+    the approaches+reasons split, but the ``GuidanceRef.kind`` field
+    keeps the legacy ``"approach"`` / ``"reason"`` values so existing
+    audit consumers (UI, tests, /sessions/{sid} payloads) stay valid.
+    Active/sub-agent skills are deliberately **not** mixed into the
+    passive overlay text — they fire via the multi-agent pipeline in
+    :func:`_gather_guidance_split`.
     """
-    from local_pdf.provenienz.skill_dispatcher import apply_skills
+    del meta  # session_goal not consumed yet — anchor matching lands later
+    del anchor
 
-    bundle = apply_skills(
-        data_root,
-        step_kind=step_kind,
-        anchor=anchor,
-        session_goal=meta.goal if meta else "",
-    )
-    text = bundle.extra_system
-    if bundle.notes:
-        text += "\n\n## Lehr-Notizen\n" + "\n".join(f"- {n}" for n in bundle.notes)
-    refs = [
-        GuidanceRef(kind="skill", id=sid, summary="")  # type: ignore[arg-type]
-        for sid in bundle.consulted_skill_ids
-    ]
+    from local_pdf.provenienz.skills import SkillKind, read_skills
+
+    overlay_parts: list[str] = []
+    note_parts: list[str] = []
+    refs: list[GuidanceRef] = []
+    for skill in read_skills(data_root, fires_on=step_kind, enabled_only=True):
+        if skill.skill_kind == SkillKind.PROMPT_OVERLAY and skill.prompt.free_text:
+            overlay_parts.append(skill.prompt.free_text)
+            refs.append(
+                GuidanceRef(
+                    kind="approach",
+                    id=skill.skill_id,
+                    summary=skill.name[:80],
+                )
+            )
+        elif skill.skill_kind == SkillKind.NOTE and skill.prompt.free_text:
+            note_parts.append(skill.prompt.free_text)
+            refs.append(
+                GuidanceRef(
+                    kind="reason",
+                    id=skill.skill_id,
+                    summary=skill.prompt.free_text[:80],
+                )
+            )
+        # subagent / enrichment / reactive skills route through their
+        # own dispatchers — they must NOT bleed into the passive overlay.
+
+    text = ""
+    if overlay_parts:
+        text += "\n\n" + "\n\n".join(overlay_parts)
+    if note_parts:
+        text += "\n\n## Frühere Korrekturen durch den Nutzer\n"
+        text += "\n".join(f"- {n}" for n in note_parts)
+        text += "\nBerücksichtige diese Korrekturen, wenn sie auf die aktuelle Aufgabe zutreffen."
     return text, refs
 
 

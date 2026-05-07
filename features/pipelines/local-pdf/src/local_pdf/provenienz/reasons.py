@@ -38,10 +38,69 @@ def _reasons_path(data_root: Path) -> Path:
 def append_reason(data_root: Path, r: Reason) -> Reason:
     path = _reasons_path(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    r2 = Reason(**{**r.__dict__, "created_at": r.created_at or _now()})
+    r2 = Reason(
+        **{
+            **r.__dict__,
+            "reason_id": r.reason_id or new_id(),
+            "created_at": r.created_at or _now(),
+        }
+    )
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(r2.__dict__, ensure_ascii=False) + "\n")
+    # Write-through to the unified skill store so the new
+    # apply_skills() reader picks up reasons via fires_on filtering.
+    # Kept alongside the legacy file path for now; Task 19 of the
+    # skill-system-unification plan removes the duplicate write.
+    _write_through_to_skills(data_root, r2)
     return r2
+
+
+def _write_through_to_skills(data_root: Path, r: Reason) -> None:
+    """Mirror this reason as a NOTE skill in skills.jsonl.
+
+    Lazy import keeps the legacy reason path standalone for tests that
+    only exercise reasons.jsonl (test_provenienz_reasons.py).
+
+    The NOTE skill's ``skill_id`` is set to the reason's
+    ``reason_id`` so that GuidanceRef.id (emitted by the prompt
+    injector against the skill record) round-trips back to the original
+    reason — keeping the legacy ref shape contract intact.
+    """
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillPrompt,
+        append_skill_event,
+    )
+
+    proposal = (r.proposal_summary or "").strip()
+    override = (r.override_summary or "").strip()
+    grund = (r.reason_text or "").strip()
+    # Pack the legacy 3-line block into free_text so the prompt-injector
+    # can render it under the "Frühere Korrekturen" header without
+    # losing the proposal/override context.
+    parts: list[str] = []
+    if proposal:
+        parts.append(f"Empfehlung: {proposal}")
+    if override:
+        parts.append(f"  Korrektur:  {override}")
+    if grund:
+        parts.append(f"  Grund:      {grund}")
+    free_text = "\n".join(parts) if parts else grund
+
+    skill = Skill(
+        skill_id=r.reason_id,
+        name=f"note-{r.reason_id[:8]}",
+        version=1,
+        enabled=True,
+        description=grund[:80],
+        created_at=r.created_at,
+        updated_at=r.created_at,
+        skill_kind=SkillKind.NOTE,
+        fires_on=[r.step_kind],
+        prompt=SkillPrompt(free_text=free_text),
+    )
+    append_skill_event(data_root, skill)
 
 
 def read_reasons(

@@ -189,7 +189,65 @@ def upsert_approach(
             ),
             domain_rules=(domain_rules if domain_rules is not None else latest.domain_rules),
         )
-    return append_approach_event(data_root, new)
+    append_approach_event(data_root, new)
+    # Write-through to the unified skill store so the new
+    # apply_skills() reader picks up legacy-API-created approaches.
+    # Kept alongside the legacy file path; Task 19 removes the duplicate.
+    _write_through_to_skills(data_root, new)
+    return new
+
+
+def _write_through_to_skills(data_root: Path, a: Approach) -> None:
+    """Mirror this Approach as a Skill in skills.jsonl.
+
+    The Skill's ``skill_id`` is set to the Approach's ``approach_id`` so
+    that the legacy ``/approaches`` API (which now reads skills.jsonl)
+    can find it by approach_id without a separate index. Lazy import
+    avoids a circular dependency at module load.
+    """
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+        TriggerConditions,
+        append_skill_event,
+    )
+
+    if a.triggers:
+        kind = SkillKind.REACTIVE
+    elif a.mode == "active":
+        kind = SkillKind.SUBAGENT
+    else:
+        kind = SkillKind.PROMPT_OVERLAY
+
+    skill = Skill(
+        skill_id=a.approach_id,
+        name=a.name,
+        version=a.version,
+        enabled=a.enabled,
+        description="",
+        created_at=a.created_at,
+        updated_at=a.updated_at,
+        skill_kind=kind,
+        fires_on=list(a.step_kinds),
+        conditions=TriggerConditions(
+            verdicts=list(a.triggers.get("verdicts") or []),
+            sentence_regex=list(a.triggers.get("sentence_regex") or []),
+            claim_regex=list(a.triggers.get("claim_regex") or []),
+            topic_keywords=list(a.triggers.get("topic_keywords") or []),
+            anchor_kinds=list(a.selection_criteria.get("anchor_kinds") or []),
+            goal_contains=list(a.selection_criteria.get("goal_contains") or []),
+            text_contains=list(a.selection_criteria.get("text_contains") or []),
+        ),
+        parent_skill=a.parent_capability,
+        prompt=SkillPrompt(
+            free_text=a.extra_system,
+            domain_rules=a.domain_rules,
+        ),
+        output=SkillOutput(),
+    )
+    append_skill_event(data_root, skill)
 
 
 def read_approaches(
@@ -248,6 +306,12 @@ def delete_approach(data_root: Path, approach_id: str) -> bool:
     if current is None:
         return False
     _append_record(data_root, {"_tombstone": True, "approach_id": approach_id})
+    # Mirror the tombstone into skills.jsonl so the unified reader
+    # also drops this record. Lazy import for the same reason as the
+    # write-through above.
+    from local_pdf.provenienz.skills import tombstone_skill as _tombstone_skill
+
+    _tombstone_skill(data_root, approach_id)
     return True
 
 
