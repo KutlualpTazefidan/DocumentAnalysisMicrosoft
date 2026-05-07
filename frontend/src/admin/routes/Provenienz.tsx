@@ -285,7 +285,7 @@ function AgentView({
             Klick im Diagramm → Detail rechts. Reiter:{" "}
             <span className="text-slate-300">Schritte</span> (was er tun kann),{" "}
             <span className="text-slate-300">Werkzeuge</span> (welche Tools er
-            ruft), <span className="text-slate-300">Skills</span> (wie er denkt
+            ruft), <span className="text-slate-300">Fähigkeiten</span> (wie er denkt
             + Domain-Wissen, alles ohne Code editierbar),{" "}
             <span className="text-slate-300">Wünsche</span> (was er sagt
             fehlt).
@@ -364,7 +364,7 @@ function AgentTabBar({
       {item("auswahl", "Auswahl")}
       {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
-      {item("skills", "Skills")}
+      {item("skills", "Fähigkeiten")}
       {item("wuensche", "Wünsche")}
     </nav>
   );

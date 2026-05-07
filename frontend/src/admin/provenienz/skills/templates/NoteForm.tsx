@@ -96,7 +96,7 @@ export function NoteForm({
     if (!canSubmit) return;
     try {
       await createMutation.mutateAsync(buildSkill());
-      toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      toastSuccess(`Fähigkeit "${name.trim()}" erstellt.`);
       onClose();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler beim Erstellen");

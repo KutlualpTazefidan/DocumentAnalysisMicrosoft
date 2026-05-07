@@ -70,7 +70,7 @@ const TEMPLATES: TemplateCard[] = [
   {
     kind: "custom",
     emoji: "🛠",
-    title: "Eigener Skill",
+    title: "Eigene Fähigkeit",
     description: "Für Power-User. Volle Kontrolle über alle Felder.",
   },
 ];
@@ -100,12 +100,12 @@ export function TemplatePicker({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Skill-Template wählen"
+        aria-label="Fähigkeits-Template wählen"
         className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
-          <h2 className={`${T.heading} text-white`}>Was soll dein Skill tun?</h2>
+          <h2 className={`${T.heading} text-white`}>Was soll deine Fähigkeit tun?</h2>
           <button
             type="button"
             onClick={onClose}

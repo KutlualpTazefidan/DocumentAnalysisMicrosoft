@@ -45,9 +45,9 @@ export function SkillLibrary({ token }: Props): JSX.Element {
     <div className="border border-navy-700 rounded-lg bg-navy-800/40 p-4">
       <header className="flex items-center justify-between mb-2">
         <div>
-          <h3 className={`${T.heading} text-white`}>Skill-Bibliothek</h3>
+          <h3 className={`${T.heading} text-white`}>Fähigkeiten-Bibliothek</h3>
           <p className={`${T.body} text-slate-400`}>
-            Eine Skill ergänzt Logik des Provenienz-Agents — kein Code
+            Eine Fähigkeit ergänzt Logik des Provenienz-Agents — kein Code
             nötig. Anreicherungen, Prompt-Erweiterungen, reaktive Regeln,
             Lehr-Notizen oder aktive Sub-Agents.
           </p>
@@ -67,7 +67,7 @@ export function SkillLibrary({ token }: Props): JSX.Element {
       )}
       {skills && skills.length === 0 && !isLoading && (
         <p className={`${T.body} text-slate-500 italic mt-3`}>
-          Noch keine Skills definiert.
+          Noch keine Fähigkeiten definiert.
         </p>
       )}
 
@@ -264,7 +264,7 @@ function SkillRow({
   }
 
   async function handleDelete(): Promise<void> {
-    if (!window.confirm(`Skill "${skill.name}" löschen?`)) return;
+    if (!window.confirm(`Fähigkeit "${skill.name}" löschen?`)) return;
     try {
       await del.mutateAsync(skill.skill_id);
     } catch (e) {
@@ -298,7 +298,7 @@ function SkillRow({
             {skill.parent_skill && (
               <span
                 className="px-1.5 py-px rounded text-[10px] font-mono bg-orange-900/50 text-orange-200"
-                title={`Sub-Skill von ${skill.parent_skill}`}
+                title={`Sub-Fähigkeit von ${skill.parent_skill}`}
               >
                 ↳ {skill.parent_skill}
               </span>
@@ -319,7 +319,7 @@ function SkillRow({
             onClick={handleEdit}
             className={`px-2 py-0.5 rounded text-blue-300 hover:bg-blue-900/30 ${T.tiny} flex items-center gap-1`}
             aria-label="Bearbeiten"
-            title="Skill bearbeiten"
+            title="Fähigkeit bearbeiten"
           >
             <Pencil className="w-3.5 h-3.5" /> Edit
           </button>

@@ -61,8 +61,8 @@ export function SkillDetailPanel({
       });
       toastSuccess(
         skill.enabled
-          ? `Skill "${skill.name}" deaktiviert.`
-          : `Skill "${skill.name}" aktiviert.`,
+          ? `Fähigkeit "${skill.name}" deaktiviert.`
+          : `Fähigkeit "${skill.name}" aktiviert.`,
       );
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
@@ -71,10 +71,10 @@ export function SkillDetailPanel({
 
   async function handleDelete(): Promise<void> {
     if (!skill) return;
-    if (!window.confirm(`Skill "${skill.name}" löschen?`)) return;
+    if (!window.confirm(`Fähigkeit "${skill.name}" löschen?`)) return;
     try {
       await del.mutateAsync(skill.skill_id);
-      toastSuccess(`Skill "${skill.name}" gelöscht.`);
+      toastSuccess(`Fähigkeit "${skill.name}" gelöscht.`);
       onClose();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
@@ -107,7 +107,7 @@ export function SkillDetailPanel({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Skill ${skill.name}`}
+        aria-label={`Fähigkeit ${skill.name}`}
         className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(900px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
@@ -161,7 +161,7 @@ export function SkillDetailPanel({
               </div>
             ) : (
               <p className={`${T.tiny} text-slate-500 italic`}>
-                Keine Schritte konfiguriert — Skill feuert nie.
+                Keine Schritte konfiguriert — Fähigkeit feuert nie.
               </p>
             )}
           </DetailSection>

@@ -85,7 +85,7 @@ export function AgentRuleForm({
     if (!canSubmit) return;
     try {
       await createMutation.mutateAsync(buildSkill());
-      toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      toastSuccess(`Fähigkeit "${name.trim()}" erstellt.`);
       onClose();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler beim Erstellen");
@@ -189,7 +189,7 @@ export function AgentRuleForm({
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
               Wird als zusätzlicher System-Prompt-Block in den next_step-Schritt
-              eingespielt, wenn der Skill feuert.
+              eingespielt, wenn die Fähigkeit feuert.
             </p>
           </div>
 
@@ -219,7 +219,7 @@ export function AgentRuleForm({
                 className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
-                Leer = der Skill feuert bei jeder next_step-Aktion.
+                Leer = die Fähigkeit feuert bei jeder next_step-Aktion.
               </p>
             </div>
           </details>

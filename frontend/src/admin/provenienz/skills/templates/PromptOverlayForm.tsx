@@ -85,7 +85,7 @@ export function PromptOverlayForm({
     if (!canSubmit) return;
     try {
       await createMutation.mutateAsync(buildSkill());
-      toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      toastSuccess(`Fähigkeit "${name.trim()}" erstellt.`);
       onClose();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler beim Erstellen");
@@ -193,7 +193,7 @@ export function PromptOverlayForm({
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
               Wird als zusätzlicher System-Prompt-Block in den formulate_task-Schritt
-              eingespielt, wenn der Skill feuert.
+              eingespielt, wenn die Fähigkeit feuert.
             </p>
           </div>
 
@@ -205,7 +205,7 @@ export function PromptOverlayForm({
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
             >
-              Optional: Wann soll der Skill feuern?
+              Optional: Wann soll die Fähigkeit feuern?
             </summary>
             <div className="px-3 pb-3 pt-1">
               <label
@@ -223,7 +223,7 @@ export function PromptOverlayForm({
                 className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
-                Leer = der Skill feuert bei jeder formulate_task-Aktion.
+                Leer = die Fähigkeit feuert bei jeder formulate_task-Aktion.
               </p>
             </div>
           </details>

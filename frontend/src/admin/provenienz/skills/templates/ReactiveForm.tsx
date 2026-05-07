@@ -133,7 +133,7 @@ export function ReactiveForm({
     if (!canSubmit) return;
     try {
       await createMutation.mutateAsync(buildSkill());
-      toastSuccess(`Skill "${name.trim()}" erstellt.`);
+      toastSuccess(`Fähigkeit "${name.trim()}" erstellt.`);
       onClose();
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler beim Erstellen");
@@ -228,7 +228,7 @@ export function ReactiveForm({
           {/* Verdicts */}
           <div>
             <label className={`${T.tinyBold} block mb-1`}>
-              Wann soll der Skill reagieren? (Verdicts)
+              Wann soll die Fähigkeit reagieren? (Verdicts)
             </label>
             <div className="flex flex-wrap gap-2">
               {VERDICT_OPTIONS.map((opt) => {
@@ -348,14 +348,14 @@ export function ReactiveForm({
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
             >
-              Optional: Übergeordneter Skill
+              Optional: Übergeordnete Fähigkeit
             </summary>
             <div className="px-3 pb-3 pt-1">
               <label
                 htmlFor="reactive-parent-skill"
                 className={`${T.tinyBold} block mb-1`}
               >
-                parent_skill (Skill-ID oder -Name)
+                parent_skill (Fähigkeits-ID oder -Name)
               </label>
               <input
                 id="reactive-parent-skill"
@@ -366,7 +366,7 @@ export function ReactiveForm({
                 className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
-                Leer lassen, wenn dieser Skill eigenständig ist.
+                Leer lassen, wenn diese Fähigkeit eigenständig ist.
               </p>
             </div>
           </details>

@@ -18,7 +18,7 @@ interface CustomFormProps {
   token: string;
   /**
    * If set, the form opens in edit mode: every field is pre-filled from
-   * this skill, the title becomes "Skill bearbeiten", and Submit
+   * this skill, the title becomes "Fähigkeit bearbeiten", and Submit
    * triggers PATCH /skills/{skill_id} (rather than POST).
    * Name stays editable; on the backend, an unchanged name keeps the
    * skill_id, while a renamed skill is treated as a fresh insert
@@ -303,10 +303,10 @@ export function CustomForm({
             enabled: draft.enabled,
           },
         });
-        toastSuccess(`Skill "${name.trim()}" aktualisiert.`);
+        toastSuccess(`Fähigkeit "${name.trim()}" aktualisiert.`);
       } else {
         await createMutation.mutateAsync(draft);
-        toastSuccess(`Skill "${name.trim()}" erstellt.`);
+        toastSuccess(`Fähigkeit "${name.trim()}" erstellt.`);
       }
       onClose();
     } catch (e) {
@@ -381,14 +381,14 @@ export function CustomForm({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={isEdit ? "Skill bearbeiten" : "Eigener Skill"}
+        aria-label={isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
         className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>
-              {isEdit ? "Skill bearbeiten" : "Eigener Skill"}
+              {isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
             </h2>
             <p className={`${T.tiny} text-slate-400`}>
               {isEdit
@@ -443,7 +443,7 @@ export function CustomForm({
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Einzeiler — wofür ist dieser Skill da?"
+                placeholder="Einzeiler — wofür ist diese Fähigkeit da?"
                 className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
             </div>
@@ -521,7 +521,7 @@ export function CustomForm({
                 })}
               </div>
               <p className={`${T.tiny} text-slate-500 mt-1`}>
-                Mindestens einen Schritt wählen — sonst feuert der Skill nie.
+                Mindestens einen Schritt wählen — sonst feuert die Fähigkeit nie.
               </p>
             </div>
           </Section>
@@ -858,7 +858,7 @@ export function CustomForm({
                 htmlFor="custom-parent-skill"
                 className={`${T.tinyBold} block mb-1`}
               >
-                parent_skill (Skill-ID oder -Name)
+                parent_skill (Fähigkeits-ID oder -Name)
               </label>
               <input
                 id="custom-parent-skill"
@@ -869,7 +869,7 @@ export function CustomForm({
                 className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
-                Sub-Skill: wird nur geladen wenn der genannte Parent feuert UND
+                Sub-Fähigkeit: wird nur geladen wenn der genannte Parent feuert UND
                 die eigenen Trigger matchen. Leer = top-level.
               </p>
             </div>

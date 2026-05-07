@@ -95,8 +95,8 @@ export function EvaluationPanel({
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-orange-300 flex items-center gap-2`}
             >
-              🔧 Skill-Scan: {capMatched}/{capScan.length}{" "}
-              {capScan.length === 1 ? "Capability" : "Capabilities"}{" "}
+              🔧 Fähigkeiten-Scan: {capMatched}/{capScan.length}{" "}
+              {capScan.length === 1 ? "Fähigkeit" : "Fähigkeiten"}{" "}
               getriggert
               {capMatched > 0 && (
                 <span className="ml-auto text-emerald-300">
