@@ -313,3 +313,72 @@ def test_apply_skills_returns_notes_separately(tmp_path):
     )
     bundle = apply_skills(tmp_path, step_kind="evaluate", anchor=None)
     assert any("reminder" in n for n in bundle.notes)
+
+
+def test_run_enrichment_skill_calls_llm_and_returns_per_input_strings(monkeypatch):
+    """enrichment skill produces N strings for N inputs."""
+    from local_pdf.provenienz.skill_dispatcher import run_enrichment_skill
+    from local_pdf.provenienz.skills import Skill, SkillKind, SkillOutput, SkillPrompt
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["What is X?", "What is Y?"]),
+        output=SkillOutput(annotation_kind="claim_background", attaches_to="claim"),
+    )
+
+    class _Fake:
+        def __init__(self, text):
+            self.text = text
+
+        @property
+        def text_(self):
+            return self.text
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["X is Y", "alpha is beta"]'
+
+            return C()
+
+    monkeypatch.setattr(
+        "local_pdf.provenienz.skill_dispatcher.get_llm_client",
+        lambda: _Client(),
+    )
+    monkeypatch.setattr(
+        "local_pdf.provenienz.skill_dispatcher.get_default_model",
+        lambda: "test",
+    )
+    out = run_enrichment_skill(skill, ["c1", "c2"], chunk_text="surrounding")
+    assert out == ["X is Y", "alpha is beta"]
+
+
+def test_run_enrichment_skill_handles_parse_failure(monkeypatch):
+    from local_pdf.provenienz.skill_dispatcher import run_enrichment_skill
+    from local_pdf.provenienz.skills import Skill, SkillKind, SkillOutput, SkillPrompt
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = "not json"
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    out = run_enrichment_skill(skill, ["c1", "c2"], chunk_text="x")
+    assert out == ["", ""]
