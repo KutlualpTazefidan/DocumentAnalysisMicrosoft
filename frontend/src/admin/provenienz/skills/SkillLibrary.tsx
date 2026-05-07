@@ -10,7 +10,11 @@ import {
   type SkillKind,
 } from "../../hooks/useSkills";
 import { T } from "../../styles/typography";
+import { AgentRuleForm } from "./templates/AgentRuleForm";
 import { EnrichmentForm } from "./templates/EnrichmentForm";
+import { NoteForm } from "./templates/NoteForm";
+import { PromptOverlayForm } from "./templates/PromptOverlayForm";
+import { ReactiveForm } from "./templates/ReactiveForm";
 import { TemplatePicker, type TemplateKind } from "./TemplatePicker";
 
 interface Props {
@@ -32,11 +36,12 @@ export function SkillLibrary({ token }: Props): JSX.Element {
 
   function handleTemplate(template: TemplateKind): void {
     setPickerOpen(false);
-    if (template === "enrichment") {
-      setOpenForm(template);
-    } else {
-      window.alert(`Template "${template}" — Form folgt in Task 15/16.`);
+    if (template === "custom") {
+      // Task 16 will replace this with the full power-user form.
+      window.alert(`Template "${template}" — Form folgt in Task 16.`);
+      return;
     }
+    setOpenForm(template);
   }
 
   return (
@@ -78,6 +83,26 @@ export function SkillLibrary({ token }: Props): JSX.Element {
       />
       <EnrichmentForm
         open={openForm === "enrichment"}
+        onClose={() => setOpenForm(null)}
+        token={token}
+      />
+      <PromptOverlayForm
+        open={openForm === "prompt-overlay"}
+        onClose={() => setOpenForm(null)}
+        token={token}
+      />
+      <ReactiveForm
+        open={openForm === "reactive"}
+        onClose={() => setOpenForm(null)}
+        token={token}
+      />
+      <NoteForm
+        open={openForm === "note"}
+        onClose={() => setOpenForm(null)}
+        token={token}
+      />
+      <AgentRuleForm
+        open={openForm === "agent-rule"}
         onClose={() => setOpenForm(null)}
         token={token}
       />
