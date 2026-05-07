@@ -99,7 +99,22 @@ export function ChunkPanel({
             {text}
           </p>
         </div>
-        <BoxMetadataStrip chunk={chunk} />
+        <div className="flex items-center justify-between gap-2">
+          <BoxMetadataStrip chunk={chunk} />
+          <button
+            type="button"
+            onClick={() => void handleRefresh()}
+            disabled={refresh.isPending}
+            title="Mit aktueller segments.json abgleichen. Bei Abweichung entsteht ein neuer Chunk; der alte bleibt für den Audit."
+            className={`shrink-0 px-2 py-1 rounded border border-orange-700/60 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center gap-1 disabled:opacity-50`}
+          >
+            <RefreshCw
+              className={`w-3 h-3 ${refresh.isPending ? "animate-spin" : ""}`}
+              aria-hidden
+            />
+            {refresh.isPending ? "Prüfe…" : "Quelle aktualisieren"}
+          </button>
+        </div>
         {closed && (
           <p className={`${T.body} text-amber-300 italic`}>
             Diese Chunk-Untersuchung wurde abgeschlossen.
@@ -133,19 +148,6 @@ export function ChunkPanel({
               className={`w-full px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny} disabled:opacity-50`}
             >
               {extract.isPending ? "…" : "Aussagen extrahieren"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleRefresh()}
-              disabled={refresh.isPending}
-              title="Vergleicht Text + box_kind + reading_order mit der aktuellen segments.json. Bei Abweichung wird ein neuer Chunk-Knoten angelegt; der alte bleibt für den Audit erhalten."
-              className={`w-full px-3 py-1.5 rounded border border-orange-700 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center justify-center gap-2 disabled:opacity-50`}
-            >
-              <RefreshCw
-                className={`w-3 h-3 ${refresh.isPending ? "animate-spin" : ""}`}
-                aria-hidden
-              />
-              {refresh.isPending ? "Prüfe Quelle…" : "Aus aktueller Quelle neu laden"}
             </button>
           </div>
         </details>
