@@ -2625,10 +2625,22 @@ def _llm_next_step(
         trigger_block = (
             "## KONTEXT — du wirst aus einer Bewertung heraus aufgerufen\n"
             f"Vorheriges Verdict: {prior_verdict}\n"
-            f"Vorherige Begründung: {prior_reasoning}\n"
-            "Der Nutzer fragt: was wäre der nächste Schritt um diesen "
-            "Treffer-Kontext weiter zu vertiefen — nicht um ihn erneut "
-            "zu bewerten.\n\n"
+            f"Vorherige Begründung: {prior_reasoning}\n\n"
+            "Der Suchtreffer wurde bereits bewertet. Der Nutzer will den "
+            "Treffer JETZT VERTIEFEN — nicht nochmal bewerten. `evaluate` "
+            "ist deshalb aus den verfügbaren Steps entfernt.\n\n"
+            "Wähle aus den verbleibenden Steps:\n"
+            "- `decompose_hit` wenn der Treffer mehrere unabhängige "
+            "Aussagen enthält oder eigene Zahlen/Fakten zitiert, die "
+            "selbst Belege brauchen (atomare sub_statements).\n"
+            "- `promote_search_result` wenn der Treffer substanziell ist "
+            "(eigener Absatz, Tabellen-Daten, Zitat aus einer anderen "
+            "Quelle) und wie ein NEUER CHUNK behandelt werden soll: "
+            "extract_claims läuft auf dem promoted Chunk, dann eigene "
+            "Recherche-Schleife — recursive claim tracing.\n"
+            "- `propose_stop` nur wenn die Aussage hinreichend belegt ist "
+            "und der Treffer keine weiteren prüfbaren Behauptungen "
+            "enthält.\n\n"
         )
     system = NEXT_STEP_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
@@ -3618,7 +3630,20 @@ def _next_step_run(
         label="Tool-Hinweise sammeln",
         ms_since_run_start=now_ms(),
     )
-    available_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
+    available_steps = list(_VALID_STEPS_FOR_KIND.get(anchor.kind, []))
+    # Click-trail constraint: when the run was triggered from a
+    # Bewertungs-Tile (evaluation Node) on its parent search_result,
+    # `evaluate` is structurally removed from the available steps —
+    # the hit was just evaluated, the user wants to deepen, not
+    # re-bewerten. Forces the planner to pick decompose_hit /
+    # promote_search_result / propose_stop.
+    if (
+        triggered_from_node is not None
+        and triggered_from_node.kind == "evaluation"
+        and anchor.kind == "search_result"
+        and "evaluate" in available_steps
+    ):
+        available_steps = [s for s in available_steps if s != "evaluate"]
     tools_summary = _summarize_tools_for_planner()
     yield PhaseEvent(
         phase="gather_tools",
