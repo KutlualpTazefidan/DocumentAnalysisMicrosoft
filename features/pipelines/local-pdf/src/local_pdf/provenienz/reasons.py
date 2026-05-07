@@ -49,8 +49,8 @@ def append_reason(data_root: Path, r: Reason) -> Reason:
         f.write(json.dumps(r2.__dict__, ensure_ascii=False) + "\n")
     # Write-through to the unified skill store so the new
     # apply_skills() reader picks up reasons via fires_on filtering.
-    # Kept alongside the legacy file path for now; Task 19 of the
-    # skill-system-unification plan removes the duplicate write.
+    # Kept alongside the legacy file path while _gather_guidance_split
+    # (multi-agent next_step) still reads from reasons.jsonl directly.
     _write_through_to_skills(data_root, r2)
     return r2
 
@@ -127,8 +127,3 @@ def read_reasons(
     if last_n <= 0:
         return matched
     return matched[-last_n:]
-
-
-def build_reason_id() -> str:
-    """Re-export so callers don't need to import storage.new_id directly."""
-    return new_id()

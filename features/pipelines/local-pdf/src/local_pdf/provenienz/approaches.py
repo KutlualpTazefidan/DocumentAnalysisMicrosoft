@@ -192,7 +192,8 @@ def upsert_approach(
     append_approach_event(data_root, new)
     # Write-through to the unified skill store so the new
     # apply_skills() reader picks up legacy-API-created approaches.
-    # Kept alongside the legacy file path; Task 19 removes the duplicate.
+    # Kept alongside the legacy file path while the reactive-capability
+    # scan + pinned-approach paths still read from approaches.jsonl.
     _write_through_to_skills(data_root, new)
     return new
 
@@ -313,11 +314,6 @@ def delete_approach(data_root: Path, approach_id: str) -> bool:
 
     _tombstone_skill(data_root, approach_id)
     return True
-
-
-def build_approach_id() -> str:
-    """Re-export so callers don't need to import storage.new_id directly."""
-    return new_id()
 
 
 # ── Auto-selection ────────────────────────────────────────────────────

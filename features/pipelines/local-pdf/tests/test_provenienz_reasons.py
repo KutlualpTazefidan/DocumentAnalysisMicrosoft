@@ -7,14 +7,14 @@ from pathlib import Path  # noqa: TC003
 from local_pdf.provenienz.reasons import (
     Reason,
     append_reason,
-    build_reason_id,
     read_reasons,
 )
+from local_pdf.provenienz.storage import new_id
 
 
 def _r(step_kind: str, text: str = "weil X", session_id: str = "s1") -> Reason:
     return Reason(
-        reason_id=build_reason_id(),
+        reason_id=new_id(),
         step_kind=step_kind,
         session_id=session_id,
         proposal_id="prop1",
@@ -51,10 +51,3 @@ def test_read_caps_at_last_n(tmp_path: Path):
 
 def test_read_empty_when_file_missing(tmp_path: Path):
     assert read_reasons(tmp_path) == []
-
-
-def test_build_reason_id_is_unique_and_ulid_shaped():
-    a = build_reason_id()
-    b = build_reason_id()
-    assert a != b
-    assert len(a) == 26
