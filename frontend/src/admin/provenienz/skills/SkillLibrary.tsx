@@ -10,6 +10,7 @@ import {
   type SkillKind,
 } from "../../hooks/useSkills";
 import { T } from "../../styles/typography";
+import { TemplatePicker, type TemplateKind } from "./TemplatePicker";
 
 interface Props {
   token: string;
@@ -24,10 +25,12 @@ interface Props {
  */
 export function SkillLibrary({ token }: Props): JSX.Element {
   const { data: skills, isLoading, error } = useSkills(token);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  function handleNewClick(): void {
-    // Placeholder — Task 13 wires this to <TemplatePicker />.
-    window.alert("TemplatePicker — folgt in Task 13.");
+  function handleTemplate(template: TemplateKind): void {
+    // Tasks 14-16 replace this with the actual template form modals.
+    setPickerOpen(false);
+    window.alert(`Template-Form für ${template} kommt in Task 14-16`);
   }
 
   return (
@@ -43,7 +46,7 @@ export function SkillLibrary({ token }: Props): JSX.Element {
         </div>
         <button
           type="button"
-          onClick={handleNewClick}
+          onClick={() => setPickerOpen(true)}
           className={`px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} flex items-center gap-1 shrink-0`}
         >
           <Plus className="w-4 h-4" /> Neu
@@ -61,6 +64,12 @@ export function SkillLibrary({ token }: Props): JSX.Element {
       )}
 
       <SkillKindGroups skills={skills ?? []} token={token} />
+
+      <TemplatePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleTemplate}
+      />
     </div>
   );
 }
