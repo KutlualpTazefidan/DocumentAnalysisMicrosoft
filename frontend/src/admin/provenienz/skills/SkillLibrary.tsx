@@ -24,12 +24,11 @@ interface Props {
 }
 
 /**
- * Unified Skill library — the post-migration successor of
- * {@link ApproachLibrary}. Lists every skill (enabled + disabled),
- * grouped by `skill_kind`. The "+ Neu" button opens the TemplatePicker
- * which dispatches into per-template forms (Tasks 14-16). Only the
- * Enrichment template is wired up so far; the rest fall back to a
- * "noch nicht implementiert"-Hinweis.
+ * Unified Skill library — replaces the legacy "Heuristiken" /
+ * Approach library. Lists every skill (enabled + disabled), grouped
+ * by `skill_kind`. The "+ Neu" button opens the TemplatePicker which
+ * dispatches into one of six per-template forms (Enrichment /
+ * PromptOverlay / Reactive / Note / AgentRule / Custom).
  */
 export function SkillLibrary({ token }: Props): JSX.Element {
   const { data: skills, isLoading, error } = useSkills(token);

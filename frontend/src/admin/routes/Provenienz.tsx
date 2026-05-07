@@ -7,7 +7,6 @@ import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
-import { ApproachLibrary } from "../provenienz/ApproachLibrary";
 import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
 import { SkillLibrary } from "../provenienz/skills/SkillLibrary";
 import { StepRegistry } from "../provenienz/StepRegistry";
@@ -232,7 +231,6 @@ type AgentTab =
   | "schritte"
   | "tools"
   | "skills"
-  | "heuristiken"
   | "wuensche";
 
 function AgentView({
@@ -284,9 +282,13 @@ function AgentView({
             <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
           </div>
           <p className={`${T.tiny} text-slate-400`}>
-            Klick im Diagramm → Detail rechts. Reiter zeigen Werkzeuge (was er
-            kann), Heuristiken (wie ihm beigebracht wurde zu denken),
-            Capability-Wünsche (was er sagt fehlt).
+            Klick im Diagramm → Detail rechts. Reiter:{" "}
+            <span className="text-slate-300">Schritte</span> (was er tun kann),{" "}
+            <span className="text-slate-300">Werkzeuge</span> (welche Tools er
+            ruft), <span className="text-slate-300">Skills</span> (wie er denkt
+            + Domain-Wissen, alles ohne Code editierbar),{" "}
+            <span className="text-slate-300">Wünsche</span> (was er sagt
+            fehlt).
           </p>
         </header>
         <div className="flex-1 min-h-0">
@@ -326,11 +328,6 @@ function AgentView({
               <SkillLibrary token={token} />
             </div>
           )}
-          {tab === "heuristiken" && (
-            <div className="p-4">
-              <ApproachLibrary token={token} />
-            </div>
-          )}
           {tab === "wuensche" && <CapabilityRequestsTab token={token} />}
         </div>
       </aside>
@@ -368,7 +365,6 @@ function AgentTabBar({
       {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
       {item("skills", "Skills")}
-      {item("heuristiken", "Heuristiken")}
       {item("wuensche", "Wünsche")}
     </nav>
   );
