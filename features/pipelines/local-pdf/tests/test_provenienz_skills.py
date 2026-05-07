@@ -180,3 +180,83 @@ def test_read_skills_filters_by_fires_on(tmp_path):
     fired = read_skills(tmp_path, fires_on="evaluate")
     assert len(fired) == 1
     assert fired[0].name == "a"
+
+
+def test_tombstone_then_recreate_unsuppresses_name(tmp_path):
+    """A tombstoned name can be re-created — the suppression flag is
+    cleared on the next live record with the same name."""
+    from local_pdf.provenienz.skills import (
+        read_skills,
+        tombstone_skill,
+        upsert_skill,
+    )
+
+    s1 = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="v1"),
+    )
+    tombstone_skill(tmp_path, s1.skill_id)
+    assert read_skills(tmp_path) == []
+    s2 = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="reborn"),
+    )
+    out = read_skills(tmp_path)
+    assert len(out) == 1
+    assert out[0].name == "bg"
+    assert out[0].prompt.free_text == "reborn"
+    # Re-created records get a fresh skill_id; the old one stays tombstoned.
+    assert s2.skill_id != s1.skill_id
+
+
+def test_get_skill_on_tombstoned_id_returns_none(tmp_path):
+    from local_pdf.provenienz.skills import (
+        get_skill,
+        tombstone_skill,
+        upsert_skill,
+    )
+
+    s = upsert_skill(
+        tmp_path,
+        name="bg",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+    )
+    tombstone_skill(tmp_path, s.skill_id)
+    assert get_skill(tmp_path, s.skill_id) is None
+
+
+def test_read_skills_with_enabled_only_false_includes_disabled(tmp_path):
+    """The admin UI lists disabled skills too; enabled_only=False covers
+    that path."""
+    from local_pdf.provenienz.skills import read_skills, upsert_skill
+
+    upsert_skill(
+        tmp_path,
+        name="active",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="x"),
+        enabled=True,
+    )
+    upsert_skill(
+        tmp_path,
+        name="off",
+        skill_kind=SkillKind.NOTE,
+        fires_on=["evaluate"],
+        prompt=SkillPrompt(free_text="y"),
+        enabled=False,
+    )
+    enabled_default = read_skills(tmp_path)
+    assert len(enabled_default) == 1
+    assert enabled_default[0].name == "active"
+    full = read_skills(tmp_path, enabled_only=False)
+    assert len(full) == 2
+    assert {s.name for s in full} == {"active", "off"}
