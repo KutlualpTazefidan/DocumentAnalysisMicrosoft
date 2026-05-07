@@ -2423,6 +2423,7 @@ def _llm_next_step(
     tools_summary: str,
     *,
     extra_system: str = "",
+    triggered_from_node: Node | None = None,
 ) -> dict:
     """Open-ended planner. Returns a dict with discriminator ``kind``:
 
@@ -2435,15 +2436,34 @@ def _llm_next_step(
 
     Tolerant parser: on any LLM/parse failure returns a safe fallback
     that defaults to manual_review, so the user always sees *something*.
+
+    ``triggered_from_node`` carries the click-trail when "Was als
+    nächstes?" is invoked from a Folge-Knoten (e.g. a Bewertungs-Tile
+    routes to the parent search_result for re-planning). If the trail
+    points at an evaluation Node the planner is told NOT to re-evaluate
+    but to deepen the trace instead.
     """
     anchor_summary = (
         f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}"
     )
+    trigger_block = ""
+    if triggered_from_node is not None and triggered_from_node.kind == "evaluation":
+        prior_verdict = str(triggered_from_node.payload.get("verdict", ""))
+        prior_reasoning = str(triggered_from_node.payload.get("reasoning", ""))[:200]
+        trigger_block = (
+            "## KONTEXT — du wirst aus einer Bewertung heraus aufgerufen\n"
+            f"Vorheriges Verdict: {prior_verdict}\n"
+            f"Vorherige Begründung: {prior_reasoning}\n"
+            "Der Nutzer fragt: was wäre der nächste Schritt um diesen "
+            "Treffer-Kontext weiter zu vertiefen — nicht um ihn erneut "
+            "zu bewerten.\n\n"
+        )
     system = NEXT_STEP_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
         f"## Knoten\n{anchor_summary}\n\n"
         f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
-        f"## Verfügbare Steps\n{', '.join(available_steps)}\n\n"
+        f"{trigger_block}"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
         f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
         f"Was schlägst du vor? JSON:"
     )
@@ -2522,6 +2542,68 @@ _VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
     "sub_statement": ["evaluate", "propose_stop"],
     "evaluation": ["propose_stop"],
 }
+
+
+# Human-readable descriptions of each registered step. The planner sees
+# these in the user prompt so it can pick the right step from semantics
+# instead of guessing from the bare name. Keep concise — these are read
+# by the LLM, not by humans, but a senior reviewer should still recognise
+# the rules of when each step applies.
+_STEP_DESCRIPTIONS: dict[str, str] = {
+    "extract_claims": (
+        "Aus dem Chunk-Text alle messbaren Aussagen herausziehen. Erste "
+        "Aktion auf einem neu eröffneten Chunk."
+    ),
+    "formulate_task": (
+        "Aus einer Aussage eine konkrete Suchanfrage formulieren — "
+        "Schlüsselwörter, Zahlen, Einheiten."
+    ),
+    "search": (
+        "Die formulierte Suchanfrage gegen das Korpus laufen lassen. "
+        "Liefert Suchtreffer als Kandidaten-Belege."
+    ),
+    "evaluate": (
+        "Beurteile ob ein einzelner Suchtreffer die Aussage stützt, "
+        "teilweise stützt, widerspricht oder unrelated ist. EINE Bewertung "
+        "pro Treffer-Aussage-Paar. Genug wenn der Treffer kurz, atomar und "
+        "selbst keine weiterzuverfolgenden Behauptungen enthält."
+    ),
+    "decompose_hit": (
+        "Zerlege einen Suchtreffer in atomare sub_statements (eine "
+        "messbare Behauptung pro Stück). Nutze WENN der Treffer mehrere "
+        "unabhängige Aussagen enthält ODER eigene Zahlen/Fakten zitiert, "
+        "die selbst Belege brauchen. sub_statements können einzeln "
+        "evaluiert oder weiter recherchiert werden."
+    ),
+    "promote_search_result": (
+        "Behandle den Suchtreffer als NEUEN Chunk: spawnt einen "
+        "abgeleiteten Chunk-Knoten, auf dem extract_claims läuft. Nutze "
+        "WENN der Treffer substanziell ist (eigener Absatz, Tabellen-Daten, "
+        "Zitat aus einer anderen Quelle), die eine eigene Recherche-Schleife "
+        "rechtfertigt — quasi Chunk-für-Chunk-Recursive-Tracing."
+    ),
+    "propose_stop": (
+        "Diese Untersuchung abschließen — kein weiterer Schritt sinnvoll. "
+        "Nutze NUR wenn alle Behauptungen belegt oder unbelegbar sind ODER "
+        "wenn weitere Recherche das Ziel nicht voranbringt."
+    ),
+}
+
+
+def _format_step_with_desc(name: str) -> str:
+    """Render one step as a markdown bullet with its description (or
+    just the name if no description is registered). Used by the next-step
+    family of prompts so the planner sees WHEN each step applies."""
+    desc = _STEP_DESCRIPTIONS.get(name, "")
+    return f"- **{name}**: {desc}" if desc else f"- **{name}**"
+
+
+def _steps_block(available_steps: list[str]) -> str:
+    """Format the available-steps section of a planner prompt: one
+    markdown bullet per step, or ``(keine)`` when the list is empty."""
+    if not available_steps:
+        return "(keine)"
+    return "\n".join(_format_step_with_desc(s) for s in available_steps)
 
 
 # ── Phase 3: Active Skill / Coordinator wrappers ─────────────────────────
@@ -2605,7 +2687,7 @@ def _llm_active_skill(
     user = (
         f"## Knoten\n{anchor_summary}\n\n"
         f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
-        f"## Verfügbare Steps\n{', '.join(available_steps) or '(keine)'}\n\n"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
         f"Was empfiehlst du? JSON:"
     )
     fallback: dict = {
@@ -2679,7 +2761,7 @@ def _llm_coordinator(
     user = (
         f"## Knoten\n{anchor_summary}\n\n"
         f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
-        f"## Verfügbare Steps\n{', '.join(available_steps) or '(keine)'}\n\n"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
         f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
         f"## Meta-Planer Initial-Plan\n{meta_summary}\n\n"
         f"## Spezialisten-Empfehlungen\n{skills_block}\n\n"
@@ -3268,6 +3350,14 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
 class NextStepRequest(BaseModel):
     anchor_node_id: str
     provider: str | None = None
+    # Click-trail: when "Was als nächstes?" is invoked from a Folge-Knoten
+    # (e.g. a Bewertungs-Tile that routes to the parent search_result),
+    # the frontend forwards the original tile's node_id here. The backend
+    # persists it on the spawned plan_proposal so the canvas can draw a
+    # "triggered-from" edge, and the planner sees it as extra context
+    # (deepen the trace, not re-evaluate). Optional — None = unchanged
+    # behaviour for direct-anchor invocations.
+    triggered_from_node_id: str | None = None
 
 
 # ── Live-Run-Stream: phases of one /next-step execution ──────────────────
@@ -3304,12 +3394,20 @@ def _next_step_run(
     anchor: Node,
     meta: SessionMeta,
     sd: Path,
+    triggered_from_node: Node | None = None,
 ) -> Iterator[PhaseEvent | CompleteEvent]:
     """Phase-by-phase execution of /next-step.
 
     Yields PhaseEvent on every started/completed boundary and a final
     CompleteEvent with the persisted Node. Both /next-step (drained)
     and /next-step/stream (forwarded as SSE) consume this iterator.
+
+    ``triggered_from_node`` carries the click-trail Node when the
+    request was raised from a Folge-Knoten (e.g. a Bewertungs-Tile).
+    The node_id is persisted on the spawned plan_proposal so the layout
+    can draw a "triggered-from" edge, and the planner gets a context
+    block instructing it to deepen the trace rather than re-run the
+    same evaluation.
     """
     t0 = time.monotonic()
 
@@ -3390,6 +3488,7 @@ def _next_step_run(
         available_steps,
         tools_summary,
         extra_system=extra_system,
+        triggered_from_node=triggered_from_node,
     )
     yield PhaseEvent(
         phase="llm_call",
@@ -3579,6 +3678,12 @@ def _next_step_run(
             payload={
                 **plan,
                 "anchor_node_id": body.anchor_node_id,
+                # Click-trail: empty string when this run came from a
+                # direct-anchor click. Non-empty when "Was als nächstes?"
+                # was invoked from a Folge-Knoten (e.g. Bewertungs-Tile)
+                # — the layout reads this to draw the "triggered-from"
+                # edge from the trail node back to this plan_proposal.
+                "triggered_from_node_id": (body.triggered_from_node_id or ""),
                 "audit": audit,
             },
             actor=actor,
@@ -3598,8 +3703,13 @@ def _next_step_run(
 
 def _resolve_next_step_inputs(
     cfg: Any, session_id: str, body: NextStepRequest
-) -> tuple[Path, SessionMeta, Node]:
+) -> tuple[Path, SessionMeta, Node, Node | None]:
     """Pre-flight resolution shared by both /next-step variants.
+
+    Returns ``(session_dir, meta, anchor, triggered_from_node)`` —
+    the trail node is None when ``body.triggered_from_node_id`` is
+    unset or doesn't resolve. A missing trail node is non-fatal (the
+    click-trail is purely informational); only the anchor must exist.
 
     Raises HTTPException 404 if session/meta/anchor are missing.
     """
@@ -3613,7 +3723,12 @@ def _resolve_next_step_inputs(
     anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
     if anchor is None:
         raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
-    return sd, meta, anchor
+    triggered_from_node: Node | None = None
+    if body.triggered_from_node_id:
+        triggered_from_node = next(
+            (n for n in nodes if n.node_id == body.triggered_from_node_id), None
+        )
+    return sd, meta, anchor, triggered_from_node
 
 
 @router.post(
@@ -3627,10 +3742,16 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
     /next-step/stream for the live-run UI variant.
     """
     cfg = request.app.state.config
-    sd, meta, anchor = _resolve_next_step_inputs(cfg, session_id, body)
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
     final: dict | None = None
     for ev in _next_step_run(
-        cfg=cfg, session_id=session_id, body=body, anchor=anchor, meta=meta, sd=sd
+        cfg=cfg,
+        session_id=session_id,
+        body=body,
+        anchor=anchor,
+        meta=meta,
+        sd=sd,
+        triggered_from_node=triggered_from_node,
     ):
         if isinstance(ev, CompleteEvent):
             final = ev.node
@@ -3651,7 +3772,7 @@ async def next_step_stream(
       - ``error``    : unexpected exception during run
     """
     cfg = request.app.state.config
-    sd, meta, anchor = _resolve_next_step_inputs(cfg, session_id, body)
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
 
     def event_stream() -> Iterator[str]:
         try:
@@ -3662,6 +3783,7 @@ async def next_step_stream(
                 anchor=anchor,
                 meta=meta,
                 sd=sd,
+                triggered_from_node=triggered_from_node,
             ):
                 if isinstance(ev, PhaseEvent):
                     yield f"event: phase\ndata: {json.dumps(asdict(ev), ensure_ascii=False)}\n\n"

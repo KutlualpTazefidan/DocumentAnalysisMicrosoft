@@ -79,7 +79,13 @@ export function EvaluationPanel({
       );
       return;
     }
-    await stream.start(parentSearchResultId);
+    // Forward the evaluation node_id as click-trail so the backend
+    // (a) persists it on the spawned plan_proposal for the canvas
+    // "triggered-from" edge and (b) tells the planner this run came
+    // from a Bewertung — deepen the trace, don't re-evaluate.
+    await stream.start(parentSearchResultId, {
+      triggered_from_node_id: node.node_id,
+    });
   }
 
   async function handleDelete(): Promise<void> {

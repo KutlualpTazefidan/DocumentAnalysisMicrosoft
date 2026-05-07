@@ -20,10 +20,17 @@ def client(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
     monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
-    monkeypatch.setattr(
-        router_mod,
-        "_llm_next_step",
-        lambda anchor, goal, available_steps, tools_summary, *, extra_system="": {
+
+    def _fake_next_step(
+        anchor,
+        goal,
+        available_steps,
+        tools_summary,
+        *,
+        extra_system="",
+        triggered_from_node=None,
+    ):
+        return {
             "kind": "executable_step",
             "name": "extract_claims",
             "description": "",
@@ -32,8 +39,9 @@ def client(tmp_path, monkeypatch):
             "confidence": 0.8,
             "tool": None,
             "approach_id": None,
-        },
-    )
+        }
+
+    monkeypatch.setattr(router_mod, "_llm_next_step", _fake_next_step)
     from fastapi.testclient import TestClient
     from local_pdf.api.app import create_app
 
@@ -173,6 +181,69 @@ def test_non_streaming_endpoint_still_returns_node(client):
     # Audit is captured the same way as before.
     assert "audit" in node["payload"]
     assert node["payload"]["audit"]["source_label"].startswith("Was als nächstes?")
+    # Direct-anchor invocations (no click-trail) persist the field as
+    # an empty string — keeps the payload shape stable.
+    assert node["payload"]["triggered_from_node_id"] == ""
+
+
+def test_triggered_from_node_id_persists_on_plan_proposal(client, monkeypatch):
+    """When the request carries triggered_from_node_id, the spawned
+    plan_proposal persists it AND the planner sees the trail node as
+    extra context (when it resolves to an evaluation Node)."""
+    captured: dict = {}
+
+    def _fake(
+        anchor, goal, available_steps, tools_summary, *, extra_system="", triggered_from_node=None
+    ):
+        captured["triggered_from_node"] = triggered_from_node
+        return {
+            "kind": "executable_step",
+            "name": "extract_claims",
+            "description": "",
+            "reasoning": "r",
+            "considered_alternatives": [],
+            "confidence": 0.7,
+            "tool": None,
+            "approach_id": None,
+        }
+
+    monkeypatch.setattr(router_mod, "_llm_next_step", _fake)
+    sid, chunk_node_id = _bootstrap_session(client)
+    # Use the chunk_node_id itself as the trail — backend only treats
+    # an evaluation-kind trail specially, but plain non-evaluation
+    # trails still get persisted on the spawned node.
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "anchor_node_id": chunk_node_id,
+            "triggered_from_node_id": chunk_node_id,
+        },
+    )
+    assert r.status_code == 201, r.text
+    node = r.json()
+    assert node["payload"]["triggered_from_node_id"] == chunk_node_id
+    # Trail Node was resolved and forwarded to the LLM call.
+    assert captured["triggered_from_node"] is not None
+    assert captured["triggered_from_node"].node_id == chunk_node_id
+
+
+def test_triggered_from_unresolvable_node_is_silently_dropped(client):
+    """An unknown trail id doesn't 404 — it just resolves to None and
+    the spawned node still records the raw id for forensics."""
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "anchor_node_id": chunk_node_id,
+            "triggered_from_node_id": "does-not-exist",
+        },
+    )
+    assert r.status_code == 201, r.text
+    # Raw id flows through to the persisted payload — the layout
+    # passes silently skip it because g.byId.has() returns false.
+    assert r.json()["payload"]["triggered_from_node_id"] == "does-not-exist"
 
 
 def test_goal_alignment_field_flows_through_pipeline(monkeypatch):

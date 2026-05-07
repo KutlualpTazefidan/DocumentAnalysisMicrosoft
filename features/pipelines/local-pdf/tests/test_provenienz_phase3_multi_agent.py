@@ -225,7 +225,9 @@ def test_active_approach_text_not_injected_into_meta_planner(client, monkeypatch
 
     captured: dict = {}
 
-    def _fake_meta(anchor, goal, available_steps, tools_summary, *, extra_system=""):
+    def _fake_meta(
+        anchor, goal, available_steps, tools_summary, *, extra_system="", triggered_from_node=None
+    ):
         captured["extra_system"] = extra_system
         return {
             "kind": "executable_step",
@@ -267,7 +269,9 @@ def test_passive_approach_still_text_injected_into_meta(client, monkeypatch):
 
     captured: dict = {}
 
-    def _fake_meta(anchor, goal, available_steps, tools_summary, *, extra_system=""):
+    def _fake_meta(
+        anchor, goal, available_steps, tools_summary, *, extra_system="", triggered_from_node=None
+    ):
         captured["extra_system"] = extra_system
         return {
             "kind": "executable_step",

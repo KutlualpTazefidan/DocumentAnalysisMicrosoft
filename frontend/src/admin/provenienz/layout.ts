@@ -709,6 +709,22 @@ export function buildViewGraph(
       list.push({ node: n, viewId: planViewId });
       planByAnchor.set(anchor, list);
     }
+    // Click-trail edge: when "Was als nächstes?" was invoked from a
+    // Folge-Knoten that re-anchored to its parent (e.g. Bewertungs-Tile
+    // → parent search_result), the backend persists the trail node_id
+    // here. We render it as a SIDE edge so the trunk layout stays a
+    // tree (the trail node already has its own trunk parent), but the
+    // user still sees the visual link "you clicked from there".
+    const trailNodeId = String(n.payload.triggered_from_node_id ?? "");
+    if (trailNodeId && g.byId.has(trailNodeId)) {
+      viewEdges.push({
+        id: `e:trail:${n.node_id}`,
+        source: `view:${trailNodeId}`,
+        target: planViewId,
+        kind: "triggered-from",
+        placement: "side",
+      });
+    }
   }
   // Sort each anchor's plan_proposals by creation time so the chain
   // pass picks the most recent plan that predates each action_proposal.
@@ -1208,6 +1224,11 @@ function edgeColor(kind: string): string {
       return "#f97316"; // orange — reactive capability gate
     case "re-evaluated-with":
       return "#fb923c"; // orange-light — re-eval chain after gate
+    case "triggered-from":
+      return "#fde047"; // yellow-300 — click-trail when "Was als
+      // nächstes?" was invoked from a Folge-Knoten and re-anchored
+      // to its parent. Distinct hue from amber-400/proposed so the
+      // user spots the trail edge instantly.
     default:
       return "#475569";
   }

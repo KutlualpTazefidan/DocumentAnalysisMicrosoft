@@ -796,8 +796,21 @@ function parseSseBlock(
   return null;
 }
 
+/** Optional second arg for ``stream.start``. ``triggeredFromNodeId``
+ *  carries the click-trail when "Was als nächstes?" is invoked from a
+ *  Folge-Knoten that re-anchors to its parent (e.g. a Bewertungs-Tile
+ *  routes to the parent search_result). The backend persists it on
+ *  the spawned plan_proposal so the canvas can draw a "triggered-from"
+ *  edge back to the trail node. */
+export interface NextStepStartOptions {
+  triggered_from_node_id?: string;
+}
+
 export interface UseNextStepStream extends RunState {
-  start: (anchorNodeId: string) => Promise<void>;
+  start: (
+    anchorNodeId: string,
+    options?: NextStepStartOptions,
+  ) => Promise<void>;
   reset: () => void;
 }
 
@@ -816,11 +829,26 @@ export function useNextStepStream(
   }, []);
 
   const start = useCallback(
-    async (anchorNodeId: string): Promise<void> => {
+    async (
+      anchorNodeId: string,
+      options: NextStepStartOptions = {},
+    ): Promise<void> => {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       dispatch({ type: "start" });
+
+      // Click-trail forwarded only when set — backend treats absent
+      // and empty as the same "no trail" case, but the explicit
+      // omission keeps the request body shape identical to today's
+      // direct-anchor invocations so the diff is contained.
+      const requestBody: {
+        anchor_node_id: string;
+        triggered_from_node_id?: string;
+      } = { anchor_node_id: anchorNodeId };
+      if (options.triggered_from_node_id) {
+        requestBody.triggered_from_node_id = options.triggered_from_node_id;
+      }
 
       try {
         const r = await fetch(
@@ -832,7 +860,7 @@ export function useNextStepStream(
               "X-Auth-Token": token,
               Accept: "text/event-stream",
             },
-            body: JSON.stringify({ anchor_node_id: anchorNodeId }),
+            body: JSON.stringify(requestBody),
             signal: ctrl.signal,
           },
         );
