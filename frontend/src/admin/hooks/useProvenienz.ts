@@ -1012,6 +1012,41 @@ export function useDecomposeHit(token: string, sessionId: string) {
   });
 }
 
+export interface RefreshChunkResponse {
+  /** True when a new chunk Node was appended; false when the chunk's
+   *  stored text + box_kind + reading_order already match the current
+   *  segments.json/mineru.json. */
+  refreshed: boolean;
+  /** "current" — source matched, no-op.
+   *  "updated" — new chunk Node appended; ``new_chunk`` carries it.
+   *  "source-missing" — mineru.json no longer carries the box_id (e.g.
+   *  the element was deleted in the Extract tab). No new chunk spawned. */
+  reason: "current" | "updated" | "source-missing";
+  /** Set only when ``refreshed === true``. */
+  new_chunk: ProvNode | null;
+}
+
+export function useRefreshChunk(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<RefreshChunkResponse, Error, string>({
+    mutationFn: async (chunkNodeId) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/chunks/${chunkNodeId}/refresh`,
+        { method: "POST" },
+        token,
+      );
+      return (await r.json()) as RefreshChunkResponse;
+    },
+    onSuccess: (out) => {
+      // Only invalidate when something actually changed — a no-op refresh
+      // shouldn't trigger a session re-fetch.
+      if (out.refreshed) {
+        qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+      }
+    },
+  });
+}
+
 export function usePromoteSearchResult(token: string, sessionId: string) {
   const qc = useQueryClient();
   return useMutation<ProvNode, Error, string>({

@@ -1,10 +1,11 @@
-import { CornerDownRight, Sparkles } from "lucide-react";
+import { CornerDownRight, RefreshCw, Sparkles } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
   useExtractClaims,
   useNextStepStream,
+  useRefreshChunk,
   type ProvNode,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
@@ -26,7 +27,8 @@ export function ChunkPanel({
   const extract = useExtractClaims(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
+  const refresh = useRefreshChunk(token, sessionId);
+  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
 
   async function handleNextStep(): Promise<void> {
     await stream.start(chunk.node_id);
@@ -51,6 +53,32 @@ export function ChunkPanel({
     try {
       await del.mutateAsync(chunk.node_id);
       onSelectView(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
+  async function handleRefresh(): Promise<void> {
+    try {
+      const out = await refresh.mutateAsync(chunk.node_id);
+      if (!out.refreshed) {
+        if (out.reason === "source-missing") {
+          toastError(
+            "Quelle nicht gefunden — die Box wurde im Extract-Tab gelöscht.",
+          );
+        } else {
+          toastInfo("Quelle bereits aktuell — kein neuer Chunk nötig.");
+        }
+        return;
+      }
+      toastSuccess("Neuer Chunk aus aktueller Quelle erstellt.");
+      if (out.new_chunk) {
+        // ViewNode ids are minted as `view:<node_id>` in layout.ts. The
+        // session-detail query was just invalidated by useRefreshChunk;
+        // by the time the canvas re-renders the new view-node will be in
+        // the index and SidePanel resolves the selection.
+        onSelectView(`view:${out.new_chunk.node_id}`);
+      }
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -106,6 +134,19 @@ export function ChunkPanel({
             >
               {extract.isPending ? "…" : "Aussagen extrahieren"}
             </button>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={refresh.isPending}
+              title="Vergleicht Text + box_kind + reading_order mit der aktuellen segments.json. Bei Abweichung wird ein neuer Chunk-Knoten angelegt; der alte bleibt für den Audit erhalten."
+              className={`w-full px-3 py-1.5 rounded border border-orange-700 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center justify-center gap-2 disabled:opacity-50`}
+            >
+              <RefreshCw
+                className={`w-3 h-3 ${refresh.isPending ? "animate-spin" : ""}`}
+                aria-hidden
+              />
+              {refresh.isPending ? "Prüfe Quelle…" : "Aus aktueller Quelle neu laden"}
+            </button>
           </div>
         </details>
         <button
@@ -116,9 +157,9 @@ export function ChunkPanel({
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
-        {(extract.error || del.error) && (
+        {(extract.error || del.error || refresh.error) && (
           <p className={`text-red-400 ${T.tiny}`}>
-            {(extract.error ?? del.error)?.message}
+            {(extract.error ?? del.error ?? refresh.error)?.message}
           </p>
         )}
       </footer>

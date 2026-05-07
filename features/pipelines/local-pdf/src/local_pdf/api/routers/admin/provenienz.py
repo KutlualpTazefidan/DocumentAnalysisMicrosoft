@@ -5,6 +5,7 @@ Step + decision routes land in later stages.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -93,6 +94,18 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
                 "confidence": b.confidence,
             }
     return {}
+
+
+def _chunk_text_hash(text: str) -> str:
+    """Stable across-process fingerprint of a chunk's text.
+
+    Used by the refresh endpoint to compare a chunk Node's stored text
+    against the current mineru.json/segments.json content. We use sha1
+    truncated to 16 hex chars (8 bytes) — collisions are astronomically
+    unlikely for the comparison sizes we deal with, and it's stable across
+    Python processes (unlike ``hash()``, which is salted per-interpreter).
+    """
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
 
 
 def _find_session_dir(data_root: Path, session_id: str) -> Path | None:
@@ -713,6 +726,128 @@ async def promote_search_result(
         ),
     )
     return chunk.__dict__
+
+
+class RefreshChunkResponse(BaseModel):
+    """Response shape for ``POST .../chunks/{id}/refresh``.
+
+    ``refreshed=False`` when the chunk's stored text + box_kind +
+    reading_order already match the current mineru.json/segments.json —
+    nothing was appended. ``refreshed=True`` when a new chunk Node was
+    appended with the current source content; ``new_chunk`` carries the
+    freshly-spawned node so the frontend can switch focus to it.
+    """
+
+    refreshed: bool
+    reason: Literal["current", "updated", "source-missing"]
+    new_chunk: dict | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/chunks/{chunk_node_id}/refresh",
+)
+async def refresh_chunk(
+    session_id: str, chunk_node_id: str, request: Request
+) -> RefreshChunkResponse:
+    """Spawn a fresh chunk Node from the current segments.json/mineru.json
+    when the underlying source has been edited in the Extract tab.
+
+    Append-only audit semantics: the old chunk + all its descendants
+    (claims/tasks/evaluations) stay; a new chunk Node with a NEW node_id
+    but the SAME box_id is appended, plus a ``refreshes`` edge from the
+    new chunk to the old one. The ``refreshes`` edge is intentionally NOT
+    in ``_DEPENDS_ON_EDGE_KINDS`` — neither side cascades on delete; both
+    chunks stand independently for audit.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    chunk = next((n for n in nodes if n.node_id == chunk_node_id), None)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail=f"chunk not found: {chunk_node_id}")
+    if chunk.kind != "chunk":
+        raise HTTPException(status_code=400, detail=f"node is not a chunk: kind={chunk.kind}")
+
+    box_id = str(chunk.payload.get("box_id", ""))
+    doc_slug = str(chunk.payload.get("doc_slug", ""))
+    if not box_id or not doc_slug:
+        raise HTTPException(
+            status_code=400,
+            detail="chunk payload missing box_id/doc_slug — cannot refresh",
+        )
+
+    # Current source text comes from mineru.json (html_snippet → strip),
+    # mirroring the create_session path. Box metadata (kind, reading_order,
+    # bbox, …) comes from segments.json via _load_box_metadata.
+    mineru = read_mineru(cfg.data_root, doc_slug) or {"elements": []}
+    el = next(
+        (e for e in mineru.get("elements", []) if e.get("box_id") == box_id),
+        None,
+    )
+    if el is None:
+        return RefreshChunkResponse(refreshed=False, reason="source-missing")
+
+    current_text = _strip_html(el.get("html_snippet", ""))
+    current_meta = _load_box_metadata(cfg.data_root, doc_slug, box_id)
+
+    stored_text = str(chunk.payload.get("text", ""))
+    stored_box_kind = chunk.payload.get("box_kind")
+    stored_reading_order = chunk.payload.get("reading_order")
+
+    # Compare on text + box_kind + reading_order only. bbox + confidence
+    # are intentionally excluded — they fluctuate across re-extractions
+    # without representing a meaningful content change.
+    text_changed = _chunk_text_hash(current_text) != _chunk_text_hash(stored_text)
+    kind_changed = current_meta.get("box_kind") != stored_box_kind
+    order_changed = current_meta.get("reading_order") != stored_reading_order
+
+    if not (text_changed or kind_changed or order_changed):
+        return RefreshChunkResponse(refreshed=False, reason="current")
+
+    # Build the new chunk's payload. Preserve breadcrumbs (origin_*) so a
+    # refreshed promoted-chunk keeps its recursive-exploration context.
+    new_payload: dict[str, Any] = {
+        "box_id": box_id,
+        "doc_slug": doc_slug,
+        "text": current_text,
+        **current_meta,
+    }
+    for k in (
+        "promoted_from",
+        "origin_claim_id",
+        "origin_claim_text",
+        "origin_query",
+        "origin_chunk_id",
+        "origin_chunk_box_id",
+    ):
+        if k in chunk.payload:
+            new_payload[k] = chunk.payload[k]
+
+    new_chunk = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="chunk",
+            payload=new_payload,
+            actor="human",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=new_chunk.node_id,
+            to_node=chunk.node_id,
+            kind="refreshes",
+            reason=None,
+            actor="human",
+        ),
+    )
+    return RefreshChunkResponse(refreshed=True, reason="updated", new_chunk=new_chunk.__dict__)
 
 
 def _build_decision_context(

@@ -46,6 +46,12 @@ export interface ChunkView {
   claimCount: number;
   /** True if this chunk was created via promote-search-result. */
   promoted: boolean;
+  /** True when a newer chunk Node carries a ``refreshes`` edge pointing
+   *  at this one — i.e. this chunk was respawned from the current
+   *  segments.json. The tile dims so the audit trail visually flows
+   *  predecessor → successor; both stay clickable for historical
+   *  research. */
+  replacedByRefresh?: boolean;
 }
 
 export interface ClaimView {
@@ -480,6 +486,13 @@ export function buildViewGraph(
 
   // ── 1) Chunks ─────────────────────────────────────────────────────────────
   const chunkNodes = provNodes.filter((n) => n.kind === "chunk");
+  // Pre-compute: chunks that have been *replaced* by a newer refresh
+  // (i.e. a `refreshes` edge points at them). Used to dim the predecessor
+  // tile so the visible chain visually flows old → new.
+  const refreshedChunkIds = new Set<string>();
+  for (const e of provEdges) {
+    if (e.kind === "refreshes") refreshedChunkIds.add(e.to_node);
+  }
   for (const chunk of chunkNodes) {
     const promoted = !!chunk.payload.promoted_from;
     viewNodes.push({
@@ -489,6 +502,7 @@ export function buildViewGraph(
       closedByStop: stopByAnchorId.get(chunk.node_id),
       claimCount: claimCountByChunkId.get(chunk.node_id) ?? 0,
       promoted,
+      replacedByRefresh: refreshedChunkIds.has(chunk.node_id),
     });
 
     // Promoted chunks: bag → new chunk (trunk continuation through the loop).
@@ -506,6 +520,23 @@ export function buildViewGraph(
             sourceHandle: `row-${srId}`,
           });
         }
+      }
+    }
+
+    // Refresh chain: when this chunk was spawned via /refresh from an
+    // older chunk, draw a SIDE edge old_chunk → new_chunk. Side
+    // placement keeps both tiles independent in the trunk layout (the
+    // new chunk inherits its own claim subtree; the old one keeps its
+    // historical descendants).
+    for (const e of g.outEdges.get(chunk.node_id) ?? []) {
+      if (e.kind === "refreshes" && g.byId.has(e.to_node)) {
+        viewEdges.push({
+          id: `e:refreshes:${e.edge_id}`,
+          source: `view:${e.to_node}`,
+          target: `view:${chunk.node_id}`,
+          kind: "refreshes",
+          placement: "side",
+        });
       }
     }
   }
@@ -1229,6 +1260,11 @@ function edgeColor(kind: string): string {
       // nächstes?" was invoked from a Folge-Knoten and re-anchored
       // to its parent. Distinct hue from amber-400/proposed so the
       // user spots the trail edge instantly.
+    case "refreshes":
+      return "#fb923c"; // orange-400 — chunk respawned from current
+      // segments.json. Old chunk → new chunk, drawn as a side edge so
+      // the trunk layout treats both as independent roots while the
+      // user still sees "this replaces that".
     default:
       return "#475569";
   }
