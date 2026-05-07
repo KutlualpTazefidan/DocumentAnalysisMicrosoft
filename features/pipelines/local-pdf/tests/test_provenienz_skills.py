@@ -501,3 +501,132 @@ def test_skill_run_without_data_root_is_silent(tmp_path, monkeypatch):
     assert out == ["x"]
     # Audit file should NOT exist
     assert not (tmp_path / "skills" / "skill_runs.jsonl").exists()
+
+
+def test_read_skill_runs_returns_empty_when_no_log(tmp_path):
+    from local_pdf.provenienz.skill_dispatcher import read_skill_runs
+
+    runs = read_skill_runs(tmp_path)
+    assert runs == []
+
+
+def test_read_skill_runs_returns_records_after_enrichment(tmp_path, monkeypatch):
+    from local_pdf.provenienz.skill_dispatcher import (
+        read_skill_runs,
+        run_enrichment_skill,
+    )
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    skill = Skill(
+        skill_id="s1",
+        name="bg",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["a"]'
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    run_enrichment_skill(skill, ["c1"], chunk_text="x", data_root=tmp_path)
+    runs = read_skill_runs(tmp_path)
+    assert len(runs) == 1
+    assert runs[0]["skill_id"] == "s1"
+    assert runs[0]["success"] is True
+
+
+def test_read_skill_runs_filters_by_skill_id(tmp_path, monkeypatch):
+    from local_pdf.provenienz.skill_dispatcher import (
+        read_skill_runs,
+        run_enrichment_skill,
+    )
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    s1 = Skill(
+        skill_id="s1",
+        name="a",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+    s2 = Skill(
+        skill_id="s2",
+        name="b",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["x"]'
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    run_enrichment_skill(s1, ["c"], chunk_text="x", data_root=tmp_path)
+    run_enrichment_skill(s2, ["c"], chunk_text="x", data_root=tmp_path)
+    only_s1 = read_skill_runs(tmp_path, skill_id="s1")
+    assert len(only_s1) == 1
+    assert only_s1[0]["skill_id"] == "s1"
+
+
+def test_read_skill_runs_returns_newest_first_capped(tmp_path, monkeypatch):
+    from local_pdf.provenienz.skill_dispatcher import (
+        read_skill_runs,
+        run_enrichment_skill,
+    )
+    from local_pdf.provenienz.skills import (
+        Skill,
+        SkillKind,
+        SkillOutput,
+        SkillPrompt,
+    )
+
+    skill = Skill(
+        skill_id="s1",
+        name="a",
+        version=1,
+        skill_kind=SkillKind.ENRICHMENT,
+        fires_on=["extract_claims"],
+        prompt=SkillPrompt(questions=["?"]),
+        output=SkillOutput(annotation_kind="x", attaches_to="claim"),
+    )
+
+    class _Client:
+        def complete(self, *, messages, model, max_tokens=None, **_):
+            class C:
+                text = '["x"]'
+
+            return C()
+
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_llm_client", lambda: _Client())
+    monkeypatch.setattr("local_pdf.provenienz.skill_dispatcher.get_default_model", lambda: "test")
+    for _ in range(5):
+        run_enrichment_skill(skill, ["c"], chunk_text="x", data_root=tmp_path)
+    runs = read_skill_runs(tmp_path, last_n=3)
+    assert len(runs) == 3

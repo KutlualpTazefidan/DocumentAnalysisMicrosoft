@@ -4,6 +4,7 @@ import { Pencil, Trash2, X } from "lucide-react";
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteSkill,
+  useSkillRuns,
   useUpdateSkill,
   type Skill,
 } from "../../hooks/useSkills";
@@ -30,6 +31,7 @@ export function SkillDetailPanel({
 }: SkillDetailPanelProps): JSX.Element | null {
   const update = useUpdateSkill(token);
   const del = useDeleteSkill(token);
+  const runs = useSkillRuns(skill?.skill_id ?? null, token);
   const { error: toastError, success: toastSuccess } = useToast();
   const [editing, setEditing] = useState(false);
 
@@ -279,6 +281,46 @@ export function SkillDetailPanel({
               </Field>
             </DetailSection>
           )}
+
+          <DetailSection title="Aktivität">
+            {runs.isLoading ? (
+              <p className={`${T.tiny} text-slate-500 italic`}>Lade …</p>
+            ) : runs.data && runs.data.length > 0 ? (
+              <>
+                <p className={`${T.tiny} text-slate-400 mb-2`}>
+                  Letzte {Math.min(runs.data.length, 10)} Läufe
+                  {runs.data.length > 10 ? ` (von ${runs.data.length})` : ""}
+                </p>
+                <ul className="space-y-1">
+                  {runs.data.slice(0, 10).map((r, i) => (
+                    <li
+                      key={`${r.ts}-${i}`}
+                      className={`${T.tiny} flex items-center gap-2`}
+                    >
+                      <span
+                        className={
+                          r.success ? "text-emerald-300" : "text-red-300"
+                        }
+                        aria-label={r.success ? "erfolgreich" : "fehlgeschlagen"}
+                      >
+                        {r.success ? "✓" : "✗"}
+                      </span>
+                      <span className="text-slate-400 font-mono">
+                        {new Date(r.ts).toLocaleString()}
+                      </span>
+                      <span className="text-slate-300">
+                        {r.n_outputs}/{r.n_inputs} verarbeitet
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className={`${T.tiny} text-slate-500 italic`}>
+                Noch keine Aktivität.
+              </p>
+            )}
+          </DetailSection>
 
           <details className="rounded border border-navy-700 bg-navy-900/30">
             <summary

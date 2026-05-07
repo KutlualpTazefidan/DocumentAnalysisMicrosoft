@@ -177,6 +177,32 @@ export function useUpdateSkill(token: string) {
   });
 }
 
+/** One row from `{data_root}/skills/skill_runs.jsonl`. Newest first. */
+export interface SkillRun {
+  skill_id: string;
+  skill_name: string;
+  skill_version: number;
+  n_inputs: number;
+  n_outputs: number;
+  success: boolean;
+  ts: string;
+}
+
+export function useSkillRuns(skillId: string | null, token: string) {
+  return useQuery<SkillRun[]>({
+    queryKey: ["provenienz", "skills", skillId, "runs"],
+    enabled: !!skillId && !!token,
+    queryFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/skills/${skillId}/runs`,
+        { method: "GET" },
+        token,
+      );
+      return (await r.json()) as SkillRun[];
+    },
+  });
+}
+
 export function useDeleteSkill(token: string) {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({

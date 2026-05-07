@@ -123,3 +123,16 @@ async def delete_skill(skill_id: str, request: Request) -> None:
     if current is None:
         raise HTTPException(status_code=404, detail=f"skill not found: {skill_id}")
     tombstone_skill(cfg.data_root, skill_id)
+
+
+@router.get("/api/admin/provenienz/skills/{skill_id}/runs")
+async def list_skill_runs(skill_id: str, request: Request) -> list[dict[str, Any]]:
+    """Return the most recent runs for ``skill_id`` (newest first, capped at 50).
+
+    Sources ``{data_root}/skills/skill_runs.jsonl``. Non-enrichment skills
+    typically have no runs — the endpoint returns ``[]`` then.
+    """
+    cfg = request.app.state.config
+    from local_pdf.provenienz.skill_dispatcher import read_skill_runs
+
+    return read_skill_runs(cfg.data_root, skill_id=skill_id, last_n=50)

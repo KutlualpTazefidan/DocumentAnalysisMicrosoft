@@ -142,6 +142,45 @@ def run_enrichment_skill(
     return out
 
 
+def read_skill_runs(
+    data_root: Path,
+    *,
+    skill_id: str | None = None,
+    last_n: int = 50,
+) -> list[dict]:
+    """Read the per-run audit log at ``{data_root}/skills/skill_runs.jsonl``.
+
+    Returns the most recent records first (reverse line order in the
+    file), optionally filtered by ``skill_id``, capped at ``last_n``.
+    Returns ``[]`` if the file does not exist or no records match.
+    Malformed lines are skipped silently — the audit log is best-effort.
+    """
+    runs_path = data_root / "skills" / "skill_runs.jsonl"
+    if not runs_path.exists():
+        return []
+    records: list[dict] = []
+    try:
+        with runs_path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                if skill_id is not None and rec.get("skill_id") != skill_id:
+                    continue
+                records.append(rec)
+    except OSError:
+        return []
+    # Newest first (last appended line is most recent).
+    records.reverse()
+    return records[:last_n]
+
+
 def _append_skill_run_audit(
     skill: Skill,
     inputs: list[str],
