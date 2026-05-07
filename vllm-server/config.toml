@@ -10,7 +10,7 @@ port = 8000
 [model]
 # Default fits ~8 GB VRAM at bf16 with 4096-context. Multilingual incl.
 # German. No Hugging Face auth required.
-name = "Qwen/Qwen2.5-3B-Instruct"
+name = "Qwen/Qwen3-8B"
 
 # Optional: override the dtype. vLLM auto-detects, but bf16 is a safe
 # explicit pick for modern Ampere+/RDNA3+ GPUs. Comment out to let vLLM
@@ -18,6 +18,10 @@ name = "Qwen/Qwen2.5-3B-Instruct"
 # dtype = "bfloat16"
 
 # Cap context window. Lower values reduce KV-cache memory.
+# 4096 fits Qwen3-8B (~16 GB weights + ~2 GB KV-cache = ~18 GB on
+# 24 GB GPU). Backend's _MAX_TOKENS_STRUCTURED=1024 ensures input +
+# output stays within this budget. Reduce to 2048 if switching to
+# the multimodal Qwen3.5-9B (vision-encoder eats extra VRAM).
 max_model_len = 4096
 
 [runtime]

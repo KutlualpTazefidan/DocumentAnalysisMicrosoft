@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { LlmTopBarControl } from "../admin/components/LlmTopBarControl";
 import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
 import { RoleBadge } from "./shared/RoleBadge";
@@ -17,7 +18,7 @@ export function AdminShell() {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <header
-        className="px-6 py-3 flex items-center justify-between flex-shrink-0"
+        className="px-6 py-3 flex items-center gap-4 flex-shrink-0"
         style={{ background: ADMIN_THEME.chrome, color: ADMIN_THEME.chromeFg }}
       >
         <nav className="flex items-center gap-4 text-sm">
@@ -27,6 +28,11 @@ export function AdminShell() {
           <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
           <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Dashboard</Link>
         </nav>
+        {/* vLLM controls — centered in the available space between
+            nav links and the user/logout cluster on the right. */}
+        <div className="flex-1 flex justify-center">
+          <LlmTopBarControl token={token} />
+        </div>
         <div className="flex items-center gap-3">
           <RoleBadge theme={ADMIN_THEME} name={name ?? "admin"} />
           <button onClick={handleLogout} className="flex items-center gap-1 text-sm underline"><LogOut className="w-4 h-4" />Logout</button>
