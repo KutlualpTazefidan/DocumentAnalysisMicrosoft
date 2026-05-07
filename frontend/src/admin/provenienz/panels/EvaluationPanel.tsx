@@ -1,6 +1,12 @@
+import { Sparkles } from "lucide-react";
+
 import { useToast } from "../../../shared/components/useToast";
-import { useDeleteNode } from "../../hooks/useProvenienz";
+import {
+  useDeleteNode,
+  useNextStepStream,
+} from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
+import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 const VERDICT_LABEL: Record<string, string> = {
@@ -44,6 +50,7 @@ export function EvaluationPanel({
       matched?: boolean;
       reasons?: string[];
     }[];
+    search_result_node_id?: string;
   };
   const verdict = String(p.verdict ?? "unknown");
   const confidence =
@@ -52,8 +59,28 @@ export function EvaluationPanel({
   const sentences = Array.isArray(p.sentences) ? p.sentences : [];
   const capScan = Array.isArray(p.capability_scan) ? p.capability_scan : [];
   const capMatched = capScan.filter((c) => c.matched).length;
+  // The parent search_result is the right anchor for "Was als nächstes?"
+  // because decompose_hit / promote_search_result / re-evaluate are all
+  // registered for search_result nodes, not for evaluation nodes. The
+  // click target is the bewertung-tile but the pipeline runs against
+  // the upstream hit.
+  const parentSearchResultId = String(
+    p.search_result_node_id ?? "",
+  );
   const del = useDeleteNode(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+
+  async function handleNextStep(): Promise<void> {
+    if (!parentSearchResultId) {
+      toastError(
+        "Diese Bewertung kennt ihren Suchtreffer nicht — Re-Evaluierung " +
+          "über das Suchtreffer-Tile starten.",
+      );
+      return;
+    }
+    await stream.start(parentSearchResultId);
+  }
 
   async function handleDelete(): Promise<void> {
     if (!window.confirm("Bewertung verwerfen?")) return;
@@ -181,9 +208,26 @@ export function EvaluationPanel({
         )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
+        <LiveRunPanel
+          run={stream}
+          anchorPreview={reasoning.slice(0, 120)}
+          onClose={() => stream.reset()}
+        />
+        <button
+          type="button"
+          onClick={() => void handleNextStep()}
+          disabled={stream.isRunning || !parentSearchResultId}
+          className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
+          title="Agent fragt: was nun? (z.B. Treffer dekomponieren wenn er selbst Behauptungen enthält)"
+        >
+          <Sparkles className="w-4 h-4" aria-hidden />
+          {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
+        </button>
         <p className={`${T.tiny} text-slate-500 italic`}>
           Bewertung ist immutable — re-evaluate erzeugt eine neue Bewertung
-          als Folge-Knoten.
+          als Folge-Knoten. „Was als nächstes?" arbeitet auf dem
+          übergeordneten Suchtreffer (z.B. dekomponieren wenn er selbst
+          Behauptungen enthält).
         </p>
         <button
           type="button"
