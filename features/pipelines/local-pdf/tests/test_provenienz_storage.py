@@ -323,3 +323,51 @@ def test_cascade_deletes_claim_background_with_claim():
     cascade = _collect_cascade("claim1", nodes, edges)
     assert cascade == {"claim1", "bg1"}
     assert "bystander" not in cascade
+
+
+def test_strip_html_renders_tables_as_markdown():
+    """Tables in html_snippet should become markdown tables, not flat
+    cell-text — preserves row+column structure for the LLM agent."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = (
+        "<div><p>Vorher.</p>"
+        "<table><tr><td>Name</td><td>Datum</td></tr>"
+        "<tr><td>Vallentin</td><td>18.06.2003</td></tr></table>"
+        "<p>Nachher.</p></div>"
+    )
+    out = _strip_html(html)
+    assert "Vorher." in out
+    assert "| Name | Datum |" in out
+    assert "| --- | --- |" in out
+    assert "| Vallentin | 18.06.2003 |" in out
+    assert "Nachher." in out
+
+
+def test_strip_html_handles_ragged_rows_and_pipe_in_cell():
+    """Cell containing | gets escaped; ragged rows are padded."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = "<table><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>x|y</td><td>z</td></tr></table>"
+    out = _strip_html(html)
+    assert "| A | B | C |" in out
+    assert "| --- | --- | --- |" in out
+    # pipe escaped, ragged row padded with empty cell
+    assert "| x\\|y | z | |" in out
+
+
+def test_strip_html_no_table_falls_back_to_flat_strip():
+    """Plain paragraph: existing flat-strip behaviour is preserved."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = '<p data-source-box="p2-b0" class="caption">Revisionsstand</p>'
+    out = _strip_html(html)
+    assert out == "Revisionsstand"
+
+
+def test_strip_html_empty_or_whitespace_returns_empty():
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    assert _strip_html("") == ""
+    assert _strip_html("   ") == ""
+    assert _strip_html(None) == ""  # type: ignore[arg-type]

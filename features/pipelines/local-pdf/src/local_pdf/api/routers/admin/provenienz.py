@@ -62,10 +62,63 @@ router = APIRouter()
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+_TABLE_RE = re.compile(r"<table[^>]*>.*?</table>", re.DOTALL | re.IGNORECASE)
+_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+_TD_RE = re.compile(r"<t[hd][^>]*>(.*?)</t[hd]>", re.DOTALL | re.IGNORECASE)
+
+
+def _render_table_as_markdown(table_html: str) -> str:
+    """Convert a single ``<table>...</table>`` HTML block to a Markdown
+    table preserving row + column structure. Used by ``_strip_html`` so
+    the LLM agent gets a structured "| Name | Datum |"-style table
+    instead of space-separated cell text.
+
+    Empty tables / parser failures fall back to the original strip
+    (caller handles that — this returns ``""`` for unrenderable input).
+    """
+    rows: list[list[str]] = []
+    for tr_match in _TR_RE.finditer(table_html):
+        cells = []
+        for td_match in _TD_RE.finditer(tr_match.group(1)):
+            cell_html = td_match.group(1)
+            # Strip inner tags + collapse whitespace per cell
+            cell_text = _WS_RE.sub(" ", _TAG_RE.sub(" ", cell_html)).strip()
+            # Markdown pipes inside cells need escaping so they don't
+            # break the column layout
+            cell_text = cell_text.replace("|", "\\|")
+            cells.append(cell_text or " ")
+        if cells:
+            rows.append(cells)
+    if not rows:
+        return ""
+    # Pad to widest row so columns align even when source is ragged
+    width = max(len(r) for r in rows)
+    for r in rows:
+        while len(r) < width:
+            r.append(" ")
+    header = "| " + " | ".join(rows[0]) + " |"
+    sep = "| " + " | ".join(["---"] * width) + " |"
+    body = "\n".join("| " + " | ".join(r) + " |" for r in rows[1:])
+    return "\n".join(part for part in (header, sep, body) if part)
 
 
 def _strip_html(html: str) -> str:
-    return _WS_RE.sub(" ", _TAG_RE.sub(" ", html or "")).strip()
+    """Convert ``html_snippet`` to flat agent-readable text.
+
+    Tables are pre-converted to Markdown so the agent sees row/column
+    structure (not just space-separated cells). Everything else is
+    stripped to plain text.
+    """
+    if not html:
+        return ""
+    text = _TABLE_RE.sub(lambda m: "\n\n" + _render_table_as_markdown(m.group(0)) + "\n\n", html)
+    # Remove all remaining tags, then collapse runs of whitespace
+    # — but keep newlines so the markdown table doesn't get folded
+    # back onto a single line.
+    text = _TAG_RE.sub(" ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
