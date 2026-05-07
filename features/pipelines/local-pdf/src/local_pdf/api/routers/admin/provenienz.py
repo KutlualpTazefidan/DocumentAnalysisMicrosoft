@@ -53,7 +53,7 @@ from local_pdf.provenienz.storage import (
     write_meta,
 )
 from local_pdf.provenienz.tools import list_tools
-from local_pdf.storage.sidecar import doc_dir, read_mineru
+from local_pdf.storage.sidecar import doc_dir, read_mineru, read_segments
 
 _log = logging.getLogger(__name__)
 
@@ -65,6 +65,34 @@ _WS_RE = re.compile(r"\s+")
 
 def _strip_html(html: str) -> str:
     return _WS_RE.sub(" ", _TAG_RE.sub(" ", html or "")).strip()
+
+
+def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
+    """Return the structured metadata fields for a box from segments.json,
+    or an empty dict if segments.json is missing / the box_id isn't found.
+
+    Field name ``box_kind`` (rather than ``kind``) avoids colliding with the
+    Provenienz ``Node.kind`` field, which already has well-defined semantics
+    (chunk / claim / task / search_result / …).
+    """
+    try:
+        seg = read_segments(data_root, slug)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError):
+        return {}
+    if seg is None:
+        return {}
+    for b in seg.boxes:
+        if b.box_id == box_id:
+            return {
+                "page": b.page,
+                "bbox": list(b.bbox),
+                "box_kind": b.kind,
+                "reading_order": b.reading_order,
+                "continues_from": b.continues_from,
+                "continues_to": b.continues_to,
+                "confidence": b.confidence,
+            }
+    return {}
 
 
 def _find_session_dir(data_root: Path, session_id: str) -> Path | None:
@@ -128,13 +156,19 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
     write_meta(sdir, meta)
 
     text = _strip_html(el.get("html_snippet", ""))
+    chunk_payload: dict[str, Any] = {
+        "box_id": body.root_chunk_id,
+        "doc_slug": body.slug,
+        "text": text,
+        **_load_box_metadata(cfg.data_root, body.slug, body.root_chunk_id),
+    }
     append_node(
         sdir,
         Node(
             node_id=new_id(),
             session_id=sid,
             kind="chunk",
-            payload={"box_id": body.root_chunk_id, "doc_slug": body.slug, "text": text},
+            payload=chunk_payload,
             actor="system",
         ),
     )
@@ -641,25 +675,28 @@ async def promote_search_result(
     text = str(sr.payload.get("text", ""))
     box_id = str(sr.payload.get("box_id", ""))
     doc_slug = str(sr.payload.get("doc_slug", ""))
+    promoted_payload: dict[str, Any] = {
+        "box_id": box_id,
+        "doc_slug": doc_slug,
+        "text": text,
+        "promoted_from": sr.node_id,
+        "origin_claim_id": claim.node_id if claim else None,
+        "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
+        "origin_query": str(task.payload.get("query", "")) if task else None,
+        "origin_chunk_id": origin_chunk.node_id if origin_chunk else None,
+        "origin_chunk_box_id": (
+            str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
+        ),
+    }
+    if box_id and doc_slug:
+        promoted_payload.update(_load_box_metadata(cfg.data_root, doc_slug, box_id))
     chunk = append_node(
         sd,
         Node(
             node_id=new_id(),
             session_id=session_id,
             kind="chunk",
-            payload={
-                "box_id": box_id,
-                "doc_slug": doc_slug,
-                "text": text,
-                "promoted_from": sr.node_id,
-                "origin_claim_id": claim.node_id if claim else None,
-                "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
-                "origin_query": str(task.payload.get("query", "")) if task else None,
-                "origin_chunk_id": origin_chunk.node_id if origin_chunk else None,
-                "origin_chunk_box_id": (
-                    str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
-                ),
-            },
+            payload=promoted_payload,
             actor="human",
         ),
     )

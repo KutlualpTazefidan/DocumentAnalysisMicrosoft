@@ -71,6 +71,7 @@ export function ChunkPanel({
             {text}
           </p>
         </div>
+        <BoxMetadataStrip chunk={chunk} />
         {closed && (
           <p className={`${T.body} text-amber-300 italic`}>
             Diese Chunk-Untersuchung wurde abgeschlossen.
@@ -122,6 +123,49 @@ export function ChunkPanel({
         )}
       </footer>
     </div>
+  );
+}
+
+/**
+ * Compact strip of structured box metadata copied from segments.json onto
+ * the chunk payload at session-creation time. Hides any field that is
+ * null/missing — pre-Phase-A sessions only carry box_id/doc_slug/text and
+ * therefore render nothing here.
+ */
+function BoxMetadataStrip({ chunk }: { chunk: ProvNode }): JSX.Element | null {
+  const p = chunk.payload;
+  const page = typeof p.page === "number" ? p.page : null;
+  const boxKind =
+    typeof p.box_kind === "string" && p.box_kind ? p.box_kind : null;
+  const readingOrder =
+    typeof p.reading_order === "number" ? p.reading_order : null;
+  const bbox = Array.isArray(p.bbox) && p.bbox.length === 4 ? p.bbox : null;
+  const confidence = typeof p.confidence === "number" ? p.confidence : null;
+
+  const parts: string[] = [];
+  if (page !== null) parts.push(`Seite ${page}`);
+  if (readingOrder !== null) parts.push(`#${readingOrder}`);
+  if (boxKind) parts.push(boxKind);
+  if (bbox) {
+    const w = Math.round(Number(bbox[2]) - Number(bbox[0]));
+    const h = Math.round(Number(bbox[3]) - Number(bbox[1]));
+    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+      parts.push(`${w}×${h} px`);
+    }
+  }
+
+  if (parts.length === 0) return null;
+
+  const title =
+    confidence !== null ? `Konfidenz ${confidence.toFixed(2)}` : undefined;
+
+  return (
+    <p
+      className={`${T.mono} ${T.tiny} text-slate-400`}
+      title={title}
+    >
+      {parts.join(" · ")}
+    </p>
   );
 }
 
