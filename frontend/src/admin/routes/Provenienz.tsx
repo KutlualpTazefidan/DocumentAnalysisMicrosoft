@@ -9,6 +9,7 @@ import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { ApproachLibrary } from "../provenienz/ApproachLibrary";
 import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
+import { SkillLibrary } from "../provenienz/skills/SkillLibrary";
 import { StepRegistry } from "../provenienz/StepRegistry";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
@@ -226,7 +227,13 @@ function ViewToggle({
   );
 }
 
-type AgentTab = "auswahl" | "schritte" | "tools" | "heuristiken" | "wuensche";
+type AgentTab =
+  | "auswahl"
+  | "schritte"
+  | "tools"
+  | "skills"
+  | "heuristiken"
+  | "wuensche";
 
 function AgentView({
   agentInfo,
@@ -314,6 +321,11 @@ function AgentView({
               <ToolRegistry tools={agentInfo.tools} onSelect={handleSelect} />
             </div>
           )}
+          {tab === "skills" && (
+            <div className="p-4">
+              <SkillLibrary token={token} />
+            </div>
+          )}
           {tab === "heuristiken" && (
             <div className="p-4">
               <ApproachLibrary token={token} />
@@ -355,6 +367,7 @@ function AgentTabBar({
       {item("auswahl", "Auswahl")}
       {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
+      {item("skills", "Skills")}
       {item("heuristiken", "Heuristiken")}
       {item("wuensche", "Wünsche")}
     </nav>
