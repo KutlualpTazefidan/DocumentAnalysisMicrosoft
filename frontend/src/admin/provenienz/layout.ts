@@ -729,8 +729,12 @@ export function buildViewGraph(
   }
 
   // ── 4.6) Sub-Statement tiles (atomare Aussagen aus decompose_hit) ────────
-  // Hängen unter ihrem parent search_result_tile (das durch die
-  // actioned-Logik oben bereits als eigene Tile existiert).
+  // Trail-aware: when the spawning chain carries a triggered_from
+  // (i.e. the user accepted decompose_hit from a Bewertungs-Trail),
+  // the sub_statement hangs from the trail-parent (the action_proposal
+  // that spawned it) — NOT from the structural search_result. The
+  // structural relationship stays in the payload (parent_search_result_id)
+  // for audit, but the canvas trunk follows the trail.
   for (const n of provNodes) {
     if (n.kind !== "sub_statement") continue;
     const subViewId = `view:${n.node_id}`;
@@ -739,6 +743,16 @@ export function buildViewGraph(
       kind: "sub_statement",
       sub_statement: n,
     });
+    const trailParent = trailParentByViewId.get(subViewId);
+    if (trailParent) {
+      viewEdges.push({
+        id: `e:sub-trail:${n.node_id}`,
+        source: trailParent,
+        target: subViewId,
+        kind: "trail-trunk",
+      });
+      continue;
+    }
     const parentSrId = n.payload.parent_search_result_id as string | undefined;
     if (parentSrId && actionedResultIds.has(parentSrId)) {
       viewEdges.push({
