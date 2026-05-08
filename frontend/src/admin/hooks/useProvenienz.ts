@@ -108,7 +108,11 @@ export interface DecideRequest {
 
 // ---- fetchOk (shared util — duplicated from useComparison rather than refactored) ----
 
-async function fetchOk(url: string, init: RequestInit, token: string): Promise<Response> {
+async function fetchOk(
+  url: string,
+  init: RequestInit,
+  token: string,
+): Promise<Response> {
   const r = await fetch(url, {
     ...init,
     headers: { ...(init.headers ?? {}), "X-Auth-Token": token },
@@ -213,7 +217,9 @@ export function useCreateSession(token: string) {
       return (await r.json()) as SessionMeta;
     },
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["provenienz", "sessions", created.slug] });
+      qc.invalidateQueries({
+        queryKey: ["provenienz", "sessions", created.slug],
+      });
     },
   });
 }
@@ -378,7 +384,10 @@ export interface Approach {
   domain_rules: string;
 }
 
-export function useApproaches(token: string, opts?: { stepKind?: string; enabledOnly?: boolean }) {
+export function useApproaches(
+  token: string,
+  opts?: { stepKind?: string; enabledOnly?: boolean },
+) {
   const stepKind = opts?.stepKind;
   const enabledOnly = opts?.enabledOnly ?? false;
   return useQuery<Approach[]>({
@@ -445,7 +454,11 @@ export interface PatchApproachRequest {
 
 export function usePatchApproach(token: string) {
   const qc = useQueryClient();
-  return useMutation<Approach, Error, { approachId: string; patch: PatchApproachRequest }>({
+  return useMutation<
+    Approach,
+    Error,
+    { approachId: string; patch: PatchApproachRequest }
+  >({
     mutationFn: async ({ approachId, patch }) => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/approaches/${approachId}`,
@@ -543,7 +556,9 @@ export function useCapabilityRequests(token: string) {
         { method: "GET" },
         token,
       );
-      const body = (await r.json()) as { requests: CapabilityRequestAggregation[] };
+      const body = (await r.json()) as {
+        requests: CapabilityRequestAggregation[];
+      };
       return body.requests;
     },
   });
@@ -752,7 +767,8 @@ function runReducer(state: RunState, action: RunAction): RunState {
           phase: ev.phase,
           label: ev.label,
           status: ev.status === "failed" ? "failed" : "completed",
-          startedAtMs: existing?.startedAtMs ?? ev.ms_since_run_start - ev.ms_elapsed,
+          startedAtMs:
+            existing?.startedAtMs ?? ev.ms_since_run_start - ev.ms_elapsed,
           completedAtMs: ev.ms_since_run_start,
           durationMs: ev.ms_elapsed,
           payload: { ...(existing?.payload ?? {}), ...ev.payload },
@@ -776,7 +792,11 @@ function runReducer(state: RunState, action: RunAction): RunState {
  *  input — caller skips and keeps reading. */
 function parseSseBlock(
   block: string,
-): BackendPhaseEvent | BackendCompleteEvent | { type: "error"; message: string } | null {
+):
+  | BackendPhaseEvent
+  | BackendCompleteEvent
+  | { type: "error"; message: string }
+  | null {
   const lines = block.split("\n");
   let event = "message";
   const dataLines: string[] = [];
@@ -789,7 +809,8 @@ function parseSseBlock(
     const data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
     if (event === "phase") return data as unknown as BackendPhaseEvent;
     if (event === "complete") return data as unknown as BackendCompleteEvent;
-    if (event === "error") return data as unknown as { type: "error"; message: string };
+    if (event === "error")
+      return data as unknown as { type: "error"; message: string };
   } catch {
     return null;
   }
@@ -876,7 +897,10 @@ export function useNextStepStream(
           return;
         }
         if (!r.body) {
-          dispatch({ type: "error", message: "Keine Stream-Antwort vom Server" });
+          dispatch({
+            type: "error",
+            message: "Keine Stream-Antwort vom Server",
+          });
           return;
         }
 
@@ -893,7 +917,8 @@ export function useNextStepStream(
             buf = buf.slice(idx + 2);
             const parsed = parseSseBlock(block);
             if (parsed) {
-              if (parsed.type === "phase") dispatch({ type: "phase", ev: parsed });
+              if (parsed.type === "phase")
+                dispatch({ type: "phase", ev: parsed });
               else if (parsed.type === "complete")
                 dispatch({ type: "complete", node: parsed.node });
               else dispatch({ type: "error", message: parsed.message });
@@ -910,7 +935,9 @@ export function useNextStepStream(
       } finally {
         // Always refetch the session — the run wrote a Node either way
         // (final on success, audit-only on early error after persist).
-        qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+        qc.invalidateQueries({
+          queryKey: ["provenienz", "session", sessionId],
+        });
       }
     },
     [token, sessionId, qc],
@@ -991,16 +1018,35 @@ export function useReEvaluate(token: string, sessionId: string) {
   });
 }
 
+export interface DecomposeHitInput {
+  searchResultNodeId: string;
+  /** Click-trail forwarded from a Bewertungs-Tile / plan-accept. The
+   *  spawned action_proposal carries it so each decompose-spawned
+   *  sub_statement inherits it as the trail-trunk parent. */
+  triggered_from_node_id?: string;
+}
+
 export function useDecomposeHit(token: string, sessionId: string) {
   const qc = useQueryClient();
-  return useMutation<ActionProposal, Error, string>({
-    mutationFn: async (searchResultNodeId) => {
+  return useMutation<ActionProposal, Error, string | DecomposeHitInput>({
+    mutationFn: async (input) => {
+      const { searchResultNodeId, triggered_from_node_id } =
+        typeof input === "string"
+          ? { searchResultNodeId: input, triggered_from_node_id: undefined }
+          : input;
+      const requestBody: {
+        search_result_node_id: string;
+        triggered_from_node_id?: string;
+      } = { search_result_node_id: searchResultNodeId };
+      if (triggered_from_node_id) {
+        requestBody.triggered_from_node_id = triggered_from_node_id;
+      }
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/decompose-hit`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ search_result_node_id: searchResultNodeId }),
+          body: JSON.stringify(requestBody),
         },
         token,
       );
@@ -1041,22 +1087,44 @@ export function useRefreshChunk(token: string, sessionId: string) {
       // Only invalidate when something actually changed — a no-op refresh
       // shouldn't trigger a session re-fetch.
       if (out.refreshed) {
-        qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+        qc.invalidateQueries({
+          queryKey: ["provenienz", "session", sessionId],
+        });
       }
     },
   });
 }
 
+export interface PromoteSearchResultInput {
+  searchResultNodeId: string;
+  /** Click-trail forwarded from a Bewertungs-Tile / plan-accept. The
+   *  spawned chunk persists it on its payload AND, when the trail head
+   *  is an evaluation, gets origin_evaluation_* breadcrumbs so a later
+   *  extract_claims call sees WHY this chunk is being researched. */
+  triggered_from_node_id?: string;
+}
+
 export function usePromoteSearchResult(token: string, sessionId: string) {
   const qc = useQueryClient();
-  return useMutation<ProvNode, Error, string>({
-    mutationFn: async (searchResultNodeId) => {
+  return useMutation<ProvNode, Error, string | PromoteSearchResultInput>({
+    mutationFn: async (input) => {
+      const { searchResultNodeId, triggered_from_node_id } =
+        typeof input === "string"
+          ? { searchResultNodeId: input, triggered_from_node_id: undefined }
+          : input;
+      const requestBody: {
+        search_result_node_id: string;
+        triggered_from_node_id?: string;
+      } = { search_result_node_id: searchResultNodeId };
+      if (triggered_from_node_id) {
+        requestBody.triggered_from_node_id = triggered_from_node_id;
+      }
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/promote-search-result`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ search_result_node_id: searchResultNodeId }),
+          body: JSON.stringify(requestBody),
         },
         token,
       );
@@ -1094,7 +1162,13 @@ export function useExtractClaims(token: string, sessionId: string) {
   return useMutation<
     ActionProposal,
     Error,
-    { chunk_node_id: string; provider?: string }
+    {
+      chunk_node_id: string;
+      provider?: string;
+      /** Click-trail: persisted on the spawned action_proposal so the
+       *  decide-handler can copy it onto every spawned claim. */
+      triggered_from_node_id?: string;
+    }
   >({
     mutationFn: stepRoutePost(token, sessionId, "extract-claims"),
     onSuccess: () => {
@@ -1108,7 +1182,12 @@ export function useFormulateTask(token: string, sessionId: string) {
   return useMutation<
     ActionProposal,
     Error,
-    { claim_node_id: string; provider?: string }
+    {
+      claim_node_id: string;
+      provider?: string;
+      /** Click-trail forwarded onto the spawned task. */
+      triggered_from_node_id?: string;
+    }
   >({
     mutationFn: stepRoutePost(token, sessionId, "formulate-task"),
     onSuccess: () => {
@@ -1122,7 +1201,12 @@ export function useSearchStep(token: string, sessionId: string) {
   return useMutation<
     ActionProposal,
     Error,
-    { task_node_id: string; top_k?: number }
+    {
+      task_node_id: string;
+      top_k?: number;
+      /** Click-trail forwarded onto every spawned search_result. */
+      triggered_from_node_id?: string;
+    }
   >({
     mutationFn: stepRoutePost(token, sessionId, "search"),
     onSuccess: () => {
@@ -1144,6 +1228,8 @@ export function useEvaluate(token: string, sessionId: string) {
        *  having to know the upstream claim. */
       against_claim_id?: string;
       provider?: string;
+      /** Click-trail forwarded onto the spawned evaluation. */
+      triggered_from_node_id?: string;
     }
   >({
     mutationFn: stepRoutePost(token, sessionId, "evaluate"),
@@ -1158,7 +1244,12 @@ export function useProposeStop(token: string, sessionId: string) {
   return useMutation<
     ActionProposal,
     Error,
-    { anchor_node_id: string; provider?: string }
+    {
+      anchor_node_id: string;
+      provider?: string;
+      /** Click-trail forwarded onto the spawned stop_proposal. */
+      triggered_from_node_id?: string;
+    }
   >({
     mutationFn: stepRoutePost(token, sessionId, "propose-stop"),
     onSuccess: () => {

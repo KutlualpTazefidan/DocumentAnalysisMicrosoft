@@ -692,6 +692,12 @@ async def delete_node(session_id: str, node_id: str, request: Request) -> None:
 
 class PromoteSearchResultRequest(BaseModel):
     search_result_node_id: str
+    # Click-trail: when promote is invoked from a Bewertungs-trail, the
+    # frontend forwards the original tile's node_id here. The new chunk
+    # inherits it on its payload AND, if the trail head is an evaluation,
+    # that verdict + reasoning lands as breadcrumbs so a later
+    # extract_claims call sees WHY this chunk is being researched.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -754,6 +760,20 @@ async def promote_search_result(
             str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
         ),
     }
+    # Propagate the click-trail. When the trail head is an evaluation,
+    # also write breadcrumbs (verdict + reasoning) so a later
+    # extract_claims on this chunk sees WHY it is being researched.
+    if body.triggered_from_node_id:
+        promoted_payload["triggered_from_node_id"] = body.triggered_from_node_id
+        trail_node = by_id.get(body.triggered_from_node_id)
+        if trail_node is not None and trail_node.kind == "evaluation":
+            promoted_payload["origin_evaluation_id"] = trail_node.node_id
+            promoted_payload["origin_evaluation_verdict"] = str(
+                trail_node.payload.get("verdict", "")
+            )
+            promoted_payload["origin_evaluation_reasoning"] = str(
+                trail_node.payload.get("reasoning", "")
+            )[:400]
     if box_id and doc_slug:
         promoted_payload.update(_load_box_metadata(cfg.data_root, doc_slug, box_id))
     chunk = append_node(
@@ -1036,6 +1056,11 @@ def _build_origin_context(chunk: Node) -> str:
     """Render the breadcrumbs stored on a promoted chunk's payload as a
     German prompt-prefix the next ``extract_claims`` LLM call can use to
     stay on-topic. Empty string for chunks that weren't promoted.
+
+    When the chunk inherits a Bewertungs-Trail (origin_evaluation_*),
+    the verdict + reasoning are appended as an extra block so the LLM
+    knows WHY this chunk is being researched (e.g. "the evaluation was
+    'partially-supported' — focus on the unsupported parts").
     """
     p = chunk.payload
     if not p.get("promoted_from"):
@@ -1047,15 +1072,49 @@ def _build_origin_context(chunk: Node) -> str:
     origin_query = p.get("origin_query")
     if isinstance(origin_query, str) and origin_query.strip():
         parts.append(f'Damalige Suchanfrage: "{origin_query.strip()}"')
-    if not parts:
+    if not parts and not p.get("origin_evaluation_id"):
         return ""
-    return (
-        "\n\n## Kontext der Recherche\n"
-        "Dieser Textabschnitt wurde als möglicher Beleg für eine frühere "
-        "Aussage in derselben Sitzung identifiziert. "
-        + " · ".join(parts)
-        + ".\nKonzentriere dich auf Aussagen, die zur ursprünglichen Recherche passen."
-    )
+    blocks: list[str] = []
+    if parts:
+        blocks.append(
+            "\n\n## Kontext der Recherche\n"
+            "Dieser Textabschnitt wurde als möglicher Beleg für eine frühere "
+            "Aussage in derselben Sitzung identifiziert. "
+            + " · ".join(parts)
+            + ".\nKonzentriere dich auf Aussagen, die zur ursprünglichen Recherche passen."
+        )
+    eval_verdict = p.get("origin_evaluation_verdict")
+    eval_reasoning = p.get("origin_evaluation_reasoning")
+    if isinstance(eval_verdict, str) and eval_verdict.strip():
+        reasoning_text = (
+            str(eval_reasoning).strip()
+            if isinstance(eval_reasoning, str) and eval_reasoning.strip()
+            else ""
+        )
+        eval_block = (
+            "\n\n## Vorherige Bewertung\n"
+            f"Bewertung: {eval_verdict.strip()}"
+            + (f' — "{reasoning_text}"' if reasoning_text else "")
+            + "\nKonzentriere dich auf Aussagen, die im Bewertungs-Kontext "
+            "relevant sind — z.B. Berechnungen oder Werte die hier zitiert "
+            "werden, könnten ihrerseits Belege brauchen."
+        )
+        blocks.append(eval_block)
+    return "".join(blocks)
+
+
+def _attach_trail(node: Node, trail_id: str | None) -> Node:
+    """Stamp ``triggered_from_node_id`` onto an action_proposal Node's
+    payload when the request body carried one. No-op when ``trail_id``
+    is empty/None — keeps the payload shape identical to today's
+    direct-anchor invocations so the diff stays contained.
+
+    Mutates ``node.payload`` in place AND returns the same Node so the
+    call site reads as ``append_node(sd, _attach_trail(build…, body.trail))``.
+    """
+    if trail_id:
+        node.payload["triggered_from_node_id"] = trail_id
+    return node
 
 
 class PinApproachRequest(BaseModel):
@@ -1634,6 +1693,10 @@ def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "
 class ExtractClaimsRequest(BaseModel):
     chunk_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned downstream node
+    # (claim, claim_background, …). Empty/None → omitted from payload.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1706,7 +1769,10 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         system_prompt_used=full_system,
         tool_used=None,
     )
-    node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    node = _attach_trail(
+        build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+        body.triggered_from_node_id,
+    )
     landed = append_node(sd, node)
     return landed.__dict__
 
@@ -1739,6 +1805,10 @@ def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "
 class FormulateTaskRequest(BaseModel):
     claim_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned task. Empty/None →
+    # omitted from payload.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1805,7 +1875,11 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -1813,6 +1887,9 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
 class SearchStepRequest(BaseModel):
     task_node_id: str
     top_k: int = 5
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned search_result.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1870,7 +1947,11 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
         guidance_consulted=[],
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -2044,6 +2125,9 @@ class EvaluateStepRequest(BaseModel):
     # know the upstream claim.
     against_claim_id: str | None = None
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned evaluation.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -2193,7 +2277,11 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -2523,6 +2611,9 @@ def _llm_decompose_hit(candidate_text: str, *, extra_system: str = "") -> list[s
 class DecomposeHitRequest(BaseModel):
     search_result_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned sub_statement.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -2580,7 +2671,11 @@ async def decompose_hit_step(session_id: str, body: DecomposeHitRequest, request
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -3397,6 +3492,9 @@ def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = ""
 class ProposeStopRequest(BaseModel):
     anchor_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned stop_proposal.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -3455,7 +3553,11 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -4105,6 +4207,20 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
     # 2. Dispatch on step_kind.
     step_kind = proposal.payload["step_kind"]
     spawned_nodes: list[Node] = []
+    # Trail-as-Trunk: when the action_proposal carries a click-trail
+    # (set by /extract-claims, /formulate-task, /search, /evaluate,
+    # /decompose-hit, /propose-stop step routes when triggered_from_node_id
+    # was forwarded from the frontend), every node spawned by this
+    # decision inherits the same trail. The layout reads the trail to
+    # render a single visual strand "Bewertung → plan → action → new_node"
+    # instead of branching back to the structural anchor.
+    trail_id = str(proposal.payload.get("triggered_from_node_id", "") or "")
+    trail_node = next((n for n in nodes if n.node_id == trail_id), None) if trail_id else None
+
+    def _payload_with_trail(payload: dict) -> dict:
+        if trail_id:
+            return {**payload, "triggered_from_node_id": trail_id}
+        return payload
 
     if step_kind == "extract_claims":
         anchor_chunk = proposal.payload["anchor_node_id"]
@@ -4165,11 +4281,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     node_id=new_id(),
                     session_id=session_id,
                     kind="claim",
-                    payload={
-                        "text": ct,
-                        "source_node_id": anchor_chunk,
-                        "goal": goal_for_claim,
-                    },
+                    payload=_payload_with_trail(
+                        {
+                            "text": ct,
+                            "source_node_id": anchor_chunk,
+                            "goal": goal_for_claim,
+                        }
+                    ),
                     actor=claim_actor,
                 ),
             )
@@ -4217,14 +4335,16 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         node_id=new_id(),
                         session_id=session_id,
                         kind=skill.output.annotation_kind,
-                        payload={
-                            "text": ann_text.strip(),
-                            "claim_node_id": claim.node_id,
-                            "source_chunk_node_id": anchor_chunk,
-                            "skill_id": skill.skill_id,
-                            "skill_name": skill.name,
-                            "skill_version": skill.version,
-                        },
+                        payload=_payload_with_trail(
+                            {
+                                "text": ann_text.strip(),
+                                "claim_node_id": claim.node_id,
+                                "source_chunk_node_id": anchor_chunk,
+                                "skill_id": skill.skill_id,
+                                "skill_name": skill.name,
+                                "skill_version": skill.version,
+                            }
+                        ),
                         actor="system",
                     ),
                 )
@@ -4264,6 +4384,17 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 proposal.payload["recommended"]["args"].get("sub_statements", []) or []
             )
         sub_actor = "human" if body.accepted == "override" else proposal.actor
+        # Evaluation breadcrumbs for sub_statements: when the action_proposal
+        # carries a trail pointing at an evaluation Node, attach the verdict
+        # + reasoning to each spawned sub_statement so the downstream prompt
+        # context (and side-panel) can show why this fact is being checked.
+        sub_breadcrumbs: dict[str, str] = {}
+        if trail_node is not None and trail_node.kind == "evaluation":
+            sub_breadcrumbs = {
+                "origin_evaluation_id": trail_node.node_id,
+                "origin_evaluation_verdict": str(trail_node.payload.get("verdict", "")),
+                "origin_evaluation_reasoning": str(trail_node.payload.get("reasoning", ""))[:400],
+            }
         for sub_text in sub_texts:
             if not isinstance(sub_text, str) or not sub_text.strip():
                 continue
@@ -4273,10 +4404,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     node_id=new_id(),
                     session_id=session_id,
                     kind="sub_statement",
-                    payload={
-                        "text": sub_text.strip(),
-                        "parent_search_result_id": anchor_sr,
-                    },
+                    payload=_payload_with_trail(
+                        {
+                            "text": sub_text.strip(),
+                            "parent_search_result_id": anchor_sr,
+                            **sub_breadcrumbs,
+                        }
+                    ),
                     actor=sub_actor,
                 ),
             )
@@ -4339,7 +4473,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 node_id=new_id(),
                 session_id=session_id,
                 kind="task",
-                payload={"query": query, "focus_claim_id": anchor_claim_id},
+                payload=_payload_with_trail({"query": query, "focus_claim_id": anchor_claim_id}),
                 actor=task_actor,
             ),
         )
@@ -4401,7 +4535,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     node_id=new_id(),
                     session_id=session_id,
                     kind="search_result",
-                    payload={**h, "task_node_id": anchor_task_id},
+                    payload=_payload_with_trail({**h, "task_node_id": anchor_task_id}),
                     actor=proposal.actor,
                 ),
             )
@@ -4541,23 +4675,25 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 node_id=new_id(),
                 session_id=session_id,
                 kind="evaluation",
-                payload={
-                    "verdict": args["verdict"],
-                    "confidence": args["confidence"],
-                    "reasoning": args["reasoning"],
-                    "against_claim_id": args["against_claim_id"],
-                    "search_result_node_id": anchor_sr_id,
-                    # Carry the per-sentence enumeration through to the
-                    # evaluation node so the canvas tile / panel can
-                    # render the full audit without re-loading the
-                    # parent action_proposal.
-                    "sentences": args.get("sentences", []),
-                    "proposal_node_id": proposal.node_id,
-                    # Per-approach scan: which capabilities were
-                    # considered (have triggers != {}) and which fired.
-                    # Always present, even when empty / no matches.
-                    "capability_scan": capability_scan,
-                },
+                payload=_payload_with_trail(
+                    {
+                        "verdict": args["verdict"],
+                        "confidence": args["confidence"],
+                        "reasoning": args["reasoning"],
+                        "against_claim_id": args["against_claim_id"],
+                        "search_result_node_id": anchor_sr_id,
+                        # Carry the per-sentence enumeration through to the
+                        # evaluation node so the canvas tile / panel can
+                        # render the full audit without re-loading the
+                        # parent action_proposal.
+                        "sentences": args.get("sentences", []),
+                        "proposal_node_id": proposal.node_id,
+                        # Per-approach scan: which capabilities were
+                        # considered (have triggers != {}) and which fired.
+                        # Always present, even when empty / no matches.
+                        "capability_scan": capability_scan,
+                    }
+                ),
                 actor=eval_actor,
             ),
         )
@@ -4633,16 +4769,18 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         node_id=new_id(),
                         session_id=session_id,
                         kind="capability_gate",
-                        payload={
-                            "evaluation_node_id": eval_node.node_id,
-                            "anchor_node_id": eval_node.node_id,
-                            "search_result_node_id": anchor_sr_id,
-                            "claim_node_id": claim_id_for_scan,
-                            "detected": detected_summary,
-                            "capability_ids": cap_ids,
-                            "loaded_rules_preview": "\n\n".join(rules_preview_parts),
-                            "status": "pending",
-                        },
+                        payload=_payload_with_trail(
+                            {
+                                "evaluation_node_id": eval_node.node_id,
+                                "anchor_node_id": eval_node.node_id,
+                                "search_result_node_id": anchor_sr_id,
+                                "claim_node_id": claim_id_for_scan,
+                                "detected": detected_summary,
+                                "capability_ids": cap_ids,
+                                "loaded_rules_preview": "\n\n".join(rules_preview_parts),
+                                "status": "pending",
+                            }
+                        ),
                         actor="system",
                     ),
                 )
@@ -4691,11 +4829,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 node_id=new_id(),
                 session_id=session_id,
                 kind="stop_proposal",
-                payload={
-                    "reason": args["reason"],
-                    "close_session": args["close_session"],
-                    "anchor_node_id": anchor_id,
-                },
+                payload=_payload_with_trail(
+                    {
+                        "reason": args["reason"],
+                        "close_session": args["close_session"],
+                        "anchor_node_id": anchor_id,
+                    }
+                ),
                 actor=stop_actor,
             ),
         )

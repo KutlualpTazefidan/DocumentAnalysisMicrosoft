@@ -46,6 +46,11 @@ export function PlanProposalPanel({
     tool: string | null;
     approach_id: string | null;
     anchor_node_id: string;
+    /** Click-trail persisted by the planner when the run was invoked
+     *  from a Folge-Knoten (e.g. Bewertungs-Tile). The accept-handler
+     *  forwards it to the underlying step mutation so the trail
+     *  propagates plan → action_proposal → spawned nodes. */
+    triggered_from_node_id?: string;
     audit?: {
       source_label?: string;
       system_prompt_used?: string;
@@ -79,32 +84,58 @@ export function PlanProposalPanel({
     del.isPending;
 
   async function handleAccept(): Promise<void> {
+    // Forward the click-trail from the plan_proposal onto every step
+    // mutation so the trail propagates plan → action_proposal → spawned
+    // nodes (Trail-as-Trunk). Empty/undefined when this plan didn't
+    // come from a Folge-Knoten — the step mutations omit the field
+    // accordingly.
+    const trail = p.triggered_from_node_id || undefined;
     try {
       switch (p.name) {
         case "extract_claims":
-          await extract.mutateAsync({ chunk_node_id: p.anchor_node_id });
+          await extract.mutateAsync({
+            chunk_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "formulate_task":
-          await formulate.mutateAsync({ claim_node_id: p.anchor_node_id });
+          await formulate.mutateAsync({
+            claim_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "search":
-          await search.mutateAsync({ task_node_id: p.anchor_node_id, top_k: 5 });
+          await search.mutateAsync({
+            task_node_id: p.anchor_node_id,
+            top_k: 5,
+            triggered_from_node_id: trail,
+          });
           break;
         case "propose_stop":
-          await stop.mutateAsync({ anchor_node_id: p.anchor_node_id });
+          await stop.mutateAsync({
+            anchor_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "evaluate":
           // Backend resolves against_claim_id from the search_result
           // chain (sr → task.focus_claim_id) when omitted.
           await evaluate.mutateAsync({
             search_result_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
           });
           break;
         case "promote_search_result":
-          await promote.mutateAsync(p.anchor_node_id);
+          await promote.mutateAsync({
+            searchResultNodeId: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "decompose_hit":
-          await decompose.mutateAsync(p.anchor_node_id);
+          await decompose.mutateAsync({
+            searchResultNodeId: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         default:
           toastError(`Unbekannter Schritt: ${p.name}`);

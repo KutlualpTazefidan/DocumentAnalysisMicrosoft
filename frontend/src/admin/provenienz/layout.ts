@@ -431,6 +431,48 @@ export function buildViewGraph(
     }
   }
 
+  // ── Trail-as-Trunk pre-pass ──────────────────────────────────────────────
+  // When a node carries `triggered_from_node_id`, the canvas should render
+  // the trunk edge from the trail-parent (the nearest ancestor in the same
+  // trail), not from the structural anchor. This produces a single visual
+  // strand "Bewertung → plan → action → new_node" instead of branching
+  // back to the structural origin.
+  //
+  // For each trail-bearing node we resolve the trail-parent:
+  //   1. Find the spawning proposal (the action_proposal that decided it).
+  //      If that proposal carries the SAME trail, use its view as parent.
+  //   2. Otherwise the trail-bearing node is the immediate child of the
+  //      trail head — use the trail head's view directly. Plan/action
+  //      proposal nodes whose `triggered_from_node_id` was set by /next-step
+  //      take this path (they're the entry into the trail).
+  const trailParentByViewId = new Map<string, string>();
+  // Reverse map: when a node has a trail-parent, the structural edge for
+  // that node should be skipped (the trail subsumes it). Keyed by viewId.
+  const trailCoversNode = new Set<string>();
+  for (const n of provNodes) {
+    const trail = String(n.payload.triggered_from_node_id ?? "");
+    if (!trail) continue;
+    const nodeViewId = `view:${n.node_id}`;
+    const spawningProposal = proposalSpawningNode.get(n.node_id);
+    if (spawningProposal) {
+      const proposalTrail = String(
+        spawningProposal.payload.triggered_from_node_id ?? "",
+      );
+      if (proposalTrail === trail) {
+        trailParentByViewId.set(nodeViewId, `view:${spawningProposal.node_id}`);
+        trailCoversNode.add(nodeViewId);
+        continue;
+      }
+    }
+    // No spawning proposal in the same trail — this node IS the immediate
+    // child of the trail head (typically a plan_proposal or action_proposal
+    // raised from a Folge-Knoten). Parent edge points at the trail head.
+    if (g.byId.has(trail)) {
+      trailParentByViewId.set(nodeViewId, `view:${trail}`);
+      trailCoversNode.add(nodeViewId);
+    }
+  }
+
   // ── Bag-bucket data prep (pre-pass) ───────────────────────────────────────
   // Multiple search-runs on the same task each get their own bag,
   // keyed by spawning search-action_proposal. Built BEFORE pass #1 so
@@ -441,9 +483,11 @@ export function buildViewGraph(
     task: ProvNode;
     results: ProvNode[];
     searchProposalId: string | null;
-    parentEdge:
-      | { source: string; kind: "spawns" | "candidates-for"; edgeIdSuffix: string }
-      | null;
+    parentEdge: {
+      source: string;
+      kind: "spawns" | "candidates-for";
+      edgeIdSuffix: string;
+    } | null;
   };
   const bagViewIdByResultId = new Map<string, string>();
   const bagBuckets = new Map<string, BagBucket>();
@@ -506,19 +550,36 @@ export function buildViewGraph(
     });
 
     // Promoted chunks: bag → new chunk (trunk continuation through the loop).
+    // Trail-as-Trunk: when this chunk inherits a trail, the trunk edge
+    // comes from the trail-parent (typically the action_proposal that
+    // spawned the chunk via promote_search_result, or the trail head).
+    // The structural "bag → chunk" relationship stays in the chunk's
+    // payload (`promoted_from`) for audit, but the canvas trunk shows
+    // the trail strand instead.
+    const chunkViewId = `view:${chunk.node_id}`;
     if (promoted) {
       const srId = String(chunk.payload.promoted_from);
       const sr = g.byId.get(srId);
       if (sr && sr.kind === "search_result") {
-        const bagViewId = bagViewIdByResultId.get(srId);
-        if (bagViewId) {
+        const trailParent = trailParentByViewId.get(chunkViewId);
+        if (trailParent) {
           viewEdges.push({
             id: `e:promoted:${chunk.node_id}`,
-            source: bagViewId,
-            target: `view:${chunk.node_id}`,
-            kind: "promoted-from",
-            sourceHandle: `row-${srId}`,
+            source: trailParent,
+            target: chunkViewId,
+            kind: "trail-trunk",
           });
+        } else {
+          const bagViewId = bagViewIdByResultId.get(srId);
+          if (bagViewId) {
+            viewEdges.push({
+              id: `e:promoted:${chunk.node_id}`,
+              source: bagViewId,
+              target: chunkViewId,
+              kind: "promoted-from",
+              sourceHandle: `row-${srId}`,
+            });
+          }
         }
       }
     }
@@ -708,7 +769,7 @@ export function buildViewGraph(
   // through the matching plan_proposal where one exists.
   const planByAnchor = new Map<
     string,
-    { node: typeof provNodes[number]; viewId: string }[]
+    { node: (typeof provNodes)[number]; viewId: string }[]
   >();
   // We push placeholder PlanProposalView entries here and update them
   // (set ``consumed=true``) in the action_proposal pass below. Keeping
@@ -726,8 +787,39 @@ export function buildViewGraph(
     viewNodes.push(view);
     planViewByNodeId.set(n.node_id, view);
     const anchor = n.payload.anchor_node_id as string | undefined;
+    // Trail-as-Trunk: when this plan_proposal carries a trail (i.e. was
+    // invoked from a Folge-Knoten that re-anchored to its parent — e.g.
+    // a Bewertungs-Tile routes its run to the parent search_result),
+    // the trunk parent is the trail head itself, NOT the structural
+    // anchor. The structural anchor stays in the payload for audit;
+    // the canvas renders one continuous trail strand instead of
+    // branching back to the structural origin.
+    const trailParent = trailParentByViewId.get(planViewId);
+    if (trailParent) {
+      viewEdges.push({
+        id: `e:plan:${n.node_id}`,
+        source: trailParent,
+        target: planViewId,
+        kind: "trail-trunk",
+      });
+      // Still record the structural anchor for the action_proposal pass
+      // below — it uses planByAnchor to chain plan → action via the
+      // anchor's tile lookup.
+      if (anchor && g.byId.has(anchor)) {
+        const list = planByAnchor.get(anchor) ?? [];
+        list.push({ node: n, viewId: planViewId });
+        planByAnchor.set(anchor, list);
+      }
+      continue;
+    }
     if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId, actionedResultIds, bagViewIdByResultId);
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
       if (anchorViewId) {
         viewEdges.push({
           id: `e:plan:${n.node_id}`,
@@ -739,22 +831,6 @@ export function buildViewGraph(
       const list = planByAnchor.get(anchor) ?? [];
       list.push({ node: n, viewId: planViewId });
       planByAnchor.set(anchor, list);
-    }
-    // Click-trail edge: when "Was als nächstes?" was invoked from a
-    // Folge-Knoten that re-anchored to its parent (e.g. Bewertungs-Tile
-    // → parent search_result), the backend persists the trail node_id
-    // here. We render it as a SIDE edge so the trunk layout stays a
-    // tree (the trail node already has its own trunk parent), but the
-    // user still sees the visual link "you clicked from there".
-    const trailNodeId = String(n.payload.triggered_from_node_id ?? "");
-    if (trailNodeId && g.byId.has(trailNodeId)) {
-      viewEdges.push({
-        id: `e:trail:${n.node_id}`,
-        source: `view:${trailNodeId}`,
-        target: planViewId,
-        kind: "triggered-from",
-        placement: "side",
-      });
     }
   }
   // Sort each anchor's plan_proposals by creation time so the chain
@@ -800,14 +876,34 @@ export function buildViewGraph(
       const planView = planViewByNodeId.get(linkingPlan.node.node_id);
       if (planView) planView.consumed = true;
     } else {
-      const anchorViewId = mapAnchorToViewId(anchorNodeId, g, taskByClaimId, actionedResultIds, bagViewIdByResultId);
-      if (anchorViewId) {
+      // Trail-as-Trunk: action_proposals raised directly from a
+      // Folge-Knoten (no plan-proposal in between) get their trunk
+      // edge from the trail head. The structural anchor stays in the
+      // payload for audit; the canvas renders the trail strand.
+      const trailParent = trailParentByViewId.get(proposalViewId);
+      if (trailParent) {
         viewEdges.push({
           id: `e:ap:${n.node_id}`,
-          source: anchorViewId,
+          source: trailParent,
           target: proposalViewId,
-          kind: "proposed",
+          kind: "trail-trunk",
         });
+      } else {
+        const anchorViewId = mapAnchorToViewId(
+          anchorNodeId,
+          g,
+          taskByClaimId,
+          actionedResultIds,
+          bagViewIdByResultId,
+        );
+        if (anchorViewId) {
+          viewEdges.push({
+            id: `e:ap:${n.node_id}`,
+            source: anchorViewId,
+            target: proposalViewId,
+            kind: "proposed",
+          });
+        }
       }
     }
   }
@@ -819,7 +915,13 @@ export function buildViewGraph(
     viewNodes.push({ view_id: cvId, kind: "capability_request", request: n });
     const anchor = n.payload.anchor_node_id as string | undefined;
     if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId, actionedResultIds, bagViewIdByResultId);
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
       if (anchorViewId) {
         viewEdges.push({
           id: `e:cap:${n.node_id}`,
@@ -882,9 +984,7 @@ export function buildViewGraph(
     }
     // If the gate has a re-evaluate proposal attached, draw the
     // chain edge gate → action_proposal so the audit chain extends.
-    const reProposalId = String(
-      gateNode.payload.re_evaluate_proposal_id ?? "",
-    );
+    const reProposalId = String(gateNode.payload.re_evaluate_proposal_id ?? "");
     if (reProposalId && g.byId.has(reProposalId)) {
       viewEdges.push({
         id: `e:re-eval:${gateNode.node_id}`,
@@ -921,7 +1021,13 @@ export function buildViewGraph(
     viewNodes.push({ view_id: mvId, kind: "manual_review", review: n });
     const anchor = n.payload.anchor_node_id as string | undefined;
     if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId, actionedResultIds, bagViewIdByResultId);
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
       if (anchorViewId) {
         viewEdges.push({
           id: `e:mr:${n.node_id}`,
@@ -1257,14 +1363,19 @@ function edgeColor(kind: string): string {
       return "#fb923c"; // orange-light — re-eval chain after gate
     case "triggered-from":
       return "#fde047"; // yellow-300 — click-trail when "Was als
-      // nächstes?" was invoked from a Folge-Knoten and re-anchored
-      // to its parent. Distinct hue from amber-400/proposed so the
-      // user spots the trail edge instantly.
+    // nächstes?" was invoked from a Folge-Knoten and re-anchored
+    // to its parent. Distinct hue from amber-400/proposed so the
+    // user spots the trail edge instantly.
+    case "trail-trunk":
+      return "#fde047"; // yellow-300 — same hue as triggered-from so
+    // the click-trail reads as one continuous strand. Used for
+    // every trunk edge that follows the trail through plan →
+    // action → spawned-node, replacing the structural anchor edge.
     case "refreshes":
       return "#fb923c"; // orange-400 — chunk respawned from current
-      // segments.json. Old chunk → new chunk, drawn as a side edge so
-      // the trunk layout treats both as independent roots while the
-      // user still sees "this replaces that".
+    // segments.json. Old chunk → new chunk, drawn as a side edge so
+    // the trunk layout treats both as independent roots while the
+    // user still sees "this replaces that".
     default:
       return "#475569";
   }
