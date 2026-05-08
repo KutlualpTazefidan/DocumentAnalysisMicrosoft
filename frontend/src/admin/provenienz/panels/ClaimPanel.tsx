@@ -43,6 +43,8 @@ export function ClaimPanel({
     ? String(sourceChunk.payload.text ?? "").trim()
     : "";
   const claimText = String(claim.payload.text ?? "");
+  const depthRaw = claim.payload.recursion_depth;
+  const depth = typeof depthRaw === "number" ? depthRaw : 0;
   // Don't show the chunk twice if it equals the claim (single-sentence).
   const showSourceChunk =
     sourceChunkText.length > 0 && sourceChunkText !== claimText.trim();
@@ -137,6 +139,14 @@ export function ClaimPanel({
           <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
             {claimText}
           </p>
+          {depth > 0 && (
+            <p
+              className={`${T.mono} ${T.tiny} text-cyan-300 mt-1`}
+              title={`Aus einem ${depth}× abgeleiteten Chunk extrahiert.`}
+            >
+              ↳ Ebene {depth}
+            </p>
+          )}
         </div>
         {annotationGroups.map((group) => (
           <AnnotationCard key={group.kind} group={group} />

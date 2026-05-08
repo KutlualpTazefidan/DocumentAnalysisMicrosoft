@@ -21,6 +21,8 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
   const promoted = data.promoted;
   const replaced = !!data.replacedByRefresh;
   const claimCount = data.claimCount;
+  const depthRaw = data.chunk.payload.recursion_depth;
+  const depth = typeof depthRaw === "number" ? depthRaw : 0;
 
   return (
     <div
@@ -39,6 +41,14 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
         <span className="flex items-center gap-1">
           <FileText className="w-3 h-3" aria-hidden />
           {promoted ? "Chunk · abgeleitet" : "Chunk"}
+          {depth > 0 && (
+            <span
+              className="ml-1 font-mono text-cyan-300"
+              title={`Rekursionstiefe: ${depth}. Erzeugt durch ${depth}× promote_search_result.`}
+            >
+              ↳ Ebene {depth}
+            </span>
+          )}
           {replaced && (
             <span
               className="ml-1 flex items-center gap-0.5 text-orange-300"

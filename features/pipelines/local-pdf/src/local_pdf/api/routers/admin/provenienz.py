@@ -226,6 +226,9 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
         "box_id": body.root_chunk_id,
         "doc_slug": body.slug,
         "text": text,
+        # Top-level chunk: depth 0. Recursive promote_search_result
+        # increments this on each new derived chunk.
+        "recursion_depth": 0,
         **_load_box_metadata(cfg.data_root, body.slug, body.root_chunk_id),
     }
     append_node(
@@ -747,10 +750,15 @@ async def promote_search_result(
     text = str(sr.payload.get("text", ""))
     box_id = str(sr.payload.get("box_id", ""))
     doc_slug = str(sr.payload.get("doc_slug", ""))
+    # Recursive depth tracking: derived chunk lives one level below its
+    # parent. Older parent chunks (pre-unification) lack the field —
+    # treat as depth 0, so the first promote always lands at depth 1.
+    parent_depth = int(origin_chunk.payload.get("recursion_depth", 0)) if origin_chunk else 0
     promoted_payload: dict[str, Any] = {
         "box_id": box_id,
         "doc_slug": doc_slug,
         "text": text,
+        "recursion_depth": parent_depth + 1,
         "promoted_from": sr.node_id,
         "origin_claim_id": claim.node_id if claim else None,
         "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
@@ -2778,14 +2786,11 @@ def _llm_next_step(
             "Treffer JETZT VERTIEFEN — nicht nochmal bewerten. `evaluate` "
             "ist deshalb aus den verfügbaren Steps entfernt.\n\n"
             "Wähle aus den verbleibenden Steps:\n"
-            "- `decompose_hit` wenn der Treffer mehrere unabhängige "
-            "Aussagen enthält oder eigene Zahlen/Fakten zitiert, die "
-            "selbst Belege brauchen (atomare sub_statements).\n"
-            "- `promote_search_result` wenn der Treffer substanziell ist "
-            "(eigener Absatz, Tabellen-Daten, Zitat aus einer anderen "
-            "Quelle) und wie ein NEUER CHUNK behandelt werden soll: "
-            "extract_claims läuft auf dem promoted Chunk, dann eigene "
-            "Recherche-Schleife — recursive claim tracing.\n"
+            "- `promote_search_result` wenn der Treffer weitere prüfbare "
+            "Aussagen enthält: spawnt einen abgeleiteten Chunk-Knoten, auf "
+            "dem extract_claims regulär läuft und neue Claim-Knoten "
+            "anlegt — recursive claim tracing über die kanonische "
+            "Pipeline.\n"
             "- `propose_stop` nur wenn die Aussage hinreichend belegt ist "
             "und der Treffer keine weiteren prüfbaren Behauptungen "
             "enthält.\n\n"
@@ -2865,12 +2870,18 @@ _VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
     "chunk": ["extract_claims", "propose_stop"],
     "claim": ["formulate_task", "propose_stop"],
     "task": ["search", "propose_stop"],
+    # ``decompose_hit`` is intentionally absent: recursive claim tracing
+    # goes through ``promote_search_result`` → new chunk →
+    # ``extract_claims``, which spawns regular claim Nodes. The legacy
+    # /decompose-hit endpoint stays callable for old action_proposals,
+    # but the planner won't recommend it for new flows.
     "search_result": [
         "evaluate",
-        "decompose_hit",
         "promote_search_result",
         "propose_stop",
     ],
+    # Legacy: ``sub_statement`` Nodes from before the unification still
+    # need their pipeline to read existing sessions.
     "sub_statement": ["evaluate", "propose_stop"],
     "evaluation": ["propose_stop"],
 }
@@ -2901,18 +2912,16 @@ _STEP_DESCRIPTIONS: dict[str, str] = {
         "selbst keine weiterzuverfolgenden Behauptungen enthält."
     ),
     "decompose_hit": (
-        "Zerlege einen Suchtreffer in atomare sub_statements (eine "
-        "messbare Behauptung pro Stück). Nutze WENN der Treffer mehrere "
-        "unabhängige Aussagen enthält ODER eigene Zahlen/Fakten zitiert, "
-        "die selbst Belege brauchen. sub_statements können einzeln "
-        "evaluiert oder weiter recherchiert werden."
+        "[DEPRECATED] Wurde durch promote_search_result + extract_claims "
+        "ersetzt. Bleibt nur für alte Sitzungen lesbar."
     ),
     "promote_search_result": (
-        "Behandle den Suchtreffer als NEUEN Chunk: spawnt einen "
-        "abgeleiteten Chunk-Knoten, auf dem extract_claims läuft. Nutze "
-        "WENN der Treffer substanziell ist (eigener Absatz, Tabellen-Daten, "
-        "Zitat aus einer anderen Quelle), die eine eigene Recherche-Schleife "
-        "rechtfertigt — quasi Chunk-für-Chunk-Recursive-Tracing."
+        "DER kanonische Weg, einen Suchtreffer tiefer zu erforschen: spawnt "
+        "einen abgeleiteten Chunk-Knoten (recursion_depth = parent + 1), "
+        "auf dem dann extract_claims regulär läuft und eigene Claim-Knoten "
+        "anlegt. Nutze IMMER, wenn der Treffer weitere prüfbare Aussagen "
+        "enthält — egal ob ein einzelner Satz oder ein ganzer Absatz. Die "
+        "Pipeline wiederholt sich auf jeder Tiefe."
     ),
     "propose_stop": (
         "Diese Untersuchung abschließen — kein weiterer Schritt sinnvoll. "
@@ -4273,6 +4282,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             except Exception as exc:
                 _log.warning("enrichment skill %s failed: %s", skill.name, exc)
                 skill_results[skill.skill_id] = [""] * len(claim_texts)
+        # Claims inherit recursion_depth from the chunk they're extracted
+        # from. Pre-unification chunks miss the field → fall back to 0.
+        chunk_depth = (
+            int(chunk_for_goals.payload.get("recursion_depth", 0))
+            if chunk_for_goals is not None
+            else 0
+        )
         for idx, ct in enumerate(claim_texts):
             goal_for_claim = claim_goals[idx] if idx < len(claim_goals) else ""
             claim = append_node(
@@ -4286,6 +4302,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                             "text": ct,
                             "source_node_id": anchor_chunk,
                             "goal": goal_for_claim,
+                            "recursion_depth": chunk_depth,
                         }
                     ),
                     actor=claim_actor,

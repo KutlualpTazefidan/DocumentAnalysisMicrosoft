@@ -12,12 +12,22 @@ export function ClaimTile({ data }: NodeProps<ClaimView>): JSX.Element {
   const text = String((data.claim.payload.text as string) ?? "");
   const claimGoal = String((data.claim.payload.goal as string) ?? "");
   const closed = !!data.closedByStop;
+  const depthRaw = data.claim.payload.recursion_depth;
+  const depth = typeof depthRaw === "number" ? depthRaw : 0;
 
   return (
     <div className="rounded-lg border border-blue-500 bg-blue-700/90 px-3 py-2 text-white shadow-md w-64">
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-blue-200">
         <Quote className="w-3 h-3" aria-hidden /> Aussage
+        {depth > 0 && (
+          <span
+            className="ml-1 font-mono text-cyan-300"
+            title={`Rekursionstiefe: ${depth}. Aus einem ${depth}× abgeleiteten Chunk extrahiert.`}
+          >
+            ↳ Ebene {depth}
+          </span>
+        )}
       </header>
       <p className="text-xs leading-snug mt-1 line-clamp-3">{text}</p>
       {claimGoal && (

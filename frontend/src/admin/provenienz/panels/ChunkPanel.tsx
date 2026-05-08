@@ -184,6 +184,7 @@ function BoxMetadataStrip({ chunk }: { chunk: ProvNode }): JSX.Element | null {
     typeof p.reading_order === "number" ? p.reading_order : null;
   const bbox = Array.isArray(p.bbox) && p.bbox.length === 4 ? p.bbox : null;
   const confidence = typeof p.confidence === "number" ? p.confidence : null;
+  const depth = typeof p.recursion_depth === "number" ? p.recursion_depth : 0;
 
   const parts: string[] = [];
   if (page !== null) parts.push(`Seite ${page}`);
@@ -196,6 +197,7 @@ function BoxMetadataStrip({ chunk }: { chunk: ProvNode }): JSX.Element | null {
       parts.push(`${w}×${h} px`);
     }
   }
+  if (depth > 0) parts.push(`↳ Ebene ${depth}`);
 
   if (parts.length === 0) return null;
 
