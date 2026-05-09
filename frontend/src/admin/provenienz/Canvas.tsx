@@ -12,10 +12,13 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import {
   Grid3x3,
+  Hand,
   Maximize2,
   MoveVertical,
   MoveHorizontal,
+  MousePointer2,
   RotateCcw,
+  Wand2,
 } from "lucide-react";
 
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
@@ -55,6 +58,15 @@ export function Canvas({
   const [snap, setSnap] = useState(true);
   const [resetSignal, setResetSignal] = useState(0);
   const lastResetRef = useRef(0);
+  /** "select" = left-drag = lasso, middle/right = pan.
+   *  "pan"    = left-drag = pan, lasso disabled. */
+  const [mouseMode, setMouseMode] = useState<"select" | "pan">("select");
+  /** When true, every time a new node arrives the layout auto-rearranges
+   *  (= triggers a reset) so the new tile sits properly. When false,
+   *  the user's manual moves are preserved and new tiles get an offset
+   *  relative to the dragged root. */
+  const [autoLayout, setAutoLayout] = useState(true);
+  const prevNodeCountRef = useRef(0);
 
   const persisted = usePersistedPositions(sessionId ?? null);
 
@@ -62,6 +74,18 @@ export function Canvas({
     () => layoutGraph(nodes, edges, { direction }, meta),
     [nodes, edges, direction, meta],
   );
+
+  // Auto-layout on new-node arrival: detect when the node count went up
+  // and bump resetSignal so the position-pipeline below uses fresh laid
+  // positions for everything (= "Layout neu berechnen" effect).
+  useEffect(() => {
+    const prev = prevNodeCountRef.current;
+    const curr = nodes.length;
+    prevNodeCountRef.current = curr;
+    if (autoLayout && curr > prev && prev > 0) {
+      setResetSignal((n) => n + 1);
+    }
+  }, [nodes.length, autoLayout]);
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
 
@@ -144,11 +168,12 @@ export function Canvas({
         snapGrid={[16, 16]}
         fitView
         proOptions={{ hideAttribution: true }}
-        // Rectangle-select on empty-pane drag; pan with middle / right
-        // mouse button so the left-button-drag stays for lasso. Selected
-        // nodes can then be dragged together as a group.
-        selectionOnDrag
-        panOnDrag={[1, 2]}
+        // Mouse-mode toggle (toolbar):
+        //   "select" → left-drag draws a lasso, mid/right-drag pans
+        //   "pan"    → left-drag pans (classic), no lasso
+        // Multi-selection via Cmd/Ctrl-click works in both modes.
+        selectionOnDrag={mouseMode === "select"}
+        panOnDrag={mouseMode === "select" ? [1, 2] : true}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={["Meta", "Control"]}
         selectionKeyCode={null}
@@ -168,6 +193,12 @@ export function Canvas({
           }
           snap={snap}
           onToggleSnap={() => setSnap((s) => !s)}
+          mouseMode={mouseMode}
+          onToggleMouseMode={() =>
+            setMouseMode((m) => (m === "select" ? "pan" : "select"))
+          }
+          autoLayout={autoLayout}
+          onToggleAutoLayout={() => setAutoLayout((a) => !a)}
           onReset={() => {
             persisted.clear();
             setResetSignal((n) => n + 1);
@@ -187,12 +218,20 @@ function Toolbar({
   onToggleDirection,
   snap,
   onToggleSnap,
+  mouseMode,
+  onToggleMouseMode,
+  autoLayout,
+  onToggleAutoLayout,
   onReset,
 }: {
   direction: LayoutDirection;
   onToggleDirection: () => void;
   snap: boolean;
   onToggleSnap: () => void;
+  mouseMode: "select" | "pan";
+  onToggleMouseMode: () => void;
+  autoLayout: boolean;
+  onToggleAutoLayout: () => void;
   onReset: () => void;
 }): JSX.Element {
   const rf = useReactFlow();
@@ -230,6 +269,32 @@ function Toolbar({
         active={snap}
       >
         <Grid3x3 className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          mouseMode === "select"
+            ? "Maus: Auswahl-Modus (Links-Drag = Lasso). Klick zum Wechseln auf Pan."
+            : "Maus: Pan-Modus (Links-Drag = verschieben). Klick zum Wechseln auf Auswahl."
+        }
+        onClick={onToggleMouseMode}
+        active={mouseMode === "select"}
+      >
+        {mouseMode === "select" ? (
+          <MousePointer2 className="w-4 h-4" />
+        ) : (
+          <Hand className="w-4 h-4" />
+        )}
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          autoLayout
+            ? "Auto-Layout an: bei neuen Tiles wird neu angeordnet"
+            : "Auto-Layout aus: manuelle Positionen bleiben, neue Tiles werden eingefügt"
+        }
+        onClick={onToggleAutoLayout}
+        active={autoLayout}
+      >
+        <Wand2 className="w-4 h-4" />
       </ToolbarButton>
     </div>
   );
