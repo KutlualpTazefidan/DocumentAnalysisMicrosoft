@@ -1273,6 +1273,33 @@ export function useSearchStep(token: string, sessionId: string) {
   });
 }
 
+/**
+ * RegisterLookup tool executor — resolves a Verzeichnis-reference
+ * ("siehe Tabelle 5", "[3]", "Abb. 7", "Kapitel 3.2") in the task's
+ * query into a structured {number, title, page} hit. When the body
+ * omits `kind` and `number`, the server runs detect_register_target
+ * over the task's query so the panel doesn't have to mirror the
+ * Python detection regex.
+ */
+export function useRegisterLookupStep(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    {
+      task_node_id: string;
+      kind?: "toc" | "list_of_tables" | "list_of_figures" | "bibliography";
+      number?: string;
+      triggered_from_node_id?: string;
+    }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "register-lookup"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
 export function useEvaluate(token: string, sessionId: string) {
   const qc = useQueryClient();
   return useMutation<
