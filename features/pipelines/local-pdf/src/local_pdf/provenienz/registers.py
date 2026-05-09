@@ -34,21 +34,32 @@ from local_pdf.storage.sidecar import read_mineru, read_segments, write_segments
 # Heading-text patterns (case-insensitive, anchored). Punctuation /
 # trailing whitespace is tolerated so ``Inhaltsverzeichnis:`` and
 # ``  Literatur  `` still match.
+# Optional trailing tokens — page numbers ("Literaturverzeichnis 1"),
+# continuation markers ("(Fortsetzung)"), section dashes etc.
+# Capped at 40 chars to avoid swallowing a TOC entry like
+# "5. Literaturverzeichnis ........... 45".
+_TRAILING_TOKENS = r"(\s+.{0,40})?"
 _TOC_PATTERNS = re.compile(
-    r"^\s*(inhaltsverzeichnis|inhalt|contents|table of contents)\s*[:.]?\s*$",
+    r"^\s*(inhaltsverzeichnis|inhalt|contents|table of contents)"
+    + _TRAILING_TOKENS
+    + r"\s*[:.]?\s*$",
     re.IGNORECASE,
 )
 _LOT_PATTERNS = re.compile(
-    r"^\s*(tabellenverzeichnis|liste der tabellen|list of tables)\s*[:.]?\s*$",
+    r"^\s*(tabellenverzeichnis|liste der tabellen|list of tables)"
+    + _TRAILING_TOKENS
+    + r"\s*[:.]?\s*$",
     re.IGNORECASE,
 )
 _LOF_PATTERNS = re.compile(
-    r"^\s*(abbildungsverzeichnis|liste der abbildungen|list of figures)\s*[:.]?\s*$",
+    r"^\s*(abbildungsverzeichnis|liste der abbildungen|list of figures)"
+    + _TRAILING_TOKENS
+    + r"\s*[:.]?\s*$",
     re.IGNORECASE,
 )
 _BIB_PATTERNS = re.compile(
     r"^\s*(literaturverzeichnis|literatur|bibliograph(ie|y)|quellen|references|"
-    r"weiterführende literatur)\s*[:.]?\s*$",
+    r"weiterführende literatur)" + _TRAILING_TOKENS + r"\s*[:.]?\s*$",
     re.IGNORECASE,
 )
 
@@ -92,13 +103,28 @@ _TRAILING_PAGE_RE = re.compile(
 )
 
 
+# Whitelist of column-header / sub-heading texts within a Verzeichnis
+# that should NOT end an active walk. Real Verzeichnisse often have a
+# "Seite" / "Page" sub-heading as a column label between the title
+# heading and the entries.
+_VERZEICHNIS_COLUMN_HEADERS = re.compile(
+    r"^\s*(seite|page|eintrag|nr\.?|nummer|number|titel|title|"
+    r"reference|fundstelle|quelle)\s*[:.]?\s*$",
+    re.IGNORECASE,
+)
+
+
 def detect_registers(
     boxes: list[SegmentBox], heading_text_lookup: dict[str, str]
 ) -> list[SegmentBox]:
     """Walk *boxes* in (page, reading_order). When a heading matches a
     Verzeichnis pattern, reclassify all subsequent
     paragraph/list_item/table boxes as the matching register kind until
-    the next heading is reached.
+    the walk hits a SECTION-heading break (numbered or "Kapitel N…")
+    OR a different Verzeichnis-pattern heading.
+
+    Headings that don't match either pattern (e.g. column-headers like
+    "Seite" within a TOC) are ignored — they don't end the walk.
 
     Args:
         boxes: SegmentBox list (frozen — input is not mutated).
@@ -120,7 +146,18 @@ def detect_registers(
                 if pattern.match(text):
                     new_kind = kind
                     break
-            active_register = new_kind  # None if heading doesn't match
+            if new_kind is not None:
+                # Verzeichnis switch — start (or restart) the walk.
+                active_register = new_kind
+            elif _VERZEICHNIS_COLUMN_HEADERS.match(text):
+                # In-Verzeichnis column header ("Seite", "Page",
+                # "Titel", etc.) — keep walking, don't end the
+                # active register.
+                pass
+            else:
+                # Any other heading is a real section break and ends
+                # the walk. The next register heading restarts it.
+                active_register = None
             continue
         if active_register is None:
             continue
