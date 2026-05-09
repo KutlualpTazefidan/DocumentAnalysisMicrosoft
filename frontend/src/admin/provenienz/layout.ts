@@ -1484,13 +1484,11 @@ export function layoutViewGraph(
       target: e.target,
       sourceHandle: e.sourceHandle,
       type: "smoothstep",
-      // offset:0 stops smoothstep from injecting a fixed horizontal jog
-      // between source and target — that jog was 24 px, larger than the
-      // current RANK_SEP=16, which produced visible loops on every
-      // parent→child edge. With offset:0, perfectly-centred parent/child
-      // pairs render as a straight vertical line; offset pairs render
-      // as a clean L with small rounded corners.
-      pathOptions: { borderRadius: 4, offset: 0 },
+      // offset = half RANK_SEP keeps smoothstep's perpendicular run-out
+      // small enough to fit inside the rank gap (no loop) while leaving
+      // a vertical segment at both ends so the arrow marker points
+      // straight down, not sideways.
+      pathOptions: { borderRadius: 4, offset: 8 },
       style: { stroke: color, strokeWidth: 1.5 },
       markerEnd: { type: MarkerType.ArrowClosed, color },
     };
