@@ -42,7 +42,10 @@ def _box(
 
 
 def test_detect_registers_classifies_after_heading():
-    """Heading 'Inhaltsverzeichnis' followed by paragraphs → toc."""
+    """Heading 'Inhaltsverzeichnis' + paragraphs → all share kind=toc.
+    The title heading is reclassified too so the whole block visually
+    groups under one colour.
+    """
     boxes = [
         _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
         _box("p1-b0", page=1, reading_order=1),
@@ -51,9 +54,40 @@ def test_detect_registers_classifies_after_heading():
     headings = {"p1-h0": "Inhaltsverzeichnis"}
     out = detect_registers(boxes, headings)
     out_by_id = {b.box_id: b for b in out}
-    assert out_by_id["p1-h0"].kind == BoxKind.heading  # heading itself untouched
+    assert out_by_id["p1-h0"].kind == BoxKind.toc  # title heading reclassified
     assert out_by_id["p1-b0"].kind == BoxKind.toc
     assert out_by_id["p1-b1"].kind == BoxKind.toc
+
+
+def test_detect_registers_reclassifies_column_header():
+    """The 'Seite' / 'Page' column-sub-heading inside a Verzeichnis is
+    reclassified into the same register kind as the entries — keeps
+    the heading-tree clean and the visual block consistent.
+    """
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-h1", page=1, reading_order=1, kind=BoxKind.heading),
+        _box("p1-b0", page=1, reading_order=2),
+    ]
+    headings = {"p1-h0": "Inhaltsverzeichnis", "p1-h1": "Seite"}
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-h0"].kind == BoxKind.toc
+    assert out_by_id["p1-h1"].kind == BoxKind.toc  # column header
+    assert out_by_id["p1-b0"].kind == BoxKind.toc
+
+
+def test_detect_registers_column_header_outside_verzeichnis_untouched():
+    """A 'Seite' heading without an active register-walk stays a heading."""
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-b0", page=1, reading_order=1),
+    ]
+    headings = {"p1-h0": "Seite"}  # no Verzeichnis preceded it
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-h0"].kind == BoxKind.heading
+    assert out_by_id["p1-b0"].kind == BoxKind.paragraph
 
 
 def test_detect_registers_stops_at_next_heading():
@@ -149,10 +183,13 @@ def test_detect_and_persist_registers_writes_segments(tmp_path: Path):
         },
     )
     changed = detect_and_persist_registers(tmp_path, slug)
-    assert changed == 2
+    # 3 = title heading + 2 entries (title-heading reclassification is part
+    # of the new "whole block shares one kind" behaviour).
+    assert changed == 3
     seg = read_segments(tmp_path, slug)
     assert seg is not None
     by_id = {b.box_id: b for b in seg.boxes}
+    assert by_id["p1-h0"].kind == BoxKind.toc
     assert by_id["p1-b0"].kind == BoxKind.toc
     assert by_id["p1-b1"].kind == BoxKind.toc
 
@@ -184,8 +221,11 @@ def test_detect_and_persist_registers_returns_zero_when_no_match(tmp_path: Path)
 
 
 def _seed_toc_doc(tmp_path: Path, slug: str = "doc") -> None:
+    """Three TOC-kind boxes: a title heading (filtered out by
+    read_register), and two entry boxes spanning two pages.
+    """
     boxes = [
-        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.toc),
         _box("p1-b0", page=1, reading_order=1, kind=BoxKind.toc),
         _box("p2-b0", page=2, reading_order=0, kind=BoxKind.toc),
     ]
@@ -211,23 +251,57 @@ def _seed_toc_doc(tmp_path: Path, slug: str = "doc") -> None:
 
 
 def test_read_register_consolidates_multipage(tmp_path: Path):
-    """Boxes from multiple pages roll up into one entry list + Markdown."""
+    """Boxes from multiple pages roll up into one structured entry
+    list. Title heading is filtered out; remaining lines parsed
+    into ``{number, title, page}``.
+    """
     _seed_toc_doc(tmp_path)
     out = read_register(tmp_path, "doc", BoxKind.toc)
     assert out is not None
     assert out["kind"] == "toc"
     assert out["title"] == "Inhaltsverzeichnis"
-    labels = [e["label"] for e in out["entries"]]
-    assert "1. Einleitung" in labels
-    assert "2. Methoden" in labels
-    assert "3. Ergebnisse" in labels
+    numbers = [e["number"] for e in out["entries"]]
+    titles = [e["title"] for e in out["entries"]]
     pages = [e["page"] for e in out["entries"]]
-    assert "1" in pages and "5" in pages and "12" in pages
+    assert numbers == ["1", "2", "3"]
+    assert titles == ["Einleitung", "Methoden", "Ergebnisse"]
+    assert pages == ["1", "5", "12"]
+    # Title heading box is filtered out — only entry boxes contribute.
     assert out["source_box_ids"] == ["p1-b0", "p2-b0"]
     md = out["markdown"]
-    assert "| Eintrag | Seite |" in md
-    assert "| 1. Einleitung | 1 |" in md
-    assert "| 3. Ergebnisse | 12 |" in md
+    assert "| Nr. | Eintrag | Seite |" in md
+    assert "| 1 | Einleitung | 1 |" in md
+    assert "| 3 | Ergebnisse | 12 |" in md
+
+
+def test_read_register_skips_column_header_box(tmp_path: Path):
+    """A 'Seite'-only box (column-sub-header reclassified to toc) is
+    filtered out — only real entry rows make it into the table.
+    """
+    slug = "doc"
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.toc),  # title
+        _box("p1-h1", page=1, reading_order=1, kind=BoxKind.toc),  # column header
+        _box("p1-b0", page=1, reading_order=2, kind=BoxKind.toc),
+    ]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-h0", "html_snippet": "<h2>Inhaltsverzeichnis</h2>"},
+                {"box_id": "p1-h1", "html_snippet": "<h3>Seite</h3>"},
+                {"box_id": "p1-b0", "html_snippet": "<p>1. Einleitung 5</p>"},
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.toc)
+    assert out is not None
+    assert out["source_box_ids"] == ["p1-b0"]  # h0/h1 filtered
+    assert len(out["entries"]) == 1
+    assert out["entries"][0] == {"number": "1", "title": "Einleitung", "page": "5"}
 
 
 def test_read_register_returns_none_when_no_boxes(tmp_path: Path):
@@ -239,8 +313,10 @@ def test_read_register_returns_none_when_no_boxes(tmp_path: Path):
     assert read_register(tmp_path, slug, BoxKind.toc) is None
 
 
-def test_read_register_bibliography_renders_single_column(tmp_path: Path):
-    """Bibliography labels typically lack page numbers — single-column table."""
+def test_read_register_bibliography_renders_two_column_nr_quelle(tmp_path: Path):
+    """Bibliography → ``Nr. | Quelle`` (no page column). Citation key
+    inside ``[…]`` becomes ``number``; the rest becomes ``title``.
+    """
     slug = "doc"
     boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.bibliography)]
     write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
@@ -259,7 +335,89 @@ def test_read_register_bibliography_renders_single_column(tmp_path: Path):
     )
     out = read_register(tmp_path, slug, BoxKind.bibliography)
     assert out is not None
-    assert "| Quelle |" in out["markdown"]
-    # Markdown table must NOT have a page column
-    assert "| Eintrag | Seite |" not in out["markdown"]
-    assert any("[1] Smith" in e["label"] for e in out["entries"])
+    md = out["markdown"]
+    assert "| Nr. | Quelle |" in md
+    assert "| Nr. | Eintrag | Seite |" not in md
+    nums = [e["number"] for e in out["entries"]]
+    titles = [e["title"] for e in out["entries"]]
+    assert nums == ["1", "2"]
+    assert titles[0].startswith("Smith J. (2020)")
+    assert titles[1].startswith("Doe A. (2021)")
+
+
+def test_read_register_list_of_tables_strips_table_prefix(tmp_path: Path):
+    """LOT entries like 'Tabelle 5: Konservative Werte 12' → number=5,
+    title=Konservative Werte, page=12.
+    """
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.list_of_tables)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {
+                    "box_id": "p1-b0",
+                    "html_snippet": (
+                        "<p>Tabelle 5: Konservative Werte 12\nTab. 6 - Reaktor­typen 18</p>"
+                    ),
+                }
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.list_of_tables)
+    assert out is not None
+    nums = [e["number"] for e in out["entries"]]
+    titles = [e["title"] for e in out["entries"]]
+    pages = [e["page"] for e in out["entries"]]
+    assert nums == ["5", "6"]
+    assert "Konservative Werte" in titles[0]
+    assert "Reaktor" in titles[1]
+    assert pages == ["12", "18"]
+
+
+def test_read_register_list_of_figures_strips_figure_prefix(tmp_path: Path):
+    """LOF entries like 'Abb. 4: Schema der Anlage 8' → number=4."""
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.list_of_figures)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {
+                    "box_id": "p1-b0",
+                    "html_snippet": "<p>Abb. 4: Schema der Anlage 8</p>",
+                }
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.list_of_figures)
+    assert out is not None
+    assert out["entries"] == [{"number": "4", "title": "Schema der Anlage", "page": "8"}]
+
+
+def test_read_register_unnumbered_entry_keeps_title(tmp_path: Path):
+    """Entries without a leading number (``Vorwort … iii``) yield
+    ``number=""`` rather than dropping the line. Title and page survive.
+    """
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.toc)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-b0", "html_snippet": "<p>Vorwort iii</p>"},
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.toc)
+    assert out is not None
+    assert out["entries"] == [{"number": "", "title": "Vorwort", "page": "iii"}]

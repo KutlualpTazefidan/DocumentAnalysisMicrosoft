@@ -118,13 +118,17 @@ def detect_registers(
     boxes: list[SegmentBox], heading_text_lookup: dict[str, str]
 ) -> list[SegmentBox]:
     """Walk *boxes* in (page, reading_order). When a heading matches a
-    Verzeichnis pattern, reclassify all subsequent
-    paragraph/list_item/table boxes as the matching register kind until
-    the walk hits a SECTION-heading break (numbered or "Kapitel N…")
-    OR a different Verzeichnis-pattern heading.
+    Verzeichnis pattern, reclassify ALL boxes belonging to that
+    Verzeichnis — title heading, ``Seite``/``Page`` column-sub-header,
+    plus the entry boxes (paragraph/list_item/table) — into the
+    matching register kind. The walk continues until a real
+    section-heading break (e.g. ``Einleitung``, ``Diskussion``) ends
+    it, or a different Verzeichnis-pattern starts a new walk.
 
-    Headings that don't match either pattern (e.g. column-headers like
-    "Seite" within a TOC) are ignored — they don't end the walk.
+    Reclassifying the title heading (``Inhaltsverzeichnis``) keeps the
+    whole block visually grouped under one colour and removes the
+    Verzeichnis from the section heading-tree (it's not a section of
+    the document — it's an index OF the sections).
 
     Args:
         boxes: SegmentBox list (frozen — input is not mutated).
@@ -147,17 +151,21 @@ def detect_registers(
                     new_kind = kind
                     break
             if new_kind is not None:
-                # Verzeichnis switch — start (or restart) the walk.
+                # Verzeichnis title — start (or restart) the walk.
                 active_register = new_kind
-            elif _VERZEICHNIS_COLUMN_HEADERS.match(text):
-                # In-Verzeichnis column header ("Seite", "Page",
-                # "Titel", etc.) — keep walking, don't end the
-                # active register.
+            elif active_register is not None and _VERZEICHNIS_COLUMN_HEADERS.match(text):
+                # In-Verzeichnis column-header ("Seite", "Page",
+                # "Titel", …) — keep the walk active.
                 pass
             else:
-                # Any other heading is a real section break and ends
-                # the walk. The next register heading restarts it.
+                # Real section break — end the walk; this heading
+                # stays as kind=heading.
                 active_register = None
+            # Inside an active Verzeichnis, the heading itself (title or
+            # column-header) gets reclassified too so the whole block
+            # shares one kind/colour.
+            if active_register is not None and not b.manually_activated:
+                result[i] = b.model_copy(update={"kind": active_register})
             continue
         if active_register is None:
             continue
@@ -224,11 +232,91 @@ def _by_box_id(originals: list[SegmentBox], updated: list[SegmentBox]) -> list[S
     return [by_id.get(b.box_id, b) for b in originals]
 
 
+# Per-kind number/title splitters. Each pattern carves a leading
+# "number" (chapter no, table no, figure no, citation key) off a line
+# *after* the trailing page has already been stripped off. Falling
+# back to ``number=""`` keeps unnumbered entries (``Vorwort``,
+# free-form bibliography) intact instead of dropping them.
+_TOC_NUMBER_RE = re.compile(
+    # Numeric (1, 1.2, 1.2.3, optional trailing dot) OR uppercase letter
+    # + optional sub-numbers (A, A.1) — typical TOC dewey or
+    # appendix-letter prefix.
+    r"^(?P<num>\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+(?P<title>.+)$"
+)
+# Trailing-separator class — table/figure entries in real PDFs use a
+# colon, period, ASCII hyphen, en-dash or em-dash before the title.
+# en-/em-dash are intentional (RUF001 silenced).
+_NUM_TITLE_SEP = r"[:.\-–—]?"  # noqa: RUF001
+# "Tabelle 5: Konservative Werte" / "Tab. 5 Konservative Werte" /
+# "Table 5 - Conservative values".
+_LOT_NUMBER_RE = re.compile(
+    r"^(?:Tabelle|Tab\.?|Table)\s+(?P<num>\d+(?:[.\-]\d+)*\.?)\s*"
+    + _NUM_TITLE_SEP
+    + r"\s*(?P<title>.*)$",
+    re.IGNORECASE,
+)
+_LOF_NUMBER_RE = re.compile(
+    r"^(?:Abbildung|Abb\.?|Figure|Fig\.?)\s+(?P<num>\d+(?:[.\-]\d+)*\.?)\s*"
+    + _NUM_TITLE_SEP
+    + r"\s*(?P<title>.*)$",
+    re.IGNORECASE,
+)
+# "[3] Müller, K. (2003). Reaktorsicherheit." / "(Schmidt 2010) …" —
+# bracket-prefixed citation keys. Length cap (40 chars inside the
+# brackets) avoids accidentally swallowing parens that appear inside
+# free-form citation text.
+_BIB_NUMBER_RE = re.compile(r"^[\[(](?P<num>[^\])]{1,40})[\])]\s*(?P<title>.*)$")
+
+_NUMBER_RE_BY_KIND: dict[BoxKind, re.Pattern[str]] = {
+    BoxKind.toc: _TOC_NUMBER_RE,
+    BoxKind.list_of_tables: _LOT_NUMBER_RE,
+    BoxKind.list_of_figures: _LOF_NUMBER_RE,
+    BoxKind.bibliography: _BIB_NUMBER_RE,
+}
+
+# Lookup the title-heading regex by kind — read_register uses this to
+# skip the Verzeichnis-title box (which detect_registers reclassified
+# into the same kind as the entries).
+_TITLE_PATTERN_BY_KIND: dict[BoxKind, re.Pattern[str]] = {k: p for p, k in _HEADING_TO_KIND}
+
+
+def _parse_entry_line(line: str, kind: BoxKind) -> dict[str, str]:
+    """Split one Verzeichnis line into ``{number, title, page}``.
+
+    Two-step parse: trailing page first (``…1. Einleitung … 5`` →
+    label=``1. Einleitung``, page=``5``), then per-kind number/title
+    split (TOC: ``1. Einleitung`` → number=``1``, title=``Einleitung``).
+
+    Empty fields are returned as ``""`` so the caller never has to
+    handle ``None``.
+    """
+    m_page = _TRAILING_PAGE_RE.match(line)
+    if m_page:
+        label, page = m_page.group("label").strip(), m_page.group("page")
+    else:
+        label, page = line, ""
+    pattern = _NUMBER_RE_BY_KIND[kind]
+    m_num = pattern.match(label)
+    if m_num:
+        return {
+            "number": m_num.group("num").rstrip(".").strip(),
+            "title": m_num.group("title").strip(),
+            "page": page,
+        }
+    return {"number": "", "title": label, "page": page}
+
+
 def read_register(data_root: Path, slug: str, kind: BoxKind) -> dict | None:
     """Walk segments.json for boxes with ``kind == kind``, sorted by
     (page, reading_order). Concatenate their html_snippet → text. Render
-    as one consolidated Markdown table with columns derived from line
-    structure (e.g. ``Eintrag | Seite`` for TOC).
+    as one consolidated Markdown table with structured
+    ``{number, title, page}`` rows.
+
+    The Verzeichnis-title heading and ``Seite``/``Page`` column-header
+    sub-heading were also reclassified into the register-kind by
+    :func:`detect_registers`. They get filtered out here by re-applying
+    the same patterns to each box's first line — only entries make it
+    into the table.
 
     Args:
         data_root: data root directory.
@@ -240,8 +328,8 @@ def read_register(data_root: Path, slug: str, kind: BoxKind) -> dict | None:
         ``{
             "kind": "toc",
             "title": "Inhaltsverzeichnis",
-            "entries": [{"label": "1. Einleitung", "page": "1"}, ...],
-            "markdown": "| Eintrag | Seite |\\n| --- | --- |\\n...",
+            "entries": [{"number": "1", "title": "Einleitung", "page": "5"}, ...],
+            "markdown": "| Nr. | Eintrag | Seite |\\n| --- | --- | --- |\\n...",
             "source_box_ids": ["p2-b1", "p2-b2", ...],
         }``
         or ``None`` when no boxes of that kind exist.
@@ -263,34 +351,40 @@ def read_register(data_root: Path, slug: str, kind: BoxKind) -> dict | None:
         for el in mineru.get("elements", []):
             text_by_id[el["box_id"]] = strip_html(el.get("html_snippet", ""))
 
+    title_pattern = _TITLE_PATTERN_BY_KIND[kind]
     entries: list[dict[str, str]] = []
     source_box_ids: list[str] = []
     for b in register_boxes:
-        source_box_ids.append(b.box_id)
         text = text_by_id.get(b.box_id, "").strip()
         if not text:
             continue
+        # Skip the title-heading box and column-header sub-heading box —
+        # both share kind=<register> after detect_registers but contain
+        # no entry data.
+        first_line = text.splitlines()[0].strip()
+        if title_pattern.match(first_line) or _VERZEICHNIS_COLUMN_HEADERS.match(first_line):
+            continue
+        source_box_ids.append(b.box_id)
         for line in (ln.strip() for ln in text.splitlines()):
             if not line:
                 continue
-            m = _TRAILING_PAGE_RE.match(line)
-            if m:
-                entries.append({"label": m.group("label").strip(), "page": m.group("page")})
-            else:
-                entries.append({"label": line, "page": ""})
+            entries.append(_parse_entry_line(line, kind))
 
     title = _REGISTER_TITLES[kind]
     is_bib = kind == BoxKind.bibliography
     if is_bib:
         # Bibliography entries usually don't have a page number — render
-        # as a single-column list of the labels, drop the page column.
-        header = "| Quelle |"
-        sep = "| --- |"
-        rows = [f"| {_md_escape(e['label'])} |" for e in entries]
-    else:
-        header = "| Eintrag | Seite |"
+        # as Nr. + Quelle and drop the page column.
+        header = "| Nr. | Quelle |"
         sep = "| --- | --- |"
-        rows = [f"| {_md_escape(e['label'])} | {_md_escape(e['page'])} |" for e in entries]
+        rows = [f"| {_md_escape(e['number'])} | {_md_escape(e['title'])} |" for e in entries]
+    else:
+        header = "| Nr. | Eintrag | Seite |"
+        sep = "| --- | --- | --- |"
+        rows = [
+            f"| {_md_escape(e['number'])} | {_md_escape(e['title'])} | {_md_escape(e['page'])} |"
+            for e in entries
+        ]
     markdown = "\n".join([header, sep, *rows])
     return {
         "kind": kind.value,
