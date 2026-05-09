@@ -58,9 +58,9 @@ export function Canvas({
   const [snap, setSnap] = useState(true);
   const [resetSignal, setResetSignal] = useState(0);
   const lastResetRef = useRef(0);
-  /** "select" = left-drag = lasso, middle/right = pan.
-   *  "pan"    = left-drag = pan, lasso disabled. */
-  const [mouseMode, setMouseMode] = useState<"select" | "pan">("select");
+  /** "pan"    = left-drag = pan (classic, default).
+   *  "select" = left-drag = lasso, mid/right = pan. */
+  const [mouseMode, setMouseMode] = useState<"select" | "pan">("pan");
   /** When true, every time a new node arrives the layout auto-rearranges
    *  (= triggers a reset) so the new tile sits properly. When false,
    *  the user's manual moves are preserved and new tiles get an offset
