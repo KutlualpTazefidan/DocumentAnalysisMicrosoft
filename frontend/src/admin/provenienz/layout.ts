@@ -1154,14 +1154,15 @@ function mapAnchorToViewId(
  * For LR direction the same idea applies rotated 90°.
  */
 
-// Box-to-box gaps. Tightened to 1rem (16px) for a dense canvas —
-// siblings and parent-child rest on the same target so the visual
-// grid reads as evenly-spaced. ROOT_SEP stays a notch larger so
+// Box-to-box gaps. 5rem default for trunk + sibling padding — leaves
+// enough vertical breathing room that the smoothstep offset doesn't
+// crowd the rank gap, and gives long-content tiles space to render
+// without overlapping neighbours. ROOT_SEP stays a notch larger so
 // independent subtrees remain distinguishable as separate groups.
 // MARGIN is zero — ReactFlow's viewport padding takes over.
-const TILE_SEP = 16; // sibling-to-sibling padding within a level (1rem)
-const RANK_SEP = 16; // parent-to-child padding (trunk depth) (1rem)
-const ROOT_SEP = 32; // gap between independent root subtrees (also row gap) (2rem)
+const TILE_SEP = 80; // sibling-to-sibling padding within a level (5rem)
+const RANK_SEP = 80; // parent-to-child padding (trunk depth) (5rem)
+const ROOT_SEP = 96; // gap between independent root subtrees (also row gap) (6rem)
 const MARGIN = 0;
 /**
  * Wrap roots onto a new row once the cumulative subtree width on the current
@@ -1447,7 +1448,7 @@ export function layoutViewGraph(
   // Side placement: dock each side-edge target next to its source. For
   // TB direction the target sits to the right of the source at the same
   // vertical centre; for LR direction it sits below.
-  const SIDE_GAP = 16; // 1rem — matches TILE_SEP / RANK_SEP for visual consistency
+  const SIDE_GAP = 80; // 5rem — matches TILE_SEP / RANK_SEP for visual consistency
   for (const e of sideEdges) {
     const sourcePos = positions.get(e.source);
     if (!sourcePos) continue;
