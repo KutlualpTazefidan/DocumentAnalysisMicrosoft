@@ -99,6 +99,17 @@ export function ChunkPanel({
             {text}
           </p>
         </div>
+        {typeof chunk.payload.caption_text === "string" &&
+          chunk.payload.caption_text && (
+            <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
+              <p className={`${T.tinyBold} text-cyan-300`}>
+                📑 Caption ({String(chunk.payload.caption_box_id ?? "")})
+              </p>
+              <p className={`text-cyan-100 ${T.body} mt-0.5`}>
+                {String(chunk.payload.caption_text)}
+              </p>
+            </div>
+          )}
         <div className="flex items-center justify-between gap-2">
           <BoxMetadataStrip chunk={chunk} />
           <button

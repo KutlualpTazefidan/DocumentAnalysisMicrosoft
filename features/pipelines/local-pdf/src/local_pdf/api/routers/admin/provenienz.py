@@ -69,6 +69,11 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
     Field name ``box_kind`` (rather than ``kind``) avoids colliding with the
     Provenienz ``Node.kind`` field, which already has well-defined semantics
     (chunk / claim / task / search_result / …).
+
+    For figure / table boxes additionally attaches the closest adjacent
+    caption (same page, ``|reading_order - target| <= 1``, kind=caption)
+    as ``caption_box_id`` + ``caption_text`` so the agent + UI see what
+    the figure/table is actually labelled.
     """
     try:
         seg = read_segments(data_root, slug)
@@ -76,18 +81,46 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
         return {}
     if seg is None:
         return {}
-    for b in seg.boxes:
-        if b.box_id == box_id:
-            return {
-                "page": b.page,
-                "bbox": list(b.bbox),
-                "box_kind": b.kind,
-                "reading_order": b.reading_order,
-                "continues_from": b.continues_from,
-                "continues_to": b.continues_to,
-                "confidence": b.confidence,
-            }
-    return {}
+    target = next((b for b in seg.boxes if b.box_id == box_id), None)
+    if target is None:
+        return {}
+    out: dict = {
+        "page": target.page,
+        "bbox": list(target.bbox),
+        "box_kind": target.kind,
+        "reading_order": target.reading_order,
+        "continues_from": target.continues_from,
+        "continues_to": target.continues_to,
+        "confidence": target.confidence,
+    }
+    # Caption attachment heuristic for visual elements: pick the
+    # nearest caption box on the same page whose reading_order is one
+    # step away (typical doc layout: figure followed by caption, or
+    # caption followed by table). Two-step distance is allowed when
+    # there's no closer candidate — covers split layouts.
+    if target.kind in ("figure", "table"):
+        candidates = [
+            b
+            for b in seg.boxes
+            if b.kind == "caption"
+            and b.page == target.page
+            and 0 < abs(b.reading_order - target.reading_order) <= 2
+        ]
+        if candidates:
+            cap = min(
+                candidates,
+                key=lambda b: abs(b.reading_order - target.reading_order),
+            )
+            mineru = read_mineru(data_root, slug) or {"elements": []}
+            cap_el = next(
+                (e for e in mineru.get("elements", []) if e.get("box_id") == cap.box_id),
+                None,
+            )
+            cap_text = _strip_html(cap_el.get("html_snippet", "")) if cap_el else ""
+            if cap_text:
+                out["caption_box_id"] = cap.box_id
+                out["caption_text"] = cap_text[:300]
+    return out
 
 
 def _chunk_text_hash(text: str) -> str:
@@ -1729,9 +1762,16 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         claim_goal="",
     )
     full_system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "") + _NO_THINK
+    # For figure/table chunks: prepend the caption (if attached at
+    # session-creation / promote time) so the agent reads label and
+    # content together when extracting claims.
+    extract_text = str(chunk.payload.get("text", ""))
+    cap = str(chunk.payload.get("caption_text", "")).strip()
+    if cap:
+        extract_text = f"Caption: {cap}\n\n{extract_text}"
     try:
         claims = _llm_extract_claims(
-            chunk.payload.get("text", ""),
+            extract_text,
             body.provider or "vllm",
             extra_system=extra_system,
         )
@@ -2156,9 +2196,17 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                 detail=f"sub_statement {body.search_result_node_id} has no parent search_result",
             )
         candidate_text = str(anchor.payload.get("text", ""))
+        sr_for_caption = anchor
     else:
         sr = anchor
         candidate_text = str(sr.payload.get("text", ""))
+        sr_for_caption = sr
+    # When the candidate hit / sub-statement carries a caption (figure
+    # or table), prepend it so the LLM evaluating the candidate sees
+    # the label alongside the content.
+    cap = str(sr_for_caption.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
     # Resolve the upstream claim_id either from the request or via the
     # chain search_result → task → claim. The chain hops are stable:
     # search_result.payload.task_node_id and task.payload.focus_claim_id

@@ -53,6 +53,8 @@ export function SearchResultPanel({
     box_kind?: string;
     reading_order?: number;
     bbox?: number[];
+    caption_box_id?: string;
+    caption_text?: string;
   };
   const verdict = evalNode
     ? String((evalNode.payload as { verdict?: string }).verdict ?? "")
@@ -145,6 +147,14 @@ export function SearchResultPanel({
         <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
           {String(p.text ?? "")}
         </p>
+        {p.caption_text && (
+          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
+            <p className={`${T.tinyBold} text-cyan-300`}>
+              📑 Caption ({p.caption_box_id})
+            </p>
+            <p className={`text-cyan-100 ${T.body} mt-0.5`}>{p.caption_text}</p>
+          </div>
+        )}
         {annotationGroups.map((group) => (
           <AnnotationCard key={group.kind} group={group} />
         ))}
