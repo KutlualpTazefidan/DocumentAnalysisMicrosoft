@@ -1,8 +1,8 @@
 import { CornerDownRight, FolderOpen, Sparkles, Trash2 } from "lucide-react";
-import { Link } from "react-router-dom";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useCrossDocSearchStep,
   useDeleteNode,
   useEvaluate,
   useNextStepStream,
@@ -82,9 +82,22 @@ export function SearchResultPanel({
 
   const evaluate = useEvaluate(token, sessionId);
   const promote = usePromoteSearchResult(token, sessionId);
+  const crossDocSearch = useCrossDocSearchStep(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+
+  // Find the parent task Node by walking edges backward — needed to
+  // continue the original task (its query) against the foreign slug
+  // when the user clicks "weiterführen".
+  const parentTaskId = (() => {
+    const incoming = edges.filter((e) => e.to_node === result.node_id);
+    for (const e of incoming) {
+      const src = nodes.find((n) => n.node_id === e.from_node);
+      if (src && src.kind === "task") return src.node_id;
+    }
+    return null;
+  })();
 
   async function handleEvaluate(): Promise<void> {
     try {
@@ -106,6 +119,18 @@ export function SearchResultPanel({
     try {
       await del.mutateAsync(result.node_id);
       onSelectView(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+  async function handleContinueInCorpusMatch(): Promise<void> {
+    if (!parentTaskId || !p.corpus_match) return;
+    try {
+      await crossDocSearch.mutateAsync({
+        task_node_id: parentTaskId,
+        target_slug: p.corpus_match.slug,
+        triggered_from_node_id: result.node_id,
+      });
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -189,13 +214,22 @@ export function SearchResultPanel({
               Match-Score {p.corpus_match.score} · Token-Treffer:{" "}
               <span className="font-mono">{p.corpus_match.matched_tokens.join(", ")}</span>
             </p>
-            <Link
-              to={`/admin/doc/${encodeURIComponent(p.corpus_match.slug)}/provenienz`}
-              className={`inline-flex items-center gap-1 mt-1 px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white ${T.tiny}`}
-              title="Sitzung in dem zitierten Dokument starten"
+            <button
+              type="button"
+              onClick={() => void handleContinueInCorpusMatch()}
+              disabled={!parentTaskId || crossDocSearch.isPending}
+              title={
+                parentTaskId
+                  ? `Original-Aufgabe gegen ${p.corpus_match.slug} suchen — die Treffer landen in dieser Session.`
+                  : "Kein Eltern-Task gefunden — kann die Aufgabe nicht übertragen."
+              }
+              className={`inline-flex items-center gap-1 mt-1 px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white ${T.tiny}`}
             >
-              <FolderOpen className="w-3 h-3" aria-hidden />→ in {p.corpus_match.slug} öffnen
-            </Link>
+              <FolderOpen className="w-3 h-3" aria-hidden />
+              {crossDocSearch.isPending
+                ? "Suche…"
+                : `→ Aufgabe in ${p.corpus_match.slug} weiterführen`}
+            </button>
           </div>
         )}
         {annotationGroups.map((group) => (

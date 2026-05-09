@@ -1274,6 +1274,31 @@ export function useSearchStep(token: string, sessionId: string) {
 }
 
 /**
+ * Run an InDocSearcher in a different slug than the session's own —
+ * "continue the task in a cited document". Emits search_result Nodes
+ * in the current session with doc_slug=target_slug so the agent can
+ * keep reasoning across docs without spawning a new session.
+ */
+export function useCrossDocSearchStep(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ActionProposal,
+    Error,
+    {
+      task_node_id: string;
+      target_slug: string;
+      top_k?: number;
+      triggered_from_node_id?: string;
+    }
+  >({
+    mutationFn: stepRoutePost(token, sessionId, "cross-doc-search"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+/**
  * RegisterLookup tool executor — resolves a Verzeichnis-reference
  * ("siehe Tabelle 5", "[3]", "Abb. 7", "Kapitel 3.2") in the task's
  * query into a structured {number, title, page} hit. When the body

@@ -2232,6 +2232,97 @@ async def register_lookup_step(
     return landed.__dict__
 
 
+class CrossDocSearchRequest(BaseModel):
+    """Run an InDocSearcher in a DIFFERENT slug than the session's
+    own. Used to "continue the task" in a cited document the user just
+    opened via BibFileMatcher's corpus_match — no new session needed,
+    the search_result Nodes land in the current session and carry
+    ``doc_slug=target_slug`` so downstream consumers see they came
+    from elsewhere.
+    """
+
+    task_node_id: str
+    target_slug: str
+    top_k: int = 5
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/cross-doc-search",
+    status_code=201,
+)
+async def cross_doc_search_step(
+    session_id: str, body: CrossDocSearchRequest, request: Request
+) -> dict:
+    """Same shape as ``/search`` but uses ``body.target_slug`` for the
+    InDocSearcher corpus instead of the session's own slug. The hits
+    are still appended into the current session — the session itself
+    stays bound to its original slug, only the per-hit ``doc_slug``
+    changes.
+
+    Validates that *target_slug* exists in the data_root (a meta.json
+    must be present); otherwise the agent could spawn nodes pointing
+    at non-existent docs.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    if not (cfg.data_root / body.target_slug / "meta.json").exists():
+        raise HTTPException(
+            status_code=404, detail=f"target slug not in corpus: {body.target_slug}"
+        )
+    nodes, _ = read_session(sd)
+    task = next((n for n in nodes if n.node_id == body.task_node_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
+    if task.kind != "task":
+        raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
+
+    query = task.payload.get("query", "")
+    # No exclude_box_ids — the foreign doc has no root_chunk in this
+    # session, so nothing to exclude.
+    searcher = InDocSearcher(data_root=cfg.data_root, slug=body.target_slug)
+    hits = searcher.search(query, top_k=body.top_k)
+    hits_payload = [
+        {
+            "box_id": h.box_id,
+            "text": h.text,
+            "score": h.score,
+            "doc_slug": h.doc_slug,  # = body.target_slug
+            "searcher": h.searcher,
+        }
+        for h in hits
+    ]
+    payload = ActionProposalPayload(
+        step_kind="search",
+        anchor_node_id=body.task_node_id,
+        recommended=ActionOption(
+            label=f"{len(hits_payload)} Treffer aus {body.target_slug} übernehmen",
+            args={"hits": hits_payload},
+        ),
+        alternatives=[
+            ActionOption(label="Nur Top-1 übernehmen", args={"hits": hits_payload[:1]}),
+        ],
+        reasoning=(
+            f"CrossDocSearch InDocSearcher in {body.target_slug}, "
+            f"top_k={body.top_k}, hits={len(hits_payload)}"
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
 @router.post(
     "/api/admin/provenienz/sessions/{session_id}/search",
     status_code=201,
