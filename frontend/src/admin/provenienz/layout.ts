@@ -254,11 +254,6 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   capability_gate: { w: 320, h: 168 },
 };
 
-/** Round to the nearest multiple so positions land on the snap grid. */
-function snap(v: number, grid = 16): number {
-  return Math.round(v / grid) * grid;
-}
-
 // ─── view-graph builder ───────────────────────────────────────────────────────
 
 interface IndexedGraph {
@@ -1467,10 +1462,16 @@ export function layoutViewGraph(
 
   const rfNodes: RfNode[] = viewNodes.map((v) => {
     const p = positions.get(v.view_id) ?? { x: 0, y: 0 };
+    // Positions come from layoutSubtree's exact arithmetic; snapping to
+    // a 16-grid here was rounding parent.x and child.x INDEPENDENTLY,
+    // which breaks center-alignment whenever NODE_DIMS differ across
+    // ranks (e.g. task=256 over chunk=272 → 8 px center offset → smooth-
+    // step renders a hairpin loop). Keep raw positions; ReactFlow handles
+    // sub-pixel rendering fine.
     return {
       id: v.view_id,
       type: v.kind,
-      position: { x: snap(p.x), y: snap(p.y) },
+      position: { x: p.x, y: p.y },
       data: v,
     };
   });
@@ -1483,7 +1484,13 @@ export function layoutViewGraph(
       target: e.target,
       sourceHandle: e.sourceHandle,
       type: "smoothstep",
-      pathOptions: { borderRadius: 8, offset: 24 },
+      // offset:0 stops smoothstep from injecting a fixed horizontal jog
+      // between source and target — that jog was 24 px, larger than the
+      // current RANK_SEP=16, which produced visible loops on every
+      // parent→child edge. With offset:0, perfectly-centred parent/child
+      // pairs render as a straight vertical line; offset pairs render
+      // as a clean L with small rounded corners.
+      pathOptions: { borderRadius: 4, offset: 0 },
       style: { stroke: color, strokeWidth: 1.5 },
       markerEnd: { type: MarkerType.ArrowClosed, color },
     };
