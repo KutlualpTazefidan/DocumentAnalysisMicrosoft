@@ -114,6 +114,46 @@ _VERZEICHNIS_COLUMN_HEADERS = re.compile(
 )
 
 
+_REGISTER_KIND_SET: frozenset[BoxKind] = frozenset(
+    {
+        BoxKind.toc,
+        BoxKind.list_of_tables,
+        BoxKind.list_of_figures,
+        BoxKind.bibliography,
+    }
+)
+
+
+def _reset_register_classifications(
+    boxes: list[SegmentBox], heading_text_lookup: dict[str, str]
+) -> list[SegmentBox]:
+    """Self-heal: revert non-manually-activated register-kind boxes
+    back to their pre-walk kind so a re-run with updated rules picks
+    a fresh classification instead of inheriting stale state.
+
+    A box's pre-walk kind is recovered from its text:
+      - matches a Verzeichnis title pattern OR the column-header
+        whitelist → ``kind=heading``
+      - else → ``kind=paragraph``
+
+    Original list/list_item/table information IS lost on reset — but
+    that loss already happens on the FIRST walk (the entry-kind set
+    collapses into one register-kind), so reset doesn't make things
+    worse. ``manually_activated=True`` boxes are left untouched.
+    """
+    out: list[SegmentBox] = []
+    for b in boxes:
+        if b.kind not in _REGISTER_KIND_SET or b.manually_activated:
+            out.append(b)
+            continue
+        text = heading_text_lookup.get(b.box_id, "").strip()
+        is_title = any(pat.match(text) for pat, _ in _HEADING_TO_KIND)
+        is_col = bool(_VERZEICHNIS_COLUMN_HEADERS.match(text))
+        new_kind = BoxKind.heading if (is_title or is_col) else BoxKind.paragraph
+        out.append(b.model_copy(update={"kind": new_kind}))
+    return out
+
+
 def detect_registers(
     boxes: list[SegmentBox], heading_text_lookup: dict[str, str]
 ) -> list[SegmentBox]:
@@ -130,6 +170,22 @@ def detect_registers(
     Verzeichnis from the section heading-tree (it's not a section of
     the document — it's an index OF the sections).
 
+    Robustness rules inside the heading branch (priority order):
+
+    1. Column-header sub-headings (``Seite``, ``Page``, …) keep the
+       walk active and get reclassified into the register-kind.
+    2. Headings whose text ends in a page-number / roman numeral
+       (``5.2.3 Berechnungsergebnisse … 24``) keep the walk active
+       and get reclassified — typical YOLO mis-class of a TOC entry
+       as heading because of large font.
+    3. Otherwise, try the Verzeichnis title patterns; matching ones
+       start (or switch) the active register kind.
+    4. Anything else is a real section break and ends the walk.
+
+    The function runs a self-healing reset before the walk so prior
+    register classifications that no longer fit the current rule set
+    get cleaned up (see :func:`_reset_register_classifications`).
+
     Args:
         boxes: SegmentBox list (frozen — input is not mutated).
         heading_text_lookup: ``{box_id: plain_text}`` for at least every
@@ -140,32 +196,37 @@ def detect_registers(
         ``manually_activated=True`` boxes are passed through unchanged.
     """
     sorted_boxes = sorted(boxes, key=lambda b: (b.page, b.reading_order))
+    sorted_boxes = _reset_register_classifications(sorted_boxes, heading_text_lookup)
     result: list[SegmentBox] = list(sorted_boxes)
     active_register: BoxKind | None = None
     for i, b in enumerate(result):
         if b.kind == BoxKind.heading:
             text = heading_text_lookup.get(b.box_id, "").strip()
+            # (1) + (2): inside an active walk, certain headings
+            # extend rather than break it. Order matters — these
+            # checks come BEFORE _HEADING_TO_KIND so a TOC entry
+            # like "Literaturverzeichnis 45" doesn't get mis-read
+            # as a bibliography title (the trailing-tokens regex on
+            # _BIB_PATTERNS would otherwise match).
+            if active_register is not None and (
+                _VERZEICHNIS_COLUMN_HEADERS.match(text) or _TRAILING_PAGE_RE.match(text)
+            ):
+                if not b.manually_activated:
+                    result[i] = b.model_copy(update={"kind": active_register})
+                continue
+            # (3) + (4): does this heading start a Verzeichnis, or
+            # is it a real section break?
             new_kind: BoxKind | None = None
             for pattern, kind in _HEADING_TO_KIND:
                 if pattern.match(text):
                     new_kind = kind
                     break
             if new_kind is not None:
-                # Verzeichnis title — start (or restart) the walk.
                 active_register = new_kind
-            elif active_register is not None and _VERZEICHNIS_COLUMN_HEADERS.match(text):
-                # In-Verzeichnis column-header ("Seite", "Page",
-                # "Titel", …) — keep the walk active.
-                pass
+                if not b.manually_activated:
+                    result[i] = b.model_copy(update={"kind": active_register})
             else:
-                # Real section break — end the walk; this heading
-                # stays as kind=heading.
                 active_register = None
-            # Inside an active Verzeichnis, the heading itself (title or
-            # column-header) gets reclassified too so the whole block
-            # shares one kind/colour.
-            if active_register is not None and not b.manually_activated:
-                result[i] = b.model_copy(update={"kind": active_register})
             continue
         if active_register is None:
             continue

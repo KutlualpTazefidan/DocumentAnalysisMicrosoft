@@ -90,6 +90,89 @@ def test_detect_registers_column_header_outside_verzeichnis_untouched():
     assert out_by_id["p1-b0"].kind == BoxKind.paragraph
 
 
+def test_detect_registers_heading_with_trailing_page_continues_walk():
+    """A heading-kind box whose text ends in a page number (typical
+    YOLO mis-class of a TOC entry on the next page of a multi-page
+    Verzeichnis) keeps the walk active and gets reclassified into
+    the active register kind — not treated as a section break.
+    """
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-b0", page=1, reading_order=1),  # entry "3.1 Foo 5"
+        # YOLO mis-class: this is a TOC entry but kind=heading
+        _box("p2-h0", page=2, reading_order=0, kind=BoxKind.heading),
+        _box("p2-b0", page=2, reading_order=1),  # entry on continued TOC page
+    ]
+    headings = {
+        "p1-h0": "Inhaltsverzeichnis",
+        "p2-h0": "6. Temperaturen während der Erhitzungsprüfung 33",
+    }
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-h0"].kind == BoxKind.toc
+    assert out_by_id["p1-b0"].kind == BoxKind.toc
+    # The mis-classed heading is reclassified rather than ending walk.
+    assert out_by_id["p2-h0"].kind == BoxKind.toc
+    assert out_by_id["p2-b0"].kind == BoxKind.toc
+
+
+def test_detect_registers_trailing_page_beats_bib_pattern():
+    """A TOC entry "Literaturverzeichnis 45" (heading-kind, mis-class)
+    must NOT switch active_register to bibliography — the trailing-page
+    heuristic takes priority so the walk stays in toc.
+    """
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-b0", page=1, reading_order=1),
+        # Mis-classed TOC entry — text matches _BIB_PATTERNS via trailing
+        # tokens, but trailing-page priority should win.
+        _box("p1-h1", page=1, reading_order=2, kind=BoxKind.heading),
+    ]
+    headings = {
+        "p1-h0": "Inhaltsverzeichnis",
+        "p1-h1": "Literaturverzeichnis 45",
+    }
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-h1"].kind == BoxKind.toc  # not bibliography!
+
+
+def test_detect_registers_resets_stale_register_classifications():
+    """A box currently kind=bibliography but whose context (no active
+    bib-walk) doesn't justify it gets reset to paragraph. Self-healing
+    for rule changes / loosened patterns leaving stale classifications.
+    """
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box("p1-b0", page=1, reading_order=1, kind=BoxKind.bibliography),
+    ]
+    headings = {"p1-h0": "Diskussion"}  # not a Verzeichnis at all
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-h0"].kind == BoxKind.heading
+    assert out_by_id["p1-b0"].kind == BoxKind.paragraph  # reset cleared it
+
+
+def test_detect_registers_reset_preserves_manually_activated():
+    """A user-set kind=bibliography survives reset (manually_activated=True)
+    even if context wouldn't reproduce it.
+    """
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.heading),
+        _box(
+            "p1-b0",
+            page=1,
+            reading_order=1,
+            kind=BoxKind.bibliography,
+            manually_activated=True,
+        ),
+    ]
+    headings = {"p1-h0": "Diskussion"}
+    out = detect_registers(boxes, headings)
+    out_by_id = {b.box_id: b for b in out}
+    assert out_by_id["p1-b0"].kind == BoxKind.bibliography  # preserved
+
+
 def test_detect_registers_stops_at_next_heading():
     """A non-matching heading must end the active register."""
     boxes = [
