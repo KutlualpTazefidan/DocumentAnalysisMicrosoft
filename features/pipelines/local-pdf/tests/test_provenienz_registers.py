@@ -428,6 +428,104 @@ def test_read_register_bibliography_renders_two_column_nr_quelle(tmp_path: Path)
     assert titles[1].startswith("Doe A. (2021)")
 
 
+def test_read_register_bibliography_merges_continuation_lines(tmp_path: Path):
+    """A bib entry that wraps onto multiple lines inside ONE box collapses
+    into a single entry: continuation lines get appended to the previous
+    [N]-prefixed line.
+    """
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.bibliography)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {
+                    "box_id": "p1-b0",
+                    "html_snippet": (
+                        "<p>[9] Advisory Material for the IAEA Regulations\n"
+                        "IAEA Safety Standard Series No. TS-G-1.1\n"
+                        "IAEA, Vienna (2002)</p>"
+                    ),
+                }
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.bibliography)
+    assert out is not None
+    assert len(out["entries"]) == 1
+    e = out["entries"][0]
+    assert e["number"] == "9"
+    assert "Advisory Material" in e["title"]
+    assert "IAEA Safety Standard Series" in e["title"]
+    assert "Vienna (2002)" in e["title"]
+
+
+def test_read_register_bibliography_merges_across_boxes(tmp_path: Path):
+    """A continuation box (no leading [N]) is appended to the previous
+    entry's title — handles cases where YOLO split one logical bib
+    citation across multiple boxes.
+    """
+    slug = "doc"
+    boxes = [
+        _box("p1-b0", page=1, reading_order=0, kind=BoxKind.bibliography),
+        _box("p1-b1", page=1, reading_order=1, kind=BoxKind.bibliography),
+        _box("p1-b2", page=1, reading_order=2, kind=BoxKind.bibliography),
+    ]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-b0", "html_snippet": "<p>[9] Advisory Material for IAEA</p>"},
+                {"box_id": "p1-b1", "html_snippet": "<p>IAEA Safety Standard Series</p>"},
+                {"box_id": "p1-b2", "html_snippet": "<p>[10] GNS B 136/92</p>"},
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.bibliography)
+    assert out is not None
+    assert len(out["entries"]) == 2  # [9] (with merged b1) + [10]
+    assert out["entries"][0]["number"] == "9"
+    assert "IAEA Safety Standard" in out["entries"][0]["title"]
+    assert out["entries"][1]["number"] == "10"
+
+
+def test_read_register_bibliography_orphan_line_starts_first_entry(tmp_path: Path):
+    """If the very first bib line has no [N] prefix (rare), it becomes
+    the first entry on its own rather than getting dropped.
+    """
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.bibliography)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {
+                    "box_id": "p1-b0",
+                    "html_snippet": "<p>Free-form leading citation\n[1] Müller</p>",
+                }
+            ],
+            "diagnostics": [],
+        },
+    )
+    out = read_register(tmp_path, slug, BoxKind.bibliography)
+    assert out is not None
+    assert len(out["entries"]) == 2
+    assert out["entries"][0] == {
+        "number": "",
+        "title": "Free-form leading citation",
+        "page": "",
+    }
+    assert out["entries"][1]["number"] == "1"
+
+
 def test_read_register_list_of_tables_strips_table_prefix(tmp_path: Path):
     """LOT entries like 'Tabelle 5: Konservative Werte 12' → number=5,
     title=Konservative Werte, page=12.

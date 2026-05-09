@@ -413,15 +413,15 @@ def read_register(data_root: Path, slug: str, kind: BoxKind) -> dict | None:
             text_by_id[el["box_id"]] = strip_html(el.get("html_snippet", ""))
 
     title_pattern = _TITLE_PATTERN_BY_KIND[kind]
-    entries: list[dict[str, str]] = []
+    # Step 1: collect raw lines and the boxes that contributed them.
+    # Title-heading and column-header boxes (which share the register
+    # kind after detect_registers) are skipped — they carry no entry data.
+    lines: list[str] = []
     source_box_ids: list[str] = []
     for b in register_boxes:
         text = text_by_id.get(b.box_id, "").strip()
         if not text:
             continue
-        # Skip the title-heading box and column-header sub-heading box —
-        # both share kind=<register> after detect_registers but contain
-        # no entry data.
         first_line = text.splitlines()[0].strip()
         if title_pattern.match(first_line) or _VERZEICHNIS_COLUMN_HEADERS.match(first_line):
             continue
@@ -429,7 +429,23 @@ def read_register(data_root: Path, slug: str, kind: BoxKind) -> dict | None:
         for line in (ln.strip() for ln in text.splitlines()):
             if not line:
                 continue
-            entries.append(_parse_entry_line(line, kind))
+            lines.append(line)
+    # Step 2: convert raw lines to logical entries. For TOC / list_of_*
+    # one line ≈ one entry. Bibliography entries routinely span multiple
+    # lines (and multiple boxes) — group lines without a bracket-prefix
+    # as continuations of the previous entry so "[9] Title\nSubtitle\nVienna"
+    # collapses into one row instead of three.
+    entries: list[dict[str, str]] = []
+    if kind == BoxKind.bibliography:
+        entry_texts: list[str] = []
+        for line in lines:
+            if _BIB_NUMBER_RE.match(line) or not entry_texts:
+                entry_texts.append(line)
+            else:
+                entry_texts[-1] += " " + line
+        entries = [_parse_entry_line(t, kind) for t in entry_texts]
+    else:
+        entries = [_parse_entry_line(line, kind) for line in lines]
 
     title = _REGISTER_TITLES[kind]
     is_bib = kind == BoxKind.bibliography
