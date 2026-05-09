@@ -230,6 +230,11 @@ export type LayoutDirection = "TB" | "LR";
 
 interface LayoutOptions {
   direction?: LayoutDirection;
+  /** Per-view-id measured tile dimensions, captured from ReactFlow's
+   * post-render measurement. When provided, layout uses these instead
+   * of NODE_DIMS so wrapped/oversized tiles don't push neighbours into
+   * overlap. Missing entries fall back to NODE_DIMS. */
+  measuredDims?: Map<string, { w: number; h: number }>;
 }
 
 /**
@@ -1181,8 +1186,9 @@ function layoutSubtree(
   childrenOf: Map<string, string[]>,
   kindOf: Map<string, ViewNodeKind>,
   direction: LayoutDirection,
+  measuredDims?: Map<string, { w: number; h: number }>,
 ): SubtreeBox {
-  const dims = NODE_DIMS[kindOf.get(viewId)!];
+  const dims = measuredDims?.get(viewId) ?? NODE_DIMS[kindOf.get(viewId)!];
   const children = childrenOf.get(viewId) ?? [];
   const positions = new Map<string, { x: number; y: number }>();
 
@@ -1205,7 +1211,7 @@ function layoutSubtree(
   }
 
   const childBoxes = children.map((c) =>
-    layoutSubtree(c, childrenOf, kindOf, direction),
+    layoutSubtree(c, childrenOf, kindOf, direction, measuredDims),
   );
 
   if (direction === "TB") {
@@ -1314,7 +1320,10 @@ export function layoutViewGraph(
   // pass — we only keep the relative-x mapping it produced.
   const subtreeBoxes = new Map<string, SubtreeBox>();
   for (const root of roots) {
-    subtreeBoxes.set(root, layoutSubtree(root, childrenOf, kindOf, direction));
+    subtreeBoxes.set(
+      root,
+      layoutSubtree(root, childrenOf, kindOf, direction, opts.measuredDims),
+    );
   }
 
   // ── Subtree wrapping: greedy bin-pack roots into rows ──────────────────
@@ -1393,7 +1402,7 @@ export function layoutViewGraph(
     const rankSize = new Map<number, number>(); // rank → max secondary-dim
     for (const v of nodesInRow) {
       const r = rankOf.get(v) ?? 0;
-      const dims = NODE_DIMS[kindOf.get(v)!];
+      const dims = opts.measuredDims?.get(v) ?? NODE_DIMS[kindOf.get(v)!];
       const sec = direction === "TB" ? dims.h : dims.w;
       const prev = rankSize.get(r) ?? 0;
       if (sec > prev) rankSize.set(r, sec);
@@ -1445,8 +1454,8 @@ export function layoutViewGraph(
     const sourceKind = kindOf.get(e.source);
     const targetKind = kindOf.get(e.target);
     if (!sourceKind || !targetKind) continue;
-    const srcDims = NODE_DIMS[sourceKind];
-    const tgtDims = NODE_DIMS[targetKind];
+    const srcDims = opts.measuredDims?.get(e.source) ?? NODE_DIMS[sourceKind];
+    const tgtDims = opts.measuredDims?.get(e.target) ?? NODE_DIMS[targetKind];
     if (direction === "TB") {
       positions.set(e.target, {
         x: sourcePos.x + srcDims.w + SIDE_GAP,

@@ -70,9 +70,18 @@ export function Canvas({
 
   const persisted = usePersistedPositions(sessionId ?? null);
 
+  // Measured tile dimensions captured AFTER ReactFlow's first render.
+  // The first layout pass uses NODE_DIMS estimates (each tile-kind has
+  // a fixed estimate); when the browser actually measures the rendered
+  // tiles we feed the real sizes back into a second layout pass so
+  // wrapped/oversized tiles don't push neighbours into overlap.
+  const [measuredDims, setMeasuredDims] = useState<
+    Map<string, { w: number; h: number }>
+  >(new Map());
+
   const laid = useMemo(
-    () => layoutGraph(nodes, edges, { direction }, meta),
-    [nodes, edges, direction, meta],
+    () => layoutGraph(nodes, edges, { direction, measuredDims }, meta),
+    [nodes, edges, direction, meta, measuredDims],
   );
 
   // Auto-layout on new-node arrival: detect when the node count went up
@@ -88,6 +97,33 @@ export function Canvas({
   }, [nodes.length, autoLayout]);
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
+
+  // After ReactFlow measures the rendered tiles, feed real sizes back
+  // into the layout. ReactFlow v11 stores measured dims directly on
+  // node.width / node.height (set after first render). Compares the new
+  // map against the previous so we only trigger a re-layout when sizes
+  // actually change — without that guard the laid → rfNodes → measured
+  // → laid loop never settles.
+  useEffect(() => {
+    setMeasuredDims((prev) => {
+      const next = new Map<string, { w: number; h: number }>();
+      for (const n of rfNodes) {
+        if (typeof n.width === "number" && typeof n.height === "number") {
+          next.set(n.id, { w: n.width, h: n.height });
+        }
+      }
+      // No measurements yet (or partial) → keep prior state to avoid
+      // re-layout flicker before the first full pass lands.
+      if (next.size === 0 || next.size < rfNodes.length) return prev;
+      const stable =
+        next.size === prev.size &&
+        [...next].every(([k, v]) => {
+          const p = prev.get(k);
+          return p !== undefined && p.w === v.w && p.h === v.h;
+        });
+      return stable ? prev : next;
+    });
+  }, [rfNodes]);
 
   // Position pipeline:
   //   1. Reset → discard everything; use fresh dagre positions
