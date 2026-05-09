@@ -740,6 +740,7 @@ export function buildViewGraph(
         source: bagViewId,
         target: tileViewId,
         kind: "extracted",
+        sourceHandle: `row-${resultId}`,
       });
     }
   }
