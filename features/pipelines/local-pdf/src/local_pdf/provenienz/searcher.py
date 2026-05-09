@@ -8,12 +8,12 @@ step routes.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003
 from typing import Protocol
 
 from local_pdf.comparison.bm25 import bm25_scores
+from local_pdf.provenienz.text import strip_html
 from local_pdf.storage.sidecar import read_mineru
 
 
@@ -30,14 +30,6 @@ class Searcher(Protocol):
     name: str
 
     def search(self, query: str, *, top_k: int) -> list[SearchHit]: ...
-
-
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"\s+")
-
-
-def _strip(html: str) -> str:
-    return _WS_RE.sub(" ", _TAG_RE.sub(" ", html or "")).strip()
 
 
 @dataclass(frozen=True)
@@ -63,7 +55,7 @@ class InDocSearcher:
         elements = [e for e in m.get("elements", []) if e.get("box_id") not in self.exclude_box_ids]
         if not elements:
             return []
-        texts = [_strip(e.get("html_snippet", "")) for e in elements]
+        texts = [strip_html(e.get("html_snippet", "")) for e in elements]
         scores = bm25_scores(query, texts)
         ranked = sorted(
             zip(elements, texts, scores, strict=True),
