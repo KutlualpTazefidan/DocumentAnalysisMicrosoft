@@ -15,6 +15,7 @@ import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
+import { ContextSection } from "./ContextSection";
 
 /**
  * Side panel for a Claim tile. Actions: formulate the search task,
@@ -232,6 +233,7 @@ export function ClaimPanel({
             Diese Untersuchung wurde abgeschlossen.
           </p>
         )}
+        <ContextSection node={claim} />
         <LiveRunPanel
           run={stream}
           anchorPreview={String(claim.payload.text ?? "").slice(0, 120)}

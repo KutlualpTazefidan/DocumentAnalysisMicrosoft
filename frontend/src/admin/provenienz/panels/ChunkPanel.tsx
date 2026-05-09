@@ -11,6 +11,7 @@ import {
 import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { ContextSection } from "./ContextSection";
 
 export function ChunkPanel({
   sessionId,
@@ -131,6 +132,7 @@ export function ChunkPanel({
             Diese Chunk-Untersuchung wurde abgeschlossen.
           </p>
         )}
+        <ContextSection node={chunk} />
         <LiveRunPanel
           run={stream}
           anchorPreview={text.slice(0, 120)}

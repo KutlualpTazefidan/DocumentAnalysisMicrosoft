@@ -12,6 +12,7 @@ import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
+import { ContextSection } from "./ContextSection";
 
 interface CorpusMatch {
   slug: string;
@@ -243,6 +244,7 @@ export function SearchResultPanel({
             </p>
           </div>
         )}
+        <ContextSection node={result} />
         <LiveRunPanel run={stream} onClose={() => stream.reset()} />
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">

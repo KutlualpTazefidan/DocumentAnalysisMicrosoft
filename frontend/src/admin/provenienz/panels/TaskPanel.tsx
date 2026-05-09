@@ -11,6 +11,7 @@ import {
 import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
+import { ContextSection } from "./ContextSection";
 
 // Mirror of provenienz/registers.py::_KIND_DETECT_PATTERNS so the panel
 // can render a hint like "Verweis erkannt: Tabelle 5" before posting.
@@ -98,6 +99,7 @@ export function TaskPanel({
             Suchtreffer-Bag liegt im nächsten Schritt.
           </p>
         )}
+        <ContextSection node={task} />
         {!view.hasResults && (
           <LiveRunPanel
             run={stream}

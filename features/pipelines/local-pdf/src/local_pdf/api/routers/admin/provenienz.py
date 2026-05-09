@@ -30,6 +30,13 @@ from local_pdf.provenienz.approaches import (
     read_approaches,
     scan_capabilities,
 )
+from local_pdf.provenienz.context import (
+    NodeContext,
+    empty_context,
+    get_context,
+    merge_contexts,
+    origin_entry,
+)
 from local_pdf.provenienz.llm import (
     ActionOption,
     ActionProposalPayload,
@@ -299,6 +306,7 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
     write_meta(sdir, meta)
 
     text = _strip_html(el.get("html_snippet", ""))
+    chunk_node_id = new_id()
     chunk_payload: dict[str, Any] = {
         "box_id": body.root_chunk_id,
         "doc_slug": body.slug,
@@ -306,12 +314,26 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
         # Top-level chunk: depth 0. Recursive promote_search_result
         # increments this on each new derived chunk.
         "recursion_depth": 0,
+        # Forward-flowing investigation context — seeds the chain so
+        # downstream tools (searcher exclude lists, right-pane
+        # breadcrumbs) can read directly off any descendant's payload.
+        "context": merge_contexts(
+            empty_context(),
+            {
+                "visited_box_ids": [body.root_chunk_id],
+                "visited_doc_slugs": [body.slug],
+                "recursion_depth": 0,
+                "origin_chain": [
+                    origin_entry(chunk_node_id, "chunk", text[:160] or body.root_chunk_id),
+                ],
+            },
+        ),
         **_load_box_metadata(cfg.data_root, body.slug, body.root_chunk_id),
     }
     append_node(
         sdir,
         Node(
-            node_id=new_id(),
+            node_id=chunk_node_id,
             session_id=sid,
             kind="chunk",
             payload=chunk_payload,
@@ -815,11 +837,26 @@ def _build_promoted_chunk_payload(
     # parent. Older parent chunks (pre-unification) lack the field —
     # treat as depth 0, so the first promote always lands at depth 1.
     parent_depth = int(origin_chunk.payload.get("recursion_depth", 0)) if origin_chunk else 0
+    # Forward-flow context: inherit from the search_result (which got
+    # it from the task → claim → chunk chain), then add THIS chunk's
+    # box_id to visited_box_ids and bump recursion_depth. The
+    # origin_chain entry for this chunk gets stamped at spawn time
+    # (in /decide promote_search_result) when the new node_id exists.
+    parent_context = get_context(sr.payload)
+    new_context: NodeContext = merge_contexts(
+        parent_context,
+        {
+            "visited_box_ids": [box_id] if box_id else [],
+            "visited_doc_slugs": [doc_slug] if doc_slug else [],
+            "recursion_depth": parent_depth + 1,
+        },
+    )
     promoted_payload: dict[str, Any] = {
         "box_id": box_id,
         "doc_slug": doc_slug,
         "text": text,
         "recursion_depth": parent_depth + 1,
+        "context": new_context,
         "promoted_from": sr.node_id,
         "origin_claim_id": claim.node_id if claim else None,
         "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
@@ -2393,13 +2430,16 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
 
     query = task.payload.get("query", "")
     actor = "system"  # this step doesn't call an LLM in v1
-    # Exclude every chunk in the investigation's ancestry — root chunk
-    # PLUS any chunks promoted from intermediate search_results — so a
-    # claim spawned off a promoted chunk doesn't keep finding the same
-    # chunks we've already mined. Falls back to root_chunk_id if the
-    # walk yields nothing (legacy sessions or detached tasks).
-    ancestor_chunks = _ancestor_chunk_box_ids(nodes, edges, body.task_node_id)
-    exclude_set = {meta.root_chunk_id, *ancestor_chunks}
+    # Exclude every chunk the investigation already derived from. The
+    # task's forward-flowing context lists them; for legacy tasks
+    # without that context, the ancestor walk reconstructs the same
+    # set from the edge graph. Either way, root_chunk_id is added as
+    # a defensive fallback.
+    task_context = get_context(task.payload)
+    visited = task_context.get("visited_box_ids", [])
+    if not visited:
+        visited = _ancestor_chunk_box_ids(nodes, edges, body.task_node_id)
+    exclude_set = {meta.root_chunk_id, *visited}
     searcher = InDocSearcher(
         data_root=cfg.data_root,
         slug=meta.slug,
@@ -4778,12 +4818,23 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             if chunk_for_goals is not None
             else 0
         )
+        # Forward-flow context for claims: inherit from the origin
+        # chunk so a later /search on a task derived from this claim
+        # sees the full ancestor visited_box_ids list.
+        claim_parent_context = (
+            get_context(chunk_for_goals.payload) if chunk_for_goals is not None else empty_context()
+        )
         for idx, ct in enumerate(claim_texts):
             goal_for_claim = claim_goals[idx] if idx < len(claim_goals) else ""
+            claim_node_id = new_id()
+            claim_context = merge_contexts(
+                claim_parent_context,
+                {"origin_chain": [origin_entry(claim_node_id, "claim", ct[:160])]},
+            )
             claim = append_node(
                 sd,
                 Node(
-                    node_id=new_id(),
+                    node_id=claim_node_id,
                     session_id=session_id,
                     kind="claim",
                     payload=_payload_with_trail(
@@ -4792,6 +4843,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                             "source_node_id": anchor_chunk,
                             "goal": goal_for_claim,
                             "recursion_depth": chunk_depth,
+                            "context": claim_context,
                         }
                     ),
                     actor=claim_actor,
@@ -4984,10 +5036,27 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         # proposal-creation time, but we re-apply here so the chunk stays
         # consistent with `_payload_with_trail` semantics used elsewhere.
         chunk_args.pop("triggered_from_node_id", None)
+        # Stamp this chunk's origin_chain entry now that we have a
+        # concrete node_id. The helper that built chunk_args already
+        # populated visited_box_ids + recursion_depth; we just append
+        # the breadcrumb.
+        chunk_node_id = new_id()
+        # get_context normalises whatever shape arrived in chunk_args
+        # (dict-from-JSON or already-typed NodeContext) into a clean
+        # NodeContext so the type checker stops complaining about the
+        # union return.
+        existing_ctx = get_context(chunk_args)
+        chunk_text_for_label = str(chunk_args.get("text", ""))[:160] or str(
+            chunk_args.get("box_id", "")
+        )
+        chunk_args["context"] = merge_contexts(
+            existing_ctx,
+            {"origin_chain": [origin_entry(chunk_node_id, "chunk", chunk_text_for_label)]},
+        )
         chunk_node = append_node(
             sd,
             Node(
-                node_id=new_id(),
+                node_id=chunk_node_id,
                 session_id=session_id,
                 kind="chunk",
                 payload=_payload_with_trail(chunk_args),
@@ -5047,13 +5116,33 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         if not query.strip():
             raise HTTPException(status_code=400, detail="query is empty")
         task_actor = "human" if body.accepted == "override" else proposal.actor
+        # Forward-flow context for tasks: inherit from the focus claim
+        # (which inherited from its origin chunk). search_step's
+        # exclude_box_ids comes from this context's visited_box_ids.
+        anchor_claim_node = next((n for n in nodes if n.node_id == anchor_claim_id), None)
+        task_parent_context = (
+            get_context(anchor_claim_node.payload)
+            if anchor_claim_node is not None
+            else empty_context()
+        )
+        task_node_id = new_id()
+        task_context = merge_contexts(
+            task_parent_context,
+            {"origin_chain": [origin_entry(task_node_id, "task", query[:160])]},
+        )
         task_node = append_node(
             sd,
             Node(
-                node_id=new_id(),
+                node_id=task_node_id,
                 session_id=session_id,
                 kind="task",
-                payload=_payload_with_trail({"query": query, "focus_claim_id": anchor_claim_id}),
+                payload=_payload_with_trail(
+                    {
+                        "query": query,
+                        "focus_claim_id": anchor_claim_id,
+                        "context": task_context,
+                    }
+                ),
                 actor=task_actor,
             ),
         )
@@ -5108,6 +5197,16 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             if not (0 <= idx < len(alts)):
                 raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
             hits = alts[idx]["args"].get("hits", [])
+        # Forward-flow context for search_results: inherit from the
+        # task. When a hit lands in a foreign slug (cross-doc search)
+        # the slug is added to visited_doc_slugs so a future
+        # cross-doc step doesn't loop back into it.
+        anchor_task_node = next((n for n in nodes if n.node_id == anchor_task_id), None)
+        sr_parent_context = (
+            get_context(anchor_task_node.payload)
+            if anchor_task_node is not None
+            else empty_context()
+        )
         for h in hits:
             # Enrich the hit's payload with structured box metadata
             # (page / box_kind / reading_order / bbox / continues_*)
@@ -5120,14 +5219,34 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 str(h.get("doc_slug", "")),
                 str(h.get("box_id", "")),
             )
+            sr_node_id = new_id()
+            hit_doc_slug = str(h.get("doc_slug", ""))
+            sr_context = merge_contexts(
+                sr_parent_context,
+                {
+                    "visited_doc_slugs": [hit_doc_slug] if hit_doc_slug else [],
+                    "origin_chain": [
+                        origin_entry(
+                            sr_node_id,
+                            "search_result",
+                            str(h.get("text", ""))[:160] or str(h.get("box_id", "")),
+                        )
+                    ],
+                },
+            )
             sr = append_node(
                 sd,
                 Node(
-                    node_id=new_id(),
+                    node_id=sr_node_id,
                     session_id=session_id,
                     kind="search_result",
                     payload=_payload_with_trail(
-                        {**h, "task_node_id": anchor_task_id, **sr_metadata}
+                        {
+                            **h,
+                            "task_node_id": anchor_task_id,
+                            "context": sr_context,
+                            **sr_metadata,
+                        }
                     ),
                     actor=proposal.actor,
                 ),
@@ -5262,10 +5381,29 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             capability_scan = []
             capability_matches = []
 
+        # Forward-flow context for evaluations: inherit from the
+        # search_result that's being evaluated.
+        anchor_sr_node = next((n for n in nodes if n.node_id == anchor_sr_id), None)
+        eval_parent_context = (
+            get_context(anchor_sr_node.payload) if anchor_sr_node is not None else empty_context()
+        )
+        eval_node_id = new_id()
+        eval_context = merge_contexts(
+            eval_parent_context,
+            {
+                "origin_chain": [
+                    origin_entry(
+                        eval_node_id,
+                        "evaluation",
+                        f"{args['verdict']} · {str(args.get('reasoning', ''))[:120]}",
+                    )
+                ],
+            },
+        )
         eval_node = append_node(
             sd,
             Node(
-                node_id=new_id(),
+                node_id=eval_node_id,
                 session_id=session_id,
                 kind="evaluation",
                 payload=_payload_with_trail(
@@ -5275,6 +5413,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         "reasoning": args["reasoning"],
                         "against_claim_id": args["against_claim_id"],
                         "search_result_node_id": anchor_sr_id,
+                        "context": eval_context,
                         # Carry the per-sentence enumeration through to the
                         # evaluation node so the canvas tile / panel can
                         # render the full audit without re-loading the
