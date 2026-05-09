@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 
-def test_box_kind_enum_has_nine_values() -> None:
+def test_box_kind_enum_has_expected_values() -> None:
     from local_pdf.api.schemas import BoxKind
 
     expected = {
@@ -18,6 +18,13 @@ def test_box_kind_enum_has_nine_values() -> None:
         "formula",
         "list_item",
         "auxiliary",  # page-level chrome (headers/footers/page numbers); kept distinct from discard
+        # Verzeichnis-Eintrag kinds — populated by
+        # provenienz.registers.detect_registers after extraction; excluded
+        # from the BM25 search corpus by default.
+        "toc",
+        "list_of_tables",
+        "list_of_figures",
+        "bibliography",
         "discard",
     }
     assert {k.value for k in BoxKind} == expected

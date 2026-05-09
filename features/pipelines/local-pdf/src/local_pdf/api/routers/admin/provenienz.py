@@ -140,6 +140,10 @@ _BOX_KIND_HINTS: dict[str, str] = {
     ),
     "formula": "Mathematischer Ausdruck — Inhalt oft als MathML/LaTeX-Salat im Text.",
     "auxiliary": "Seiten-Hilfselement (Kopf-/Fußzeile, Seitenzahl) — meist irrelevant.",
+    "toc": "Inhaltsverzeichnis-Eintrag — Navigations-Element, kein eigenständiger Inhalt.",
+    "list_of_tables": "Tabellenverzeichnis-Eintrag — Verweis auf eine Tabelle im Dokument.",
+    "list_of_figures": "Abbildungsverzeichnis-Eintrag — Verweis auf eine Abbildung.",
+    "bibliography": "Literaturverzeichnis-Eintrag — externe Quelle, keine eigene Behauptung.",
 }
 
 

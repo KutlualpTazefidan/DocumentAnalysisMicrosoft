@@ -67,7 +67,15 @@ export function SearchResultsBagTile({
                             ? "bg-cyan-700/60 text-cyan-100"
                             : boxKind === "formula"
                               ? "bg-emerald-700/60 text-emerald-50"
-                              : "bg-navy-700/60 text-slate-200"
+                              : boxKind === "toc"
+                                ? "bg-indigo-700/60 text-indigo-100"
+                                : boxKind === "list_of_tables"
+                                  ? "bg-purple-800/60 text-purple-100"
+                                  : boxKind === "list_of_figures"
+                                    ? "bg-amber-800/60 text-amber-100"
+                                    : boxKind === "bibliography"
+                                      ? "bg-emerald-800/60 text-emerald-100"
+                                      : "bg-navy-700/60 text-slate-200"
                     }`}
                   >
                     {boxKind}

@@ -126,7 +126,15 @@ export function SearchResultPanel({
                       ? "bg-cyan-700/50 text-cyan-100 border border-cyan-600/50"
                       : p.box_kind === "formula"
                         ? "bg-emerald-700/50 text-emerald-100 border border-emerald-600/50"
-                        : "bg-navy-700 text-slate-300 border border-navy-600"
+                        : p.box_kind === "toc"
+                          ? "bg-indigo-700/50 text-indigo-100 border border-indigo-600/50"
+                          : p.box_kind === "list_of_tables"
+                            ? "bg-purple-800/50 text-purple-100 border border-purple-700/50"
+                            : p.box_kind === "list_of_figures"
+                              ? "bg-amber-800/50 text-amber-100 border border-amber-700/50"
+                              : p.box_kind === "bibliography"
+                                ? "bg-emerald-800/50 text-emerald-100 border border-emerald-700/50"
+                                : "bg-navy-700 text-slate-300 border border-navy-600"
               }`}
               title={`Box-Typ: ${p.box_kind}`}
             >

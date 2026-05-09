@@ -7,6 +7,10 @@ export type BoxKind =
   | "formula"
   | "list_item"
   | "auxiliary"
+  | "toc"
+  | "list_of_tables"
+  | "list_of_figures"
+  | "bibliography"
   | "discard";
 
 export type DocStatus = "raw" | "segmenting" | "extracting" | "extracted" | "synthesising" | "synthesised" | "open-for-curation" | "archived" | "done" | "needs_ocr";

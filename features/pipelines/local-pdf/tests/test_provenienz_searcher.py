@@ -86,3 +86,58 @@ def test_search_hit_dataclass_shape(tmp_path: Path):
     hits = s.search("Wärmeleistung", top_k=5)
     assert isinstance(hits[0], SearchHit)
     assert hits[0].box_id and hits[0].text and hits[0].doc_slug == "doc"
+
+
+def _seed_with_registers(tmp_path: Path, slug: str = "doc") -> None:
+    """Seed segments + mineru where one box is a bibliography entry —
+    used to verify that register kinds drop out of the BM25 corpus."""
+    boxes = [
+        SegmentBox(
+            box_id="p1-b0",
+            page=1,
+            bbox=(0, 0, 100, 50),
+            kind=BoxKind.paragraph,
+            confidence=1.0,
+            reading_order=0,
+        ),
+        SegmentBox(
+            box_id="p9-b0",
+            page=9,
+            bbox=(0, 0, 100, 50),
+            kind=BoxKind.bibliography,
+            confidence=1.0,
+            reading_order=0,
+        ),
+    ]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-b0", "html_snippet": "<p>Wärmeleistung der Anlage.</p>"},
+                {
+                    "box_id": "p9-b0",
+                    "html_snippet": "<p>[1] Wärmeleistung Handbuch (2020)</p>",
+                },
+            ],
+            "diagnostics": [],
+        },
+    )
+
+
+def test_searcher_excludes_register_kinds_by_default(tmp_path: Path):
+    """Bibliography entries must NOT show up in BM25 hits by default."""
+    _seed_with_registers(tmp_path)
+    s = InDocSearcher(data_root=tmp_path, slug="doc")
+    hits = s.search("Wärmeleistung", top_k=5)
+    assert all(h.box_id != "p9-b0" for h in hits)
+    assert any(h.box_id == "p1-b0" for h in hits)
+
+
+def test_searcher_includes_registers_when_flag_set(tmp_path: Path):
+    """``include_registers=True`` brings register boxes back into the corpus."""
+    _seed_with_registers(tmp_path)
+    s = InDocSearcher(data_root=tmp_path, slug="doc", include_registers=True)
+    hits = s.search("Wärmeleistung", top_k=5)
+    assert any(h.box_id == "p9-b0" for h in hits)

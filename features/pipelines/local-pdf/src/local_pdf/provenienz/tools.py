@@ -137,6 +137,32 @@ TOOL_REGISTRY: list[ToolInfo] = [
             "der Treffer-Text die Einzelwerte aber nicht die Summe nennt."
         ),
     ),
+    ToolInfo(
+        name="register_lookup",
+        label="RegisterLookup",
+        description=(
+            "Konsolidiertes Verzeichnis (Inhalts-/Tabellen-/Abbildungs-/"
+            "Literaturverzeichnis) als strukturierte Liste mit Markdown-Tabelle. "
+            "Nutze für Cross-Reference-Auflösung — NICHT für allgemeine Inhaltssuche."
+        ),
+        when_to_use=(
+            "Wenn die Aussage explizit einen Verzeichnis-Eintrag referenziert "
+            "('siehe Tabelle 3', 'Abbildung 7', 'in [4]', 'gemäß Quelle X')."
+        ),
+        scope="in-doc",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search"],
+        agent_hint=(
+            "capability_request mit name='RegisterLookup' wenn die Aussage einen "
+            "Verzeichnis-Treffer braucht: Quellen-Zitat ([n], (Autor Jahr)) → "
+            "bibliography; Tabellen-Verweis (Tabelle/Tab. n) → list_of_tables; "
+            "Abbildungs-Verweis (Abbildung/Abb. n) → list_of_figures; "
+            "Kapitel-Verweis (Kapitel n, Abschnitt n.m) → toc. "
+            "Verzeichnisse sind aus dem InDocSearcher-Korpus AUSGESCHLOSSEN, "
+            "deshalb braucht man dieses Tool für Querverweise."
+        ),
+    ),
 ]
 
 

@@ -58,6 +58,14 @@ class BoxKind(StrEnum):
     # (running headers, footers, page numbers). Renamed to "auxiliary" for
     # user-facing clarity; legacy "abandon" values are migrated on read.
     auxiliary = "auxiliary"
+    # Verzeichnis-Einträge: detected by `provenienz.registers.detect_registers`
+    # after extraction completes, or set manually via the Extract-Tab dropdown.
+    # Excluded from the BM25 search corpus by default; consolidated lookup via
+    # `RegisterLookup` tool (see `provenienz.registers.read_register`).
+    toc = "toc"
+    list_of_tables = "list_of_tables"
+    list_of_figures = "list_of_figures"
+    bibliography = "bibliography"
     discard = "discard"
 
 
