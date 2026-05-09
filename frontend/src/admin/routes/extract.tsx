@@ -21,6 +21,7 @@ import { apiBase } from "../api/adminClient";
 import {
   useCreateBox,
   useDeleteBox,
+  useDetectRegisters,
   useMergeBoxDown,
   useMergeBoxUp,
   useResetBox,
@@ -113,6 +114,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   // user switch routes.
   const updateBoxMut = useUpdateBox(slug ?? "", token);
   const resetBoxMut = useResetBox(slug ?? "", token);
+  const detectRegistersMut = useDetectRegisters(slug ?? "", token);
   const mergeUpMut = useMergeBoxUp(slug ?? "", token);
   const mergeDownMut = useMergeBoxDown(slug ?? "", token);
   const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
@@ -573,6 +575,37 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             onClick={handleToggleApprove}
           >
             {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+          </button>
+
+          {/* Verzeichnisse retroactively classify on existing extraction.
+              For new extractions the heuristic auto-runs at finalize. */}
+          <button
+            aria-label="Verzeichnisse erkennen"
+            title="Heuristik läuft über alle Boxen, klassifiziert Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis um. Manuell gesetzte Boxen bleiben unverändert."
+            className={`w-full ${T.body} px-3 py-1.5 rounded border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed`}
+            disabled={detectRegistersMut.isPending}
+            onClick={() =>
+              detectRegistersMut.mutate(undefined, {
+                onError: (e) =>
+                  error(
+                    e instanceof Error
+                      ? e.message
+                      : "Verzeichnis-Erkennung fehlgeschlagen",
+                  ),
+                onSuccess: (out) =>
+                  out.boxes_reclassified === 0
+                    ? success(
+                        "Keine Verzeichnisse erkannt — alles bleibt wie es ist",
+                      )
+                    : success(
+                        `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
+                      ),
+              })
+            }
+          >
+            {detectRegistersMut.isPending
+              ? "Scanne…"
+              : "📑 Verzeichnisse erkennen"}
           </button>
 
           {/* Conf filter status indicator */}

@@ -776,6 +776,26 @@ async def reset_page(slug: str, page: int, request: Request) -> dict[str, Any]:
     return dict(seg.model_dump(mode="json"))
 
 
+@router.post("/api/admin/docs/{slug}/segments/detect-registers")
+async def detect_registers_endpoint(slug: str, request: Request) -> dict[str, Any]:
+    """Retroactively run the Verzeichnis-detection heuristic on an
+    already-extracted document. Useful for slugs that finished
+    extraction before this feature shipped — they don't get the
+    auto-detection on extract finalize, but a manual sweep reclassifies
+    matching boxes in-place.
+
+    Manually-activated boxes are NEVER touched (user override always wins),
+    so it's safe to re-run.
+    """
+    from local_pdf.provenienz.registers import detect_and_persist_registers
+
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    changed = detect_and_persist_registers(cfg.data_root, slug)
+    return {"slug": slug, "boxes_reclassified": changed}
+
+
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/reset")
 async def reset_box(
     slug: str,

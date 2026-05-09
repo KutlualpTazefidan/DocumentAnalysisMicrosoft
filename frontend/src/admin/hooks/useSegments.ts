@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createBox, deleteBox, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, unmergeBoxDown, unmergeBoxUp, resetBox, splitBox, updateBox } from "../api/docs";
+import { createBox, deleteBox, detectRegisters, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, unmergeBoxDown, unmergeBoxUp, resetBox, splitBox, updateBox } from "../api/docs";
 import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
 
 export function useSegments(slug: string, token: string) {
@@ -106,5 +106,19 @@ export function useUnmergeBoxUp(slug: string, token: string) {
   return useMutation({
     mutationFn: (boxId: string) => unmergeBoxUp(slug, boxId, token),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["segments", slug] }),
+  });
+}
+
+export function useDetectRegisters(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => detectRegisters(slug, token),
+    onSuccess: (out) => {
+      // Only refresh segments cache when something actually changed —
+      // a no-op detect shouldn't trigger a re-render.
+      if (out.boxes_reclassified > 0) {
+        qc.invalidateQueries({ queryKey: ["segments", slug] });
+      }
+    },
   });
 }

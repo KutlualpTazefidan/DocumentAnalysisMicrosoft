@@ -99,6 +99,18 @@ export async function resetPage(slug: string, page: number, token: string): Prom
   return r.json();
 }
 
+export async function detectRegisters(
+  slug: string,
+  token: string,
+): Promise<{ slug: string; boxes_reclassified: number }> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/detect-registers`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
 export async function resetBox(slug: string, boxId: string, token: string): Promise<SegmentBox> {
   const r = await apiFetch(
     `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}/reset`,
