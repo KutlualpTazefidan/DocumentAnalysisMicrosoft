@@ -4600,13 +4600,26 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
             hits = alts[idx]["args"].get("hits", [])
         for h in hits:
+            # Enrich the hit's payload with structured box metadata
+            # (page / box_kind / reading_order / bbox / continues_*)
+            # from segments.json. Lets the agent + UI reason about
+            # whether a hit is a table / figure / paragraph, on which
+            # page, in which reading-order position. Falls back to {}
+            # if segments.json is missing or the box_id isn't found.
+            sr_metadata = _load_box_metadata(
+                cfg.data_root,
+                str(h.get("doc_slug", "")),
+                str(h.get("box_id", "")),
+            )
             sr = append_node(
                 sd,
                 Node(
                     node_id=new_id(),
                     session_id=session_id,
                     kind="search_result",
-                    payload=_payload_with_trail({**h, "task_node_id": anchor_task_id}),
+                    payload=_payload_with_trail(
+                        {**h, "task_node_id": anchor_task_id, **sr_metadata}
+                    ),
                     actor=proposal.actor,
                 ),
             )

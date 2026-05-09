@@ -45,7 +45,15 @@ export function SearchResultPanel({
     edges,
     result.node_id,
   );
-  const p = result.payload as { box_id?: string; score?: number; text?: string };
+  const p = result.payload as {
+    box_id?: string;
+    score?: number;
+    text?: string;
+    page?: number;
+    box_kind?: string;
+    reading_order?: number;
+    bbox?: number[];
+  };
   const verdict = evalNode
     ? String((evalNode.payload as { verdict?: string }).verdict ?? "")
     : null;
@@ -95,10 +103,34 @@ export function SearchResultPanel({
         onClose={() => onSelectView(null)}
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <div className={`flex items-center gap-2 ${T.tiny}`}>
+        <div className={`flex items-center gap-2 flex-wrap ${T.tiny}`}>
           <span className="text-slate-400">
             Score {Number(p.score ?? 0).toFixed(2)}
           </span>
+          {typeof p.page === "number" && (
+            <span className="text-slate-500 font-mono">
+              Seite {p.page}
+              {typeof p.reading_order === "number" ? ` · #${p.reading_order}` : ""}
+            </span>
+          )}
+          {p.box_kind && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${
+                p.box_kind === "table"
+                  ? "bg-purple-700/50 text-purple-100 border border-purple-600/50"
+                  : p.box_kind === "figure"
+                    ? "bg-amber-700/50 text-amber-100 border border-amber-600/50"
+                    : p.box_kind === "caption"
+                      ? "bg-cyan-700/50 text-cyan-100 border border-cyan-600/50"
+                      : p.box_kind === "formula"
+                        ? "bg-emerald-700/50 text-emerald-100 border border-emerald-600/50"
+                        : "bg-navy-700 text-slate-300 border border-navy-600"
+              }`}
+              title={`Box-Typ: ${p.box_kind}`}
+            >
+              {p.box_kind}
+            </span>
+          )}
           {verdict && (
             <span
               className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${

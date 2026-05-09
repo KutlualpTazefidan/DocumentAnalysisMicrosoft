@@ -41,6 +41,7 @@ export function SearchResultsBagTile({
           const boxId = String((row.result.payload.box_id as string) ?? "");
           const score = Number((row.result.payload.score as number) ?? 0);
           const text = String((row.result.payload.text as string) ?? "");
+          const boxKind = String((row.result.payload.box_kind as string) ?? "");
           const verdict = row.evaluation
             ? String((row.evaluation.payload.verdict as string) ?? "")
             : null;
@@ -55,6 +56,23 @@ export function SearchResultsBagTile({
                 <span className="text-emerald-100/70">
                   {score.toFixed(2)}
                 </span>
+                {boxKind && boxKind !== "paragraph" && (
+                  <span
+                    className={`px-1 rounded font-mono ${
+                      boxKind === "table"
+                        ? "bg-purple-700/60 text-purple-100"
+                        : boxKind === "figure"
+                          ? "bg-amber-700/60 text-amber-100"
+                          : boxKind === "caption"
+                            ? "bg-cyan-700/60 text-cyan-100"
+                            : boxKind === "formula"
+                              ? "bg-emerald-700/60 text-emerald-50"
+                              : "bg-navy-700/60 text-slate-200"
+                    }`}
+                  >
+                    {boxKind}
+                  </span>
+                )}
                 {verdict && (
                   <span
                     className={`ml-auto px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide ${
