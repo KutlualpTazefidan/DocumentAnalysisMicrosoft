@@ -877,44 +877,17 @@ class RefreshChunkResponse(BaseModel):
     new_chunk: dict | None = None
 
 
-@router.post(
-    "/api/admin/provenienz/sessions/{session_id}/chunks/{chunk_node_id}/refresh",
-)
-async def refresh_chunk(
-    session_id: str, chunk_node_id: str, request: Request
-) -> RefreshChunkResponse:
-    """Spawn a fresh chunk Node from the current segments.json/mineru.json
-    when the underlying source has been edited in the Extract tab.
-
-    Append-only audit semantics: the old chunk + all its descendants
-    (claims/tasks/evaluations) stay; a new chunk Node with a NEW node_id
-    but the SAME box_id is appended, plus a ``refreshes`` edge from the
-    new chunk to the old one. The ``refreshes`` edge is intentionally NOT
-    in ``_DEPENDS_ON_EDGE_KINDS`` — neither side cascades on delete; both
-    chunks stand independently for audit.
+def _refresh_chunk_one(cfg, sd, session_id: str, chunk: Node) -> RefreshChunkResponse:
+    """Diff one chunk Node against current segments.json/mineru.json
+    and append a refreshed chunk + ``refreshes`` edge if the source
+    has changed. Shared by the per-chunk and per-session refresh
+    endpoints.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
-    if sd is None:
-        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    nodes, _ = read_session(sd)
-    chunk = next((n for n in nodes if n.node_id == chunk_node_id), None)
-    if chunk is None:
-        raise HTTPException(status_code=404, detail=f"chunk not found: {chunk_node_id}")
-    if chunk.kind != "chunk":
-        raise HTTPException(status_code=400, detail=f"node is not a chunk: kind={chunk.kind}")
-
     box_id = str(chunk.payload.get("box_id", ""))
     doc_slug = str(chunk.payload.get("doc_slug", ""))
     if not box_id or not doc_slug:
-        raise HTTPException(
-            status_code=400,
-            detail="chunk payload missing box_id/doc_slug — cannot refresh",
-        )
+        return RefreshChunkResponse(refreshed=False, reason="source-missing")
 
-    # Current source text comes from mineru.json (html_snippet → strip),
-    # mirroring the create_session path. Box metadata (kind, reading_order,
-    # bbox, …) comes from segments.json via _load_box_metadata.
     mineru = read_mineru(cfg.data_root, doc_slug) or {"elements": []}
     el = next(
         (e for e in mineru.get("elements", []) if e.get("box_id") == box_id),
@@ -932,9 +905,6 @@ async def refresh_chunk(
     stored_caption_text = str(chunk.payload.get("caption_text", ""))
     stored_caption_box_id = str(chunk.payload.get("caption_box_id", ""))
 
-    # Compare on text + box_kind + reading_order + caption only.
-    # bbox + confidence intentionally excluded — they fluctuate across
-    # re-extractions without representing a meaningful content change.
     text_changed = _chunk_text_hash(current_text) != _chunk_text_hash(stored_text)
     kind_changed = current_meta.get("box_kind") != stored_box_kind
     order_changed = current_meta.get("reading_order") != stored_reading_order
@@ -942,12 +912,9 @@ async def refresh_chunk(
         str(current_meta.get("caption_text", "")) != stored_caption_text
         or str(current_meta.get("caption_box_id", "")) != stored_caption_box_id
     )
-
     if not (text_changed or kind_changed or order_changed or caption_changed):
         return RefreshChunkResponse(refreshed=False, reason="current")
 
-    # Build the new chunk's payload. Preserve breadcrumbs (origin_*) so a
-    # refreshed promoted-chunk keeps its recursive-exploration context.
     new_payload: dict[str, Any] = {
         "box_id": box_id,
         "doc_slug": doc_slug,
@@ -988,6 +955,90 @@ async def refresh_chunk(
         ),
     )
     return RefreshChunkResponse(refreshed=True, reason="updated", new_chunk=new_chunk.__dict__)
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/chunks/{chunk_node_id}/refresh",
+)
+async def refresh_chunk(
+    session_id: str, chunk_node_id: str, request: Request
+) -> RefreshChunkResponse:
+    """Spawn a fresh chunk Node from the current segments.json/mineru.json
+    when the underlying source has been edited in the Extract tab.
+
+    Append-only audit semantics: the old chunk + all its descendants
+    (claims/tasks/evaluations) stay; a new chunk Node with a NEW node_id
+    but the SAME box_id is appended, plus a ``refreshes`` edge from the
+    new chunk to the old one. The ``refreshes`` edge is intentionally NOT
+    in ``_DEPENDS_ON_EDGE_KINDS`` — neither side cascades on delete; both
+    chunks stand independently for audit.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    chunk = next((n for n in nodes if n.node_id == chunk_node_id), None)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail=f"chunk not found: {chunk_node_id}")
+    if chunk.kind != "chunk":
+        raise HTTPException(status_code=400, detail=f"node is not a chunk: kind={chunk.kind}")
+    if not chunk.payload.get("box_id") or not chunk.payload.get("doc_slug"):
+        raise HTTPException(
+            status_code=400,
+            detail="chunk payload missing box_id/doc_slug — cannot refresh",
+        )
+    return _refresh_chunk_one(cfg, sd, session_id, chunk)
+
+
+class RefreshAllChunksResponse(BaseModel):
+    """Result of a session-level chunk refresh sweep."""
+
+    total: int
+    refreshed: int
+    current: int
+    source_missing: int
+    new_chunks: list[dict]
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/chunks/refresh-all",
+)
+async def refresh_all_chunks(session_id: str, request: Request) -> RefreshAllChunksResponse:
+    """Walk every chunk node in the session and refresh those whose
+    source has changed. Cheap (file IO only, no LLM calls) so safe to
+    run on demand. Returns counts + the freshly-spawned chunk nodes
+    so the frontend can summarise.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    chunks = [n for n in nodes if n.kind == "chunk"]
+    refreshed = 0
+    current = 0
+    missing = 0
+    new_chunks: list[dict] = []
+    for chunk in chunks:
+        if not chunk.payload.get("box_id") or not chunk.payload.get("doc_slug"):
+            missing += 1
+            continue
+        result = _refresh_chunk_one(cfg, sd, session_id, chunk)
+        if result.refreshed and result.new_chunk is not None:
+            refreshed += 1
+            new_chunks.append(result.new_chunk)
+        elif result.reason == "source-missing":
+            missing += 1
+        else:
+            current += 1
+    return RefreshAllChunksResponse(
+        total=len(chunks),
+        refreshed=refreshed,
+        current=current,
+        source_missing=missing,
+        new_chunks=new_chunks,
+    )
 
 
 def _build_decision_context(

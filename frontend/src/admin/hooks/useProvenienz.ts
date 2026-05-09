@@ -1095,6 +1095,35 @@ export function useRefreshChunk(token: string, sessionId: string) {
   });
 }
 
+export interface RefreshAllChunksResponse {
+  total: number;
+  refreshed: number;
+  current: number;
+  source_missing: number;
+  new_chunks: ProvNode[];
+}
+
+export function useRefreshAllChunks(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<RefreshAllChunksResponse, Error, void>({
+    mutationFn: async () => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/chunks/refresh-all`,
+        { method: "POST" },
+        token,
+      );
+      return (await r.json()) as RefreshAllChunksResponse;
+    },
+    onSuccess: (out) => {
+      if (out.refreshed > 0) {
+        qc.invalidateQueries({
+          queryKey: ["provenienz", "session", sessionId],
+        });
+      }
+    },
+  });
+}
+
 export interface PromoteSearchResultInput {
   searchResultNodeId: string;
   /** Click-trail forwarded from a Bewertungs-Tile / plan-accept. The

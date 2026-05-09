@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, FolderTree, GitMerge, Plus, Trash2 } from "lucide-react";
+import { Bot, FolderTree, GitMerge, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
@@ -18,10 +18,12 @@ import {
   useAgentInfo,
   useCreateSession,
   useDeleteSession,
+  useRefreshAllChunks,
   useSession,
   useSessions,
   type SessionMeta,
 } from "../hooks/useProvenienz";
+import { useToast } from "../../shared/components/useToast";
 import type { ViewNode } from "../provenienz/layout";
 import { T } from "../styles/typography";
 
@@ -372,20 +374,62 @@ function AgentTabBar({
 
 function SessionHeader({
   detail,
+  token,
 }: {
   detail: { meta: SessionMeta; nodes: { kind: string }[]; edges: unknown[] };
   token: string;
 }): JSX.Element {
+  const refreshAll = useRefreshAllChunks(token, detail.meta.session_id);
+  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
+  const chunkCount = detail.nodes.filter((n) => n.kind === "chunk").length;
+
+  async function handleRefreshAll(): Promise<void> {
+    try {
+      const out = await refreshAll.mutateAsync();
+      if (out.refreshed === 0) {
+        toastInfo(
+          `Alle ${out.total} Chunks aktuell — keine Änderungen in segments.json`,
+        );
+        return;
+      }
+      toastSuccess(
+        `${out.refreshed} von ${out.total} Chunks aktualisiert` +
+          (out.source_missing > 0
+            ? ` · ${out.source_missing} Quelle(n) fehlen`
+            : ""),
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
   return (
-    <header className="border-b border-navy-700 px-4 py-2">
-      <h2 className={`${T.cardTitle} text-white`}>
-        Sitzung {detail.meta.session_id}
-      </h2>
-      <p className={`text-slate-400 ${T.body}`}>
-        Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
-        {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
-        {detail.edges.length} Kanten
-      </p>
+    <header className="border-b border-navy-700 px-4 py-2 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className={`${T.cardTitle} text-white`}>
+          Sitzung {detail.meta.session_id}
+        </h2>
+        <p className={`text-slate-400 ${T.body}`}>
+          Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
+          {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
+          {detail.edges.length} Kanten
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleRefreshAll()}
+        disabled={refreshAll.isPending || chunkCount === 0}
+        title={`Alle ${chunkCount} Chunks gegen aktuelle segments.json prüfen — geänderte werden als neue Chunks angefügt, alte bleiben für den Audit.`}
+        className={`shrink-0 px-3 py-1.5 rounded border border-orange-700/60 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center gap-1.5 disabled:opacity-50`}
+      >
+        <RefreshCw
+          className={`w-3.5 h-3.5 ${refreshAll.isPending ? "animate-spin" : ""}`}
+          aria-hidden
+        />
+        {refreshAll.isPending
+          ? "Prüfe…"
+          : `Alle Chunks aktualisieren (${chunkCount})`}
+      </button>
     </header>
   );
 }
