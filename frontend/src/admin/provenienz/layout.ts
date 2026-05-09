@@ -553,25 +553,37 @@ export function buildViewGraph(
       replacedByRefresh: refreshedChunkIds.has(chunk.node_id),
     });
 
-    // Promoted chunks: bag → new chunk (trunk continuation through the loop).
-    // Trail-as-Trunk: when this chunk inherits a trail, the trunk edge
-    // comes from the trail-parent (typically the action_proposal that
-    // spawned the chunk via promote_search_result, or the trail head).
+    // Promoted chunks: trunk parent priority is
+    //   1. trail-parent (when this chunk inherits a click-trail) — keeps
+    //      the visual strand "Bewertung → plan → action → chunk" intact,
+    //   2. proposalSpawningNode — the action_proposal that spawned the
+    //      chunk via promote_search_result. Without this the chain
+    //      visually breaks back to the bag, even though audit-wise the
+    //      proposal is the real parent,
+    //   3. structural fallback: bag → chunk via `promoted-from` (legacy
+    //      data without a spawning proposal/decision triplet).
     // The structural "bag → chunk" relationship stays in the chunk's
-    // payload (`promoted_from`) for audit, but the canvas trunk shows
-    // the trail strand instead.
+    // payload (`promoted_from`) for audit either way.
     const chunkViewId = `view:${chunk.node_id}`;
     if (promoted) {
       const srId = String(chunk.payload.promoted_from);
       const sr = g.byId.get(srId);
       if (sr && sr.kind === "search_result") {
         const trailParent = trailParentByViewId.get(chunkViewId);
+        const spawningProposal = proposalSpawningNode.get(chunk.node_id);
         if (trailParent) {
           viewEdges.push({
             id: `e:promoted:${chunk.node_id}`,
             source: trailParent,
             target: chunkViewId,
             kind: "trail-trunk",
+          });
+        } else if (spawningProposal) {
+          viewEdges.push({
+            id: `e:promoted:${chunk.node_id}`,
+            source: `view:${spawningProposal.node_id}`,
+            target: chunkViewId,
+            kind: "spawns",
           });
         } else {
           const bagViewId = bagViewIdByResultId.get(srId);
@@ -733,12 +745,18 @@ export function buildViewGraph(
   }
 
   // ── 4.6) Sub-Statement tiles (atomare Aussagen aus decompose_hit) ────────
-  // Trail-aware: when the spawning chain carries a triggered_from
-  // (i.e. the user accepted decompose_hit from a Bewertungs-Trail),
-  // the sub_statement hangs from the trail-parent (the action_proposal
-  // that spawned it) — NOT from the structural search_result. The
-  // structural relationship stays in the payload (parent_search_result_id)
-  // for audit, but the canvas trunk follows the trail.
+  // Trunk parent priority:
+  //   1. trail-parent — when the spawning chain carries a triggered_from
+  //      (i.e. the user accepted decompose_hit from a Bewertungs-Trail),
+  //      the sub_statement hangs from the trail-parent (the action_proposal
+  //      that spawned it) — keeps the visual trail strand intact,
+  //   2. proposalSpawningNode — the decompose_hit action_proposal that
+  //      decided this sub_statement. Without this lookup the chain
+  //      visually breaks back to the structural search_result even when
+  //      the audit chain says "proposal spawned this",
+  //   3. structural fallback: parent_search_result_id (extracted tile
+  //      when actioned, bag otherwise) — legacy data without a spawning
+  //      proposal/decision triplet.
   for (const n of provNodes) {
     if (n.kind !== "sub_statement") continue;
     const subViewId = `view:${n.node_id}`;
@@ -754,6 +772,16 @@ export function buildViewGraph(
         source: trailParent,
         target: subViewId,
         kind: "trail-trunk",
+      });
+      continue;
+    }
+    const spawningProposal = proposalSpawningNode.get(n.node_id);
+    if (spawningProposal) {
+      viewEdges.push({
+        id: `e:sub:${n.node_id}`,
+        source: `view:${spawningProposal.node_id}`,
+        target: subViewId,
+        kind: "spawns",
       });
       continue;
     }
