@@ -1,4 +1,8 @@
-import type { Edge as RfEdge, Node as RfNode } from "reactflow";
+import {
+  MarkerType,
+  type Edge as RfEdge,
+  type Node as RfNode,
+} from "reactflow";
 
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 
@@ -1121,10 +1125,18 @@ function mapAnchorToViewId(
  * For LR direction the same idea applies rotated 90°.
  */
 
-const TILE_SEP = 56; // sibling-to-sibling padding within a level
-const RANK_SEP = 96; // parent-to-child padding (trunk depth)
-const ROOT_SEP = 160; // gap between independent root subtrees
+const TILE_SEP = 80; // sibling-to-sibling padding within a level
+const RANK_SEP = 128; // parent-to-child padding (trunk depth)
+const ROOT_SEP = 192; // gap between independent root subtrees (also row gap)
 const MARGIN = 32;
+/**
+ * Wrap roots onto a new row once the cumulative subtree width on the current
+ * row would exceed this. 2400px covers the vast majority of monitors at
+ * comfortable zoom; users still pan/zoom freely beyond it. A single
+ * oversize subtree still gets a full row to itself — we only wrap when
+ * there's at least one root already placed on the current row.
+ */
+const WRAP_WIDTH = 2400;
 
 interface SubtreeBox {
   width: number;
@@ -1260,28 +1272,138 @@ export function layoutViewGraph(
     hasParent.add(e.target);
   }
 
-  // Roots = nodes with no incoming trunk edge. Lay each out independently.
+  // Roots = nodes with no incoming trunk edge.
+  const roots: string[] = [];
+  for (const v of viewNodes) {
+    if (!hasParent.has(v.view_id)) roots.push(v.view_id);
+  }
+
+  // ── Subtree X layout (children stay packed under their parent) ─────────
+  // We still rely on layoutSubtree for sibling packing along the
+  // transverse axis (X for TB, Y for LR). Its longitudinal coordinate
+  // (Y for TB, X for LR) is overwritten below by the rank-alignment
+  // pass — we only keep the relative-x mapping it produced.
+  const subtreeBoxes = new Map<string, SubtreeBox>();
+  for (const root of roots) {
+    subtreeBoxes.set(root, layoutSubtree(root, childrenOf, kindOf, direction));
+  }
+
+  // ── Subtree wrapping: greedy bin-pack roots into rows ──────────────────
+  // Each row collects roots until the cumulative width (TB) or height
+  // (LR) exceeds WRAP_WIDTH. A single oversized subtree still gets a
+  // row to itself.
+  interface PackedRow {
+    roots: string[];
+    /** Per-root local-frame offset along the row's primary axis
+     *  (X for TB, Y for LR). The non-primary axis is rank-aligned
+     *  within the row in the next pass. */
+    rootStart: Map<string, number>;
+    /** Row's bounding box in the primary axis (after packing).
+     *  Used to position subsequent rows along the secondary axis. */
+    rowExtent: number;
+  }
+  const rows: PackedRow[] = [];
+  {
+    let current: PackedRow = {
+      roots: [],
+      rootStart: new Map(),
+      rowExtent: 0,
+    };
+    let cursor = 0;
+    for (const root of roots) {
+      const box = subtreeBoxes.get(root)!;
+      const primary = direction === "TB" ? box.width : box.height;
+      const tooWide = cursor + primary > WRAP_WIDTH;
+      if (tooWide && current.roots.length > 0) {
+        // Close current row, start a new one.
+        current.rowExtent = cursor - ROOT_SEP; // last separator wasn't needed
+        rows.push(current);
+        current = { roots: [], rootStart: new Map(), rowExtent: 0 };
+        cursor = 0;
+      }
+      current.rootStart.set(root, cursor);
+      current.roots.push(root);
+      cursor += primary + ROOT_SEP;
+    }
+    if (current.roots.length > 0) {
+      current.rowExtent = cursor - ROOT_SEP;
+      rows.push(current);
+    }
+  }
+
+  // ── Rank computation ───────────────────────────────────────────────────
+  // BFS from every root assigns each view its depth in the tree.
+  const rankOf = new Map<string, number>();
+  for (const root of roots) {
+    rankOf.set(root, 0);
+    const queue: string[] = [root];
+    while (queue.length > 0) {
+      const v = queue.shift()!;
+      const r = rankOf.get(v)!;
+      for (const c of childrenOf.get(v) ?? []) {
+        if (rankOf.has(c)) continue;
+        rankOf.set(c, r + 1);
+        queue.push(c);
+      }
+    }
+  }
+
+  // ── Rank-aligned Y (TB) / X (LR) per row ───────────────────────────────
+  // Within a row, every node at depth N sits at the same secondary
+  // coordinate, regardless of which subtree it belongs to. The rank
+  // baseline is row-local — row 2 starts a fresh baseline below row 1.
   const positions = new Map<string, { x: number; y: number }>();
-  if (direction === "TB") {
-    let cursorX = MARGIN;
-    for (const v of viewNodes) {
-      if (hasParent.has(v.view_id)) continue;
-      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
-      for (const [k, p] of box.positions) {
-        positions.set(k, { x: p.x + cursorX, y: p.y + MARGIN });
-      }
-      cursorX += box.width + ROOT_SEP;
+  let rowCursor = MARGIN; // secondary-axis cursor advancing row by row
+  for (const row of rows) {
+    // Bucket nodes-in-this-row by rank, take the max dim per rank.
+    const nodesInRow = new Set<string>();
+    for (const root of row.roots) {
+      const box = subtreeBoxes.get(root)!;
+      for (const k of box.positions.keys()) nodesInRow.add(k);
     }
-  } else {
-    let cursorY = MARGIN;
-    for (const v of viewNodes) {
-      if (hasParent.has(v.view_id)) continue;
-      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
-      for (const [k, p] of box.positions) {
-        positions.set(k, { x: p.x + MARGIN, y: p.y + cursorY });
-      }
-      cursorY += box.height + ROOT_SEP;
+    const rankSize = new Map<number, number>(); // rank → max secondary-dim
+    for (const v of nodesInRow) {
+      const r = rankOf.get(v) ?? 0;
+      const dims = NODE_DIMS[kindOf.get(v)!];
+      const sec = direction === "TB" ? dims.h : dims.w;
+      const prev = rankSize.get(r) ?? 0;
+      if (sec > prev) rankSize.set(r, sec);
     }
+    const ranks = [...rankSize.keys()].sort((a, b) => a - b);
+    const rankPos = new Map<number, number>();
+    let acc = rowCursor;
+    for (const r of ranks) {
+      rankPos.set(r, acc);
+      acc += rankSize.get(r)! + RANK_SEP;
+    }
+    // acc now sits one RANK_SEP past the bottom of the last rank.
+    // Strip that trailing separator to get the row's true secondary
+    // extent (top-of-first-rank to bottom-of-last-rank).
+    const rowSecondaryExtent =
+      ranks.length > 0 ? acc - RANK_SEP - rowCursor : 0;
+
+    // Apply: primary axis from subtree + row offset; secondary from rank.
+    for (const root of row.roots) {
+      const box = subtreeBoxes.get(root)!;
+      const startPrimary = (row.rootStart.get(root) ?? 0) + MARGIN;
+      for (const [k, local] of box.positions) {
+        const r = rankOf.get(k) ?? 0;
+        const rankSecondary = rankPos.get(r) ?? rowCursor;
+        if (direction === "TB") {
+          positions.set(k, {
+            x: local.x + startPrimary,
+            y: rankSecondary,
+          });
+        } else {
+          positions.set(k, {
+            x: rankSecondary,
+            y: local.y + startPrimary,
+          });
+        }
+      }
+    }
+
+    rowCursor += rowSecondaryExtent + ROOT_SEP;
   }
 
   // Side placement: dock each side-edge target next to its source. For
@@ -1319,14 +1441,19 @@ export function layoutViewGraph(
     };
   });
 
-  const rfEdges: RfEdge[] = viewEdges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourceHandle,
-    type: "default",
-    style: { stroke: edgeColor(e.kind), strokeWidth: 1.5 },
-  }));
+  const rfEdges: RfEdge[] = viewEdges.map((e) => {
+    const color = edgeColor(e.kind);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      type: "smoothstep",
+      pathOptions: { borderRadius: 8, offset: 24 },
+      style: { stroke: color, strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color },
+    };
+  });
 
   return { nodes: rfNodes, edges: rfEdges };
 }
