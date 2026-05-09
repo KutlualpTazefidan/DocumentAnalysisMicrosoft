@@ -320,6 +320,30 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         Alle Seiten extrahieren
       </button>
       <button
+        aria-label="Verzeichnisse erkennen"
+        title="Heuristik scannt das ganze Dokument, klassifiziert Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis um. Manuell gesetzte Boxen bleiben unverändert."
+        className={`${T.body} px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+        onClick={() =>
+          detectRegistersMut.mutate(undefined, {
+            onError: (e) =>
+              error(
+                e instanceof Error
+                  ? e.message
+                  : "Verzeichnis-Erkennung fehlgeschlagen",
+              ),
+            onSuccess: (out) =>
+              out.boxes_reclassified === 0
+                ? success("Keine Verzeichnisse erkannt")
+                : success(
+                    `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
+                  ),
+          })
+        }
+        disabled={detectRegistersMut.isPending}
+      >
+        {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse"}
+      </button>
+      <button
         aria-label="Export sourceelements.json"
         className={`${T.body} px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
         onClick={handleExport}
@@ -575,37 +599,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             onClick={handleToggleApprove}
           >
             {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
-          </button>
-
-          {/* Verzeichnisse retroactively classify on existing extraction.
-              For new extractions the heuristic auto-runs at finalize. */}
-          <button
-            aria-label="Verzeichnisse erkennen"
-            title="Heuristik läuft über alle Boxen, klassifiziert Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis um. Manuell gesetzte Boxen bleiben unverändert."
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed`}
-            disabled={detectRegistersMut.isPending}
-            onClick={() =>
-              detectRegistersMut.mutate(undefined, {
-                onError: (e) =>
-                  error(
-                    e instanceof Error
-                      ? e.message
-                      : "Verzeichnis-Erkennung fehlgeschlagen",
-                  ),
-                onSuccess: (out) =>
-                  out.boxes_reclassified === 0
-                    ? success(
-                        "Keine Verzeichnisse erkannt — alles bleibt wie es ist",
-                      )
-                    : success(
-                        `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
-                      ),
-              })
-            }
-          >
-            {detectRegistersMut.isPending
-              ? "Scanne…"
-              : "📑 Verzeichnisse erkennen"}
           </button>
 
           {/* Conf filter status indicator */}
