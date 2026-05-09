@@ -12,7 +12,9 @@ from pathlib import Path  # noqa: TC003
 from local_pdf.api.schemas import BoxKind, SegmentBox, SegmentsFile
 from local_pdf.provenienz.registers import (
     detect_and_persist_registers,
+    detect_register_target,
     detect_registers,
+    lookup_register_entry,
     read_register,
 )
 from local_pdf.storage.sidecar import (
@@ -602,3 +604,87 @@ def test_read_register_unnumbered_entry_keeps_title(tmp_path: Path):
     out = read_register(tmp_path, slug, BoxKind.toc)
     assert out is not None
     assert out["entries"] == [{"number": "", "title": "Vorwort", "page": "iii"}]
+
+
+# ── detect_register_target / lookup_register_entry (Phase 3) ──────────
+
+
+def test_detect_register_target_table():
+    assert detect_register_target("die Werte in Tabelle 5 zeigen …") == (
+        BoxKind.list_of_tables,
+        "5",
+    )
+    assert detect_register_target("siehe Tab. 12") == (BoxKind.list_of_tables, "12")
+
+
+def test_detect_register_target_figure():
+    assert detect_register_target("Abbildung 7 zeigt …") == (BoxKind.list_of_figures, "7")
+    assert detect_register_target("Abb. 4") == (BoxKind.list_of_figures, "4")
+    assert detect_register_target("see Fig. 3") == (BoxKind.list_of_figures, "3")
+
+
+def test_detect_register_target_bibliography_bracket():
+    assert detect_register_target("gemäß [3] und [4]") == (BoxKind.bibliography, "3")
+
+
+def test_detect_register_target_toc():
+    assert detect_register_target("Kapitel 5.2 beschreibt …") == (BoxKind.toc, "5.2")
+    assert detect_register_target("Abschnitt 3") == (BoxKind.toc, "3")
+
+
+def test_detect_register_target_returns_none_on_no_reference():
+    assert detect_register_target("die Wärmeleistung beträgt 5.6 kW") is None
+    assert detect_register_target("") is None
+
+
+def test_lookup_register_entry_finds_match(tmp_path: Path):
+    """Given a kind + number, return the matching entry from the
+    consolidated Verzeichnis. Number normalisation tolerates trailing
+    dots and whitespace.
+    """
+    slug = "doc"
+    boxes = [
+        _box("p1-h0", page=1, reading_order=0, kind=BoxKind.list_of_tables),
+        _box("p1-b0", page=1, reading_order=1, kind=BoxKind.list_of_tables),
+    ]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-h0", "html_snippet": "<h2>Tabellenverzeichnis</h2>"},
+                {
+                    "box_id": "p1-b0",
+                    "html_snippet": (
+                        "<p>Tabelle 5: Konservative Werte 12\nTabelle 6: Reaktor-Typen 18</p>"
+                    ),
+                },
+            ],
+            "diagnostics": [],
+        },
+    )
+    e = lookup_register_entry(tmp_path, slug, BoxKind.list_of_tables, "5")
+    assert e == {"number": "5", "title": "Konservative Werte", "page": "12"}
+    # Trailing-dot tolerated.
+    assert lookup_register_entry(tmp_path, slug, BoxKind.list_of_tables, "5.") == e
+
+
+def test_lookup_register_entry_returns_none_when_missing(tmp_path: Path):
+    """Unknown number / kind → None instead of raising."""
+    slug = "doc"
+    boxes = [_box("p1-b0", page=1, reading_order=0, kind=BoxKind.list_of_tables)]
+    write_segments(tmp_path, slug, SegmentsFile(slug=slug, boxes=boxes, raster_dpi=288))
+    write_mineru(
+        tmp_path,
+        slug,
+        {
+            "elements": [
+                {"box_id": "p1-b0", "html_snippet": "<p>Tabelle 1: Werte 5</p>"},
+            ],
+            "diagnostics": [],
+        },
+    )
+    assert lookup_register_entry(tmp_path, slug, BoxKind.list_of_tables, "99") is None
+    # No bib at all → None even with a valid number.
+    assert lookup_register_entry(tmp_path, slug, BoxKind.bibliography, "1") is None

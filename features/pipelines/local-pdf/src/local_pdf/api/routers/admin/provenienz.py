@@ -2080,6 +2080,148 @@ class SearchStepRequest(BaseModel):
     triggered_from_node_id: str | None = None
 
 
+class RegisterLookupRequest(BaseModel):
+    """Body for the RegisterLookup tool executor.
+
+    The agent's planner emits ``capability_request name='RegisterLookup'``
+    when a claim references a Verzeichnis entry ("siehe Tabelle 5",
+    "[3]", "Abb. 7", "Kapitel 3.2"). This route runs the actual lookup
+    against the on-disk consolidated Verzeichnis and emits a search-style
+    ActionProposal.
+
+    Both ``kind`` and ``number`` are optional — if missing, they're
+    parsed out of the task's ``query`` payload via
+    ``detect_register_target``. Specifying them lets the caller bypass
+    the heuristic when it already knows the target.
+    """
+
+    task_node_id: str
+    kind: str | None = None  # toc / list_of_tables / list_of_figures / bibliography
+    number: str | None = None
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/register-lookup",
+    status_code=201,
+)
+async def register_lookup_step(
+    session_id: str, body: RegisterLookupRequest, request: Request
+) -> dict:
+    """Execute the RegisterLookup tool: resolve a Verzeichnis-reference
+    in the task's query into a structured ``{number, title, page}`` hit.
+
+    Detection precedence:
+      1. If body.kind + body.number are provided, use those verbatim.
+      2. Else parse the task's query via ``detect_register_target``.
+      3. Else return an empty proposal (no register reference found).
+
+    For non-bibliography hits the proposal carries
+    ``follow_up_query_suggestion`` — the entry's title — so the user/UI
+    can one-click kick off a regular ``search`` step that retrieves the
+    actual table/figure content (the metadata alone doesn't verify a
+    claim about the table values). Bibliography hits don't get a
+    suggestion since the citation IS the answer.
+    """
+    from local_pdf.api.schemas import BoxKind
+    from local_pdf.provenienz.registers import (
+        detect_register_target,
+        lookup_register_entry,
+    )
+
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    task = next((n for n in nodes if n.node_id == body.task_node_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
+    if task.kind != "task":
+        raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
+
+    query = task.payload.get("query", "")
+    target_kind: BoxKind | None
+    target_number: str | None
+    if body.kind and body.number:
+        try:
+            target_kind = BoxKind(body.kind)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"invalid kind: {body.kind}") from e
+        target_number = body.number
+        detection_source = "explicit"
+    else:
+        detected = detect_register_target(query)
+        if detected is None:
+            target_kind = None
+            target_number = None
+        else:
+            target_kind, target_number = detected
+        detection_source = "from-query"
+
+    hits_payload: list[dict] = []
+    follow_up: str | None = None
+    if target_kind is not None and target_number is not None:
+        entry = lookup_register_entry(cfg.data_root, meta.slug, target_kind, target_number)
+        if entry is not None:
+            text = (
+                f"{target_kind.value} #{entry['number']} (Seite {entry['page']}): {entry['title']}"
+                if entry["page"]
+                else f"{target_kind.value} #{entry['number']}: {entry['title']}"
+            )
+            hits_payload.append(
+                {
+                    "box_id": f"register:{target_kind.value}:{entry['number']}",
+                    "text": text,
+                    "score": 1.0,
+                    "doc_slug": meta.slug,
+                    "searcher": "register_lookup",
+                }
+            )
+            if target_kind != BoxKind.bibliography:
+                follow_up = entry["title"]
+
+    if hits_payload:
+        recommended = ActionOption(
+            label=f"{len(hits_payload)} Verzeichnis-Treffer übernehmen",
+            args={"hits": hits_payload, "follow_up_query_suggestion": follow_up},
+        )
+        alternatives: list[ActionOption] = []
+    else:
+        recommended = ActionOption(
+            label="Kein Verzeichnis-Treffer — als manual_review markieren",
+            args={"hits": [], "follow_up_query_suggestion": None},
+        )
+        alternatives = []
+
+    reasoning_parts = [f"detection={detection_source}"]
+    if target_kind is not None:
+        reasoning_parts.append(f"kind={target_kind.value}")
+    if target_number is not None:
+        reasoning_parts.append(f"number={target_number}")
+    reasoning_parts.append(f"hits={len(hits_payload)}")
+
+    payload = ActionProposalPayload(
+        step_kind="search",
+        anchor_node_id=body.task_node_id,
+        recommended=recommended,
+        alternatives=alternatives,
+        reasoning="RegisterLookup: " + ", ".join(reasoning_parts),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
 @router.post(
     "/api/admin/provenienz/sessions/{session_id}/search",
     status_code=201,

@@ -476,3 +476,89 @@ def _md_escape(s: str) -> str:
     """Escape ``|`` so a literal pipe inside a label doesn't break the
     Markdown table. No other escaping needed here."""
     return s.replace("|", "\\|")
+
+
+# ── RegisterLookup tool executor ──────────────────────────────────────
+#
+# Patterns the agent's claim/query might mention. Each maps to a
+# Verzeichnis kind so we know which register to consult. The captured
+# group is the entry number/key.
+
+_KIND_DETECT_PATTERNS: list[tuple[re.Pattern[str], BoxKind]] = [
+    (
+        re.compile(r"\b(?:Tabellen?|Tab\.|Table)\s*(\d+(?:\.\d+)*)", re.IGNORECASE),
+        BoxKind.list_of_tables,
+    ),
+    (
+        re.compile(
+            r"\b(?:Abbildung(?:en)?|Abb\.|Figure|Fig\.)\s*(\d+(?:\.\d+)*)",
+            re.IGNORECASE,
+        ),
+        BoxKind.list_of_figures,
+    ),
+    # Square-bracket citations are bib-keys; round-paren cite-keys
+    # ("(Schmidt 2010)") are intentionally NOT matched here — too many
+    # false positives in nuclear-engineering text where parens are
+    # routinely used for unit annotations.
+    (re.compile(r"\[(\d{1,3})\]"), BoxKind.bibliography),
+    (
+        re.compile(
+            r"\b(?:Kapitel|Abschnitt|Abs\.|Section|Sec\.)\s*(\d+(?:\.\d+)*)",
+            re.IGNORECASE,
+        ),
+        BoxKind.toc,
+    ),
+]
+
+
+def detect_register_target(query: str) -> tuple[BoxKind, str] | None:
+    """Heuristically infer ``(kind, number)`` from a free-text claim.
+
+    Walks ``_KIND_DETECT_PATTERNS`` in priority order and returns the
+    first match. Returns ``None`` when the text contains no obvious
+    Verzeichnis-reference — caller should fall back to a normal search
+    instead of forcing a register lookup.
+
+    Examples
+    --------
+    >>> detect_register_target("siehe Tabelle 5")
+    (BoxKind.list_of_tables, "5")
+    >>> detect_register_target("nothing here")  # → None
+    """
+    if not query:
+        return None
+    for pattern, kind in _KIND_DETECT_PATTERNS:
+        m = pattern.search(query)
+        if m:
+            return kind, m.group(1)
+    return None
+
+
+def lookup_register_entry(
+    data_root: Path,
+    slug: str,
+    kind: BoxKind,
+    number: str,
+) -> dict | None:
+    """Find a single ``{number, title, page}`` entry within a Verzeichnis
+    by its number. Number comparison is normalised — trailing dots,
+    surrounding whitespace, and case differences are ignored — so
+    ``"5"``, ``"5."``, ``"5 "`` all match a TOC entry stored as ``"5"``.
+
+    Returns ``None`` when:
+      - the document has no Verzeichnis of *kind*;
+      - no entry with that number exists.
+    """
+    register = read_register(data_root, slug, kind)
+    if register is None:
+        return None
+    target = number.strip().rstrip(".").lower()
+    if not target:
+        return None
+    for e in register["entries"]:
+        if e["number"].strip().rstrip(".").lower() == target:
+            # Construct a fresh dict so the return type is concrete
+            # (read_register is loosely typed dict | None, mypy rightly
+            # complains about returning the inferred-Any element).
+            return {"number": e["number"], "title": e["title"], "page": e["page"]}
+    return None
