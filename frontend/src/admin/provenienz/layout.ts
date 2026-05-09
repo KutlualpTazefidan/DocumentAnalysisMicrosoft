@@ -1154,10 +1154,14 @@ function mapAnchorToViewId(
  * For LR direction the same idea applies rotated 90°.
  */
 
-const TILE_SEP = 80; // sibling-to-sibling padding within a level
-const RANK_SEP = 128; // parent-to-child padding (trunk depth)
-const ROOT_SEP = 192; // gap between independent root subtrees (also row gap)
-const MARGIN = 32;
+// Box-to-box gaps. Tightened to 3rem (48px) for a more compact canvas
+// — siblings and parent-child rest on the same target so the visual
+// grid reads as evenly-spaced. ROOT_SEP stays a notch larger so
+// independent subtrees remain distinguishable as separate groups.
+const TILE_SEP = 48; // sibling-to-sibling padding within a level (3rem)
+const RANK_SEP = 48; // parent-to-child padding (trunk depth) (3rem)
+const ROOT_SEP = 64; // gap between independent root subtrees (also row gap) (4rem)
+const MARGIN = 16;
 /**
  * Wrap roots onto a new row once the cumulative subtree width on the current
  * row would exceed this. 2400px covers the vast majority of monitors at
@@ -1438,7 +1442,7 @@ export function layoutViewGraph(
   // Side placement: dock each side-edge target next to its source. For
   // TB direction the target sits to the right of the source at the same
   // vertical centre; for LR direction it sits below.
-  const SIDE_GAP = 64;
+  const SIDE_GAP = 48; // 3rem — matches TILE_SEP / RANK_SEP for visual consistency
   for (const e of sideEdges) {
     const sourcePos = positions.get(e.source);
     if (!sourcePos) continue;
