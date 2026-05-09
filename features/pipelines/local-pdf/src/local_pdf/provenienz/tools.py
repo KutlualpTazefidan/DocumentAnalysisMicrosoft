@@ -138,6 +138,29 @@ TOOL_REGISTRY: list[ToolInfo] = [
         ),
     ),
     ToolInfo(
+        name="bib_file_matcher",
+        label="BibFileMatcher",
+        description=(
+            "Schlägt eine Bibliography-Citation gegen die meta.json aller "
+            "Slugs im data_root nach. Token-Overlap, kein BM25 — schnell, "
+            "deterministisch, no LLM."
+        ),
+        when_to_use=(
+            "Wenn ein RegisterLookup-Treffer kind=bibliography liefert und "
+            "der Agent prüfen will, ob das zitierte Dokument bereits im "
+            "lokalen Korpus liegt."
+        ),
+        scope="cross-doc",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search"],
+        agent_hint=(
+            "Reactive: feuert automatisch im register_lookup-Endpoint wenn "
+            "kind=bibliography. Output landet als corpus_match Feld am Hit. "
+            "Kein manueller capability_request nötig."
+        ),
+    ),
+    ToolInfo(
         name="register_lookup",
         label="RegisterLookup",
         description=(

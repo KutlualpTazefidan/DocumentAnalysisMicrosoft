@@ -2124,6 +2124,7 @@ async def register_lookup_step(
     suggestion since the citation IS the answer.
     """
     from local_pdf.api.schemas import BoxKind
+    from local_pdf.provenienz.bib_matcher import match_bib_to_corpus
     from local_pdf.provenienz.registers import (
         detect_register_target,
         lookup_register_entry,
@@ -2172,15 +2173,24 @@ async def register_lookup_step(
                 if entry["page"]
                 else f"{target_kind.value} #{entry['number']}: {entry['title']}"
             )
-            hits_payload.append(
-                {
-                    "box_id": f"register:{target_kind.value}:{entry['number']}",
-                    "text": text,
-                    "score": 1.0,
-                    "doc_slug": meta.slug,
-                    "searcher": "register_lookup",
-                }
-            )
+            hit: dict = {
+                "box_id": f"register:{target_kind.value}:{entry['number']}",
+                "text": text,
+                "score": 1.0,
+                "doc_slug": meta.slug,
+                "searcher": "register_lookup",
+            }
+            # Reactive: bibliography hits auto-fire BibFileMatcher so the
+            # user immediately sees whether the cited document is already
+            # in the local corpus. Token-overlap heuristic — falsy /
+            # ambiguous matches return None and are simply not attached.
+            # The matcher excludes the current slug so we don't surface
+            # "this same doc cites itself".
+            if target_kind == BoxKind.bibliography:
+                corpus_match = match_bib_to_corpus(entry["title"], cfg.data_root)
+                if corpus_match is not None and corpus_match["slug"] != meta.slug:
+                    hit["corpus_match"] = corpus_match
+            hits_payload.append(hit)
             if target_kind != BoxKind.bibliography:
                 follow_up = entry["title"]
 

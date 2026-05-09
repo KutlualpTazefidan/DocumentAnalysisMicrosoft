@@ -1,4 +1,5 @@
-import { CornerDownRight, Sparkles, Trash2 } from "lucide-react";
+import { CornerDownRight, FolderOpen, Sparkles, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
@@ -11,6 +12,13 @@ import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
+
+interface CorpusMatch {
+  slug: string;
+  filename: string;
+  score: number;
+  matched_tokens: string[];
+}
 
 const VERDICT_STYLE: Record<string, string> = {
   "likely-source": "bg-emerald-700 text-emerald-100",
@@ -55,6 +63,12 @@ export function SearchResultPanel({
     bbox?: number[];
     caption_box_id?: string;
     caption_text?: string;
+    /** Set by the BibFileMatcher reactive hook on register-lookup
+     * results with kind=bibliography when the cited document is
+     * already in the local corpus. */
+    corpus_match?: CorpusMatch;
+    /** Identifies a register-lookup result vs. a regular BM25 hit. */
+    searcher?: string;
   };
   const verdict = evalNode
     ? String((evalNode.payload as { verdict?: string }).verdict ?? "")
@@ -161,6 +175,27 @@ export function SearchResultPanel({
               📑 Caption ({p.caption_box_id})
             </p>
             <p className={`text-cyan-100 ${T.body} mt-0.5`}>{p.caption_text}</p>
+          </div>
+        )}
+        {p.corpus_match && (
+          <div className="rounded border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 space-y-1">
+            <p className={`${T.tinyBold} text-emerald-300`}>
+              📁 Im Korpus gefunden
+            </p>
+            <p className={`text-emerald-100 ${T.body}`}>
+              Diese Quelle entspricht <span className="font-mono">{p.corpus_match.filename}</span>
+            </p>
+            <p className={`${T.tiny} text-emerald-400/70`}>
+              Match-Score {p.corpus_match.score} · Token-Treffer:{" "}
+              <span className="font-mono">{p.corpus_match.matched_tokens.join(", ")}</span>
+            </p>
+            <Link
+              to={`/admin/doc/${encodeURIComponent(p.corpus_match.slug)}/provenienz`}
+              className={`inline-flex items-center gap-1 mt-1 px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white ${T.tiny}`}
+              title="Sitzung in dem zitierten Dokument starten"
+            >
+              <FolderOpen className="w-3 h-3" aria-hidden />→ in {p.corpus_match.slug} öffnen
+            </Link>
           </div>
         )}
         {annotationGroups.map((group) => (
