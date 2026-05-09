@@ -31,6 +31,7 @@ import {
   useUpdateBox,
 } from "../hooks/useSegments";
 import { BoxPropertiesPanel } from "../components/BoxPropertiesPanel";
+import { RegisterClusterOverlay } from "../components/RegisterClusterOverlay";
 import { RegistersPanel } from "../components/RegistersPanel";
 import type { BoxKind } from "../types/domain";
 import {
@@ -342,7 +343,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         }
         disabled={detectRegistersMut.isPending}
       >
-        {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse"}
+        {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse extrahieren"}
       </button>
       <button
         aria-label="Re-extract all"
@@ -419,6 +420,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <div className="absolute inset-0 overflow-auto p-4">
             <div className="flex justify-center">
               <PdfPage slug={slug!} token={token} page={page} scale={scale}>
+                {/* Wrapper rectangles for Verzeichnis-clusters render
+                    BEHIND the individual box outlines so the per-box
+                    colours stay primary; the wrapper just signals
+                    "these belong together". pointer-events:none means
+                    it never blocks click handlers on inner boxes. */}
+                <RegisterClusterOverlay boxes={boxesOnPage} scale={boxScale} />
                 {boxesOnPage.map((b) => (
                   <BoxOverlay
                     key={b.box_id}
