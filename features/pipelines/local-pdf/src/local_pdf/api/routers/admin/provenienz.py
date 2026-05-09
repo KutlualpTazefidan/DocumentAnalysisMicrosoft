@@ -121,6 +121,9 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
 _MAX_CAPTION_DISTANCE = 3
 
 
+_CAPTION_BLOCKING_KINDS = frozenset(("paragraph", "list_item", "heading"))
+
+
 def _find_caption_for(target: Any, boxes: list) -> Any:
     """Walk the page outward from a figure/table to find its caption.
 
@@ -128,9 +131,11 @@ def _find_caption_for(target: Any, boxes: list) -> Any:
       table  → 1 before > 1 after > 2 before > 2 after > ...
       figure → 1 after  > 1 before > 2 after  > 2 before > ...
 
-    Stops in a direction when a paragraph is encountered (= prose
-    between target and where caption would be) or when the page
-    boundary is hit.
+    Stops in a direction when a content-block kind (paragraph,
+    list_item, heading) is encountered — captions can't sit "behind"
+    body prose, list items or section headings. Auxiliary boxes
+    (page numbers, headers/footers) and sibling figures/tables are
+    walked past.
     """
     same_page = {b.reading_order: b for b in boxes if b.page == target.page}
     if target.kind == "table":
@@ -149,10 +154,10 @@ def _find_caption_for(target: Any, boxes: list) -> Any:
                 continue
             if box.kind == "caption":
                 return box
-            if box.kind == "paragraph":
+            if box.kind in _CAPTION_BLOCKING_KINDS:
                 blocked[direction] = True
                 continue
-            # heading, list_item, auxiliary, figure, table — keep walking
+            # auxiliary / figure / table — keep walking
         if all(blocked.values()):
             break
     return None
