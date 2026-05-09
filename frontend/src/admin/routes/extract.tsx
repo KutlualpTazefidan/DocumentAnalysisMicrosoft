@@ -312,14 +312,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const actionButtons = (
     <div className="flex items-center gap-1.5">
       <button
-        aria-label="Re-extract all"
-        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
-        onClick={runExtract}
-        disabled={running}
-      >
-        Alle Seiten extrahieren
-      </button>
-      <button
         aria-label="Verzeichnisse erkennen"
         title="Heuristik scannt das ganze Dokument, klassifiziert Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis um. Manuell gesetzte Boxen bleiben unverändert."
         className={`${T.body} px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -342,6 +334,14 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         disabled={detectRegistersMut.isPending}
       >
         {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse"}
+      </button>
+      <button
+        aria-label="Re-extract all"
+        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+        onClick={runExtract}
+        disabled={running}
+      >
+        Alle Seiten extrahieren
       </button>
       <button
         aria-label="Export sourceelements.json"

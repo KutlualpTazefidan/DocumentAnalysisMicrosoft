@@ -11,6 +11,10 @@ const KINDS: { kind: string; color: string }[] = [
   { kind: "list_item", color: "#4f46e5" },
   { kind: "auxiliary", color: "#06b6d4" },
   { kind: "discard", color: "#6b7280" },
+  { kind: "toc", color: "#ca8a04" },
+  { kind: "list_of_tables", color: "#c026d3" },
+  { kind: "list_of_figures", color: "#65a30d" },
+  { kind: "bibliography", color: "#78350f" },
 ];
 
 /**
