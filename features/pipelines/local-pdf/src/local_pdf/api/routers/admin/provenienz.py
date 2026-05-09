@@ -93,24 +93,19 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
         "continues_to": target.continues_to,
         "confidence": target.confidence,
     }
-    # Caption attachment heuristic for visual elements: pick the
-    # nearest caption box on the same page whose reading_order is one
-    # step away (typical doc layout: figure followed by caption, or
-    # caption followed by table). Two-step distance is allowed when
-    # there's no closer candidate — covers split layouts.
+    # Caption attachment for visual elements. Walk outward step by
+    # step in two directions; the priority order depends on kind:
+    #   - table : prefer caption ABOVE (German tech-doc convention)
+    #             → primary = -1 (one before), secondary = +1 (one after)
+    #   - figure: prefer caption BELOW
+    #             → primary = +1 (one after),  secondary = -1 (one before)
+    # If a paragraph is encountered in a direction, that direction
+    # is blocked (caption can't sit "behind" body prose). Walk at
+    # most _MAX_CAPTION_DISTANCE steps; typical layouts have it
+    # directly adjacent.
     if target.kind in ("figure", "table"):
-        candidates = [
-            b
-            for b in seg.boxes
-            if b.kind == "caption"
-            and b.page == target.page
-            and 0 < abs(b.reading_order - target.reading_order) <= 2
-        ]
-        if candidates:
-            cap = min(
-                candidates,
-                key=lambda b: abs(b.reading_order - target.reading_order),
-            )
+        cap = _find_caption_for(target, seg.boxes)
+        if cap is not None:
             mineru = read_mineru(data_root, slug) or {"elements": []}
             cap_el = next(
                 (e for e in mineru.get("elements", []) if e.get("box_id") == cap.box_id),
@@ -121,6 +116,46 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
                 out["caption_box_id"] = cap.box_id
                 out["caption_text"] = cap_text[:300]
     return out
+
+
+_MAX_CAPTION_DISTANCE = 3
+
+
+def _find_caption_for(target: Any, boxes: list) -> Any:
+    """Walk the page outward from a figure/table to find its caption.
+
+    Direction priority:
+      table  → 1 before > 1 after > 2 before > 2 after > ...
+      figure → 1 after  > 1 before > 2 after  > 2 before > ...
+
+    Stops in a direction when a paragraph is encountered (= prose
+    between target and where caption would be) or when the page
+    boundary is hit.
+    """
+    same_page = {b.reading_order: b for b in boxes if b.page == target.page}
+    if target.kind == "table":
+        priority: tuple[int, int] = (-1, +1)
+    else:  # figure
+        priority = (+1, -1)
+    blocked = {d: False for d in priority}
+    for distance in range(1, _MAX_CAPTION_DISTANCE + 1):
+        for direction in priority:
+            if blocked[direction]:
+                continue
+            ro = target.reading_order + direction * distance
+            box = same_page.get(ro)
+            if box is None:
+                blocked[direction] = True
+                continue
+            if box.kind == "caption":
+                return box
+            if box.kind == "paragraph":
+                blocked[direction] = True
+                continue
+            # heading, list_item, auxiliary, figure, table — keep walking
+        if all(blocked.values()):
+            break
+    return None
 
 
 def _chunk_text_hash(text: str) -> str:
