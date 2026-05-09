@@ -1119,7 +1119,8 @@ export function usePromoteSearchResult(token: string, sessionId: string) {
       if (triggered_from_node_id) {
         requestBody.triggered_from_node_id = triggered_from_node_id;
       }
-      const r = await fetchOk(
+      // Step 1: build the promote_search_result action_proposal.
+      const proposalResp = await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/promote-search-result`,
         {
           method: "POST",
@@ -1128,7 +1129,35 @@ export function usePromoteSearchResult(token: string, sessionId: string) {
         },
         token,
       );
-      return (await r.json()) as ProvNode;
+      const proposal = (await proposalResp.json()) as ProvNode;
+      // Step 2: auto-decide-recommended so the chunk spawns through the
+      // standard decision → triggers → chunk audit chain. Keeps the
+      // one-click "Weiter erforschen" UX while wiring the new chunk into
+      // the proposalSpawningNode lookup the canvas relies on for layout.
+      const decideResp = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/decide`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            proposal_node_id: proposal.node_id,
+            accepted: "recommended",
+          }),
+        },
+        token,
+      );
+      const decided = (await decideResp.json()) as {
+        decision_node: ProvNode;
+        spawned_nodes: ProvNode[];
+        spawned_edges: unknown[];
+      };
+      const chunk = decided.spawned_nodes.find((n) => n.kind === "chunk");
+      if (!chunk) {
+        throw new Error(
+          "promote_search_result decide did not spawn a chunk node",
+        );
+      }
+      return chunk;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });

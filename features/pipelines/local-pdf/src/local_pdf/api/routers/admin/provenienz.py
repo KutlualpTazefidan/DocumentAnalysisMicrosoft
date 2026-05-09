@@ -703,37 +703,21 @@ class PromoteSearchResultRequest(BaseModel):
     triggered_from_node_id: str | None = None
 
 
-@router.post(
-    "/api/admin/provenienz/sessions/{session_id}/promote-search-result",
-    status_code=201,
-)
-async def promote_search_result(
-    session_id: str, body: PromoteSearchResultRequest, request: Request
-) -> dict:
-    """Create a new chunk node seeded with a search_result's text, so the
-    user can extract claims and dig deeper from that specific result.
+def _build_promoted_chunk_payload(
+    *,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
+    triggered_from_node_id: str | None,
+) -> dict[str, Any]:
+    """Walk the search_result's audit chain back to claim/task/origin_chunk
+    and assemble the payload for a derived chunk Node.
 
-    The new chunk inherits **breadcrumbs** from its origin: the claim that
-    triggered the search, the search query, and the source chunk. Stored
-    on the chunk payload so the frontend can render context, and so a
-    later ``extract_claims`` call on this chunk can inject those
-    breadcrumbs into the LLM prompt — keeping the recursive exploration
-    on-topic instead of producing arbitrary claims about the result text.
+    The same payload shape is built at proposal-time (so the action_proposal
+    carries everything the decide-handler needs to materialise the chunk
+    deterministically — no second walk required, no risk of audit drift).
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
-    if sd is None:
-        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    nodes, edges = read_session(sd)
-    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
-    if sr is None:
-        raise HTTPException(
-            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
-        )
-    if sr.kind != "search_result":
-        raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
-
-    # Walk back: search_result → task → claim → original chunk.
     by_id = {n.node_id: n for n in nodes}
     task_id = sr.payload.get("task_node_id")
     task = by_id.get(task_id) if isinstance(task_id, str) else None
@@ -771,9 +755,9 @@ async def promote_search_result(
     # Propagate the click-trail. When the trail head is an evaluation,
     # also write breadcrumbs (verdict + reasoning) so a later
     # extract_claims on this chunk sees WHY it is being researched.
-    if body.triggered_from_node_id:
-        promoted_payload["triggered_from_node_id"] = body.triggered_from_node_id
-        trail_node = by_id.get(body.triggered_from_node_id)
+    if triggered_from_node_id:
+        promoted_payload["triggered_from_node_id"] = triggered_from_node_id
+        trail_node = by_id.get(triggered_from_node_id)
         if trail_node is not None and trail_node.kind == "evaluation":
             promoted_payload["origin_evaluation_id"] = trail_node.node_id
             promoted_payload["origin_evaluation_verdict"] = str(
@@ -783,30 +767,85 @@ async def promote_search_result(
                 trail_node.payload.get("reasoning", "")
             )[:400]
     if box_id and doc_slug:
-        promoted_payload.update(_load_box_metadata(cfg.data_root, doc_slug, box_id))
-    chunk = append_node(
+        promoted_payload.update(_load_box_metadata(data_root, doc_slug, box_id))
+    return promoted_payload
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/promote-search-result",
+    status_code=201,
+)
+async def promote_search_result(
+    session_id: str, body: PromoteSearchResultRequest, request: Request
+) -> dict:
+    """Build an ``action_proposal`` (step_kind="promote_search_result") that
+    captures everything needed to spawn a derived chunk Node — text,
+    breadcrumbs, recursion_depth, box metadata.
+
+    The proposal lands as an audit-anchor; the actual chunk creation
+    happens in /decide on user accept (same shape as decompose_hit and
+    every other step). This wires promote_search_result into the standard
+    action_proposal + decision + triggers chain so the canvas can connect
+    the new chunk back to the proposal that produced it via
+    ``proposalSpawningNode`` (decision → triggers → chunk).
+
+    The new chunk inherits **breadcrumbs** from its origin: the claim that
+    triggered the search, the search query, and the source chunk. Stored
+    on the chunk payload (assembled here, materialised in /decide) so the
+    frontend can render context, and so a later ``extract_claims`` call
+    on this chunk can inject those breadcrumbs into the LLM prompt —
+    keeping the recursive exploration on-topic instead of producing
+    arbitrary claims about the result text.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, edges = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
+
+    chunk_args = _build_promoted_chunk_payload(
+        sr=sr,
+        nodes=nodes,
+        edges=edges,
+        data_root=cfg.data_root,
+        triggered_from_node_id=body.triggered_from_node_id,
+    )
+    text_preview = chunk_args.get("text", "")
+    label_preview = (text_preview[:60] + "…") if len(text_preview) > 60 else text_preview
+    payload = ActionProposalPayload(
+        step_kind="promote_search_result",
+        anchor_node_id=body.search_result_node_id,
+        recommended=ActionOption(
+            label=f'Neuer Chunk: "{label_preview}"' if label_preview else "Neuer Chunk",
+            args=chunk_args,
+        ),
+        alternatives=[],
+        reasoning=(
+            "Suchtreffer wird als abgeleiteter Chunk geöffnet — extract_claims "
+            "läuft regulär darauf und neue Claim-Knoten anlegt (recursive "
+            f"claim tracing, depth → {chunk_args.get('recursion_depth', 1)})."
+        ),
+        guidance_consulted=[],
+        pre_reasoning="",
+        system_prompt_used="",
+        tool_used=None,
+    )
+    actor = "human"
+    landed = append_node(
         sd,
-        Node(
-            node_id=new_id(),
-            session_id=session_id,
-            kind="chunk",
-            payload=promoted_payload,
-            actor="human",
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
         ),
     )
-    append_edge(
-        sd,
-        Edge(
-            edge_id=new_id(),
-            session_id=session_id,
-            from_node=chunk.node_id,
-            to_node=sr.node_id,
-            kind="promoted-from",
-            reason=None,
-            actor="human",
-        ),
-    )
-    return chunk.__dict__
+    return landed.__dict__
 
 
 class RefreshChunkResponse(BaseModel):
@@ -4460,6 +4499,80 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     ),
                 )
             )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "promote_search_result":
+        # The proposal carries the full chunk payload (built at proposal-time
+        # by walking the search_result's audit chain). On accept we just
+        # materialise it into a chunk Node and wire the standard
+        # decision → triggers → chunk + chunk → search_result (promoted-from)
+        # edges. Override is not supported v1 — the promote step has no free
+        # parameters the user could meaningfully override.
+        anchor_sr_id = proposal.payload["anchor_node_id"]
+        if body.accepted == "override":
+            raise HTTPException(
+                status_code=400,
+                detail="override path not supported for promote_search_result step (v1)",
+            )
+        if body.accepted == "recommended":
+            chunk_args = dict(proposal.payload["recommended"]["args"] or {})
+        else:  # alt
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            chunk_args = dict(alts[idx]["args"] or {})
+        # Trail propagation: mirror the other branches — the proposal-level
+        # trail (read off the proposal payload) is the source of truth for
+        # what the chunk should carry. The args copy from
+        # _build_promoted_chunk_payload happens to set the same value at
+        # proposal-creation time, but we re-apply here so the chunk stays
+        # consistent with `_payload_with_trail` semantics used elsewhere.
+        chunk_args.pop("triggered_from_node_id", None)
+        chunk_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="chunk",
+                payload=_payload_with_trail(chunk_args),
+                actor="human",
+            ),
+        )
+        spawned_nodes.append(chunk_node)
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=decision_landed.node_id,
+                    to_node=chunk_node.node_id,
+                    kind="triggers",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=chunk_node.node_id,
+                    to_node=anchor_sr_id,
+                    kind="promoted-from",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
         _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,

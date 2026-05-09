@@ -378,23 +378,42 @@ def test_decide_propagates_trail_to_spawned_stop_proposal(client):
 
 
 # ── promote_search_result + evaluation breadcrumbs ─────────────────────
+#
+# After the standard-audit-chain refactor, promote-search-result returns
+# an action_proposal; the chunk lands via /decide(recommended). The
+# breadcrumb assertions are pulled forward to the final chunk so the
+# end-to-end UX (one POST /promote + one POST /decide) keeps the same
+# breadcrumb-on-chunk contract as before.
+
+
+def _promote_and_decide(client, sid: str, sr_id: str, **body_extras) -> tuple[dict, dict]:
+    """Return (proposal_node_dict, decide_response_dict). The proposal
+    carries everything needed to spawn the chunk; the decide response
+    contains the spawned chunk in spawned_nodes."""
+    proposal = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/promote-search-result",
+        headers={"X-Auth-Token": "tok"},
+        json={"search_result_node_id": sr_id, **body_extras},
+    )
+    assert proposal.status_code == 201, proposal.text
+    proposal_dict = proposal.json()
+    decided = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={"proposal_node_id": proposal_dict["node_id"], "accepted": "recommended"},
+    )
+    assert decided.status_code == 201, decided.text
+    return proposal_dict, decided.json()
 
 
 def test_promote_writes_origin_evaluation_breadcrumbs_when_trail_set(client):
     sid, chunk_id = _bootstrap_chunk(client)
     sr_id = _walk_to_search_result(client, sid, chunk_id)
     eval_id = _spawn_evaluation(client, sid, sr_id)
-    r = client.post(
-        f"/api/admin/provenienz/sessions/{sid}/promote-search-result",
-        headers={"X-Auth-Token": "tok"},
-        json={
-            "search_result_node_id": sr_id,
-            "triggered_from_node_id": eval_id,
-        },
-    )
-    assert r.status_code == 201, r.text
-    chunk = r.json()
-    assert chunk["kind"] == "chunk"
+    _proposal, decided = _promote_and_decide(client, sid, sr_id, triggered_from_node_id=eval_id)
+    chunks = [n for n in decided["spawned_nodes"] if n["kind"] == "chunk"]
+    assert chunks, "expected chunk in decide response"
+    chunk = chunks[0]
     p = chunk["payload"]
     assert p["triggered_from_node_id"] == eval_id
     assert p["origin_evaluation_id"] == eval_id
@@ -405,13 +424,10 @@ def test_promote_writes_origin_evaluation_breadcrumbs_when_trail_set(client):
 def test_promote_without_trail_omits_evaluation_breadcrumbs(client):
     sid, chunk_id = _bootstrap_chunk(client)
     sr_id = _walk_to_search_result(client, sid, chunk_id)
-    r = client.post(
-        f"/api/admin/provenienz/sessions/{sid}/promote-search-result",
-        headers={"X-Auth-Token": "tok"},
-        json={"search_result_node_id": sr_id},
-    )
-    assert r.status_code == 201
-    p = r.json()["payload"]
+    _proposal, decided = _promote_and_decide(client, sid, sr_id)
+    chunks = [n for n in decided["spawned_nodes"] if n["kind"] == "chunk"]
+    assert chunks
+    p = chunks[0]["payload"]
     assert "triggered_from_node_id" not in p
     assert "origin_evaluation_id" not in p
     assert "origin_evaluation_verdict" not in p
@@ -422,16 +438,10 @@ def test_promote_with_trail_pointing_at_non_evaluation_skips_breadcrumbs(client)
     persist trail_id but NOT inject evaluation breadcrumbs."""
     sid, chunk_id = _bootstrap_chunk(client)
     sr_id = _walk_to_search_result(client, sid, chunk_id)
-    r = client.post(
-        f"/api/admin/provenienz/sessions/{sid}/promote-search-result",
-        headers={"X-Auth-Token": "tok"},
-        json={
-            "search_result_node_id": sr_id,
-            "triggered_from_node_id": chunk_id,  # not an evaluation
-        },
-    )
-    assert r.status_code == 201
-    p = r.json()["payload"]
+    _proposal, decided = _promote_and_decide(client, sid, sr_id, triggered_from_node_id=chunk_id)
+    chunks = [n for n in decided["spawned_nodes"] if n["kind"] == "chunk"]
+    assert chunks
+    p = chunks[0]["payload"]
     assert p["triggered_from_node_id"] == chunk_id
     assert "origin_evaluation_id" not in p
 
