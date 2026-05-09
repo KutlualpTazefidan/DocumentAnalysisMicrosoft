@@ -59,6 +59,33 @@ export interface SourceElementsPayload {
   }>;
 }
 
+// ── Verzeichnis registers ──────────────────────────────────────────────────
+
+export type RegisterKind =
+  | "toc"
+  | "list_of_tables"
+  | "list_of_figures"
+  | "bibliography";
+
+export interface RegisterEntry {
+  number: string;
+  title: string;
+  page: string;
+}
+
+export interface Register {
+  kind: RegisterKind;
+  title: string;
+  entries: RegisterEntry[];
+  markdown: string;
+  source_box_ids: string[];
+}
+
+export interface RegistersResponse {
+  slug: string;
+  registers: Register[];
+}
+
 // ── Curator records ───────────────────────────────────────────────────────
 
 export interface CuratorRecord {

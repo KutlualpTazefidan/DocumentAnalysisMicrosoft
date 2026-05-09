@@ -31,6 +31,7 @@ import {
   useUpdateBox,
 } from "../hooks/useSegments";
 import { BoxPropertiesPanel } from "../components/BoxPropertiesPanel";
+import { RegistersPanel } from "../components/RegistersPanel";
 import type { BoxKind } from "../types/domain";
 import {
   streamSegment,
@@ -143,6 +144,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     return Number.isFinite(stored) && stored >= 0.25 && stored <= 4 ? stored : 1.2;
   });
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
+  const [registersOpen, setRegistersOpen] = useState(false);
   const { success, error } = useToast();
 
   function persistScale(s: number) {
@@ -312,8 +314,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const actionButtons = (
     <div className="flex items-center gap-1.5">
       <button
-        aria-label="Verzeichnisse erkennen"
-        title="Heuristik scannt das ganze Dokument, klassifiziert Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis um. Manuell gesetzte Boxen bleiben unverändert."
+        aria-label="Verzeichnisse erkennen und anzeigen"
+        title="Erkennt Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis im ganzen Dokument und öffnet die strukturierte Tabellenansicht. Manuell gesetzte Boxen bleiben unverändert — Re-Klick ist sicher."
         className={`${T.body} px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
         onClick={() =>
           detectRegistersMut.mutate(undefined, {
@@ -323,12 +325,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                   ? e.message
                   : "Verzeichnis-Erkennung fehlgeschlagen",
               ),
-            onSuccess: (out) =>
-              out.boxes_reclassified === 0
-                ? success("Keine Verzeichnisse erkannt")
-                : success(
-                    `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
-                  ),
+            onSuccess: (out) => {
+              if (out.boxes_reclassified === 0) {
+                success("Keine neuen Verzeichnisse erkannt");
+              } else {
+                success(
+                  `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
+                );
+              }
+              // Open the panel either way — the user pressed the button
+              // because they want to see the registers, not just trigger
+              // a silent re-classification.
+              setRegistersOpen(true);
+            },
           })
         }
         disabled={detectRegistersMut.isPending}
@@ -744,6 +753,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </div>
 
       <StageIndicator state={streamState} />
+
+      <RegistersPanel
+        open={registersOpen}
+        slug={slug ?? ""}
+        token={token}
+        onClose={() => setRegistersOpen(false)}
+      />
     </div>
   );
 }

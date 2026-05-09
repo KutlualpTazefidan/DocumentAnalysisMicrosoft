@@ -796,6 +796,36 @@ async def detect_registers_endpoint(slug: str, request: Request) -> dict[str, An
     return {"slug": slug, "boxes_reclassified": changed}
 
 
+@router.get("/api/admin/docs/{slug}/registers")
+async def list_registers(slug: str, request: Request) -> dict[str, Any]:
+    """Return the four consolidated Verzeichnisse (TOC, Tabellen-,
+    Abbildungs-, Literaturverzeichnis) for *slug*, each with structured
+    ``{number, title, page}`` entries plus a rendered Markdown table.
+
+    Verzeichnisse with no boxes (none of that kind exist on disk) are
+    omitted from the list rather than emitted as empty stubs — the UI
+    decides what to show based on which keys arrived.
+    """
+    from local_pdf.api.schemas import BoxKind
+    from local_pdf.provenienz.registers import read_register
+
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    register_kinds = (
+        BoxKind.toc,
+        BoxKind.list_of_tables,
+        BoxKind.list_of_figures,
+        BoxKind.bibliography,
+    )
+    registers: list[dict[str, Any]] = []
+    for kind in register_kinds:
+        out = read_register(cfg.data_root, slug, kind)
+        if out is not None:
+            registers.append(out)
+    return {"slug": slug, "registers": registers}
+
+
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/reset")
 async def reset_box(
     slug: str,

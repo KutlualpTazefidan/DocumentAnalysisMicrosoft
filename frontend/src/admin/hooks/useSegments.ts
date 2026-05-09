@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createBox, deleteBox, detectRegisters, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, unmergeBoxDown, unmergeBoxUp, resetBox, splitBox, updateBox } from "../api/docs";
+import { createBox, deleteBox, detectRegisters, getRegisters, getSegments, mergeBoxes, mergeBoxDown, mergeBoxUp, unmergeBoxDown, unmergeBoxUp, resetBox, splitBox, updateBox } from "../api/docs";
 import type { BoxKind, SegmentBox, SegmentsFile } from "../types/domain";
 
 export function useSegments(slug: string, token: string) {
@@ -118,7 +118,21 @@ export function useDetectRegisters(slug: string, token: string) {
       // a no-op detect shouldn't trigger a re-render.
       if (out.boxes_reclassified > 0) {
         qc.invalidateQueries({ queryKey: ["segments", slug] });
+        // The Verzeichnis-tables panel reads the segments + mineru via
+        // read_register on the server, so its cache must drop too.
+        qc.invalidateQueries({ queryKey: ["registers", slug] });
       }
     },
+  });
+}
+
+export function useRegisters(slug: string, token: string, enabled: boolean) {
+  // 'enabled' lets the panel skip the fetch until the user actually
+  // opens it — saves one round-trip per Extract-route mount.
+  return useQuery({
+    queryKey: ["registers", slug],
+    queryFn: () => getRegisters(slug, token),
+    enabled,
+    retry: false,
   });
 }

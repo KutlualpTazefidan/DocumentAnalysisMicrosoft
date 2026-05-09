@@ -1,5 +1,5 @@
 import { ApiError, apiFetch } from "./adminClient";
-import type { CuratorCreated, CuratorRecord, DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
+import type { CuratorCreated, CuratorRecord, DocMeta, RegistersResponse, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {
   const r = await apiFetch("/api/admin/docs", token);
@@ -107,6 +107,14 @@ export async function detectRegisters(
     `/api/admin/docs/${encodeURIComponent(slug)}/segments/detect-registers`,
     token,
     { method: "POST" },
+  );
+  return r.json();
+}
+
+export async function getRegisters(slug: string, token: string): Promise<RegistersResponse> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/registers`,
+    token,
   );
   return r.json();
 }
