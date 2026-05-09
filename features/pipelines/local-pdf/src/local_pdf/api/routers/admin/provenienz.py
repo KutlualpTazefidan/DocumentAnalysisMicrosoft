@@ -1298,6 +1298,51 @@ def _attach_trail(node: Node, trail_id: str | None) -> Node:
     return node
 
 
+def _ancestor_chunk_box_ids(
+    nodes: list[Node],
+    edges: list[Edge],
+    start_node_id: str,
+) -> list[str]:
+    """Walk parent edges upward from *start_node_id* and collect every
+    chunk Node's ``box_id`` along the ancestry path.
+
+    Used by /search to populate ``exclude_box_ids`` so the searcher
+    doesn't re-surface chunks the investigation already derived from.
+    On a fresh session this returns just ``[meta.root_chunk_id]``;
+    after a promote_search_result it grows to include the promoted
+    chunk's box_id; after multiple nested promotes the whole chain is
+    excluded — exactly the boxes whose contents we've already mined
+    for claims.
+
+    Edge direction in the session graph is *parent → child* (e.g.
+    chunk → claim → task → search_result → promoted_chunk), so
+    "walking upward" means following edges in the reverse direction
+    via ``from_node`` of each incoming edge.
+    """
+    by_id = {n.node_id: n for n in nodes}
+    incoming: dict[str, list[str]] = {}
+    for e in edges:
+        incoming.setdefault(e.to_node, []).append(e.from_node)
+    seen: set[str] = set()
+    box_ids: list[str] = []
+    queue: list[str] = [start_node_id]
+    while queue:
+        nid = queue.pop()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        node = by_id.get(nid)
+        if node is None:
+            continue
+        if node.kind == "chunk":
+            bid = str(node.payload.get("box_id") or "")
+            if bid:
+                box_ids.append(bid)
+        for parent in incoming.get(nid, []):
+            queue.append(parent)
+    return box_ids
+
+
 class PinApproachRequest(BaseModel):
     approach_id: str
 
@@ -2335,7 +2380,7 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
     meta = read_meta(sd)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     task = next((n for n in nodes if n.node_id == body.task_node_id), None)
     if task is None:
         raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
@@ -2344,10 +2389,17 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
 
     query = task.payload.get("query", "")
     actor = "system"  # this step doesn't call an LLM in v1
+    # Exclude every chunk in the investigation's ancestry — root chunk
+    # PLUS any chunks promoted from intermediate search_results — so a
+    # claim spawned off a promoted chunk doesn't keep finding the same
+    # chunks we've already mined. Falls back to root_chunk_id if the
+    # walk yields nothing (legacy sessions or detached tasks).
+    ancestor_chunks = _ancestor_chunk_box_ids(nodes, edges, body.task_node_id)
+    exclude_set = {meta.root_chunk_id, *ancestor_chunks}
     searcher = InDocSearcher(
         data_root=cfg.data_root,
         slug=meta.slug,
-        exclude_box_ids=(meta.root_chunk_id,),
+        exclude_box_ids=tuple(sorted(exclude_set)),
     )
     hits = searcher.search(query, top_k=body.top_k)
     hits_payload = [
