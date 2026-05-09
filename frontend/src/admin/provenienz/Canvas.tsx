@@ -4,6 +4,7 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -143,6 +144,14 @@ export function Canvas({
         snapGrid={[16, 16]}
         fitView
         proOptions={{ hideAttribution: true }}
+        // Rectangle-select on empty-pane drag; pan with middle / right
+        // mouse button so the left-button-drag stays for lasso. Selected
+        // nodes can then be dragged together as a group.
+        selectionOnDrag
+        panOnDrag={[1, 2]}
+        selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode={["Meta", "Control"]}
+        selectionKeyCode={null}
       >
         <Background
           variant={BackgroundVariant.Lines}
