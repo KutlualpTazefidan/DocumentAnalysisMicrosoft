@@ -929,15 +929,21 @@ async def refresh_chunk(
     stored_text = str(chunk.payload.get("text", ""))
     stored_box_kind = chunk.payload.get("box_kind")
     stored_reading_order = chunk.payload.get("reading_order")
+    stored_caption_text = str(chunk.payload.get("caption_text", ""))
+    stored_caption_box_id = str(chunk.payload.get("caption_box_id", ""))
 
-    # Compare on text + box_kind + reading_order only. bbox + confidence
-    # are intentionally excluded — they fluctuate across re-extractions
-    # without representing a meaningful content change.
+    # Compare on text + box_kind + reading_order + caption only.
+    # bbox + confidence intentionally excluded — they fluctuate across
+    # re-extractions without representing a meaningful content change.
     text_changed = _chunk_text_hash(current_text) != _chunk_text_hash(stored_text)
     kind_changed = current_meta.get("box_kind") != stored_box_kind
     order_changed = current_meta.get("reading_order") != stored_reading_order
+    caption_changed = (
+        str(current_meta.get("caption_text", "")) != stored_caption_text
+        or str(current_meta.get("caption_box_id", "")) != stored_caption_box_id
+    )
 
-    if not (text_changed or kind_changed or order_changed):
+    if not (text_changed or kind_changed or order_changed or caption_changed):
         return RefreshChunkResponse(refreshed=False, reason="current")
 
     # Build the new chunk's payload. Preserve breadcrumbs (origin_*) so a
