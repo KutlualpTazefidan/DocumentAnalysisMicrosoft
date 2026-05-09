@@ -1314,15 +1314,19 @@ def _ancestor_chunk_box_ids(
     excluded — exactly the boxes whose contents we've already mined
     for claims.
 
-    Edge direction in the session graph is *parent → child* (e.g.
-    chunk → claim → task → search_result → promoted_chunk), so
-    "walking upward" means following edges in the reverse direction
-    via ``from_node`` of each incoming edge.
+    Edge convention in this graph is **dependent → dependency**
+    (see ``_DEPENDS_ON_EDGE_KINDS``): claim → chunk, task → claim,
+    search_result → task, promoted_chunk → search_result, etc. So
+    "walking upward" means following each node's OUTGOING depends-on
+    edges back to its parents — not incoming, which would walk down
+    into descendants.
     """
     by_id = {n.node_id: n for n in nodes}
-    incoming: dict[str, list[str]] = {}
+    parents: dict[str, list[str]] = {}
     for e in edges:
-        incoming.setdefault(e.to_node, []).append(e.from_node)
+        if e.kind not in _DEPENDS_ON_EDGE_KINDS:
+            continue
+        parents.setdefault(e.from_node, []).append(e.to_node)
     seen: set[str] = set()
     box_ids: list[str] = []
     queue: list[str] = [start_node_id]
@@ -1338,7 +1342,7 @@ def _ancestor_chunk_box_ids(
             bid = str(node.payload.get("box_id") or "")
             if bid:
                 box_ids.append(bid)
-        for parent in incoming.get(nid, []):
+        for parent in parents.get(nid, []):
             queue.append(parent)
     return box_ids
 

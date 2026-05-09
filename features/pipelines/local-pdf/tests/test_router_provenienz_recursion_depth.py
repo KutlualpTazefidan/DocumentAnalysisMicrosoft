@@ -82,6 +82,17 @@ def _bootstrap_chunk(client) -> tuple[str, str, str]:
                     "box_id": "p2-b0",
                     "html_snippet": "<p>Tabelle Wärmeleistung pro Komponente.</p>",
                 },
+                # Extra elements so a multi-level promote chain still
+                # has corpus left to search after each level pulls one
+                # element into the ancestry's exclude set.
+                {
+                    "box_id": "p3-b0",
+                    "html_snippet": "<p>Wärmeleistung der Hauptkomponente beträgt 2.1 kW.</p>",
+                },
+                {
+                    "box_id": "p4-b0",
+                    "html_snippet": "<p>Sekundärkühlkreis Wärmeleistung 1.5 kW.</p>",
+                },
             ],
             "diagnostics": [],
         },
