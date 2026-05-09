@@ -121,6 +121,65 @@ def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
 _MAX_CAPTION_DISTANCE = 3
 
 
+_BOX_KIND_HINTS: dict[str, str] = {
+    "heading": "Abschnitts-Überschrift — meist ohne eigenständige prüfbare Aussagen.",
+    "paragraph": "Fließtext — typische Quelle für extrahierbare Aussagen.",
+    "list_item": "Aufzählungspunkt — kompakte Aussage, oft eigenständig.",
+    "table": (
+        "Tabellen-Inhalt mit Zeilen/Spalten-Struktur (im Text als Markdown). "
+        "Werte stehen meist in Spalten-Beziehung; beim Extrahieren / Bewerten "
+        "die Spalten-Header berücksichtigen."
+    ),
+    "figure": (
+        "Bild/Abbildung — der Text ist die VLM-Beschreibung des Bildes. "
+        "Caption (falls vorhanden) liefert das Bild-Label."
+    ),
+    "caption": (
+        "Bild-/Tabellen-Beschriftung — referenziert ein anderes Element; "
+        "selten alleine prüfbar, eher Kontext."
+    ),
+    "formula": "Mathematischer Ausdruck — Inhalt oft als MathML/LaTeX-Salat im Text.",
+    "auxiliary": "Seiten-Hilfselement (Kopf-/Fußzeile, Seitenzahl) — meist irrelevant.",
+}
+
+
+def _format_box_metadata_block(anchor: Node) -> str:
+    """Render the structured box-metadata fields on a chunk or
+    search_result anchor as a labelled prompt block.
+
+    Lets the next_step planner reason about the anchor's TYPE
+    (heading / paragraph / table / figure / caption / formula) and
+    location (page, reading order) when picking the right step.
+    Returns ``""`` when the anchor has no metadata (legacy nodes from
+    sessions before Phase A).
+    """
+    if anchor.kind not in ("chunk", "search_result"):
+        return ""
+    p = anchor.payload
+    box_kind = str(p.get("box_kind") or "").strip()
+    page = p.get("page")
+    reading_order = p.get("reading_order")
+    caption_text = str(p.get("caption_text") or "").strip()
+    recursion_depth = p.get("recursion_depth")
+    if not box_kind and page is None and not caption_text:
+        return ""
+    parts: list[str] = ["## Quell-Metadaten"]
+    if box_kind:
+        hint = _BOX_KIND_HINTS.get(box_kind, "")
+        parts.append(f"Box-Typ: **{box_kind}**" + (f" — {hint}" if hint else ""))
+    if isinstance(page, int):
+        order_str = f", Position {reading_order}" if isinstance(reading_order, int) else ""
+        parts.append(f"Lage: Seite {page}{order_str}")
+    if caption_text:
+        parts.append(f'Caption: "{caption_text[:200]}"')
+    if isinstance(recursion_depth, int) and recursion_depth > 0:
+        parts.append(
+            f"Recursion-Tiefe: {recursion_depth} "
+            f"(via promote_search_result aus früherem Treffer entstanden)"
+        )
+    return "\n".join(parts) + "\n\n"
+
+
 _CAPTION_BLOCKING_KINDS = frozenset(("paragraph", "list_item", "heading"))
 
 
@@ -2899,6 +2958,7 @@ def _llm_next_step(
     anchor_summary = (
         f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}"
     )
+    metadata_block = _format_box_metadata_block(anchor)
     trigger_block = ""
     if triggered_from_node is not None and triggered_from_node.kind == "evaluation":
         prior_verdict = str(triggered_from_node.payload.get("verdict", ""))
@@ -2923,6 +2983,7 @@ def _llm_next_step(
     system = NEXT_STEP_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
         f"## Knoten\n{anchor_summary}\n\n"
+        f"{metadata_block}"
         f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
         f"{trigger_block}"
         f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
