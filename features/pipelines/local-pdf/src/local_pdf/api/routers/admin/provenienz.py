@@ -1847,9 +1847,10 @@ _EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradi
 _NO_THINK = "\n\n/no_think"
 
 # Output-token budget. Has to fit alongside the input prompt within the
-# model's max_model_len. With max_model_len=4096 and our typical
-# system+user prompts running 1500-2500 input tokens, 1024 leaves
-# enough headroom for JSON output + small <think> block leakage.
+# model's max_model_len. With max_model_len=8192 (current default) and
+# our system+user prompts running 4000-6500 input tokens (skill-stacked
+# next_step + evaluate), 1024 leaves enough headroom for JSON output +
+# small <think> block leakage.
 # Default vLLM max_tokens can be as low as 16 which truncates anything
 # non-trivial, so we always pass this explicitly.
 _MAX_TOKENS_STRUCTURED = 1024
