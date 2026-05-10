@@ -1427,6 +1427,77 @@ def _persisted_tool_calls_for_sr(
     return "\n".join(lines), tool_calls
 
 
+def _ensure_calculator_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    claim: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """If no Calculator annotation already exists for *sr*, run the
+    Calculator on (claim_text, sr_text) and persist the result as a
+    tool_annotation Node + "enriches" edge. No-op when:
+
+      - an annotation already exists for this SR (don't double-run),
+      - the texts have no parseable (number, unit) pairs (nothing to
+        compute).
+
+    Auto-fire rationale: when an LLM evaluates a claim with numbers
+    against a candidate with numbers, it should NEVER do mental
+    arithmetic. The Calculator must run first; this helper guarantees
+    that, while still leaving the manual /calculator-on-result path
+    available for explicit re-runs (different tolerance, etc.).
+    """
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    has_calc_ann = any(
+        n.kind == "tool_annotation"
+        and n.node_id in existing_ann_ids
+        and isinstance(n.payload.get("tool_call"), dict)
+        and (n.payload.get("tool_call") or {}).get("tool") == "calculator"
+        for n in nodes
+    )
+    if has_calc_ann:
+        return
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    hint, tool_call = _calculator_tool_call(claim_text, candidate_text)
+    if tool_call is None:
+        return
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": hint,
+        "annotation_kind": "calculator_result",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
 def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
     """Backwards-compat wrapper — only the hint string. Prefer
     :func:`_calculator_tool_call` so the structured record gets
@@ -1773,23 +1844,29 @@ PRE_REASON_SYSTEM = (
     "Du bist die reflektierende Schicht eines Recherche-Agenten. Vor "
     "jeder Aktion erklärst du in EINEM kurzen deutschen Satz (max. "
     "30 Wörter), warum diese Art von Aktion JETZT für DIESEN Knoten "
-    "der richtige Prozess-Schritt ist.\n\n"
-    "STRIKTE REGELN — keine Verletzungen:\n"
-    "- Du URTEILST NICHT über das Ergebnis. Beschreibe ausschließlich "
-    "die Prozess-Logik (warum diese Schritt-Sorte auf diesem "
-    "Anker-Typ jetzt sinnvoll ist), nicht den vermuteten Ausgang.\n"
-    "- VERMEIDE Outcome-Verben wie 'stützt', 'unterstützt', "
-    "'bestätigt', 'widerlegt', 'beweist', 'zeigt'. Diese Wörter "
-    "gehören in die folgende Aktion, nicht in deine Vor-Begründung.\n"
-    "- Inhalte aus dem Anker sind HYPOTHESEN oder Kandidaten, keine "
-    "Fakten. Schreibe NIEMALS 'Die Angabe von X', als wäre X bereits "
-    "bewiesen — die nachfolgende Aktion entscheidet das.\n"
+    "der richtige Prozess-Schritt ist UND was konkret geprüft wird.\n\n"
+    "ANFORDERUNGEN:\n"
+    "- Nenne konkret die Hypothese / Aussage, die geprüft wird. "
+    "Schreibe sie als Hypothese, mit dem Wort 'Hypothese' oder "
+    "'Aussage' davor — z.B. 'Bewertung des Treffers gegen die "
+    "Hypothese der Wärmeleistung von 5,6 kW' oder 'Prüfung der "
+    "Aussage zur Brennelement-Anzahl gegen den Treffer'.\n"
+    "- Mache klar, dass es eine ZU PRÜFENDE Behauptung ist — nicht "
+    "ein bewiesener Fakt.\n\n"
+    "STRIKTE VERBOTE:\n"
+    "- Du URTEILST NICHT über das Ergebnis. VERMEIDE Outcome-Verben "
+    "wie 'stützt', 'unterstützt', 'bestätigt', 'widerlegt', "
+    "'beweist', 'zeigt'. Diese Wörter gehören in die nachfolgende "
+    "Aktion, nicht in deine Vor-Begründung.\n"
+    "- Behandle Inhalte aus dem Anker NIEMALS als Tatsache. Schreibe "
+    "z.B. NICHT 'Die Angabe von 5,6 kW unterstützt die Annahme' "
+    "(das ist Vorgriff). Schreibe stattdessen 'Bewertung des Treffers "
+    "gegen die Hypothese der Wärmeleistung von 5,6 kW' (neutral).\n"
     "- Mische niemals Hypothese und Kandidat zu einer einzigen "
-    "Aussage. Du nennst, wenn überhaupt, das gemeinsame Thema.\n"
-    "- Topic-Bezug erlaubt ('Bewertung der Wärmeleistungs-Angabe'), "
-    "Inhalts-Vorgriff nicht ('Wert von 5,6 kW unterstützt …').\n\n"
+    "Aussage. Die Hypothese ist das Subjekt der Prüfung; der "
+    "Kandidat-Inhalt erscheint NICHT in der Vor-Begründung.\n\n"
     "Antworte ausschließlich mit dem Satz selbst, keine "
-    "Anführungszeichen, kein Vor- oder Nachtext, kein Markdown."
+    "Anführungszeichen-Zaun, kein Vor- oder Nachtext, kein Markdown."
 )
 NEXT_STEP_SYSTEM = (
     "Du bist der reflektierende Teil eines Recherche-Agenten. Du bekommst "
@@ -3126,12 +3203,16 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
-    # Calculator results are NO LONGER auto-computed inside evaluate.
-    # The user (or the planner via capability_request) explicitly runs
-    # the Calculator before evaluate via POST /calculator-on-result;
-    # that endpoint persists tool_annotation Nodes attached to the
-    # search_result via "enriches" edges. Here we just gather any
-    # pre-existing ones so the LLM can use them as ground truth.
+    # Calculator: auto-fire when applicable, but persist the result as
+    # a tool_annotation Node so it shows up in the canvas + audit AND
+    # can be re-run with a different tolerance later. The LLM should
+    # never have to do mental number-comparison; if numbers are present
+    # we make sure deterministic ground-truth is available before the
+    # prompt is built.
+    _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
+    # Re-read after potential persist so the gather sees the new
+    # annotation. Cheap: read_session is a single-pass JSONL scan.
+    nodes, edges = read_session(sd)
     calc_hint, tool_calls = _persisted_tool_calls_for_sr(body.search_result_node_id, nodes, edges)
     try:
         verdict_payload = _llm_evaluate(
@@ -3399,8 +3480,9 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
-    # Re-evaluate also uses the persisted-tool-result pattern (no
-    # auto-compute). See evaluate route for rationale.
+    # Same auto-fire-and-persist as the main evaluate route — see there.
+    _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
+    nodes, edges = read_session(sd)
     calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, nodes, edges)
     try:
         verdict_payload = _llm_evaluate(
