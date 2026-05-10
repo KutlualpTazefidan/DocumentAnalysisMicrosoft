@@ -1338,16 +1338,21 @@ def _attach_trail(node: Node, trail_id: str | None) -> Node:
     return node
 
 
-def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
+def _calculator_tool_call(
+    claim_text: str, candidate_text: str
+) -> tuple[str, dict[str, Any] | None]:
     """Run the deterministic Calculator across (number, unit) pairs in
-    both texts and return a German prompt-block summarising the
-    pairwise comparison. Empty string when either side has no
-    parseable quantities — keeps the evaluate prompt clean for purely
-    semantic claims.
+    both texts. Returns ``(hint_string, tool_call_record)``.
 
-    Used by the evaluate route to inject ground-truth comparison
-    results into the LLM prompt; the LLM then defers to these instead
-    of doing its own (often-wrong) text-level number reasoning.
+    - ``hint_string``: German prompt-block injected into the LLM's
+      evaluate user prompt. Empty when either side has no parseable
+      quantities.
+    - ``tool_call_record``: structured audit entry
+      ``{tool, operation, input, output}`` persisted on the
+      action_proposal / evaluation payload so the UI can render
+      "this tool ran with these inputs and got these outputs"
+      (parallel to the existing capability_scan for skills).
+      ``None`` when no quantities to compare.
     """
     from local_pdf.provenienz.calculator import (
         best_pairwise_compare,
@@ -1357,12 +1362,36 @@ def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
     a_qs = parse_quantities(claim_text)
     b_qs = parse_quantities(candidate_text)
     if not a_qs or not b_qs:
-        return ""
+        return "", None
     out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.01)
     lines = [out["reasoning"]]
     for r in out.get("results", []):
         lines.append(f"- {r['reasoning']}")
-    return "\n".join(lines)
+    hint = "\n".join(lines)
+    tool_call = {
+        "tool": "calculator",
+        "operation": "compare",
+        "input": {
+            "rel_tolerance": 0.01,
+            "claim_quantities": [
+                {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit} for q in a_qs
+            ],
+            "candidate_quantities": [
+                {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit} for q in b_qs
+            ],
+        },
+        "output": out,
+    }
+    return hint, tool_call
+
+
+def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
+    """Backwards-compat wrapper — only the hint string. Prefer
+    :func:`_calculator_tool_call` so the structured record gets
+    persisted on the eval payload.
+    """
+    hint, _ = _calculator_tool_call(claim_text, candidate_text)
+    return hint
 
 
 def _ancestor_chunk_box_ids(
@@ -2921,11 +2950,12 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
-    # Calculator hint: deterministic comparison of (number, unit) pairs
-    # the LLM otherwise has to reason about textually. Built only when
-    # both texts contain at least one parseable quantity — short-circuits
-    # to empty otherwise so unrelated claims aren't crowded with noise.
-    calc_hint = _build_calculator_hint(claim.payload.get("text", ""), candidate_text)
+    # Calculator: deterministic comparison of (number, unit) pairs.
+    # _calculator_tool_call returns both the prompt-hint string and a
+    # structured tool-call record so the eval node carries an audit
+    # trail of which tools fired and what they computed.
+    calc_hint, calc_tool_call = _calculator_tool_call(claim.payload.get("text", ""), candidate_text)
+    tool_calls: list[dict[str, Any]] = [calc_tool_call] if calc_tool_call is not None else []
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
@@ -2952,6 +2982,11 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                 "reasoning": reasoning,
                 "sentences": sentences,
                 "against_claim_id": body.against_claim_id,
+                # Tool-call audit travels through the args bundle so it
+                # lands on the eval Node payload at /decide. Mirrors how
+                # capability_scan persists; lets the UI render "tools
+                # that fired during this evaluation".
+                "tool_calls": tool_calls,
             },
         ),
         alternatives=[
@@ -2962,6 +2997,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                     "confidence": 1.0,
                     "reasoning": "manuell verworfen",
                     "against_claim_id": body.against_claim_id,
+                    "tool_calls": [],
                 },
             ),
         ],
@@ -3186,7 +3222,10 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
-    calc_hint = _build_calculator_hint(claim.payload.get("text", ""), sr.payload.get("text", ""))
+    calc_hint, calc_tool_call = _calculator_tool_call(
+        claim.payload.get("text", ""), sr.payload.get("text", "")
+    )
+    tool_calls: list[dict[str, Any]] = [calc_tool_call] if calc_tool_call is not None else []
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
@@ -3215,6 +3254,7 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
                 "capabilities_used": [a.approach_id for a in selected],
                 "capability_gate_node_id": body.capability_gate_node_id,
                 "prior_evaluation_node_id": gate.payload.get("evaluation_node_id"),
+                "tool_calls": tool_calls,
             },
         ),
         alternatives=[
@@ -3225,6 +3265,7 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
                     "confidence": 1.0,
                     "reasoning": "Re-Evaluate verworfen — alte Bewertung bleibt.",
                     "against_claim_id": claim.node_id,
+                    "tool_calls": [],
                 },
             ),
         ],
@@ -5591,6 +5632,12 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         # considered (have triggers != {}) and which fired.
                         # Always present, even when empty / no matches.
                         "capability_scan": capability_scan,
+                        # Tool-call audit — which deterministic tools
+                        # (Calculator, etc.) ran during this evaluate
+                        # step. Parallel to capability_scan but for
+                        # tools, not skills. Empty list when no tool
+                        # produced output.
+                        "tool_calls": args.get("tool_calls", []),
                     }
                 ),
                 actor=eval_actor,

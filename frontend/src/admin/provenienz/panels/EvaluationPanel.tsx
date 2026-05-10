@@ -50,6 +50,14 @@ export function EvaluationPanel({
       matched?: boolean;
       reasons?: string[];
     }[];
+    /** Deterministic-tool audit trail. Mirrors capability_scan but
+     * for tools (Calculator, RegisterLookup, ...) instead of skills. */
+    tool_calls?: {
+      tool?: string;
+      operation?: string;
+      input?: Record<string, unknown>;
+      output?: Record<string, unknown>;
+    }[];
     search_result_node_id?: string;
   };
   const verdict = String(p.verdict ?? "unknown");
@@ -59,6 +67,7 @@ export function EvaluationPanel({
   const sentences = Array.isArray(p.sentences) ? p.sentences : [];
   const capScan = Array.isArray(p.capability_scan) ? p.capability_scan : [];
   const capMatched = capScan.filter((c) => c.matched).length;
+  const toolCalls = Array.isArray(p.tool_calls) ? p.tool_calls : [];
   // The parent search_result is the right anchor for "Was als nächstes?"
   // because decompose_hit / promote_search_result / re-evaluate are all
   // registered for search_result nodes, not for evaluation nodes. The
@@ -119,6 +128,73 @@ export function EvaluationPanel({
             <p className={T.tinyBold}>Begründung</p>
             <p className={`text-slate-200 ${T.body} italic mt-1`}>{reasoning}</p>
           </div>
+        )}
+        {toolCalls.length > 0 && (
+          <details className="rounded border border-cyan-700/40 bg-cyan-950/10" open>
+            <summary
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-300 flex items-center gap-2`}
+            >
+              🛠 Werkzeug-Aufrufe: {toolCalls.length}{" "}
+              {toolCalls.length === 1 ? "Werkzeug" : "Werkzeuge"} ausgeführt
+            </summary>
+            <ul className="px-3 pb-3 pt-1 space-y-2">
+              {toolCalls.map((tc, idx) => {
+                const out = (tc.output ?? {}) as {
+                  reasoning?: string;
+                  any_match?: boolean;
+                  n_matches?: number;
+                  n_pairs?: number;
+                  results?: { reasoning?: string; match?: boolean }[];
+                };
+                const inp = (tc.input ?? {}) as {
+                  rel_tolerance?: number;
+                  claim_quantities?: { value?: number; raw_unit?: string }[];
+                  candidate_quantities?: { value?: number; raw_unit?: string }[];
+                };
+                return (
+                  <li
+                    key={idx}
+                    className="rounded px-2 py-1.5 bg-cyan-900/20 border border-cyan-700/30"
+                  >
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className={`font-mono ${T.body} text-cyan-200`}>
+                        🛠 {tc.tool}
+                      </span>
+                      <span className={`${T.tiny} text-cyan-400/80 font-mono`}>
+                        op={tc.operation}
+                      </span>
+                      {typeof inp.rel_tolerance === "number" && (
+                        <span className={`${T.tiny} text-cyan-400/60`}>
+                          Toleranz {(inp.rel_tolerance * 100).toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                    {out.reasoning && (
+                      <p className={`${T.tiny} text-cyan-100/90 mt-1`}>
+                        {out.reasoning}
+                      </p>
+                    )}
+                    {Array.isArray(out.results) && out.results.length > 0 && (
+                      <ul className={`mt-1 space-y-0.5 ${T.tiny}`}>
+                        {out.results.map((r, ri) => (
+                          <li
+                            key={ri}
+                            className={
+                              r.match
+                                ? "text-emerald-200"
+                                : "text-rose-200/80"
+                            }
+                          >
+                            · {r.reasoning ?? ""}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </details>
         )}
         {capScan.length > 0 && (
           <details
