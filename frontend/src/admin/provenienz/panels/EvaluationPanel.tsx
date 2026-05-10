@@ -1,9 +1,8 @@
-import { Microscope, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
   useDeleteNode,
-  useInvestigateTable,
   useNextStepStream,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
@@ -79,15 +78,7 @@ export function EvaluationPanel({
   );
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
-  const investigate = useInvestigateTable(token, sessionId);
-  const { error: toastError, success: toastSuccess } = useToast();
-  // The investigate-table button is only meaningful when the Bewertung
-  // is for a table-typed search_result. The Auto-fire pattern persists
-  // a TableParser annotation when box_kind=table, so checking tool_calls
-  // for tool="table_parser" is a reliable presence signal.
-  const isTableEvaluation = toolCalls.some(
-    (tc) => tc.tool === "table_parser",
-  );
+  const { error: toastError } = useToast();
 
   async function handleNextStep(): Promise<void> {
     if (!parentSearchResultId) {
@@ -104,31 +95,6 @@ export function EvaluationPanel({
     await stream.start(parentSearchResultId, {
       triggered_from_node_id: node.node_id,
     });
-  }
-
-  async function handleInvestigateTable(): Promise<void> {
-    if (!parentSearchResultId) {
-      toastError(
-        "Diese Bewertung kennt ihren Suchtreffer nicht — die " +
-          "Tabellen-Untersuchung muss am Suchtreffer-Tile gestartet werden.",
-      );
-      return;
-    }
-    try {
-      const out = await investigate.mutateAsync({
-        search_result_node_id: parentSearchResultId,
-        triggered_from_node_id: node.node_id,
-      });
-      const skipped = out.skipped
-        .map((s) => `${s.axis}: ${s.reason}`)
-        .join(" | ");
-      const msg =
-        `${out.proposals.length} Vorschläge gespawnt` +
-        (skipped ? ` — übersprungen: ${skipped}` : "");
-      toastSuccess(msg);
-    } catch (e) {
-      toastError(e instanceof Error ? e.message : "Fehler");
-    }
   }
 
   async function handleDelete(): Promise<void> {
@@ -396,20 +362,6 @@ export function EvaluationPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        {isTableEvaluation && (
-          <button
-            type="button"
-            onClick={() => void handleInvestigateTable()}
-            disabled={investigate.isPending || !parentSearchResultId}
-            className={`w-full px-3 py-2 rounded bg-cyan-700 hover:bg-cyan-600 text-cyan-50 font-semibold ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
-            title="Spawnt deterministisch Folge-Aufgaben: Text-Referenz, Quellen-Attribution, Semantik-Rückprüfung. Konsistenz wurde bereits beim Bewerten geprüft."
-          >
-            <Microscope className="w-4 h-4" aria-hidden />
-            {investigate.isPending
-              ? "Untersuchung wird vorbereitet…"
-              : "Tabellen-Untersuchung starten"}
-          </button>
-        )}
         <p className={`${T.tiny} text-slate-500 italic`}>
           Bewertung ist immutable — re-evaluate erzeugt eine neue Bewertung
           als Folge-Knoten. „Was als nächstes?" arbeitet auf dem

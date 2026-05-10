@@ -2822,71 +2822,31 @@ def _extract_source_attribution(caption: str) -> str | None:
     return m.group(0).strip()
 
 
-@router.post(
-    "/api/admin/provenienz/sessions/{session_id}/investigate-table",
-    status_code=201,
-)
-async def investigate_table(
-    session_id: str, body: InvestigateTableRequest, request: Request
+def _spawn_investigate_table_axes(
+    *,
+    cfg: Any,
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    task: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    meta: SessionMeta,
+    triggered_from_node_id: str | None,
 ) -> dict:
-    """Choreography orchestrator: spawn 2 search action_proposals
-    (text-reference + source-attribution) plus 1 evaluate
-    action_proposal (semantic re-check) for a table-typed
-    search_result.
+    """Spawn the 3 follow-up action_proposals around a table search_result
+    (Text-Referenz + Quellen-Attribution + Semantik-Rueckpruefung).
 
-    Internally calls :class:`InDocSearcher` directly with derived
-    queries, packs the hits into action_proposal args (same shape as
-    the regular ``/search`` step), and lets the user accept/reject
-    each proposal independently.
-
-    Skipped axes are returned as ``skipped`` entries so the frontend
-    can show *why* a particular axis didn't yield a proposal (e.g.
-    "no table identifier in caption — no text-reference search
-    possible").
+    Shared helper for the explicit POST /investigate-table route and for
+    the planner-driven step_kind=investigate_table /decide branch — both
+    paths produce the same audit-trail shape.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
-    if sd is None:
-        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    meta = read_meta(sd)
-    if meta is None:
-        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
-    nodes, edges = read_session(sd)
-    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
-    if sr is None:
-        raise HTTPException(
-            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
-        )
-    if sr.kind != "search_result":
-        raise HTTPException(
-            status_code=400, detail=f"anchor must be search_result, got kind={sr.kind}"
-        )
-    if str(sr.payload.get("box_kind", "")) != "table":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"investigate-table requires box_kind=table on search_result, "
-                f"got box_kind={sr.payload.get('box_kind')!r}"
-            ),
-        )
-
-    task_id = sr.payload.get("task_node_id")
-    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
-    if task is None:
-        raise HTTPException(
-            status_code=400,
-            detail="search_result has no parent task — cannot anchor follow-up search proposals",
-        )
-
     caption = str(sr.payload.get("caption_text", ""))
     table_box_id = str(sr.payload.get("box_id", ""))
 
     proposals: list[dict] = []
     skipped: list[dict] = []
 
-    # Forward-flowing visited set so derived searches don't re-find the
-    # same boxes; add this table's box itself so axis-2 doesn't return
-    # the table caption as its own text-reference.
     task_context = get_context(task.payload)
     visited = list(task_context.get("visited_box_ids", []))
     if not visited:
@@ -2934,7 +2894,7 @@ async def investigate_table(
             sd,
             _attach_trail(
                 build_proposal_node(session_id=session_id, actor="system", payload=payload),
-                body.triggered_from_node_id,
+                triggered_from_node_id,
             ),
         )
         return landed.__dict__
@@ -3010,7 +2970,7 @@ async def investigate_table(
         sd,
         _attach_trail(
             build_proposal_node(session_id=session_id, actor="system", payload=payload),
-            body.triggered_from_node_id,
+            triggered_from_node_id,
         ),
     )
     proposals.append(landed.__dict__)
@@ -3021,6 +2981,68 @@ async def investigate_table(
         "table_caption": caption,
         "axes_run": ["Text-Referenz", "Quellen-Attribution", "Semantik-Rueckpruefung"],
     }
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/investigate-table",
+    status_code=201,
+)
+async def investigate_table(
+    session_id: str, body: InvestigateTableRequest, request: Request
+) -> dict:
+    """Choreography orchestrator: spawn 2 search action_proposals
+    (text-reference + source-attribution) plus 1 evaluate
+    action_proposal (semantic re-check) for a table-typed
+    search_result.
+
+    Thin HTTP wrapper around :func:`_spawn_investigate_table_axes`. The
+    same helper is invoked from the /decide handler when the planner
+    picks step_kind=investigate_table — keeps the audit-trail shape
+    identical regardless of how the choreography was triggered.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400, detail=f"anchor must be search_result, got kind={sr.kind}"
+        )
+    if str(sr.payload.get("box_kind", "")) != "table":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"investigate-table requires box_kind=table on search_result, "
+                f"got box_kind={sr.payload.get('box_kind')!r}"
+            ),
+        )
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    if task is None:
+        raise HTTPException(
+            status_code=400,
+            detail="search_result has no parent task — cannot anchor follow-up search proposals",
+        )
+    return _spawn_investigate_table_axes(
+        cfg=cfg,
+        sd=sd,
+        session_id=session_id,
+        sr=sr,
+        task=task,
+        nodes=nodes,
+        edges=edges,
+        meta=meta,
+        triggered_from_node_id=body.triggered_from_node_id,
+    )
 
 
 class CalculatorRequest(BaseModel):
@@ -4294,6 +4316,23 @@ def _llm_next_step(
     if triggered_from_node is not None and triggered_from_node.kind == "evaluation":
         prior_verdict = str(triggered_from_node.payload.get("verdict", ""))
         prior_reasoning = str(triggered_from_node.payload.get("reasoning", ""))[:200]
+        is_table_anchor = (
+            anchor.kind == "search_result" and str(anchor.payload.get("box_kind", "")) == "table"
+        )
+        is_likely_source = prior_verdict == "likely-source"
+        table_likely_source_block = ""
+        if is_table_anchor and is_likely_source:
+            table_likely_source_block = (
+                "- `investigate_table` ist hier der KANONISCHE Schritt: der "
+                "Treffer ist eine Tabelle UND wurde als wahrscheinliche "
+                "Quelle bewertet. Die Tabelle muss jetzt entlang von 3 "
+                "Achsen abgesichert werden (Text-Referenz / Quellen-"
+                "Attribution / Semantik-Rueckpruefung). Konsistenz wurde "
+                "bereits beim Bewerten als Werkzeug-Annotation gefeuert. "
+                "Diese Empfehlung gilt unabhängig vom bisherigen Pfad — "
+                "jede neue likely-source-Bewertung an einer Tabelle ist "
+                "eine eigene Untersuchungs-Gelegenheit.\n"
+            )
         trigger_block = (
             "## KONTEXT — du wirst aus einer Bewertung heraus aufgerufen\n"
             f"Vorheriges Verdict: {prior_verdict}\n"
@@ -4302,6 +4341,7 @@ def _llm_next_step(
             "Treffer JETZT VERTIEFEN — nicht nochmal bewerten. `evaluate` "
             "ist deshalb aus den verfügbaren Steps entfernt.\n\n"
             "Wähle aus den verbleibenden Steps:\n"
+            f"{table_likely_source_block}"
             "- `promote_search_result` wenn der Treffer weitere prüfbare "
             "Aussagen enthält: spawnt einen abgeleiteten Chunk-Knoten, auf "
             "dem extract_claims regulär läuft und neue Claim-Knoten "
@@ -4395,6 +4435,7 @@ _VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
     "search_result": [
         "evaluate",
         "promote_search_result",
+        "investigate_table",
         "propose_stop",
     ],
     # Legacy: ``sub_statement`` Nodes from before the unification still
@@ -4444,6 +4485,17 @@ _STEP_DESCRIPTIONS: dict[str, str] = {
         "Diese Untersuchung abschließen — kein weiterer Schritt sinnvoll. "
         "Nutze NUR wenn alle Behauptungen belegt oder unbelegbar sind ODER "
         "wenn weitere Recherche das Ziel nicht voranbringt."
+    ),
+    "investigate_table": (
+        "Tabellen-Untersuchungs-Choreografie: spawnt 3 Folge-Aufgaben "
+        "rund um einen Tabellen-Treffer (Text-Referenz, Quellen-"
+        "Attribution, Semantik-Rueckpruefung). Konsistenz-Pruefung "
+        "wurde bereits beim Bewerten als Werkzeug-Annotation gefeuert. "
+        "Wähle DIESEN Step wenn der Anker ein search_result mit "
+        "box_kind=table ist UND eine Bewertung verdict=likely-source "
+        "vorliegt — die Tabelle wurde als wahrscheinliche Quelle "
+        "identifiziert, jetzt soll sie systematisch abgesichert werden. "
+        "Nicht für Nicht-Tabellen-Treffer."
     ),
 }
 
@@ -5330,6 +5382,15 @@ def _next_step_run(
         and "evaluate" in available_steps
     ):
         available_steps = [s for s in available_steps if s != "evaluate"]
+    # investigate_table is only applicable to table-typed search_results.
+    # Strip it from the offer set otherwise so the planner can't pick it
+    # for text/figure hits.
+    if (
+        anchor.kind == "search_result"
+        and str(anchor.payload.get("box_kind", "")) != "table"
+        and "investigate_table" in available_steps
+    ):
+        available_steps = [s for s in available_steps if s != "investigate_table"]
     tools_summary = _summarize_tools_for_planner()
     yield PhaseEvent(
         phase="gather_tools",

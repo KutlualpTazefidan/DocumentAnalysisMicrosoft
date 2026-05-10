@@ -5,6 +5,7 @@ import {
   useEvaluate,
   useExtractClaims,
   useFormulateTask,
+  useInvestigateTable,
   useProposeStop,
   usePromoteSearchResult,
   useSearchStep,
@@ -19,6 +20,9 @@ const STEP_LABEL: Record<string, string> = {
   search: "Suchen",
   evaluate: "Bewerten",
   propose_stop: "Stopp vorschlagen",
+  promote_search_result: "Treffer vertiefen",
+  decompose_hit: "Treffer zerlegen",
+  investigate_table: "Tabellen-Untersuchung",
 };
 
 /**
@@ -71,8 +75,9 @@ export function PlanProposalPanel({
   const evaluate = useEvaluate(token, sessionId);
   const promote = usePromoteSearchResult(token, sessionId);
   const decompose = useDecomposeHit(token, sessionId);
+  const investigate = useInvestigateTable(token, sessionId);
   const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
+  const { error: toastError, success: toastSuccess } = useToast();
   const isPending =
     extract.isPending ||
     formulate.isPending ||
@@ -81,6 +86,7 @@ export function PlanProposalPanel({
     evaluate.isPending ||
     promote.isPending ||
     decompose.isPending ||
+    investigate.isPending ||
     del.isPending;
 
   async function handleAccept(): Promise<void> {
@@ -137,6 +143,20 @@ export function PlanProposalPanel({
             triggered_from_node_id: trail,
           });
           break;
+        case "investigate_table": {
+          const out = await investigate.mutateAsync({
+            search_result_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
+          const skipped = out.skipped
+            .map((s) => `${s.axis}: ${s.reason}`)
+            .join(" | ");
+          const msg =
+            `${out.proposals.length} Vorschläge gespawnt` +
+            (skipped ? ` — übersprungen: ${skipped}` : "");
+          toastSuccess(msg);
+          break;
+        }
         default:
           toastError(`Unbekannter Schritt: ${p.name}`);
           return;
