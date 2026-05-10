@@ -1701,11 +1701,24 @@ EXTRACT_CLAIM_GOALS_SYSTEM = (
 PRE_REASON_SYSTEM = (
     "Du bist die reflektierende Schicht eines Recherche-Agenten. Vor "
     "jeder Aktion erklärst du in EINEM kurzen deutschen Satz (max. "
-    "30 Wörter), was diese Aktion zum Recherche-Ziel beiträgt — warum "
-    "sie jetzt für DIESEN Knoten sinnvoll ist. Beziehe dich konkret "
-    "auf den Knoten und das Ziel. Antworte ausschließlich mit dem "
-    "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
-    "kein Markdown."
+    "30 Wörter), warum diese Art von Aktion JETZT für DIESEN Knoten "
+    "der richtige Prozess-Schritt ist.\n\n"
+    "STRIKTE REGELN — keine Verletzungen:\n"
+    "- Du URTEILST NICHT über das Ergebnis. Beschreibe ausschließlich "
+    "die Prozess-Logik (warum diese Schritt-Sorte auf diesem "
+    "Anker-Typ jetzt sinnvoll ist), nicht den vermuteten Ausgang.\n"
+    "- VERMEIDE Outcome-Verben wie 'stützt', 'unterstützt', "
+    "'bestätigt', 'widerlegt', 'beweist', 'zeigt'. Diese Wörter "
+    "gehören in die folgende Aktion, nicht in deine Vor-Begründung.\n"
+    "- Inhalte aus dem Anker sind HYPOTHESEN oder Kandidaten, keine "
+    "Fakten. Schreibe NIEMALS 'Die Angabe von X', als wäre X bereits "
+    "bewiesen — die nachfolgende Aktion entscheidet das.\n"
+    "- Mische niemals Hypothese und Kandidat zu einer einzigen "
+    "Aussage. Du nennst, wenn überhaupt, das gemeinsame Thema.\n"
+    "- Topic-Bezug erlaubt ('Bewertung der Wärmeleistungs-Angabe'), "
+    "Inhalts-Vorgriff nicht ('Wert von 5,6 kW unterstützt …').\n\n"
+    "Antworte ausschließlich mit dem Satz selbst, keine "
+    "Anführungszeichen, kein Vor- oder Nachtext, kein Markdown."
 )
 NEXT_STEP_SYSTEM = (
     "Du bist der reflektierende Teil eines Recherche-Agenten. Du bekommst "
@@ -3849,12 +3862,17 @@ def _llm_pre_reason(
     action path never blocks on the reflective layer.
     """
     system = PRE_REASON_SYSTEM + (extra_system or "") + _NO_THINK
+    # Anker-Inhalt is intentionally truncated to 400 chars and labeled as
+    # "Anker-Inhalt (zur Orientierung, KEINE Fakten)" so the LLM treats it
+    # as topic-only context, not as established truth to reason about.
     user = (
-        f"Schritt: {step_label} ({step_kind})\n"
-        f"Knoten-Inhalt: {anchor_summary[:400]}\n"
+        f"Geplanter Prozess-Schritt: {step_label} ({step_kind})\n\n"
         f"Sitzungs-Ziel: {session_goal or '(nicht gesetzt)'}\n"
         f"Recherche-Frage zur Aussage: {claim_goal or '(nicht relevant)'}\n\n"
-        f"Begründung in einem Satz:"
+        f"Anker-Inhalt (NUR zur Themen-Orientierung, NICHT als bewiesene "
+        f"Tatsachen behandeln): {anchor_summary[:400]}\n\n"
+        f"Begründung in einem Satz, warum dieser Schritt jetzt der "
+        f"richtige Prozess-Zug ist (kein Outcome-Vorgriff):"
     )
     try:
         client = get_llm_client()
