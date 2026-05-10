@@ -1427,6 +1427,35 @@ def _persisted_tool_calls_for_sr(
     return "\n".join(lines), tool_calls
 
 
+def _collect_applied_capabilities_in_chain(prior_eval_id: str, nodes: list[Node]) -> set[str]:
+    """Walk back through the evaluation chain via ``prior_evaluation_node_id``
+    and return the union of every ``applied_capabilities`` set seen.
+
+    Used by capability_scan in /decide-evaluate to filter out skills
+    that have already been injected into a re-eval prompt earlier in
+    the same chain — re-firing them would re-create the same gate
+    they just resolved (the loop the user reported).
+
+    Returns empty set when *prior_eval_id* is empty (= first-time
+    evaluate) or when the linked nodes can't be resolved.
+    """
+    by_id = {n.node_id: n for n in nodes}
+    out: set[str] = set()
+    seen: set[str] = set()
+    cursor = prior_eval_id
+    while cursor and cursor not in seen:
+        seen.add(cursor)
+        node = by_id.get(cursor)
+        if node is None or node.kind != "evaluation":
+            break
+        applied = node.payload.get("applied_capabilities") or []
+        for sid in applied:
+            if isinstance(sid, str) and sid:
+                out.add(sid)
+        cursor = str(node.payload.get("prior_evaluation_node_id") or "")
+    return out
+
+
 def _ensure_calculator_annotation(
     sd: Path,
     session_id: str,
@@ -5810,8 +5839,19 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             )
             all_apps_for_scan = read_approaches(cfg.data_root, enabled_only=True)
             verdict_str = str(args.get("verdict", ""))
+            # B: walk back through the eval-chain (prior_evaluation_node_id
+            # links one re-eval to its predecessor) and collect all skill
+            # IDs that were already injected into prompts. Filter them out
+            # so we don't re-fire skills that already had their say —
+            # otherwise re-eval → same skills → same gate → infinite loop.
+            already_applied = _collect_applied_capabilities_in_chain(
+                args.get("prior_evaluation_node_id", ""), nodes
+            )
+            relevant_apps_for_scan = [
+                a for a in all_apps_for_scan if a.approach_id not in already_applied
+            ]
             capability_matches = scan_capabilities(
-                all_apps_for_scan,
+                relevant_apps_for_scan,
                 verdict=verdict_str,
                 sentence_texts=sentence_texts_for_scan,
                 claim_text=claim_text_for_scan,
@@ -5833,12 +5873,16 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     sentence_texts=sentence_texts_for_scan,
                     claim_text=claim_text_for_scan,
                 )
+                is_applied = app.approach_id in already_applied
+                if is_applied:
+                    reasons = ["Bereits in einem früheren Re-Eval auf dieser Eval-Kette angewendet"]
                 capability_scan.append(
                     {
                         "approach_id": app.approach_id,
                         "name": app.name,
                         "parent_capability": app.parent_capability or "",
                         "matched": ok and app.approach_id in matched_ids,
+                        "applied_previously": is_applied,
                         "reasons": reasons,
                     }
                 )
@@ -5896,6 +5940,19 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         # tools, not skills. Empty list when no tool
                         # produced output.
                         "tool_calls": args.get("tool_calls", []),
+                        # Capabilities that were injected into THIS
+                        # evaluate's prompt — used by future
+                        # capability_scans on descendant evals (via
+                        # prior_evaluation_node_id chain) to skip
+                        # already-applied skills, breaking the
+                        # gate-creation loop. Empty for first-time
+                        # evaluates; populated by re_evaluate_step.
+                        "applied_capabilities": args.get("capabilities_used", []),
+                        # Link to the eval that came before this one in
+                        # a re-eval chain — empty for first-time
+                        # evaluates, set when this eval was kicked off
+                        # from a capability_gate's re-eval flow.
+                        "prior_evaluation_node_id": args.get("prior_evaluation_node_id", ""),
                     }
                 ),
                 actor=eval_actor,
@@ -5935,7 +5992,18 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         # summary is on eval_node.payload. Here we just persist the gate
         # Node when at least one approach actually fired, so the canvas
         # shows the orange "Re-evaluate?" tile.
-        if capability_matches:
+        #
+        # A — verdict-based gate threshold: at "good enough" verdicts
+        # (likely-source / partial-support) the investigation has
+        # converged on a position; further re-eval rarely flips it AND
+        # would create the gate-loop the user reported. Skills only
+        # gate-up the verdict if it's still in "needs work" territory:
+        # unrelated or contradicts.
+        gate_eligible = str(args.get("verdict", "")) in {
+            "unrelated",
+            "contradicts",
+        }
+        if capability_matches and gate_eligible:
             try:
                 rules_preview_parts: list[str] = []
                 detected_summary: list[dict] = []
