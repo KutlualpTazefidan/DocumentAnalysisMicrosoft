@@ -1274,6 +1274,41 @@ export function useSearchStep(token: string, sessionId: string) {
 }
 
 /**
+ * Run the Calculator on a search_result + its linked claim and persist
+ * the comparison as a tool_annotation Node attached to the SR. The
+ * next evaluate on the same SR picks up the persisted result via
+ * _persisted_tool_calls_for_sr in the backend.
+ */
+export function useCalculatorOnResult(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ProvNode,
+    Error,
+    {
+      search_result_node_id: string;
+      rel_tolerance?: number;
+      triggered_from_node_id?: string;
+    }
+  >({
+    mutationFn: async (body) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/calculator-on-result`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
+      return (await r.json()) as ProvNode;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+/**
  * Run an InDocSearcher in a different slug than the session's own —
  * "continue the task in a cited document". Emits search_result Nodes
  * in the current session with doc_slug=target_slug so the agent can

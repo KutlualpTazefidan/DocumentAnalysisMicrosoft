@@ -127,27 +127,34 @@ TOOL_REGISTRY: list[ToolInfo] = [
         label="Calculator",
         description=(
             "Deterministische Zahlen-Verifikation. Operationen: 'compare' "
-            "(parst (Wert, Einheit)-Paare aus zwei Texten und vergleicht "
-            "paarweise), 'sum' (summiert Werte mit konsistenter Einheit). "
-            "Ersetzt LLM-In-The-Head-Mathematik durch echten Code."
+            "(strikte Gleichheit von (Wert, Einheit)-Paaren), 'sum' "
+            "(Summen mit konsistenter Einheit). Ersetzt LLM-In-The-Head-"
+            "Mathematik durch echten Code. Toleranzen sind nicht "
+            "eingebaut — die fachliche Bewertung einer Differenz ist "
+            "Domain-Sache (Skills entscheiden)."
         ),
         when_to_use=(
-            "Im evaluate-Schritt automatisch via /calculator integriert, "
-            "wenn Hypothese und Kandidat Zahlen mit erkennbaren Einheiten "
-            "enthalten — Tool-Ergebnis wird in den evaluate-Prompt als "
-            "Tatsache mit-injiziert. Direkter Aufruf via /calculator-"
-            "Endpoint möglich für Summen-/Umrechnungs-Spezialfälle."
+            "Wenn ein search_result und seine zu prüfende Aussage Zahlen "
+            "mit Einheit enthalten und ein deterministischer Wert-Vergleich "
+            "vor evaluate gewünscht ist. Wird NICHT mehr automatisch in "
+            "evaluate aufgerufen — der Agent / User muss ihn explizit "
+            "anstoßen."
         ),
         scope="compute",
         cost_hint="schnell",
         enabled=True,
-        used_by=["evaluate"],
+        used_by=["search_result", "evaluate"],
         agent_hint=(
-            "Im evaluate-Pfad wird das Tool automatisch genutzt — kein "
-            "expliziter capability_request nötig. Direkter Aufruf via "
-            "POST /api/admin/provenienz/calculator wenn die Aussage eine "
-            "explizite Rechen-Operation prüfen muss (z.B. Summen-Vergleich "
-            "über mehrere Treffer-Werte)."
+            "capability_request mit name='Calculator' im next_step "
+            "wenn der Anker ein search_result ist UND sowohl Aussage als "
+            "auch Treffer-Text Zahlen mit Einheit enthalten, deren "
+            "exakte Übereinstimmung den Verdict beeinflussen würde. "
+            "Ausführung: User triggert per Knopf am search_result-Tile "
+            "ODER Auto-Executor postet "
+            "/api/admin/provenienz/sessions/{id}/calculator-on-result "
+            "mit search_result_node_id. Ergebnis landet als "
+            "tool_annotation Node am Treffer und wird automatisch in den "
+            "nächsten evaluate-Prompt eingespeist."
         ),
     ),
     ToolInfo(

@@ -2,6 +2,7 @@ import { CornerDownRight, FolderOpen, Sparkles, Trash2 } from "lucide-react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useCalculatorOnResult,
   useCrossDocSearchStep,
   useDeleteNode,
   useEvaluate,
@@ -84,9 +85,24 @@ export function SearchResultPanel({
   const evaluate = useEvaluate(token, sessionId);
   const promote = usePromoteSearchResult(token, sessionId);
   const crossDocSearch = useCrossDocSearchStep(token, sessionId);
+  const calculatorOnResult = useCalculatorOnResult(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+
+  // Existing tool_annotation Nodes attached to this result via
+  // "enriches" edges — show them in-panel so the user sees what
+  // deterministic tools have already been run on this hit.
+  const toolAnnotations = (() => {
+    const annIds = new Set(
+      edges
+        .filter((e) => e.to_node === result.node_id && e.kind === "enriches")
+        .map((e) => e.from_node),
+    );
+    return nodes.filter(
+      (n) => annIds.has(n.node_id) && n.kind === "tool_annotation",
+    );
+  })();
 
   // Find the parent task Node by walking edges backward — needed to
   // continue the original task (its query) against the foreign slug
@@ -120,6 +136,15 @@ export function SearchResultPanel({
     try {
       await del.mutateAsync(result.node_id);
       onSelectView(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+  async function handleRunCalculator(): Promise<void> {
+    try {
+      await calculatorOnResult.mutateAsync({
+        search_result_node_id: result.node_id,
+      });
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");
     }
@@ -244,6 +269,48 @@ export function SearchResultPanel({
             </p>
           </div>
         )}
+        {toolAnnotations.length > 0 && (
+          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2 space-y-2">
+            <p className={`${T.tinyBold} text-cyan-300`}>
+              🛠 Werkzeug-Ergebnisse ({toolAnnotations.length})
+            </p>
+            {toolAnnotations.map((ann) => {
+              const tc = (ann.payload.tool_call ?? {}) as {
+                tool?: string;
+                operation?: string;
+                output?: { reasoning?: string };
+              };
+              const text = String(ann.payload.text ?? "");
+              return (
+                <div
+                  key={ann.node_id}
+                  className="rounded bg-cyan-900/20 border border-cyan-700/30 px-2 py-1.5"
+                >
+                  <p className={`${T.tiny} font-mono text-cyan-200`}>
+                    🛠 {tc.tool ?? "?"} · {tc.operation ?? "?"}
+                  </p>
+                  <p className={`${T.tiny} text-cyan-100/90 whitespace-pre-wrap mt-1`}>
+                    {text || tc.output?.reasoning || "—"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => void handleRunCalculator()}
+          disabled={calculatorOnResult.isPending}
+          title="Vergleicht (Wert, Einheit)-Paare aus Hypothese und Treffer deterministisch. Persistiert das Ergebnis am Treffer; nächster evaluate-Schritt nutzt es als Tatsache."
+          className={`w-full px-3 py-1.5 rounded bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white ${T.tiny} flex items-center justify-center gap-1.5`}
+        >
+          🛠{" "}
+          {calculatorOnResult.isPending
+            ? "Werte werden geprüft…"
+            : toolAnnotations.length > 0
+              ? "Werte erneut prüfen (Calculator)"
+              : "Werte deterministisch prüfen (Calculator)"}
+        </button>
         <ContextSection node={result} />
         <LiveRunPanel run={stream} onClose={() => stream.reset()} />
       </div>

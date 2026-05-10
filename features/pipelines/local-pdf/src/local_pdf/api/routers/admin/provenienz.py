@@ -1389,6 +1389,44 @@ def _calculator_tool_call(
     return hint, tool_call
 
 
+def _persisted_tool_calls_for_sr(
+    sr_node_id: str, nodes: list[Node], edges: list[Edge]
+) -> tuple[str, list[dict[str, Any]]]:
+    """Gather Calculator (and future tool) results that were already
+    persisted as tool_annotation Nodes attached to *sr_node_id* via
+    "enriches" edges. Returns (hint_string, tool_call_dicts) — same
+    shape as :func:`_calculator_tool_call` so the evaluate route
+    drops in unchanged.
+
+    The user (or planner) must have explicitly run the tool via the
+    /calculator-on-result endpoint beforehand; nothing is computed
+    here. Empty when no annotations exist — keeps the evaluate prompt
+    clean for purely semantic claims.
+    """
+    annotation_node_ids = {
+        e.from_node for e in edges if e.to_node == sr_node_id and e.kind == "enriches"
+    }
+    annotations = [
+        n for n in nodes if n.node_id in annotation_node_ids and n.kind == "tool_annotation"
+    ]
+    if not annotations:
+        return "", []
+    tool_calls: list[dict[str, Any]] = []
+    lines: list[str] = []
+    for ann in annotations:
+        tc = ann.payload.get("tool_call")
+        if not isinstance(tc, dict):
+            continue
+        tool_calls.append(tc)
+        out = tc.get("output", {}) if isinstance(tc.get("output"), dict) else {}
+        if isinstance(out.get("reasoning"), str):
+            lines.append(str(out["reasoning"]))
+        for r in out.get("results", []) or []:
+            if isinstance(r, dict) and isinstance(r.get("reasoning"), str):
+                lines.append(f"- {r['reasoning']}")
+    return "\n".join(lines), tool_calls
+
+
 def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
     """Backwards-compat wrapper — only the hint string. Prefer
     :func:`_calculator_tool_call` so the structured record gets
@@ -2259,6 +2297,133 @@ class SearchStepRequest(BaseModel):
     triggered_from_node_id: str | None = None
 
 
+class CalculatorOnResultRequest(BaseModel):
+    """Run the Calculator on a session's search_result and persist the
+    output as a tool_annotation Node attached to that result.
+
+    Used as the explicit "user reasons → triggers tool" path: instead
+    of auto-injecting a calculator pass into every evaluate, the user
+    (or a future auto-executor reading capability_request Nodes) hits
+    this endpoint to materialise the comparison. Subsequent evaluate
+    on the same search_result will pick up the persisted annotation
+    via :func:`_persisted_tool_calls_for_sr` and feed it to the LLM
+    as ground truth.
+    """
+
+    search_result_node_id: str
+    rel_tolerance: float = 0.0
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/calculator-on-result",
+    status_code=201,
+)
+async def calculator_on_result(
+    session_id: str, body: CalculatorOnResultRequest, request: Request
+) -> dict:
+    """Run a Calculator compare against the search_result's text vs.
+    the linked claim's text, and persist the result as a
+    tool_annotation Node + "enriches" edge to the search_result.
+
+    Idempotency-light: re-running just appends a new annotation.
+    Older annotations remain in the graph as audit history; evaluate
+    consumes ALL of them, so the user sees their full tool-call
+    history per search_result.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"search_result node not found: {body.search_result_node_id}",
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400,
+            detail=f"anchor must be search_result, got kind={sr.kind}",
+        )
+    # Resolve linked claim by walking sr → task → focus_claim.
+    task_id = sr.payload.get("task_node_id")
+    task = (
+        next((n for n in nodes if n.node_id == task_id), None) if isinstance(task_id, str) else None
+    )
+    claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == claim_id), None)
+        if isinstance(claim_id, str)
+        else None
+    )
+    if claim is None:
+        raise HTTPException(
+            status_code=400,
+            detail="no linked claim — search_result must descend from a task with focus_claim_id",
+        )
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    hint, tool_call = _calculator_tool_call(claim_text, candidate_text)
+    if tool_call is None:
+        raise HTTPException(
+            status_code=400,
+            detail="no parseable (number, unit) pairs in claim or candidate",
+        )
+    if body.rel_tolerance > 0.0:
+        # Caller-supplied tolerance — re-run with that. Domain-Skill
+        # path: a planner Skill that knows the legitimate tolerance for
+        # this domain (conservative rounding etc.) drives this value.
+        from local_pdf.provenienz.calculator import (
+            best_pairwise_compare,
+            parse_quantities,
+        )
+
+        a_qs = parse_quantities(claim_text)
+        b_qs = parse_quantities(candidate_text)
+        out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=body.rel_tolerance)
+        tool_call["input"]["rel_tolerance"] = body.rel_tolerance
+        tool_call["output"] = out
+        lines = [out["reasoning"]]
+        for r in out.get("results", []) or []:
+            lines.append(f"- {r.get('reasoning', '')}")
+        hint = "\n".join(lines)
+
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": hint,
+        "annotation_kind": "calculator_result",
+        "attaches_to_node_id": sr.node_id,
+    }
+    if body.triggered_from_node_id:
+        annotation_payload["triggered_from_node_id"] = body.triggered_from_node_id
+    annotation = append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="human",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation.node_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="human",
+        ),
+    )
+    return annotation.__dict__
+
+
 class CalculatorRequest(BaseModel):
     """Stateless deterministic numerical-comparison endpoint.
 
@@ -2864,7 +3029,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     if meta is None:
         raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     anchor = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
     if anchor is None:
         raise HTTPException(
@@ -2961,12 +3126,13 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
-    # Calculator: deterministic comparison of (number, unit) pairs.
-    # _calculator_tool_call returns both the prompt-hint string and a
-    # structured tool-call record so the eval node carries an audit
-    # trail of which tools fired and what they computed.
-    calc_hint, calc_tool_call = _calculator_tool_call(claim.payload.get("text", ""), candidate_text)
-    tool_calls: list[dict[str, Any]] = [calc_tool_call] if calc_tool_call is not None else []
+    # Calculator results are NO LONGER auto-computed inside evaluate.
+    # The user (or the planner via capability_request) explicitly runs
+    # the Calculator before evaluate via POST /calculator-on-result;
+    # that endpoint persists tool_annotation Nodes attached to the
+    # search_result via "enriches" edges. Here we just gather any
+    # pre-existing ones so the LLM can use them as ground truth.
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(body.search_result_node_id, nodes, edges)
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
@@ -3166,7 +3332,7 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
     meta = read_meta(sd)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     gate = next((n for n in nodes if n.node_id == body.capability_gate_node_id), None)
     if gate is None or gate.kind != "capability_gate":
         raise HTTPException(
@@ -3233,10 +3399,9 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
-    calc_hint, calc_tool_call = _calculator_tool_call(
-        claim.payload.get("text", ""), sr.payload.get("text", "")
-    )
-    tool_calls: list[dict[str, Any]] = [calc_tool_call] if calc_tool_call is not None else []
+    # Re-evaluate also uses the persisted-tool-result pattern (no
+    # auto-compute). See evaluate route for rationale.
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, nodes, edges)
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
