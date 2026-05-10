@@ -134,7 +134,7 @@ export function EvaluationPanel({
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-300 flex items-center gap-2`}
             >
-              🛠 Werkzeug-Aufrufe: {toolCalls.length}{" "}
+              🛠 Werkzeug-Ergebnisse: {toolCalls.length}{" "}
               {toolCalls.length === 1 ? "Werkzeug" : "Werkzeuge"} ausgeführt
             </summary>
             <ul className="px-3 pb-3 pt-1 space-y-2">

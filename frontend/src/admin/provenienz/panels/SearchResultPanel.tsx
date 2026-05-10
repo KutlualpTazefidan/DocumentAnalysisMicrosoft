@@ -13,7 +13,8 @@ import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 import { AnnotationCard, groupAnnotationsByKind } from "./annotations";
-import { ContextSection } from "./ContextSection";
+import { CaptionCard } from "./CaptionCard";
+import { PreReasoningSection } from "./PreReasoningSection";
 
 interface CorpusMatch {
   slug: string;
@@ -75,9 +76,8 @@ export function SearchResultPanel({
   const verdict = evalNode
     ? String((evalNode.payload as { verdict?: string }).verdict ?? "")
     : null;
-  const reasoning = evalNode
-    ? String((evalNode.payload as { reasoning?: string }).reasoning ?? "")
-    : null;
+  // reasoning lives on the EvaluationPanel — SR-Panel only shows the
+  // verdict badge here (Cut #7 — single-place reasoning).
   const confidence = evalNode
     ? Number((evalNode.payload as { confidence?: number }).confidence ?? 0)
     : null;
@@ -220,14 +220,11 @@ export function SearchResultPanel({
         <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
           {String(p.text ?? "")}
         </p>
-        {p.caption_text && (
-          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
-            <p className={`${T.tinyBold} text-cyan-300`}>
-              📑 Caption ({p.caption_box_id})
-            </p>
-            <p className={`text-cyan-100 ${T.body} mt-0.5`}>{p.caption_text}</p>
-          </div>
-        )}
+        <CaptionCard
+          captionText={p.caption_text ?? null}
+          captionBoxId={p.caption_box_id ?? null}
+        />
+        <PreReasoningSection nodes={nodes} anchorId={result.node_id} />
         {p.corpus_match && (
           <div className="rounded border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 space-y-1">
             <p className={`${T.tinyBold} text-emerald-300`}>
@@ -261,47 +258,21 @@ export function SearchResultPanel({
         {annotationGroups.map((group) => (
           <AnnotationCard key={group.kind} group={group} />
         ))}
-        {reasoning && (
-          <div>
-            <p className={T.tinyBold}>Bewertungs-Begründung</p>
-            <p className={`text-slate-300 ${T.body} italic mt-1`}>
-              „{reasoning}"
-            </p>
-          </div>
-        )}
+        {/* Compact tool-status: a 1-line summary of the latest
+            persisted tool annotation (if any) + the run/re-run knob.
+            Full per-call audit lives in the Bewertung tile, not here. */}
         {toolAnnotations.length > 0 && (
-          <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2 space-y-2">
-            <p className={`${T.tinyBold} text-cyan-300`}>
-              🛠 Werkzeug-Ergebnisse ({toolAnnotations.length})
-            </p>
-            {toolAnnotations.map((ann) => {
-              const tc = (ann.payload.tool_call ?? {}) as {
-                tool?: string;
-                operation?: string;
-                output?: { reasoning?: string };
-              };
-              const text = String(ann.payload.text ?? "");
-              return (
-                <div
-                  key={ann.node_id}
-                  className="rounded bg-cyan-900/20 border border-cyan-700/30 px-2 py-1.5"
-                >
-                  <p className={`${T.tiny} font-mono text-cyan-200`}>
-                    🛠 {tc.tool ?? "?"} · {tc.operation ?? "?"}
-                  </p>
-                  <p className={`${T.tiny} text-cyan-100/90 whitespace-pre-wrap mt-1`}>
-                    {text || tc.output?.reasoning || "—"}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+          <p className={`${T.tiny} text-cyan-300/80 font-mono`}>
+            🛠 Calculator: {toolAnnotations.length} Lauf
+            {toolAnnotations.length === 1 ? "" : "e"} — Details im
+            Bewertungs-Tile.
+          </p>
         )}
         <button
           type="button"
           onClick={() => void handleRunCalculator()}
           disabled={calculatorOnResult.isPending}
-          title="Vergleicht (Wert, Einheit)-Paare aus Hypothese und Treffer deterministisch. Persistiert das Ergebnis am Treffer; nächster evaluate-Schritt nutzt es als Tatsache."
+          title="Vergleicht (Wert, Einheit)-Paare aus Hypothese und Treffer deterministisch. Persistiert das Ergebnis am Treffer; Bewertungs-Tile zeigt's als Tatsache."
           className={`w-full px-3 py-1.5 rounded bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white ${T.tiny} flex items-center justify-center gap-1.5`}
         >
           🛠{" "}
@@ -311,7 +282,6 @@ export function SearchResultPanel({
               ? "Werte erneut prüfen (Calculator)"
               : "Werte deterministisch prüfen (Calculator)"}
         </button>
-        <ContextSection node={result} />
         <LiveRunPanel run={stream} onClose={() => stream.reset()} />
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">

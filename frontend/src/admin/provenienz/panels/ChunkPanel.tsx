@@ -11,12 +11,14 @@ import {
 import { T } from "../../styles/typography";
 import { LiveRunPanel } from "../LiveRunPanel";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
-import { ContextSection } from "./ContextSection";
+import { CaptionCard } from "./CaptionCard";
+import { PreReasoningSection } from "./PreReasoningSection";
 
 export function ChunkPanel({
   sessionId,
   token,
   view,
+  nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "chunk") return <></>;
@@ -24,6 +26,12 @@ export function ChunkPanel({
   const text = String(chunk.payload.text ?? "");
   const boxId = chunk.payload.box_id ? String(chunk.payload.box_id) : null;
   const closed = !!view.closedByStop;
+  const captionText =
+    typeof chunk.payload.caption_text === "string" ? chunk.payload.caption_text : null;
+  const captionBoxId =
+    typeof chunk.payload.caption_box_id === "string"
+      ? chunk.payload.caption_box_id
+      : null;
 
   const extract = useExtractClaims(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
@@ -94,23 +102,14 @@ export function ChunkPanel({
       />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
         <OriginContext chunk={chunk} />
+        <PreReasoningSection nodes={nodes} anchorId={chunk.node_id} />
         <div>
           <p className={T.tinyBold}>Text</p>
           <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
             {text}
           </p>
         </div>
-        {typeof chunk.payload.caption_text === "string" &&
-          chunk.payload.caption_text && (
-            <div className="rounded border border-cyan-700/40 bg-cyan-950/20 px-3 py-2">
-              <p className={`${T.tinyBold} text-cyan-300`}>
-                📑 Caption ({String(chunk.payload.caption_box_id ?? "")})
-              </p>
-              <p className={`text-cyan-100 ${T.body} mt-0.5`}>
-                {String(chunk.payload.caption_text)}
-              </p>
-            </div>
-          )}
+        <CaptionCard captionText={captionText} captionBoxId={captionBoxId} />
         <div className="flex items-center justify-between gap-2">
           <BoxMetadataStrip chunk={chunk} />
           <button
@@ -132,7 +131,6 @@ export function ChunkPanel({
             Diese Chunk-Untersuchung wurde abgeschlossen.
           </p>
         )}
-        <ContextSection node={chunk} />
         <LiveRunPanel
           run={stream}
           anchorPreview={text.slice(0, 120)}
