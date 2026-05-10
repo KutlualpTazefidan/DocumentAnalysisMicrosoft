@@ -1197,12 +1197,15 @@ def _build_decision_context(
                 if len(chunk_text) > max_chunk_chars:
                     truncated += " […]"
                 parts.append(
-                    "## QUELL-KONTEXT (Original-Textabschnitt der Aussage)\n"
+                    "## QUELL-KONTEXT (Original-Textabschnitt aus dem die "
+                    "Hypothese extrahiert wurde — KEIN Beleg!)\n"
                     f"{truncated}\n\n"
-                    "Diese Aussage wurde aus obigem Textabschnitt extrahiert. "
-                    "Nutze den Kontext nur, um Thema, Einheiten und Bezüge "
-                    "korrekt einzuordnen — er ist nicht selbst Gegenstand der "
-                    "Auswertung."
+                    "Dieser Block ist die HERKUNFT der Hypothese, nicht ein "
+                    "weiteres Belegstück. Nutze ihn ausschließlich, um "
+                    "Begriffe, Einheiten und Bezüge im Kandidaten-Treffer "
+                    "korrekt einzuordnen. Wenn die Hypothese hier wörtlich "
+                    "steht: das beweist sie NICHT — der Kandidat-Treffer "
+                    "muss die Hypothese aus seinem eigenen Inhalt belegen."
                 )
 
     # Per-claim enrichment annotations — produced by enrichment skills
@@ -1562,16 +1565,33 @@ FORMULATE_TASK_SYSTEM = (
 )
 EVALUATE_SYSTEM = (
     "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer "
-    "Aussage ist.\n\n"
+    "Hypothese ist.\n\n"
+    "GRUND-PRINZIP — strikt einhalten:\n"
+    "Der Kandidat-Treffer muss die Hypothese AUS SEINEM EIGENEN INHALT "
+    "belegen. Wenn ein QUELL-KONTEXT (Original-Textabschnitt aus dem die "
+    "Hypothese extrahiert wurde) im System-Prompt erwähnt ist, dient er "
+    "NUR der Disambiguierung von Begriffen und Einheiten — er ist "
+    "NIEMALS Beleg dafür, dass die Hypothese stimmt. Genauso ein "
+    "möglicher Untersuchungs-Pfad oder eine Recherche-Frage: das ist "
+    "Vergangenheit, nicht Evidenz.\n\n"
+    "Beispiel: Hypothese 'Gesamtwärmeleistung 5,596'. Kandidat ist eine "
+    "Tabellenzelle '5,596' ohne semantische Bindung. → 'partial-support' "
+    "(NICHT 'likely-source') — die Tabelle alleine sagt nicht, was die "
+    "Zahl bedeutet. Selbst wenn QUELL-KONTEXT 'Gesamtwärmeleistung "
+    "5,596' wörtlich nennt: das ist nur die Herkunft der Hypothese, "
+    "kein zweites Belegstück.\n\n"
     "ARBEITSWEISE - strikt einhalten:\n"
     "1. Lies den Kandidaten-Text VOLLSTÄNDIG.\n"
     "2. Liste JEDEN selbständigen Satz / jede Aussage einzeln auf.\n"
     "3. Pro Satz markiere: STÜTZT / WIDERSPRICHT / NICHT-RELEVANT "
-    "für die zu prüfende Behauptung.\n"
+    "für die zu prüfende Hypothese.\n"
     "4. Sätze mit Zahlen, Datumsangaben, technischen Werten, "
     "Einheiten oder Eigennamen sind IMMER potentiell relevant — "
     "beweise das Gegenteil bevor du sie als nicht-relevant markierst.\n"
-    "5. Erst NACH dieser per-Satz-Aufstellung gib das Gesamt-Verdict.\n\n"
+    "5. Erst NACH dieser per-Satz-Aufstellung gib das Gesamt-Verdict. "
+    "Bewerte ausschliesslich, was im Kandidat steht — nicht was im "
+    "QUELL-KONTEXT, der Recherche-Frage oder anderen Vergangenheits-"
+    "Hinweisen steht.\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "sentences": [\n'
@@ -2499,7 +2519,18 @@ def _llm_evaluate(
     """
     del provider  # reserved for Stage 6 routing
     system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
-    user = f"Aussage:\n{claim_text}\n\nKandidat:\n{candidate_chunk_text}\n\nJSON:"
+    # Frame the claim as a hypothesis to be tested by the candidate's
+    # own content, not as an established fact looking for confirmation.
+    # Combined with the GRUND-PRINZIP block in EVALUATE_SYSTEM, this
+    # blocks confirmation bias when the upstream QUELL-KONTEXT happens
+    # to contain the claim text verbatim.
+    user = (
+        "## Hypothese (zu prüfen)\n"
+        f"{claim_text}\n\n"
+        "## Kandidaten-Treffer (muss die Hypothese AUS SICH SELBST belegen)\n"
+        f"{candidate_chunk_text}\n\n"
+        "JSON:"
+    )
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],

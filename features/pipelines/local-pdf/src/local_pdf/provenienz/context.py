@@ -146,3 +146,17 @@ def origin_entry(node_id: str, kind: str, label: str) -> dict[str, str]:
         "kind": kind,
         "label": label[:160],
     }
+
+
+def payload_for_llm(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of *payload* with the ``context`` slot
+    removed. Use this whenever a node's payload feeds into an LLM
+    prompt — the forward-flow context is for tools (searcher exclude,
+    right-pane breadcrumbs), NOT for the LLM. Echoing the breadcrumb
+    chain back at the LLM lets it confuse "what we were looking for"
+    with "what we already found", producing confirmation-biased
+    verdicts.
+    """
+    out = dict(payload)
+    out.pop("context", None)
+    return out
