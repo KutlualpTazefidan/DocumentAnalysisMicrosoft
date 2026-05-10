@@ -43,6 +43,7 @@ export function TaskPanel({
   sessionId,
   token,
   view,
+  nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
   if (view.kind !== "task") return <></>;
@@ -55,6 +56,20 @@ export function TaskPanel({
   const [topK, setTopK] = useState(5);
   const queryText = String(task.payload.query ?? "");
   const registerHint = detectRegisterHint(queryText);
+  // Surface the parent claim's research goal alongside the BM25
+  // keyword query — they're complementary fields and showing only
+  // the keywords made the panel read as cryptic ("Brennelemente TRINO
+  // Wärmeleistung 5,6 kW" without context of what's being asked).
+  const focusClaimId = String(task.payload.focus_claim_id ?? "");
+  const focusClaim = focusClaimId
+    ? nodes.find((n) => n.node_id === focusClaimId)
+    : undefined;
+  const claimGoal = focusClaim
+    ? String(focusClaim.payload.goal ?? "").trim()
+    : "";
+  const claimText = focusClaim
+    ? String(focusClaim.payload.text ?? "").trim()
+    : "";
 
   async function handleNextStep(): Promise<void> {
     await stream.start(task.node_id);
@@ -88,10 +103,32 @@ export function TaskPanel({
     <div className="flex flex-col h-full">
       <PanelHeader title="Aufgabe" onClose={() => onSelectView(null)} />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
+        {(claimGoal || claimText) && (
+          <div className="rounded border border-pink-700/40 bg-pink-950/20 px-3 py-2 space-y-1">
+            {claimGoal && (
+              <>
+                <p className={`${T.tinyBold} text-pink-300`}>
+                  Recherche-Frage zur Aussage
+                </p>
+                <p className={`text-pink-100 ${T.body}`}>{claimGoal}</p>
+              </>
+            )}
+            {claimText && (
+              <p className={`${T.tiny} text-pink-300/80 italic mt-1`}>
+                Aussage: „{claimText}"
+              </p>
+            )}
+          </div>
+        )}
         <div>
-          <p className={T.tinyBold}>Suchanfrage</p>
+          <p className={T.tinyBold}>
+            Suchanfrage{" "}
+            <span className={`${T.tiny} font-normal text-slate-500`}>
+              (BM25-Keywords für den Searcher)
+            </span>
+          </p>
           <p className={`text-cyan-200 italic ${T.body} whitespace-pre-wrap`}>
-            {String(task.payload.query ?? "")}
+            {queryText}
           </p>
         </div>
         {view.hasResults && (
