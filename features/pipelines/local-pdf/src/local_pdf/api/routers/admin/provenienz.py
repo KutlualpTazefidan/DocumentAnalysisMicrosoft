@@ -1363,7 +1363,11 @@ def _calculator_tool_call(
     b_qs = parse_quantities(candidate_text)
     if not a_qs or not b_qs:
         return "", None
-    out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.01)
+    # Strict equality only — domain interpretation (conservative
+    # rounding, measurement-uncertainty windows, etc.) is the job of
+    # Skills, not the calculator. The tool reports raw facts; the LLM
+    # and Skill prompts decide what those facts mean for the verdict.
+    out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.0)
     lines = [out["reasoning"]]
     for r in out.get("results", []):
         lines.append(f"- {r['reasoning']}")
@@ -1372,7 +1376,7 @@ def _calculator_tool_call(
         "tool": "calculator",
         "operation": "compare",
         "input": {
-            "rel_tolerance": 0.01,
+            "rel_tolerance": 0.0,
             "claim_quantities": [
                 {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit} for q in a_qs
             ],
@@ -2674,10 +2678,17 @@ def _llm_evaluate(
                 calc_hint,
                 "",
                 "Diese Werte stammen aus einer deterministischen Berechnung "
-                "und gelten als Tatsachen. Korrigiere sie nicht aus eigener "
-                "Schätzung. Wenn das Werkzeug 'kein Match' meldet, kann der "
-                "Kandidat nicht über Zahlen-Stützung 'likely-source' werden — "
-                "höchstens über semantischen Begleittext.",
+                "und gelten als Tatsachen — korrigiere sie nicht aus eigener "
+                "Schätzung. Das Werkzeug prüft NUR strikte Gleichheit, ohne "
+                "Toleranz. Wenn die Werte exakt übereinstimmen, ist das ein "
+                "starkes Indiz für 'likely-source'. Wenn sie nicht exakt "
+                "übereinstimmen, urteile NICHT eigenmächtig 'na ja, fast' — "
+                "die Bewertung der Differenz ist eine Domain-Frage und wird "
+                "ausschließlich durch aktive Skills (z.B. konservative "
+                "Aufrundung in bestimmten Sicherheits-Kontexten) entschieden. "
+                "Ohne aktiven Skill der die Differenz domain-spezifisch "
+                "rechtfertigt: Zahlen-Differenz = WIDERSPRUCH oder "
+                "PARTIAL-SUPPORT, nicht 'likely-source'.",
                 "",
             ]
         )

@@ -124,17 +124,27 @@ def parse_quantities(text: str) -> list[Quantity]:
     return out
 
 
-def compare(a: Quantity, b: Quantity, *, rel_tolerance: float = 0.01) -> dict[str, Any]:
-    """Compare two quantities deterministically.
+def compare(a: Quantity, b: Quantity, *, rel_tolerance: float = 0.0) -> dict[str, Any]:
+    """Compare two quantities deterministically — pure math, no
+    domain interpretation.
+
+    Default ``rel_tolerance=0.0`` enforces strict equality (after
+    canonicalisation). The tool reports values, difference, and
+    relative deviation; whether a non-zero deviation is acceptable
+    is a DOMAIN question — Skills (compare-numbers,
+    nachzerfallsleistung_konservativ, …) decide that based on
+    context, not the calculator.
 
     Returns a dict with:
-      match (bool), kind ("equal" | "different" | "unit-mismatch"),
+      kind ("equal" | "different" | "unit-mismatch"),
       a / b  (value+unit echoed),
-      rel_diff / abs_diff,
-      reasoning (German one-liner).
+      rel_diff / abs_diff (float),
+      reasoning (German one-liner stating the facts only).
 
-    ``rel_tolerance`` is fractional (0.01 = 1 %). Symmetric against
-    sign — a == -a is False.
+    The legacy ``match`` boolean stays in the output for
+    back-compat: True iff rel_tolerance > 0 AND rel_diff <=
+    tolerance. Callers who want strict equality should ignore
+    ``match`` and read ``rel_diff == 0``.
     """
     if a.unit != b.unit:
         return {
@@ -144,28 +154,29 @@ def compare(a: Quantity, b: Quantity, *, rel_tolerance: float = 0.01) -> dict[st
             "b": {"value": b.value, "unit": b.unit, "raw_unit": b.raw_unit},
             "reasoning": (
                 f"Unterschiedliche Einheits-Dimensionen: {a.raw_unit} ({a.unit}) "
-                f"vs {b.raw_unit} ({b.unit}) — kein Vergleich möglich."
+                f"vs {b.raw_unit} ({b.unit}) — kein direkter Vergleich möglich."
             ),
         }
     diff = abs(a.value - b.value)
     avg = (abs(a.value) + abs(b.value)) / 2 or 1.0
     rel = diff / avg
-    matches = rel <= rel_tolerance
+    is_exact = diff == 0.0
+    matches = is_exact or (rel_tolerance > 0 and rel <= rel_tolerance)
+    if is_exact:
+        reasoning = f"Werte exakt gleich: {a.value:g} {a.unit} = {b.value:g} {b.unit}."
+    else:
+        reasoning = (
+            f"Werte unterschiedlich: {a.value:g} {a.unit} vs {b.value:g} "
+            f"{b.unit}. Differenz {diff:g} {a.unit} (rel. Abweichung {rel:.4%})."
+        )
     return {
         "match": matches,
-        "kind": "equal" if matches else "different",
+        "kind": "equal" if is_exact else "different",
         "a": {"value": a.value, "unit": a.unit, "raw_unit": a.raw_unit},
         "b": {"value": b.value, "unit": b.unit, "raw_unit": b.raw_unit},
         "rel_diff": rel,
         "abs_diff": diff,
-        "reasoning": (
-            f"Werte gleich innerhalb {rel_tolerance:.2%} Toleranz (rel. Abweichung {rel:.2%})."
-            if matches
-            else (
-                f"Werte unterschiedlich: {a.value:g} {a.unit} vs {b.value:g} "
-                f"{b.unit} (rel. Abweichung {rel:.2%}, Toleranz {rel_tolerance:.2%})."
-            )
-        ),
+        "reasoning": reasoning,
     }
 
 
@@ -200,13 +211,15 @@ def best_pairwise_compare(
     a_qs: list[Quantity],
     b_qs: list[Quantity],
     *,
-    rel_tolerance: float = 0.01,
+    rel_tolerance: float = 0.0,
 ) -> dict[str, Any]:
-    """Compare every pair across two quantity lists, return a summary
-    plus the closest match (or closest miss).
+    """Compare every pair across two quantity lists, return raw
+    deterministic results plus the closest pair.
 
-    For evaluate-flow the closest match is what the LLM needs to know:
-    "did the candidate's numbers line up with the claim's numbers?"
+    Default ``rel_tolerance=0.0`` enforces strict equality. The tool
+    reports the facts; whether a deviation is acceptable is a domain
+    decision (left to Skills / LLM). ``any_match`` only counts EXACT
+    equals at the canonical-unit level.
     """
     if not a_qs or not b_qs:
         return {
@@ -218,24 +231,38 @@ def best_pairwise_compare(
     for a in a_qs:
         for b in b_qs:
             results.append(compare(a, b, rel_tolerance=rel_tolerance))
-    matches = [r for r in results if r["match"]]
+    exact = [r for r in results if r.get("kind") == "equal"]
+    matches = [r for r in results if r.get("match")]  # includes tolerance-matches
     closest = min(
         results,
         key=lambda r: (
             r.get("rel_diff", float("inf")) if r.get("kind") != "unit-mismatch" else float("inf")
         ),
     )
+    if exact:
+        reasoning = f"{len(exact)} von {len(results)} Paaren exakt gleich."
+    elif matches:
+        reasoning = (
+            f"{len(matches)} von {len(results)} Paaren innerhalb der "
+            f"explizit übergebenen Toleranz {rel_tolerance:.4%} — "
+            "keiner davon ist exakt gleich."
+        )
+    else:
+        reasoning = (
+            f"Keines von {len(results)} Paaren exakt gleich. Kleinste "
+            f"relative Abweichung: {closest.get('rel_diff', 0):.4%}."
+        )
     return {
         "ok": True,
+        # any_match = pair whose ``match`` flag is true (exact OR
+        # within explicit tolerance). n_exact reports the strict
+        # subset so callers can distinguish "exactly equal" from
+        # "within tolerance".
         "any_match": bool(matches),
         "n_matches": len(matches),
+        "n_exact": len(exact),
         "n_pairs": len(results),
         "results": results,
         "closest": closest,
-        "reasoning": (
-            f"{len(matches)} von {len(results)} Paaren stimmen überein "
-            f"(Toleranz {rel_tolerance:.2%})."
-            if matches
-            else f"Keines von {len(results)} Paaren stimmt überein."
-        ),
+        "reasoning": reasoning,
     }

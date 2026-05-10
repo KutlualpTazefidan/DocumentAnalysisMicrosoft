@@ -53,16 +53,39 @@ def test_parse_quantities_skips_unknown_units():
     assert qs == []
 
 
-def test_compare_match_within_tolerance():
+def test_compare_strict_equal_default():
+    """Default: no tolerance. Only EXACT canonical equality counts as
+    'equal'. Any non-zero difference is 'different', regardless of how
+    small."""
+    a = Quantity(value=5597.0, unit="W", raw_unit="kW")
+    b = Quantity(value=5597.0, unit="W", raw_unit="kW")
+    out = compare(a, b)  # rel_tolerance=0 default
+    assert out["kind"] == "equal"
+    assert out["match"] is True
+
+
+def test_compare_near_miss_is_different_under_strict_default():
+    """5597 vs 5600 W — close, but NOT exact. Strict default (no
+    tolerance) reports 'different'. The 0.054% deviation is a fact for
+    Skills/LLM to interpret, not a tool-level pass."""
+    a = Quantity(value=5597.0, unit="W", raw_unit="kW")
+    b = Quantity(value=5600.0, unit="W", raw_unit="kW")
+    out = compare(a, b)
+    assert out["kind"] == "different"
+    assert out["match"] is False
+    assert out["rel_diff"] > 0
+
+
+def test_compare_near_miss_passes_when_tolerance_explicitly_supplied():
+    """Caller can opt into tolerance-based matching by passing
+    rel_tolerance > 0 (used by domain skills, NOT by default)."""
     a = Quantity(value=5597.0, unit="W", raw_unit="kW")
     b = Quantity(value=5600.0, unit="W", raw_unit="kW")
     out = compare(a, b, rel_tolerance=0.01)
     assert out["match"] is True
-    assert out["kind"] == "equal"
-    assert out["rel_diff"] < 0.01
 
 
-def test_compare_mismatch_outside_tolerance():
+def test_compare_far_miss_different():
     a = Quantity(value=5597.0, unit="W", raw_unit="kW")
     b = Quantity(value=7200.0, unit="W", raw_unit="kW")
     out = compare(a, b, rel_tolerance=0.01)
@@ -79,12 +102,13 @@ def test_compare_unit_mismatch():
 
 
 def test_compare_cross_prefix_normalised():
-    """5.597 kW vs 5597 W must compare as equal — the canonical
-    representation (W) is identical."""
+    """5,597 kW vs 5597 W must compare as exact-equal — the canonical
+    representation (W) is identical, no tolerance needed."""
     a = parse_quantities("5,597 kW")[0]
     b = parse_quantities("5597 W")[0]
     out = compare(a, b)
     assert out["match"] is True
+    assert out["kind"] == "equal"
 
 
 def test_sum_same_unit():
@@ -112,14 +136,29 @@ def test_sum_empty_input():
     assert sum_quantities([])["ok"] is False
 
 
-def test_best_pairwise_match():
+def test_best_pairwise_strict_default_only_exact():
+    """Default rel_tolerance=0 — only exact equals count as match.
+    A close-but-not-exact pair gets 'no match', closest result still
+    surfaces the rel_diff for downstream reasoning."""
     a_qs = parse_quantities("Wärmeleistung 5,597 kW")
     b_qs = parse_quantities("Tabellenwert 5,5 kW; weitere Werte 2,1 kW.")
+    out = best_pairwise_compare(a_qs, b_qs)
+    # No pair is EXACTLY 5597 W → any_match=False
+    assert out["any_match"] is False
+    assert out["closest"]["rel_diff"] > 0
+
+
+def test_best_pairwise_match_with_explicit_tolerance():
+    """Explicit tolerance lets a near-miss count as match — but the
+    caller has to opt in (no implicit default)."""
+    a_qs = parse_quantities("Wärmeleistung 5,597 kW")
+    b_qs = parse_quantities("Tabellenwert 5,5 kW")
     out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.05)
-    # 5.597 vs 5.5 → ~1.75% diff, with 5% tolerance → match.
+    # With 5% tolerance, 5.597 vs 5.5 → ~1.75% → match.
     assert out["any_match"] is True
-    assert out["n_pairs"] == 2  # 1 a-quantity x 2 b-quantities
+    # match flag set, but kind stays "different" (not exact).
     assert out["closest"]["match"] is True
+    assert out["closest"]["kind"] == "different"
 
 
 def test_best_pairwise_no_match():
