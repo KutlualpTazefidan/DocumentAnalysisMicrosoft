@@ -158,6 +158,34 @@ TOOL_REGISTRY: list[ToolInfo] = [
         ),
     ),
     ToolInfo(
+        name="table_parser",
+        label="TableParser",
+        description=(
+            "Deterministischer HTML-Tabellen-Parser. Extrahiert Caption, "
+            "Spalten-Headers und Zeilen-Labels und legt die Zellen als "
+            "2D-Bindung (Zeile, Spalte) -> Wert ab. Beseitigt LLM-In-"
+            "The-Head-Tabellen-Parsen; macht (Zeilen-Label, Spalten-"
+            "Label) -> Wert eindeutig."
+        ),
+        when_to_use=(
+            "Wenn ein search_result kind=table ist, fasst das Tool die "
+            "Zellen vor dem evaluate strukturiert auf. Persistiert sich "
+            "selbst als tool_annotation am Treffer; evaluate-Prompt "
+            "konsumiert das."
+        ),
+        scope="compute",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search_result", "evaluate"],
+        agent_hint=(
+            "Auto-fire im evaluate-Pfad wenn Treffer-Box-Kind == 'table'. "
+            "Ergebnis landet als tool_annotation am search_result und "
+            "wird vom evaluate-Prompt automatisch eingespeist. Engineering-"
+            "Prinzipien fuer das LESEN der strukturierten Tabelle stehen "
+            "im Skill 'tabellen-2d-bindung'."
+        ),
+    ),
+    ToolInfo(
         name="bib_file_matcher",
         label="BibFileMatcher",
         description=(

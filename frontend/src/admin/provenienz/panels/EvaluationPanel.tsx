@@ -145,6 +145,16 @@ export function EvaluationPanel({
                   n_matches?: number;
                   n_pairs?: number;
                   results?: { reasoning?: string; match?: boolean }[];
+                  // Table-parser fields (populated when tc.tool ===
+                  // "table_parser"). markdown is a pre-rendered text
+                  // representation; structured fields stay alongside
+                  // for future use.
+                  markdown?: string;
+                  caption?: string;
+                  headers?: string[];
+                  rows?: { label?: string; cells?: Record<string, string> }[];
+                  n_rows?: number;
+                  n_cols?: number;
                 };
                 const inp = (tc.input ?? {}) as {
                   rel_tolerance?: number;
@@ -168,12 +178,59 @@ export function EvaluationPanel({
                           Toleranz {(inp.rel_tolerance * 100).toFixed(2)}%
                         </span>
                       )}
+                      {typeof out.n_rows === "number" &&
+                        typeof out.n_cols === "number" && (
+                          <span className={`${T.tiny} text-cyan-400/60`}>
+                            {out.n_rows}×{out.n_cols} Zellen
+                          </span>
+                        )}
                     </div>
                     {out.reasoning && (
                       <p className={`${T.tiny} text-cyan-100/90 mt-1`}>
                         {out.reasoning}
                       </p>
                     )}
+                    {/* Table-parser: render the parsed table as a real
+                        HTML <table> so the user sees the 2D structure
+                        clearly. Falls back to <pre>markdown</pre> if
+                        only markdown is available. */}
+                    {tc.tool === "table_parser" &&
+                      Array.isArray(out.headers) &&
+                      Array.isArray(out.rows) && (
+                        <div className="mt-2 overflow-x-auto">
+                          <table className={`${T.tiny} border-collapse`}>
+                            <thead>
+                              <tr>
+                                {out.headers.map((h, hi) => (
+                                  <th
+                                    key={hi}
+                                    className="border border-cyan-700/40 px-2 py-0.5 text-cyan-100 bg-cyan-800/30 text-left"
+                                  >
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {out.rows.map((r, ri) => (
+                                <tr key={ri}>
+                                  <td className="border border-cyan-700/40 px-2 py-0.5 text-cyan-200 font-mono">
+                                    {r.label ?? ""}
+                                  </td>
+                                  {(out.headers ?? []).slice(1).map((h, hi) => (
+                                    <td
+                                      key={hi}
+                                      className="border border-cyan-700/40 px-2 py-0.5 text-cyan-100"
+                                    >
+                                      {r.cells?.[h] ?? ""}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     {Array.isArray(out.results) && out.results.length > 0 && (
                       <ul className={`mt-1 space-y-0.5 ${T.tiny}`}>
                         {out.results.map((r, ri) => (

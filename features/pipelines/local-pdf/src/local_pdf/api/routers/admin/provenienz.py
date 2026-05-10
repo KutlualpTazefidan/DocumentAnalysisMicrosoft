@@ -1456,6 +1456,112 @@ def _collect_applied_capabilities_in_chain(prior_eval_id: str, nodes: list[Node]
     return out
 
 
+def _ensure_table_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
+) -> None:
+    """If the search_result is a kind=table box AND no parsed-table
+    annotation exists yet, run the deterministic TableParser on the
+    box's html_snippet and persist the structured 2D mapping as a
+    tool_annotation Node + "enriches" edge to the SR.
+
+    Engineering-rationale: tables are 2D bindings (row x column to
+    value). LLMs handle this poorly when the input is plain text;
+    deterministic parsing eliminates the parse-failure mode entirely.
+    """
+    from local_pdf.provenienz.table_parser import (
+        parse_table,
+        render_markdown,
+        to_dict,
+    )
+
+    if str(sr.payload.get("box_kind", "")) != "table":
+        return
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    has_table_ann = any(
+        n.kind == "tool_annotation"
+        and n.node_id in existing_ann_ids
+        and isinstance(n.payload.get("tool_call"), dict)
+        and (n.payload.get("tool_call") or {}).get("tool") == "table_parser"
+        for n in nodes
+    )
+    if has_table_ann:
+        return
+    box_id = str(sr.payload.get("box_id", ""))
+    doc_slug = str(sr.payload.get("doc_slug", ""))
+    if not box_id or not doc_slug:
+        return
+    mineru = read_mineru(data_root, doc_slug)
+    if mineru is None:
+        return
+    html_snippet = ""
+    for el in mineru.get("elements", []) or []:
+        if el.get("box_id") == box_id:
+            html_snippet = str(el.get("html_snippet", ""))
+            break
+    if not html_snippet:
+        return
+    fallback_caption = str(sr.payload.get("caption_text", ""))
+    parsed = parse_table(html_snippet, fallback_caption=fallback_caption)
+    if parsed is None:
+        return
+    md = render_markdown(parsed)
+    tool_call = {
+        "tool": "table_parser",
+        "operation": "parse",
+        "input": {
+            "box_id": box_id,
+            "had_caption_in_html": bool(parsed.caption and not fallback_caption),
+            "fallback_caption_used": bool(fallback_caption and parsed.caption == fallback_caption),
+        },
+        "output": {
+            **to_dict(parsed),
+            "reasoning": (
+                f"Tabelle geparst: {len(parsed.rows)} Zeilen, "
+                f"{len(parsed.headers)} Spalten."
+                + (f" Caption: {parsed.caption}" if parsed.caption else "")
+            ),
+            "markdown": md,
+        },
+    }
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": md,
+        "annotation_kind": "table_parsed",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
 def _ensure_calculator_annotation(
     sd: Path,
     session_id: str,
@@ -3232,15 +3338,14 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
-    # Calculator: auto-fire when applicable, but persist the result as
-    # a tool_annotation Node so it shows up in the canvas + audit AND
-    # can be re-run with a different tolerance later. The LLM should
-    # never have to do mental number-comparison; if numbers are present
-    # we make sure deterministic ground-truth is available before the
-    # prompt is built.
+    # Auto-fire deterministic tools and persist results as
+    # tool_annotation Nodes BEFORE building the prompt. The LLM never
+    # has to do mental table-parsing or mental arithmetic; structured
+    # ground-truth is always available when applicable.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
     _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
     # Re-read after potential persist so the gather sees the new
-    # annotation. Cheap: read_session is a single-pass JSONL scan.
+    # annotations. Cheap: read_session is a single-pass JSONL scan.
     nodes, edges = read_session(sd)
     calc_hint, tool_calls = _persisted_tool_calls_for_sr(body.search_result_node_id, nodes, edges)
     try:
@@ -3510,6 +3615,7 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
     )
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
     # Same auto-fire-and-persist as the main evaluate route — see there.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
     _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
     nodes, edges = read_session(sd)
     calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, nodes, edges)
