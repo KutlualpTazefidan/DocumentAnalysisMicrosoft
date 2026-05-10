@@ -186,6 +186,31 @@ TOOL_REGISTRY: list[ToolInfo] = [
         ),
     ),
     ToolInfo(
+        name="table_consistency_checker",
+        label="TableConsistencyChecker",
+        description=(
+            "Pruefe interne Konsistenz einer geparsten Tabelle: Spalten-"
+            "Summen vs. Total-Zeile, Einheits-Konsistenz pro Spalte. "
+            "Engineering-Pruefung ohne Domain-Wissen."
+        ),
+        when_to_use=(
+            "Auto-fire bei evaluate auf einem Tabellen-Treffer, sobald "
+            "TableParser-Annotation existiert. Liefert ConsistencyReport "
+            "mit Issues (Schweregrad: error/warning/info) als zweite "
+            "tool_annotation am Treffer."
+        ),
+        scope="compute",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["evaluate", "search_result"],
+        agent_hint=(
+            "Auto-fire-Pattern wie TableParser. Output landet als "
+            "tool_annotation 'table_consistency'. Engineering-Prinzipien "
+            "fuer das LESEN des Reports stehen im Skill 'tabellen-"
+            "untersuchungs-choreografie'."
+        ),
+    ),
+    ToolInfo(
         name="bib_file_matcher",
         label="BibFileMatcher",
         description=(

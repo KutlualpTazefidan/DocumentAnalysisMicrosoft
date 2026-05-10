@@ -1456,6 +1456,103 @@ def _collect_applied_capabilities_in_chain(prior_eval_id: str, nodes: list[Node]
     return out
 
 
+def _ensure_table_consistency_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """If a parsed-table annotation exists for *sr* but no consistency-
+    check annotation, run TableConsistencyChecker on the parsed table
+    and persist the report as a second tool_annotation.
+
+    Runs AFTER ``_ensure_table_annotation`` so the parsed structure is
+    available. Reads the parsed table directly off the existing
+    tool_annotation Node (no re-parsing).
+    """
+    from local_pdf.provenienz.table_consistency import (
+        check_consistency,
+        render_report,
+    )
+    from local_pdf.provenienz.table_consistency import (
+        to_dict as consistency_to_dict,
+    )
+    from local_pdf.provenienz.table_parser import StructuredTable, TableRow
+
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    parsed_ann: Node | None = None
+    has_consistency = False
+    for n in nodes:
+        if n.kind != "tool_annotation" or n.node_id not in existing_ann_ids:
+            continue
+        tc = n.payload.get("tool_call")
+        if not isinstance(tc, dict):
+            continue
+        if tc.get("tool") == "table_parser":
+            parsed_ann = n
+        elif tc.get("tool") == "table_consistency_checker":
+            has_consistency = True
+    if parsed_ann is None or has_consistency:
+        return
+    # Reconstruct StructuredTable from the persisted parsed-table dict.
+    parsed_dict = (parsed_ann.payload.get("tool_call") or {}).get("output", {})
+    headers = list(parsed_dict.get("headers") or [])
+    raw_rows = parsed_dict.get("rows") or []
+    rows: list[TableRow] = []
+    for r in raw_rows:
+        if not isinstance(r, dict):
+            continue
+        rows.append(TableRow(label=str(r.get("label", "")), cells=dict(r.get("cells") or {})))
+    if not rows or not headers:
+        return
+    table = StructuredTable(caption=str(parsed_dict.get("caption", "")), headers=headers, rows=rows)
+    report = check_consistency(table)
+    md = render_report(report)
+    tool_call = {
+        "tool": "table_consistency_checker",
+        "operation": "check",
+        "input": {
+            "n_rows": len(rows),
+            "n_columns": len(headers),
+            "sum_rel_tolerance": 0.001,
+        },
+        "output": consistency_to_dict(report),
+    }
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": md,
+        "annotation_kind": "table_consistency",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
 def _ensure_table_annotation(
     sd: Path,
     session_id: str,
@@ -3363,9 +3460,12 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
     # Auto-fire deterministic tools and persist results as
     # tool_annotation Nodes BEFORE building the prompt. The LLM never
-    # has to do mental table-parsing or mental arithmetic; structured
-    # ground-truth is always available when applicable.
+    # has to do mental table-parsing, mental arithmetic, or mental
+    # consistency-checking; structured ground-truth is always
+    # available when applicable.
     _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
+    nodes, edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, nodes, edges)
     _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
     # Re-read after potential persist so the gather sees the new
     # annotations. Cheap: read_session is a single-pass JSONL scan.
@@ -3639,6 +3739,8 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
     # Same auto-fire-and-persist as the main evaluate route — see there.
     _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
+    nodes, edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, nodes, edges)
     _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
     nodes, edges = read_session(sd)
     calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, nodes, edges)
