@@ -125,16 +125,29 @@ TOOL_REGISTRY: list[ToolInfo] = [
     ToolInfo(
         name="calculator",
         label="Calculator",
-        description="Zahlen-Verifikation: Summen, Mittelwerte, Einheiten-Umrechnung.",
-        when_to_use="Wenn evaluate eine Rechenoperation prüfen muss bevor ein Verdict steht.",
+        description=(
+            "Deterministische Zahlen-Verifikation. Operationen: 'compare' "
+            "(parst (Wert, Einheit)-Paare aus zwei Texten und vergleicht "
+            "paarweise), 'sum' (summiert Werte mit konsistenter Einheit). "
+            "Ersetzt LLM-In-The-Head-Mathematik durch echten Code."
+        ),
+        when_to_use=(
+            "Im evaluate-Schritt automatisch via /calculator integriert, "
+            "wenn Hypothese und Kandidat Zahlen mit erkennbaren Einheiten "
+            "enthalten — Tool-Ergebnis wird in den evaluate-Prompt als "
+            "Tatsache mit-injiziert. Direkter Aufruf via /calculator-"
+            "Endpoint möglich für Summen-/Umrechnungs-Spezialfälle."
+        ),
         scope="compute",
         cost_hint="schnell",
-        enabled=False,
+        enabled=True,
         used_by=["evaluate"],
         agent_hint=(
-            "capability_request mit name='Calculator' nur in evaluate-Kontext wenn "
-            "die Aussage eine Rechnung enthält (z.B. '5.6 kW = 2.1+1.5+2.0') und "
-            "der Treffer-Text die Einzelwerte aber nicht die Summe nennt."
+            "Im evaluate-Pfad wird das Tool automatisch genutzt — kein "
+            "expliziter capability_request nötig. Direkter Aufruf via "
+            "POST /api/admin/provenienz/calculator wenn die Aussage eine "
+            "explizite Rechen-Operation prüfen muss (z.B. Summen-Vergleich "
+            "über mehrere Treffer-Werte)."
         ),
     ),
     ToolInfo(

@@ -1338,6 +1338,33 @@ def _attach_trail(node: Node, trail_id: str | None) -> Node:
     return node
 
 
+def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
+    """Run the deterministic Calculator across (number, unit) pairs in
+    both texts and return a German prompt-block summarising the
+    pairwise comparison. Empty string when either side has no
+    parseable quantities — keeps the evaluate prompt clean for purely
+    semantic claims.
+
+    Used by the evaluate route to inject ground-truth comparison
+    results into the LLM prompt; the LLM then defers to these instead
+    of doing its own (often-wrong) text-level number reasoning.
+    """
+    from local_pdf.provenienz.calculator import (
+        best_pairwise_compare,
+        parse_quantities,
+    )
+
+    a_qs = parse_quantities(claim_text)
+    b_qs = parse_quantities(candidate_text)
+    if not a_qs or not b_qs:
+        return ""
+    out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.01)
+    lines = [out["reasoning"]]
+    for r in out.get("results", []):
+        lines.append(f"- {r['reasoning']}")
+    return "\n".join(lines)
+
+
 def _ancestor_chunk_box_ids(
     nodes: list[Node],
     edges: list[Edge],
@@ -2186,6 +2213,67 @@ class SearchStepRequest(BaseModel):
     triggered_from_node_id: str | None = None
 
 
+class CalculatorRequest(BaseModel):
+    """Stateless deterministic numerical-comparison endpoint.
+
+    Two operations:
+      - ``compare``: extract (number, unit) pairs from ``a_text`` and
+        ``b_text``, return pairwise best-match summary.
+      - ``sum``: extract numbers with consistent units from ``text``,
+        return the total.
+
+    No session writes — the agent uses this as a verification step
+    when its own LLM-based numerical reasoning is unreliable.
+    """
+
+    operation: Literal["compare", "sum"]
+    a_text: str | None = None
+    b_text: str | None = None
+    text: str | None = None
+    rel_tolerance: float = 0.01
+
+
+@router.post("/api/admin/provenienz/calculator")
+async def calculator_step(body: CalculatorRequest, request: Request) -> dict:
+    """Run the requested numerical operation deterministically and
+    return a structured result the agent can use without re-doing
+    the math itself.
+    """
+    del request  # stateless endpoint — config + session unused
+    from local_pdf.provenienz.calculator import (
+        best_pairwise_compare,
+        parse_quantities,
+        sum_quantities,
+    )
+
+    def _q(q: Any) -> dict[str, Any]:
+        return {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit}
+
+    if body.operation == "compare":
+        if not body.a_text or not body.b_text:
+            raise HTTPException(status_code=400, detail="compare requires a_text and b_text")
+        a_qs = parse_quantities(body.a_text)
+        b_qs = parse_quantities(body.b_text)
+        result = best_pairwise_compare(a_qs, b_qs, rel_tolerance=body.rel_tolerance)
+        return {
+            "operation": "compare",
+            "a_quantities": [_q(q) for q in a_qs],
+            "b_quantities": [_q(q) for q in b_qs],
+            **result,
+        }
+    if body.operation == "sum":
+        if not body.text:
+            raise HTTPException(status_code=400, detail="sum requires text")
+        qs = parse_quantities(body.text)
+        result = sum_quantities(qs)
+        return {
+            "operation": "sum",
+            "quantities": [_q(q) for q in qs],
+            **result,
+        }
+    raise HTTPException(status_code=400, detail=f"unknown operation: {body.operation}")
+
+
 class RegisterLookupRequest(BaseModel):
     """Body for the RegisterLookup tool executor.
 
@@ -2509,6 +2597,7 @@ def _llm_evaluate(
     provider: str,
     *,
     extra_system: str = "",
+    calc_hint: str = "",
 ) -> dict:
     """Ask the LLM whether a candidate chunk is the source of a claim.
 
@@ -2524,13 +2613,34 @@ def _llm_evaluate(
     # Combined with the GRUND-PRINZIP block in EVALUATE_SYSTEM, this
     # blocks confirmation bias when the upstream QUELL-KONTEXT happens
     # to contain the claim text verbatim.
-    user = (
-        "## Hypothese (zu prüfen)\n"
-        f"{claim_text}\n\n"
-        "## Kandidaten-Treffer (muss die Hypothese AUS SICH SELBST belegen)\n"
-        f"{candidate_chunk_text}\n\n"
-        "JSON:"
-    )
+    #
+    # Calculator hint: deterministic (number, unit) comparison results
+    # injected as ground truth so the LLM doesn't have to do the math
+    # in its head. Built by the caller via _build_calculator_hint.
+    parts = [
+        "## Hypothese (zu prüfen)",
+        claim_text,
+        "",
+        "## Kandidaten-Treffer (muss die Hypothese AUS SICH SELBST belegen)",
+        candidate_chunk_text,
+        "",
+    ]
+    if calc_hint:
+        parts.extend(
+            [
+                "## Werkzeug-Ergebnis: deterministischer Zahlen-Vergleich",
+                calc_hint,
+                "",
+                "Diese Werte stammen aus einer deterministischen Berechnung "
+                "und gelten als Tatsachen. Korrigiere sie nicht aus eigener "
+                "Schätzung. Wenn das Werkzeug 'kein Match' meldet, kann der "
+                "Kandidat nicht über Zahlen-Stützung 'likely-source' werden — "
+                "höchstens über semantischen Begleittext.",
+                "",
+            ]
+        )
+    parts.append("JSON:")
+    user = "\n".join(parts)
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
@@ -2798,12 +2908,18 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
+    # Calculator hint: deterministic comparison of (number, unit) pairs
+    # the LLM otherwise has to reason about textually. Built only when
+    # both texts contain at least one parseable quantity — short-circuits
+    # to empty otherwise so unrelated claims aren't crowded with noise.
+    calc_hint = _build_calculator_hint(claim.payload.get("text", ""), candidate_text)
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
             candidate_text,
             body.provider or "vllm",
             extra_system=extra_system,
+            calc_hint=calc_hint,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
@@ -3057,12 +3173,14 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
         claim_goal=str(claim.payload.get("goal", "")),
     )
     full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
+    calc_hint = _build_calculator_hint(claim.payload.get("text", ""), sr.payload.get("text", ""))
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
             sr.payload.get("text", ""),
             body.provider or "vllm",
             extra_system=extra_system,
+            calc_hint=calc_hint,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
