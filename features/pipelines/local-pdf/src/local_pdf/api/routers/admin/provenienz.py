@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from collections.abc import Iterator  # noqa: TC003
@@ -2754,6 +2755,272 @@ async def calculator_on_result(
         ),
     )
     return annotation.__dict__
+
+
+class InvestigateTableRequest(BaseModel):
+    """Spawn a 3-axis follow-up investigation around a table-typed
+    search_result. The 4th axis (Konsistenz-Pruefung) is already
+    auto-fired as a tool_annotation by ``_ensure_table_consistency_
+    annotation`` during evaluate, so this endpoint covers only the
+    remaining three:
+
+    1. **Text-Referenz**: search the document for textual mentions
+       of the table's identifier ("Tabelle 3.7", "Tab. 3-7", ...).
+       Catches text passages that DESCRIBE what the table shows.
+    2. **Quellen-Attribution**: search for the source token cited
+       in the caption ("[4]", "(nach Mueller 2019)", ...). Catches
+       the upstream reference if the table was copied from elsewhere.
+    3. **Semantik-Rueckpruefung**: re-evaluate this search_result with
+       extra system prompt that emphasizes (row, column, value)
+       binding so an LLM can't accept a table as 'likely-source'
+       just because the right numbers appear in the right region —
+       the BINDING must match too.
+
+    Each spawned action_proposal is a regular proposal the user
+    accepts/rejects in the canvas. Searches are pre-run server-side
+    so the user sees real hits before deciding.
+    """
+
+    search_result_node_id: str
+    triggered_from_node_id: str | None = None
+
+
+_TABLE_REF_RE = re.compile(
+    r"\b(?:Tabelle|Tab\.?)\s*(\d+(?:[.\-]\d+)*)",
+    re.IGNORECASE,
+)
+_SOURCE_TOKEN_RE = re.compile(
+    r"(?:nach\s+|gemaess\s+|gemäß\s+)?(?:\[\d+\]|\(\d{4}\)|\([A-ZÄÖÜ][a-zäöüß]+(?:\s+et\s+al\.)?\s+\d{4}\))",
+    re.IGNORECASE,
+)
+
+
+def _extract_table_identifier(caption: str) -> str | None:
+    """Return the canonical table-identifier from a caption, e.g.
+    ``"Tabelle 3.7"`` from ``"Tabelle 3.7: Reaktorparameter"``.
+
+    Returns None when no identifier-pattern is present.
+    """
+    if not caption:
+        return None
+    m = _TABLE_REF_RE.search(caption)
+    if m is None:
+        return None
+    return f"Tabelle {m.group(1)}"
+
+
+def _extract_source_attribution(caption: str) -> str | None:
+    """Return a search-friendly source-attribution token from the
+    caption, e.g. ``"[4]"`` from ``"... nach [4]"`` or
+    ``"(Mueller 2019)"``. Returns None when nothing matches.
+    """
+    if not caption:
+        return None
+    m = _SOURCE_TOKEN_RE.search(caption)
+    if m is None:
+        return None
+    return m.group(0).strip()
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/investigate-table",
+    status_code=201,
+)
+async def investigate_table(
+    session_id: str, body: InvestigateTableRequest, request: Request
+) -> dict:
+    """Choreography orchestrator: spawn 2 search action_proposals
+    (text-reference + source-attribution) plus 1 evaluate
+    action_proposal (semantic re-check) for a table-typed
+    search_result.
+
+    Internally calls :class:`InDocSearcher` directly with derived
+    queries, packs the hits into action_proposal args (same shape as
+    the regular ``/search`` step), and lets the user accept/reject
+    each proposal independently.
+
+    Skipped axes are returned as ``skipped`` entries so the frontend
+    can show *why* a particular axis didn't yield a proposal (e.g.
+    "no table identifier in caption — no text-reference search
+    possible").
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400, detail=f"anchor must be search_result, got kind={sr.kind}"
+        )
+    if str(sr.payload.get("box_kind", "")) != "table":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"investigate-table requires box_kind=table on search_result, "
+                f"got box_kind={sr.payload.get('box_kind')!r}"
+            ),
+        )
+
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    if task is None:
+        raise HTTPException(
+            status_code=400,
+            detail="search_result has no parent task — cannot anchor follow-up search proposals",
+        )
+
+    caption = str(sr.payload.get("caption_text", ""))
+    table_box_id = str(sr.payload.get("box_id", ""))
+
+    proposals: list[dict] = []
+    skipped: list[dict] = []
+
+    # Forward-flowing visited set so derived searches don't re-find the
+    # same boxes; add this table's box itself so axis-2 doesn't return
+    # the table caption as its own text-reference.
+    task_context = get_context(task.payload)
+    visited = list(task_context.get("visited_box_ids", []))
+    if not visited:
+        visited = _ancestor_chunk_box_ids(nodes, edges, task.node_id)
+    exclude_set = {meta.root_chunk_id, *visited}
+    if table_box_id:
+        exclude_set.add(table_box_id)
+    searcher = InDocSearcher(
+        data_root=cfg.data_root,
+        slug=meta.slug,
+        exclude_box_ids=tuple(sorted(exclude_set)),
+    )
+
+    def _spawn_search_proposal(query: str, axis_label: str, axis_reason: str) -> dict:
+        hits = searcher.search(query, top_k=5)
+        hits_payload = [
+            {
+                "box_id": h.box_id,
+                "text": h.text,
+                "score": h.score,
+                "doc_slug": h.doc_slug,
+                "searcher": h.searcher,
+            }
+            for h in hits
+        ]
+        payload = ActionProposalPayload(
+            step_kind="search",
+            anchor_node_id=task.node_id,
+            recommended=ActionOption(
+                label=f"{axis_label}: {len(hits_payload)} Treffer übernehmen",
+                args={"hits": hits_payload, "investigation_axis": axis_label},
+            ),
+            alternatives=[
+                ActionOption(
+                    label=f"{axis_label}: nur Top-1 übernehmen",
+                    args={"hits": hits_payload[:1], "investigation_axis": axis_label},
+                ),
+            ],
+            reasoning=(
+                f"Tabellen-Untersuchung — {axis_reason}. Query='{query}', hits={len(hits_payload)}."
+            ),
+            guidance_consulted=[],
+        )
+        landed = append_node(
+            sd,
+            _attach_trail(
+                build_proposal_node(session_id=session_id, actor="system", payload=payload),
+                body.triggered_from_node_id,
+            ),
+        )
+        return landed.__dict__
+
+    # Axis 2: Text-Referenz
+    table_id = _extract_table_identifier(caption)
+    if table_id:
+        proposals.append(
+            _spawn_search_proposal(
+                query=table_id,
+                axis_label="Text-Referenz",
+                axis_reason=(
+                    f"Suche nach Text-Stellen die '{table_id}' explizit erwaehnen "
+                    "(beschreibender Kontext)"
+                ),
+            )
+        )
+    else:
+        skipped.append(
+            {
+                "axis": "Text-Referenz",
+                "reason": "Kein Tabellen-Bezeichner in der Caption (Tabelle X / Tab. X).",
+            }
+        )
+
+    # Axis 3: Quellen-Attribution
+    source_token = _extract_source_attribution(caption)
+    if source_token:
+        proposals.append(
+            _spawn_search_proposal(
+                query=source_token,
+                axis_label="Quellen-Attribution",
+                axis_reason=(
+                    f"Suche nach der in der Caption angegebenen Quelle '{source_token}' im Korpus"
+                ),
+            )
+        )
+    else:
+        skipped.append(
+            {
+                "axis": "Quellen-Attribution",
+                "reason": (
+                    "Keine erkennbare Quellen-Attribution in der Caption "
+                    "([n] / (Autor Jahr) / nach ...)."
+                ),
+            }
+        )
+
+    # Axis 4: Semantik-Rueckpruefung — spawn an evaluate action_proposal
+    # at proposal-time (no LLM run here). User accepts → standard
+    # /evaluate path runs with the choreografie skill loaded; the
+    # skill's Semantik-Rueckpruefung principle steers the prompt.
+    payload = ActionProposalPayload(
+        step_kind="evaluate",
+        anchor_node_id=sr.node_id,
+        recommended=ActionOption(
+            label="Semantik-Rueckpruefung: erneut bewerten",
+            args={
+                "search_result_node_id": sr.node_id,
+                "investigation_axis": "Semantik-Rueckpruefung",
+            },
+        ),
+        alternatives=[],
+        reasoning=(
+            "Tabellen-Untersuchung — Semantik-Rueckpruefung: pruefe ob die "
+            "(Zeilen-Label, Spalten-Label, Wert)-Bindung der zu pruefenden "
+            "Aussage entspricht (nicht nur ob die Zahl irgendwo in der "
+            "Tabelle vorkommt)."
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    proposals.append(landed.__dict__)
+
+    return {
+        "proposals": proposals,
+        "skipped": skipped,
+        "table_caption": caption,
+        "axes_run": ["Text-Referenz", "Quellen-Attribution", "Semantik-Rueckpruefung"],
+    }
 
 
 class CalculatorRequest(BaseModel):

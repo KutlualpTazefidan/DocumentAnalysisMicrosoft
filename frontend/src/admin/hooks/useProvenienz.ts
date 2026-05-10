@@ -1309,6 +1309,49 @@ export function useCalculatorOnResult(token: string, sessionId: string) {
 }
 
 /**
+ * Tabellen-Untersuchungs-Choreografie: spawn three follow-up
+ * action_proposals around a table-typed search_result (Text-Referenz,
+ * Quellen-Attribution, Semantik-Rueckpruefung). The 4th axis
+ * (Konsistenz-Pruefung) is auto-fired as a tool_annotation server-side
+ * during evaluate, so the user's "Tabellen-Untersuchung starten" button
+ * only needs to cover the remaining three.
+ */
+export type InvestigateTableResult = {
+  proposals: ActionProposal[];
+  skipped: { axis: string; reason: string }[];
+  table_caption: string;
+  axes_run: string[];
+};
+
+export function useInvestigateTable(token: string, sessionId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    InvestigateTableResult,
+    Error,
+    {
+      search_result_node_id: string;
+      triggered_from_node_id?: string;
+    }
+  >({
+    mutationFn: async (body) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/investigate-table`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
+      return (await r.json()) as InvestigateTableResult;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+/**
  * Run an InDocSearcher in a different slug than the session's own —
  * "continue the task in a cited document". Emits search_result Nodes
  * in the current session with doc_slug=target_slug so the agent can
