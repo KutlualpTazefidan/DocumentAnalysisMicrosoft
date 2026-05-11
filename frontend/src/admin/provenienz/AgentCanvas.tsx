@@ -34,23 +34,19 @@ interface Props {
 }
 
 /**
- * Layout B: orchestrator-centric topology.
+ * Layout B (revised): orchestrator-centric topology with strict
+ * vertical bands and ample horizontal padding so no two cards overlap
+ * and every edge has a clear source/target.
  *
- *   [ORCHESTRATOR — Was als naechstes?]
- *           |
- *      wählt aus
- *     /    |    \
- *  [exec] [cap_req] [manual_review]
- *   |        |          |
- *  the     stub      terminal
- *  six     tools     (Mensch)
- *  sub-
- *  agents
+ *  band 0 (top)        ORCHESTRATOR
+ *  band 1              wählt-aus classification (3 branches)
+ *  band 2              SUB-AGENT row 1 (canonical pipeline)
+ *  band 3              SUB-AGENT row 2 (terminal / branch-off)
+ *  band 4 (bottom)     data flow strip (Chunk -> ... -> Evaluation)
  *
- * Each sub-agent card carries its Skill + Tool pills inline so the
- * reader sees 'orchestrator -> chooses sub-agent -> uses these skills
- * and tools' at one glance. Pipeline data-flow is rendered as
- * desaturated dashed edges along the bottom — useful but secondary.
+ *  Side columns:
+ *    far left   manual_review tile
+ *    far right  capability_request stub tools
  */
 export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element {
   const onPillClick = useCallback(
@@ -73,7 +69,9 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
         nodesConnectable={false}
         elementsSelectable
         fitView
-        fitViewOptions={{ padding: 0.18 }}
+        fitViewOptions={{ padding: 0.12 }}
+        minZoom={0.15}
+        maxZoom={1.8}
         proOptions={{ hideAttribution: true }}
       >
         <Background
@@ -89,6 +87,26 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
   );
 }
 
+// Vertical bands. Each band is wide enough to fit a sub-agent card
+// (~320px tall when all pills are present) with ~120px clearance to
+// the next band.
+const BAND_ORCH_Y = 0;
+const BAND_BRANCH_Y = 320;
+const BAND_SUBAGENT_ROW1_Y = 640;
+const BAND_SUBAGENT_ROW2_Y = 1100;
+const BAND_DATAFLOW_Y = 1560;
+
+// Horizontal layout. Sub-agent cards are 288px wide; with a 420px gap
+// between centres no two cards overlap horizontally, including their
+// children pills which line-wrap inside the card.
+const SUBAGENT_GAP_X = 420;
+const SUBAGENT_CARD_WIDTH = 288;
+
+// Side columns sit far enough left/right of the central executable
+// trunk that capability_request stubs and manual_review never cross
+// into sub-agent territory.
+const SIDE_COLUMN_OFFSET = 1400;
+
 function buildAgentGraph(
   info: AgentInfo,
   onPillClick: (id: string) => void,
@@ -96,9 +114,6 @@ function buildAgentGraph(
   const nodes: RfNode[] = [];
   const edges: RfEdge[] = [];
 
-  // Sub-agents to surface as primary tiles. Order matters: row 1 is the
-  // canonical research pipeline (linear data-flow), row 2 carries the
-  // branch-off / terminal steps.
   const ROW1_KINDS = [
     "extract_claims",
     "formulate_task",
@@ -111,24 +126,20 @@ function buildAgentGraph(
     "propose_stop",
   ];
 
-  const allRegisteredKinds = new Set(info.steps.map((s) => s.kind));
-  const presentRow1 = ROW1_KINDS.filter((k) => allRegisteredKinds.has(k));
-  const presentRow2 = ROW2_KINDS.filter((k) => allRegisteredKinds.has(k));
+  const registered = new Set(info.steps.map((s) => s.kind));
+  const presentRow1 = ROW1_KINDS.filter((k) => registered.has(k));
+  const presentRow2 = ROW2_KINDS.filter((k) => registered.has(k));
 
-  // Active skills across all sub-agents — surfaced on the orchestrator
-  // badge so the user sees the system-prompt extension scale at a
-  // glance without opening individual sub-agents.
   const activeSkillsCount = new Set(
     info.steps.flatMap((s) => s.rules ?? []),
   ).size;
 
-  // ── 1) Orchestrator (top centre) ─────────────────────────────────────────
-  const ORCH_X = 0;
-  const ORCH_Y = -360;
+  // ── 1) Orchestrator (band 0) — centred on the executable trunk axis.
+  const TRUNK_X = 0;
   nodes.push({
     id: "step:next_step",
     type: "orchestrator",
-    position: { x: ORCH_X, y: ORCH_Y },
+    position: { x: TRUNK_X - 160, y: BAND_ORCH_Y },
     data: {
       label: info.next_step.label,
       subagent_count: presentRow1.length + presentRow2.length,
@@ -138,20 +149,20 @@ function buildAgentGraph(
     targetPosition: Position.Top,
   });
 
-  // ── 2) Three classification branches (executable / capability / manual) ──
-  const BRANCH_Y = ORCH_Y + 180;
-  const BRANCH_GAP = 360;
-  const branchExecX = ORCH_X;
-  const branchCapX = ORCH_X + BRANCH_GAP;
-  const branchManX = ORCH_X - BRANCH_GAP;
+  // ── 2) Classification branches (band 1) — three options the
+  //      orchestrator returns. exec lives on the trunk axis; cap_req
+  //      and manual_review live on the side columns.
+  const branchExecX = TRUNK_X - 100;
+  const branchCapX = TRUNK_X + SIDE_COLUMN_OFFSET;
+  const branchManX = TRUNK_X - SIDE_COLUMN_OFFSET;
 
   nodes.push({
     id: "branch:executable_step",
     type: "data",
-    position: { x: branchExecX, y: BRANCH_Y },
+    position: { x: branchExecX, y: BAND_BRANCH_Y },
     data: {
       label: "executable_step",
-      sub: "wählt einen Sub-Agent aus der Liste",
+      sub: "Sub-Agent wählen",
     },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
@@ -159,7 +170,7 @@ function buildAgentGraph(
   nodes.push({
     id: "branch:capability_request",
     type: "data",
-    position: { x: branchCapX, y: BRANCH_Y },
+    position: { x: branchCapX, y: BAND_BRANCH_Y },
     data: {
       label: "capability_request",
       sub: "Tool fehlt im Registry",
@@ -170,7 +181,7 @@ function buildAgentGraph(
   nodes.push({
     id: "branch:manual_review",
     type: "data",
-    position: { x: branchManX, y: BRANCH_Y },
+    position: { x: branchManX, y: BAND_BRANCH_Y },
     data: {
       label: "manual_review",
       sub: "Mensch entscheidet",
@@ -185,9 +196,9 @@ function buildAgentGraph(
       source: "step:next_step",
       target: "branch:executable_step",
       type: "smoothstep",
-      style: { stroke: "#fbbf24", strokeWidth: 2 },
-      label: "passender Sub-Agent existiert",
-      labelStyle: { fontSize: 10, fill: "#fde68a" },
+      style: { stroke: "#fbbf24", strokeWidth: 2.5 },
+      label: "passender Sub-Agent",
+      labelStyle: { fontSize: 11, fill: "#fde68a", fontWeight: 600 },
       labelBgStyle: { fill: "#1e293b" },
     },
     {
@@ -195,9 +206,9 @@ function buildAgentGraph(
       source: "step:next_step",
       target: "branch:capability_request",
       type: "smoothstep",
-      style: { stroke: "#facc15", strokeDasharray: "4 4" },
-      label: "kein Tool deckt das ab",
-      labelStyle: { fontSize: 10, fill: "#fde68a" },
+      style: { stroke: "#facc15", strokeDasharray: "4 4", strokeWidth: 1.5 },
+      label: "kein passendes Tool",
+      labelStyle: { fontSize: 11, fill: "#fde68a" },
       labelBgStyle: { fill: "#1e293b" },
     },
     {
@@ -205,107 +216,99 @@ function buildAgentGraph(
       source: "step:next_step",
       target: "branch:manual_review",
       type: "smoothstep",
-      style: { stroke: "#f87171", strokeDasharray: "4 4" },
+      style: { stroke: "#f87171", strokeDasharray: "4 4", strokeWidth: 1.5 },
       label: "nur Mensch löst das",
-      labelStyle: { fontSize: 10, fill: "#fecaca" },
+      labelStyle: { fontSize: 11, fill: "#fecaca" },
       labelBgStyle: { fill: "#1e293b" },
     },
   );
 
-  // ── 3) Sub-agent rows below executable_step branch ───────────────────────
-  const SUBAGENT_GAP_X = 320;
-  const SUBAGENT_ROW1_Y = BRANCH_Y + 240;
-  const SUBAGENT_ROW2_Y = SUBAGENT_ROW1_Y + 360;
-
+  // ── 3) Sub-agent rows (bands 2 + 3). Row 1 = canonical pipeline,
+  //      Row 2 = terminal / branch-off. Each card carries its own
+  //      Skill + Tool pills inline; the edges from executable_step
+  //      use distinct colours so the reader can trace which sub-agent
+  //      the orchestrator picked.
   const placeSubAgent = (
     kind: string,
     x: number,
     y: number,
-  ): RfNode | null => {
+    edgeStyle: React.CSSProperties,
+  ): void => {
     const step = info.steps.find((s) => s.kind === kind);
-    if (!step) return null;
+    if (!step) return;
     const tools = info.tools.filter((t) => t.used_by.includes(kind));
-    const node: RfNode = {
+    nodes.push({
       id: `step:${kind}`,
       type: "subagent",
       position: { x, y },
       data: { step, tools, onPillClick },
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
-    };
-    nodes.push(node);
-    return node;
+    });
+    edges.push({
+      id: `e:exec->${kind}`,
+      source: "branch:executable_step",
+      target: `step:${kind}`,
+      type: "smoothstep",
+      style: edgeStyle,
+    });
   };
 
-  const row1XStart = branchExecX - ((presentRow1.length - 1) * SUBAGENT_GAP_X) / 2;
+  const row1Width = (presentRow1.length - 1) * SUBAGENT_GAP_X;
+  const row1XStart = TRUNK_X - row1Width / 2 - SUBAGENT_CARD_WIDTH / 2;
   presentRow1.forEach((kind, idx) => {
-    const x = row1XStart + idx * SUBAGENT_GAP_X;
-    placeSubAgent(kind, x, SUBAGENT_ROW1_Y);
-    edges.push({
-      id: `e:exec->${kind}`,
-      source: "branch:executable_step",
-      target: `step:${kind}`,
-      type: "smoothstep",
-      style: { stroke: "#fbbf24", strokeWidth: 1.5 },
-    });
+    placeSubAgent(
+      kind,
+      row1XStart + idx * SUBAGENT_GAP_X,
+      BAND_SUBAGENT_ROW1_Y,
+      { stroke: "#fbbf24", strokeWidth: 1.8 },
+    );
   });
 
-  const row2XStart = branchExecX - ((presentRow2.length - 1) * SUBAGENT_GAP_X) / 2;
+  const row2Width = (presentRow2.length - 1) * SUBAGENT_GAP_X;
+  const row2XStart = TRUNK_X - row2Width / 2 - SUBAGENT_CARD_WIDTH / 2;
   presentRow2.forEach((kind, idx) => {
-    const x = row2XStart + idx * SUBAGENT_GAP_X;
-    placeSubAgent(kind, x, SUBAGENT_ROW2_Y);
-    edges.push({
-      id: `e:exec->${kind}`,
-      source: "branch:executable_step",
-      target: `step:${kind}`,
-      type: "smoothstep",
-      style: { stroke: "#fbbf24", strokeDasharray: "4 4", strokeWidth: 1.2 },
-    });
+    placeSubAgent(
+      kind,
+      row2XStart + idx * SUBAGENT_GAP_X,
+      BAND_SUBAGENT_ROW2_Y,
+      { stroke: "#a78bfa", strokeDasharray: "6 4", strokeWidth: 1.4 },
+    );
   });
 
-  // ── 4) Pipeline data-flow below row 1 (desaturated, secondary) ───────────
-  // Renders Chunk -> Claim -> Task -> Search Results -> Evaluation as small
-  // grey labels with dashed arrows so the reader sees 'this is the data
-  // shape between sub-agents'. The orchestrator->sub-agent edges remain
-  // the primary visual.
-  const DATA_FLOW_Y = SUBAGENT_ROW1_Y + 280;
-  const dataLabels: Array<{ id: string; label: string; x: number }> = [
-    { id: "data:chunk", label: "Chunk", x: row1XStart - 160 },
-    {
-      id: "data:claim",
-      label: "Claim",
-      x: row1XStart - 160 + SUBAGENT_GAP_X,
-    },
-    {
-      id: "data:task",
-      label: "Task",
-      x: row1XStart - 160 + SUBAGENT_GAP_X * 2,
-    },
+  // ── 4) Pipeline data-flow strip (band 4). Linear, grey-on-grey so
+  //      it reads as 'secondary documentation' under the sub-agents.
+  const DATA_NODE_WIDTH = 224;
+  const dataLabels: Array<{ id: string; label: string; sub: string }> = [
+    { id: "data:chunk", label: "Chunk", sub: validStepsLabel(info, "chunk") },
+    { id: "data:claim", label: "Claim", sub: validStepsLabel(info, "claim") },
+    { id: "data:task", label: "Task", sub: validStepsLabel(info, "task") },
     {
       id: "data:search_result",
       label: "Search Result",
-      x: row1XStart - 160 + SUBAGENT_GAP_X * 3,
+      sub: validStepsLabel(info, "search_result"),
     },
     {
       id: "data:evaluation",
       label: "Evaluation",
-      x: row1XStart - 160 + SUBAGENT_GAP_X * 4,
+      sub: "Verdict + Konfidenz",
     },
   ];
-  dataLabels.forEach((d) => {
+  const dataFlowWidth = (dataLabels.length - 1) * SUBAGENT_GAP_X;
+  const dataFlowXStart = TRUNK_X - dataFlowWidth / 2 - DATA_NODE_WIDTH / 2;
+  dataLabels.forEach((d, idx) => {
     nodes.push({
       id: d.id,
       type: "data",
-      position: { x: d.x, y: DATA_FLOW_Y },
-      data: {
-        label: d.label,
-        sub: validStepsLabel(info, d.label.toLowerCase().replace(" ", "_")),
+      position: {
+        x: dataFlowXStart + idx * SUBAGENT_GAP_X,
+        y: BAND_DATAFLOW_Y,
       },
+      data: { label: d.label, sub: d.sub },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
     });
   });
-  // Linear data-flow arrows along the bottom row.
   for (let i = 0; i < dataLabels.length - 1; i++) {
     edges.push({
       id: `e:flow:${i}`,
@@ -319,16 +322,18 @@ function buildAgentGraph(
     });
   }
 
-  // ── 5) capability_request: list disabled tools as candidate stubs ────────
+  // ── 5) capability_request stubs — vertical stack on the right column.
   const disabledTools = info.tools.filter((t) => !t.enabled);
-  const CAP_TOOL_Y = SUBAGENT_ROW1_Y;
-  const CAP_TOOL_GAP_Y = 130;
+  const CAP_TOOL_GAP_Y = 200;
   disabledTools.forEach((tool: AgentToolInfo, idx: number) => {
     const toolId = `tool:${tool.name}`;
     nodes.push({
       id: toolId,
       type: "tool",
-      position: { x: branchCapX, y: CAP_TOOL_Y + idx * CAP_TOOL_GAP_Y },
+      position: {
+        x: branchCapX,
+        y: BAND_SUBAGENT_ROW1_Y + idx * CAP_TOOL_GAP_Y,
+      },
       data: { tool },
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
@@ -342,14 +347,14 @@ function buildAgentGraph(
     });
   });
 
-  // ── 6) manual_review terminal ────────────────────────────────────────────
+  // ── 6) manual_review terminal — far-left column.
   nodes.push({
     id: "data:manual_review",
     type: "data",
-    position: { x: branchManX, y: SUBAGENT_ROW1_Y },
+    position: { x: branchManX, y: BAND_SUBAGENT_ROW1_Y },
     data: {
       label: "👤 Mensch erledigt",
-      sub: "User markiert das Tile als erledigt — kein Auto-Step.",
+      sub: "User markiert das Tile als erledigt.",
     },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,

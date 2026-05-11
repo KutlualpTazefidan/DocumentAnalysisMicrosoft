@@ -58,7 +58,7 @@ export function AgentSubAgentNode({
 
   return (
     <div
-      className={`rounded-lg px-3 py-2 text-white shadow-md w-64 border-2 bg-gradient-to-br ${accent} ${
+      className={`rounded-lg px-3 py-2 text-white shadow-md w-72 border-2 bg-gradient-to-br ${accent} ${
         selected ? "ring-2 ring-white/70" : ""
       }`}
     >
