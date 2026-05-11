@@ -2850,6 +2850,89 @@ _SEMANTIK_EXTRA_SYSTEM = (
 )
 
 
+def _backfill_evaluate_args(args: dict, anchor_sr_id: str, nodes: list[Node]) -> dict:
+    """Run :func:`_llm_evaluate` to populate verdict/confidence/
+    reasoning/against_claim_id on an evaluate proposal whose args were
+    left without a pre-baked verdict.
+
+    Called from /decide's evaluate branch as an auto-heal path for
+    older Semantik-Rueckpruefung proposals (spawned before pre-baking
+    landed). Falls back to a 'unknown' verdict marker rather than
+    raising so /decide never hard-fails on a missing verdict.
+
+    The choreography flag ``investigation_axis == "Semantik-Rueckpruefung"``
+    selects the Semantik extra_system so the back-filled verdict
+    reflects the proposal's intent.
+    """
+    sr = next((n for n in nodes if n.node_id == anchor_sr_id), None)
+    if sr is None or sr.kind != "search_result":
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": (
+                "Konnte den Suchtreffer zur Bewertung nicht aufloesen "
+                "(anchor_node_id passt nicht auf einen search_result-Knoten)."
+            ),
+            "against_claim_id": args.get("against_claim_id", ""),
+            "sentences": [],
+        }
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    focus_claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == focus_claim_id), None)
+        if isinstance(focus_claim_id, str)
+        else None
+    )
+    if claim is None or claim.kind != "claim":
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": (
+                "Konnte die Aussage zum Suchtreffer nicht aufloesen "
+                "(task_node_id / focus_claim_id fehlt)."
+            ),
+            "against_claim_id": "",
+            "sentences": [],
+        }
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    cap = str(sr.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
+    extra_system = (
+        _SEMANTIK_EXTRA_SYSTEM if args.get("investigation_axis") == "Semantik-Rueckpruefung" else ""
+    )
+    try:
+        out = _llm_evaluate(
+            claim_text,
+            candidate_text,
+            "vllm",
+            extra_system=extra_system,
+            calc_hint="",
+        )
+    except Exception as exc:
+        _log.warning("Auto-heal evaluate LLM call failed: %s", exc)
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": f"LLM-Auto-Heal scheiterte: {exc}",
+            "against_claim_id": str(claim.node_id),
+            "sentences": [],
+        }
+    return {
+        **args,
+        "verdict": str(out.get("verdict", "unknown")),
+        "confidence": float(out.get("confidence", 0.0)),
+        "reasoning": str(out.get("reasoning", "")),
+        "sentences": out.get("sentences", []),
+        "against_claim_id": args.get("against_claim_id") or str(claim.node_id),
+    }
+
+
 def _spawn_semantik_rueckpruefung_proposal(
     *,
     sd: Path,
@@ -6491,6 +6574,14 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 "reasoning": body.override,
                 "against_claim_id": rec_args.get("against_claim_id"),
             }
+        # Auto-heal: legacy or partially-baked evaluate proposals may
+        # arrive without verdict (e.g. Semantik-Rueckpruefung proposals
+        # spawned before pre-baking landed). Fire the LLM inline so the
+        # rest of this branch sees a fully-populated args dict instead
+        # of crashing on args["verdict"]. The investigation_axis flag,
+        # when present, picks the right extra_system.
+        if "verdict" not in args:
+            args = _backfill_evaluate_args(args, anchor_sr_id, nodes)
         eval_actor = "human" if body.accepted == "override" else proposal.actor
         # Run the reactive-capability scan FIRST so the per-approach
         # summary (matched + considered-but-not-matched) lands on the

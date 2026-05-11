@@ -225,6 +225,63 @@ def test_investigate_table_semantik_proposal_carries_prebaked_verdict(client):
     assert "Bindung" in args["reasoning"] or "Stub" in args["reasoning"]
 
 
+def test_decide_auto_heals_legacy_semantik_proposal_without_verdict(client):
+    """An older Semantik-Rueckpruefung proposal -- spawned before
+    pre-baking landed -- has args = {search_result_node_id,
+    investigation_axis} with no verdict. /decide must not crash on
+    KeyError; instead it back-fills via _llm_evaluate.
+    """
+    sid, sr_id = _setup_session_with_table_sr(
+        client,
+        caption_text="Tabelle 3.7: Reaktor-Hauptdaten",
+    )
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+    # Hand-craft a legacy-shape action_proposal directly in the JSONL.
+    legacy_proposal_id = new_id()
+    append_node(
+        sd,
+        Node(
+            node_id=legacy_proposal_id,
+            session_id=sid,
+            kind="action_proposal",
+            payload={
+                "step_kind": "evaluate",
+                "anchor_node_id": sr_id,
+                "recommended": {
+                    "label": "Semantik-Rueckpruefung: erneut bewerten",
+                    "args": {
+                        "search_result_node_id": sr_id,
+                        "investigation_axis": "Semantik-Rueckpruefung",
+                        # NO verdict / confidence / reasoning / against_claim_id
+                    },
+                },
+                "alternatives": [],
+                "reasoning": "Legacy proposal without pre-baked verdict",
+                "guidance_consulted": [],
+            },
+            actor="system",
+        ),
+    )
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": legacy_proposal_id,
+            "accepted": "recommended",
+        },
+    )
+    assert r.status_code == 201, r.text
+    eval_nodes = [n for n in r.json()["spawned_nodes"] if n["kind"] == "evaluation"]
+    assert len(eval_nodes) == 1
+    # Auto-heal back-filled via the stubbed _llm_evaluate in the fixture.
+    assert eval_nodes[0]["payload"]["verdict"] == "partial-support"
+    # against_claim_id was empty in args; auto-heal must resolve it from
+    # the sr -> task -> focus_claim_id chain.
+    assert eval_nodes[0]["payload"]["against_claim_id"]
+
+
 def test_investigate_table_decide_on_semantik_proposal_succeeds(client):
     """End-to-end: spawn the Semantik proposal via /investigate-table,
     accept it via /decide. The /decide call must NOT crash with the
