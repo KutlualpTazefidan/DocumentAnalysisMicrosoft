@@ -2133,6 +2133,15 @@ NEXT_STEP_SYSTEM = (
     "evaluate (mit allen Skills + Tools). Wenn Du an evaluate denkst "
     "aber 'lieber Mensch' wählen willst: nimm executable_step "
     "name='evaluate', NICHT manual_review.\n\n"
+    "ANTI-PATTERN — wenn Du gerade dabei bist, einen Step aus der "
+    "verfügbaren Liste (z.B. promote_search_result, search, evaluate) "
+    "als `kind: manual_review` zu deklarieren weil die Aufgabe "
+    "'Urteil' erfordert: STOPP. Sobald der name aus der verfügbaren "
+    "Step-Liste kommt, ist `kind: executable_step` die EINZIG korrekte "
+    "Wahl — der Step ist autonom ausführbar (LLM + Skills + Tools), "
+    "und der User klickt 'Akzeptieren'. manual_review ist NUR für "
+    "Aufgaben deren name KEIN registrierter Step ist (z.B. "
+    "'Juristische Bewertung', 'Vertrags-Konsultation').\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
@@ -5535,7 +5544,7 @@ def _next_step_run(
     else:
         plan = meta_plan
 
-    # ── Phase: validate (clamp invalid step picks → manual_review) ────
+    # ── Phase: validate (clamp invalid step picks + auto-promote) ─────
     p_start = time.monotonic()
     yield PhaseEvent(
         phase="validate",
@@ -5544,6 +5553,7 @@ def _next_step_run(
         ms_since_run_start=now_ms(),
     )
     invalid_step_picked: str | None = None
+    promoted_from_kind: str | None = None
     if (
         plan["kind"] == "executable_step"
         and available_steps
@@ -5562,6 +5572,25 @@ def _next_step_run(
                 "oder den Vorschlag verwerfen."
             ),
         }
+    # Auto-promote: when the LLM picks kind=manual_review (oder
+    # capability_request) but names a registered executable_step from
+    # available_steps, that is a Präzedenz-Fehler — der Step existiert
+    # und ist autonom ausführbar. Den Vorschlag deterministisch zum
+    # executable_step zurückbiegen statt den User mit einer
+    # Pseudo-Mensch-Aufgabe zu konfrontieren.
+    elif (
+        plan["kind"] in ("manual_review", "capability_request")
+        and available_steps
+        and plan.get("name") in available_steps
+    ):
+        promoted_from_kind = plan["kind"]
+        plan = {
+            **plan,
+            "kind": "executable_step",
+            "description": (
+                f"[Auto-promoted from {promoted_from_kind}] " + str(plan.get("description") or "")
+            ),
+        }
     yield PhaseEvent(
         phase="validate",
         status="completed",
@@ -5571,6 +5600,7 @@ def _next_step_run(
         payload={
             "ok": invalid_step_picked is None,
             "demoted_from": invalid_step_picked,
+            "promoted_from": promoted_from_kind,
             "final_kind": plan["kind"],
             "final_name": plan.get("name", ""),
         },

@@ -165,6 +165,87 @@ def test_stream_validate_phase_demotes_invalid_step(client, monkeypatch):
     assert complete["node"]["kind"] == "manual_review"
 
 
+def test_validate_phase_auto_promotes_misclassified_manual_review(client, monkeypatch):
+    """LLM picks a registered executable step (extract_claims) but
+    wrongly tags it as kind=manual_review. The validate phase promotes
+    it back to executable_step so the user gets a Akzeptieren button,
+    not a 'Mensch-Aufgabe' dead end.
+    """
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda *a, **k: {
+            "kind": "manual_review",
+            "name": "extract_claims",
+            "description": "Mensch sollte das prüfen",
+            "reasoning": "Aussagen extrahieren erfordert Urteil",
+            "considered_alternatives": [],
+            "confidence": 0.7,
+            "tool": None,
+            "approach_id": None,
+        },
+    )
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    events = _parse_sse(r.text)
+    validate_completed = next(
+        e[1]
+        for e in events
+        if e[0] == "phase" and e[1]["phase"] == "validate" and e[1]["status"] == "completed"
+    )
+    assert validate_completed["payload"]["promoted_from"] == "manual_review"
+    assert validate_completed["payload"]["final_kind"] == "executable_step"
+    assert validate_completed["payload"]["final_name"] == "extract_claims"
+
+    complete = next(e[1] for e in events if e[0] == "complete")
+    assert complete["node"]["kind"] == "plan_proposal"
+    assert complete["node"]["payload"]["kind"] == "executable_step"
+    assert complete["node"]["payload"]["name"] == "extract_claims"
+    # Description carries the Auto-promote marker so the audit trail
+    # makes the LLM precedence error visible to reviewers.
+    assert "Auto-promoted" in complete["node"]["payload"]["description"]
+
+
+def test_validate_phase_keeps_genuine_manual_review_when_name_is_not_a_step(client, monkeypatch):
+    """Auto-promote only fires when the LLM-picked name matches an
+    available executable step. A legitimate manual_review (e.g.
+    'Juristische Bewertung') stays manual_review.
+    """
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda *a, **k: {
+            "kind": "manual_review",
+            "name": "Juristische Bewertung",
+            "description": "Konsultation mit Rechtsabteilung",
+            "reasoning": "Compliance-Frage",
+            "considered_alternatives": [],
+            "confidence": 0.7,
+            "tool": None,
+            "approach_id": None,
+        },
+    )
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    events = _parse_sse(r.text)
+    validate_completed = next(
+        e[1]
+        for e in events
+        if e[0] == "phase" and e[1]["phase"] == "validate" and e[1]["status"] == "completed"
+    )
+    assert validate_completed["payload"]["promoted_from"] is None
+    assert validate_completed["payload"]["final_kind"] == "manual_review"
+    assert validate_completed["payload"]["final_name"] == "Juristische Bewertung"
+
+
 def test_non_streaming_endpoint_still_returns_node(client):
     """Ensure /next-step (non-streaming) still works after the
     refactor — both endpoints share _next_step_run."""
