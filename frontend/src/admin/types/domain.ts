@@ -7,6 +7,10 @@ export type BoxKind =
   | "formula"
   | "list_item"
   | "auxiliary"
+  | "toc"
+  | "list_of_tables"
+  | "list_of_figures"
+  | "bibliography"
   | "discard";
 
 export type DocStatus = "raw" | "segmenting" | "extracting" | "extracted" | "synthesising" | "synthesised" | "open-for-curation" | "archived" | "done" | "needs_ocr";
@@ -53,6 +57,33 @@ export interface SourceElementsPayload {
     box_id: string;
     level?: number;
   }>;
+}
+
+// ── Verzeichnis registers ──────────────────────────────────────────────────
+
+export type RegisterKind =
+  | "toc"
+  | "list_of_tables"
+  | "list_of_figures"
+  | "bibliography";
+
+export interface RegisterEntry {
+  number: string;
+  title: string;
+  page: string;
+}
+
+export interface Register {
+  kind: RegisterKind;
+  title: string;
+  entries: RegisterEntry[];
+  markdown: string;
+  source_box_ids: string[];
+}
+
+export interface RegistersResponse {
+  slug: string;
+  registers: Register[];
 }
 
 // ── Curator records ───────────────────────────────────────────────────────

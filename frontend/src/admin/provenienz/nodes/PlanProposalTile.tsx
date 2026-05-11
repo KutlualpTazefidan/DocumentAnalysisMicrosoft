@@ -1,4 +1,4 @@
-import { Brain, Sparkles } from "lucide-react";
+import { Brain, CheckCircle2, Sparkles } from "lucide-react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
 import type { PlanProposalView } from "../layout";
@@ -34,14 +34,26 @@ export function PlanProposalTile({
   const altCount = Array.isArray(p.considered_alternatives)
     ? p.considered_alternatives.length
     : 0;
+  const consumed = !!data.consumed;
+  // Same two-variant pattern as ActionProposalTile: pending = bright +
+  // pulse; consumed (= step fired downstream) = dim + check-mark.
+  const containerClass = consumed
+    ? "rounded-lg border border-amber-700/60 bg-amber-900/40 px-3 py-2 text-white shadow w-72 opacity-80"
+    : "rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow";
   return (
-    <div className="rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow">
+    <div className={containerClass}>
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-wide text-amber-100">
         <span className="flex items-center gap-1">
           <Sparkles className="w-3 h-3" aria-hidden /> Agent-Vorschlag
         </span>
-        {conf !== null && <span className="text-amber-200">{conf}%</span>}
+        {consumed ? (
+          <span className="flex items-center gap-1 text-amber-200/80 normal-case">
+            <CheckCircle2 className="w-3 h-3" aria-hidden /> ausgeführt
+          </span>
+        ) : (
+          conf !== null && <span className="text-amber-200">{conf}%</span>
+        )}
       </header>
       <p className="text-sm font-semibold text-amber-50 mt-0.5">
         → {STEP_LABEL[stepName] ?? stepName}
@@ -69,7 +81,7 @@ export function PlanProposalTile({
         )}
       </div>
       <p className="text-[10px] italic text-amber-200 mt-1">
-        → Klicken für Begründung + Akzeptieren
+        {consumed ? "Klicken für Begründung (Audit)" : "→ Klicken für Begründung + Akzeptieren"}
       </p>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>

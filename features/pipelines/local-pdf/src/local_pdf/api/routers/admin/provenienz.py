@@ -5,20 +5,39 @@ Step + decision routes land in later stages.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
 import shutil
+import time
+from collections.abc import Iterator  # noqa: TC003
+from dataclasses import asdict, dataclass, field
 from pathlib import Path  # noqa: TC003
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from llm_clients.base import Message
 from pydantic import BaseModel
 
 from local_pdf.llm import get_default_model, get_llm_client
-from local_pdf.provenienz.approaches import get_approach
+from local_pdf.provenienz.approaches import (
+    Approach,
+    auto_select_approaches,
+    get_approach,
+    match_triggers,
+    read_approaches,
+    scan_capabilities,
+)
+from local_pdf.provenienz.context import (
+    NodeContext,
+    empty_context,
+    get_context,
+    merge_contexts,
+    origin_entry,
+)
 from local_pdf.provenienz.llm import (
     ActionOption,
     ActionProposalPayload,
@@ -42,18 +61,189 @@ from local_pdf.provenienz.storage import (
     write_meta,
 )
 from local_pdf.provenienz.tools import list_tools
-from local_pdf.storage.sidecar import doc_dir, read_mineru
+from local_pdf.storage.sidecar import doc_dir, read_mineru, read_segments
 
 _log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"\s+")
+from local_pdf.provenienz.text import strip_html as _strip_html  # noqa: E402
 
 
-def _strip_html(html: str) -> str:
-    return _WS_RE.sub(" ", _TAG_RE.sub(" ", html or "")).strip()
+def _load_box_metadata(data_root: Path, slug: str, box_id: str) -> dict:
+    """Return the structured metadata fields for a box from segments.json,
+    or an empty dict if segments.json is missing / the box_id isn't found.
+
+    Field name ``box_kind`` (rather than ``kind``) avoids colliding with the
+    Provenienz ``Node.kind`` field, which already has well-defined semantics
+    (chunk / claim / task / search_result / …).
+
+    For figure / table boxes additionally attaches the closest adjacent
+    caption (same page, ``|reading_order - target| <= 1``, kind=caption)
+    as ``caption_box_id`` + ``caption_text`` so the agent + UI see what
+    the figure/table is actually labelled.
+    """
+    try:
+        seg = read_segments(data_root, slug)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError):
+        return {}
+    if seg is None:
+        return {}
+    target = next((b for b in seg.boxes if b.box_id == box_id), None)
+    if target is None:
+        return {}
+    out: dict = {
+        "page": target.page,
+        "bbox": list(target.bbox),
+        "box_kind": target.kind,
+        "reading_order": target.reading_order,
+        "continues_from": target.continues_from,
+        "continues_to": target.continues_to,
+        "confidence": target.confidence,
+    }
+    # Caption attachment for visual elements. Walk outward step by
+    # step in two directions; the priority order depends on kind:
+    #   - table : prefer caption ABOVE (German tech-doc convention)
+    #             → primary = -1 (one before), secondary = +1 (one after)
+    #   - figure: prefer caption BELOW
+    #             → primary = +1 (one after),  secondary = -1 (one before)
+    # If a paragraph is encountered in a direction, that direction
+    # is blocked (caption can't sit "behind" body prose). Walk at
+    # most _MAX_CAPTION_DISTANCE steps; typical layouts have it
+    # directly adjacent.
+    if target.kind in ("figure", "table"):
+        cap = _find_caption_for(target, seg.boxes)
+        if cap is not None:
+            mineru = read_mineru(data_root, slug) or {"elements": []}
+            cap_el = next(
+                (e for e in mineru.get("elements", []) if e.get("box_id") == cap.box_id),
+                None,
+            )
+            cap_text = _strip_html(cap_el.get("html_snippet", "")) if cap_el else ""
+            if cap_text:
+                out["caption_box_id"] = cap.box_id
+                out["caption_text"] = cap_text[:300]
+    return out
+
+
+_MAX_CAPTION_DISTANCE = 3
+
+
+_BOX_KIND_HINTS: dict[str, str] = {
+    "heading": "Abschnitts-Überschrift — meist ohne eigenständige prüfbare Aussagen.",
+    "paragraph": "Fließtext — typische Quelle für extrahierbare Aussagen.",
+    "list_item": "Aufzählungspunkt — kompakte Aussage, oft eigenständig.",
+    "table": (
+        "Tabellen-Inhalt mit Zeilen/Spalten-Struktur (im Text als Markdown). "
+        "Werte stehen meist in Spalten-Beziehung; beim Extrahieren / Bewerten "
+        "die Spalten-Header berücksichtigen."
+    ),
+    "figure": (
+        "Bild/Abbildung — der Text ist die VLM-Beschreibung des Bildes. "
+        "Caption (falls vorhanden) liefert das Bild-Label."
+    ),
+    "caption": (
+        "Bild-/Tabellen-Beschriftung — referenziert ein anderes Element; "
+        "selten alleine prüfbar, eher Kontext."
+    ),
+    "formula": "Mathematischer Ausdruck — Inhalt oft als MathML/LaTeX-Salat im Text.",
+    "auxiliary": "Seiten-Hilfselement (Kopf-/Fußzeile, Seitenzahl) — meist irrelevant.",
+    "toc": "Inhaltsverzeichnis-Eintrag — Navigations-Element, kein eigenständiger Inhalt.",
+    "list_of_tables": "Tabellenverzeichnis-Eintrag — Verweis auf eine Tabelle im Dokument.",
+    "list_of_figures": "Abbildungsverzeichnis-Eintrag — Verweis auf eine Abbildung.",
+    "bibliography": "Literaturverzeichnis-Eintrag — externe Quelle, keine eigene Behauptung.",
+}
+
+
+def _format_box_metadata_block(anchor: Node) -> str:
+    """Render the structured box-metadata fields on a chunk or
+    search_result anchor as a labelled prompt block.
+
+    Lets the next_step planner reason about the anchor's TYPE
+    (heading / paragraph / table / figure / caption / formula) and
+    location (page, reading order) when picking the right step.
+    Returns ``""`` when the anchor has no metadata (legacy nodes from
+    sessions before Phase A).
+    """
+    if anchor.kind not in ("chunk", "search_result"):
+        return ""
+    p = anchor.payload
+    box_kind = str(p.get("box_kind") or "").strip()
+    page = p.get("page")
+    reading_order = p.get("reading_order")
+    caption_text = str(p.get("caption_text") or "").strip()
+    recursion_depth = p.get("recursion_depth")
+    if not box_kind and page is None and not caption_text:
+        return ""
+    parts: list[str] = ["## Quell-Metadaten"]
+    if box_kind:
+        hint = _BOX_KIND_HINTS.get(box_kind, "")
+        parts.append(f"Box-Typ: **{box_kind}**" + (f" — {hint}" if hint else ""))
+    if isinstance(page, int):
+        order_str = f", Position {reading_order}" if isinstance(reading_order, int) else ""
+        parts.append(f"Lage: Seite {page}{order_str}")
+    if caption_text:
+        parts.append(f'Caption: "{caption_text[:200]}"')
+    if isinstance(recursion_depth, int) and recursion_depth > 0:
+        parts.append(
+            f"Recursion-Tiefe: {recursion_depth} "
+            f"(via promote_search_result aus früherem Treffer entstanden)"
+        )
+    return "\n".join(parts) + "\n\n"
+
+
+_CAPTION_BLOCKING_KINDS = frozenset(("paragraph", "list_item", "heading"))
+
+
+def _find_caption_for(target: Any, boxes: list) -> Any:
+    """Walk the page outward from a figure/table to find its caption.
+
+    Direction priority:
+      table  → 1 before > 1 after > 2 before > 2 after > ...
+      figure → 1 after  > 1 before > 2 after  > 2 before > ...
+
+    Stops in a direction when a content-block kind (paragraph,
+    list_item, heading) is encountered — captions can't sit "behind"
+    body prose, list items or section headings. Auxiliary boxes
+    (page numbers, headers/footers) and sibling figures/tables are
+    walked past.
+    """
+    same_page = {b.reading_order: b for b in boxes if b.page == target.page}
+    if target.kind == "table":
+        priority: tuple[int, int] = (-1, +1)
+    else:  # figure
+        priority = (+1, -1)
+    blocked = {d: False for d in priority}
+    for distance in range(1, _MAX_CAPTION_DISTANCE + 1):
+        for direction in priority:
+            if blocked[direction]:
+                continue
+            ro = target.reading_order + direction * distance
+            box = same_page.get(ro)
+            if box is None:
+                blocked[direction] = True
+                continue
+            if box.kind == "caption":
+                return box
+            if box.kind in _CAPTION_BLOCKING_KINDS:
+                blocked[direction] = True
+                continue
+            # auxiliary / figure / table — keep walking
+        if all(blocked.values()):
+            break
+    return None
+
+
+def _chunk_text_hash(text: str) -> str:
+    """Stable across-process fingerprint of a chunk's text.
+
+    Used by the refresh endpoint to compare a chunk Node's stored text
+    against the current mineru.json/segments.json content. We use sha1
+    truncated to 16 hex chars (8 bytes) — collisions are astronomically
+    unlikely for the comparison sizes we deal with, and it's stable across
+    Python processes (unlike ``hash()``, which is salted per-interpreter).
+    """
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
 
 
 def _find_session_dir(data_root: Path, session_id: str) -> Path | None:
@@ -117,13 +307,37 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
     write_meta(sdir, meta)
 
     text = _strip_html(el.get("html_snippet", ""))
+    chunk_node_id = new_id()
+    chunk_payload: dict[str, Any] = {
+        "box_id": body.root_chunk_id,
+        "doc_slug": body.slug,
+        "text": text,
+        # Top-level chunk: depth 0. Recursive promote_search_result
+        # increments this on each new derived chunk.
+        "recursion_depth": 0,
+        # Forward-flowing investigation context — seeds the chain so
+        # downstream tools (searcher exclude lists, right-pane
+        # breadcrumbs) can read directly off any descendant's payload.
+        "context": merge_contexts(
+            empty_context(),
+            {
+                "visited_box_ids": [body.root_chunk_id],
+                "visited_doc_slugs": [body.slug],
+                "recursion_depth": 0,
+                "origin_chain": [
+                    origin_entry(chunk_node_id, "chunk", text[:160] or body.root_chunk_id),
+                ],
+            },
+        ),
+        **_load_box_metadata(cfg.data_root, body.slug, body.root_chunk_id),
+    }
     append_node(
         sdir,
         Node(
-            node_id=new_id(),
+            node_id=chunk_node_id,
             session_id=sid,
             kind="chunk",
-            payload={"box_id": body.root_chunk_id, "doc_slug": body.slug, "text": text},
+            payload=chunk_payload,
             actor="system",
         ),
     )
@@ -428,7 +642,14 @@ _DEPENDS_ON_EDGE_KINDS: set[str] = {
     "candidates-for",  # search_result → task
     "evaluates",  # evaluation → search_result
     "promoted-from",  # promoted chunk → search_result
+    "enriches",  # claim_background → claim
 }
+
+# Edges from a *decision* to a node that the decision spawned. When the
+# decision itself is in the cascade-set (because its proposal got
+# deleted), every node it spawned must follow — otherwise deleting a
+# search-action_proposal would leave its bag of search_results behind.
+_TRIGGERED_BY_DECISION_EDGE_KINDS: set[str] = {"triggers"}
 
 
 def _collect_cascade(target_id: str, nodes: list[Node], edges: list[Edge]) -> set[str]:
@@ -466,6 +687,20 @@ def _collect_cascade(target_id: str, nodes: list[Node], edges: list[Edge]) -> se
         for e in edges:
             if e.kind == "decided-by" and e.to_node in deleted and e.from_node not in deleted:
                 deleted.add(e.from_node)
+        # 4) Decision-spawned cascade: decision (deleted) → spawned nodes
+        #    via "triggers" edges. Lets bag-delete (= delete the search
+        #    action_proposal) sweep all search_results + evaluations +
+        #    capability_gates the same decision created.
+        decisions_in_set = {
+            n.node_id for n in nodes if n.kind == "decision" and n.node_id in deleted
+        }
+        for e in edges:
+            if (
+                e.kind in _TRIGGERED_BY_DECISION_EDGE_KINDS
+                and e.from_node in decisions_in_set
+                and e.to_node not in deleted
+            ):
+                deleted.add(e.to_node)
         if len(deleted) == before:
             return deleted
 
@@ -560,39 +795,29 @@ async def delete_node(session_id: str, node_id: str, request: Request) -> None:
 
 class PromoteSearchResultRequest(BaseModel):
     search_result_node_id: str
+    # Click-trail: when promote is invoked from a Bewertungs-trail, the
+    # frontend forwards the original tile's node_id here. The new chunk
+    # inherits it on its payload AND, if the trail head is an evaluation,
+    # that verdict + reasoning lands as breadcrumbs so a later
+    # extract_claims call sees WHY this chunk is being researched.
+    triggered_from_node_id: str | None = None
 
 
-@router.post(
-    "/api/admin/provenienz/sessions/{session_id}/promote-search-result",
-    status_code=201,
-)
-async def promote_search_result(
-    session_id: str, body: PromoteSearchResultRequest, request: Request
-) -> dict:
-    """Create a new chunk node seeded with a search_result's text, so the
-    user can extract claims and dig deeper from that specific result.
+def _build_promoted_chunk_payload(
+    *,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
+    triggered_from_node_id: str | None,
+) -> dict[str, Any]:
+    """Walk the search_result's audit chain back to claim/task/origin_chunk
+    and assemble the payload for a derived chunk Node.
 
-    The new chunk inherits **breadcrumbs** from its origin: the claim that
-    triggered the search, the search query, and the source chunk. Stored
-    on the chunk payload so the frontend can render context, and so a
-    later ``extract_claims`` call on this chunk can inject those
-    breadcrumbs into the LLM prompt — keeping the recursive exploration
-    on-topic instead of producing arbitrary claims about the result text.
+    The same payload shape is built at proposal-time (so the action_proposal
+    carries everything the decide-handler needs to materialise the chunk
+    deterministically — no second walk required, no risk of audit drift).
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
-    if sd is None:
-        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    nodes, edges = read_session(sd)
-    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
-    if sr is None:
-        raise HTTPException(
-            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
-        )
-    if sr.kind != "search_result":
-        raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
-
-    # Walk back: search_result → task → claim → original chunk.
     by_id = {n.node_id: n for n in nodes}
     task_id = sr.payload.get("task_node_id")
     task = by_id.get(task_id) if isinstance(task_id, str) else None
@@ -609,25 +834,212 @@ async def promote_search_result(
     text = str(sr.payload.get("text", ""))
     box_id = str(sr.payload.get("box_id", ""))
     doc_slug = str(sr.payload.get("doc_slug", ""))
-    chunk = append_node(
+    # Recursive depth tracking: derived chunk lives one level below its
+    # parent. Older parent chunks (pre-unification) lack the field —
+    # treat as depth 0, so the first promote always lands at depth 1.
+    parent_depth = int(origin_chunk.payload.get("recursion_depth", 0)) if origin_chunk else 0
+    # Forward-flow context: inherit from the search_result (which got
+    # it from the task → claim → chunk chain), then add THIS chunk's
+    # box_id to visited_box_ids and bump recursion_depth. The
+    # origin_chain entry for this chunk gets stamped at spawn time
+    # (in /decide promote_search_result) when the new node_id exists.
+    parent_context = get_context(sr.payload)
+    new_context: NodeContext = merge_contexts(
+        parent_context,
+        {
+            "visited_box_ids": [box_id] if box_id else [],
+            "visited_doc_slugs": [doc_slug] if doc_slug else [],
+            "recursion_depth": parent_depth + 1,
+        },
+    )
+    promoted_payload: dict[str, Any] = {
+        "box_id": box_id,
+        "doc_slug": doc_slug,
+        "text": text,
+        "recursion_depth": parent_depth + 1,
+        "context": new_context,
+        "promoted_from": sr.node_id,
+        "origin_claim_id": claim.node_id if claim else None,
+        "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
+        "origin_query": str(task.payload.get("query", "")) if task else None,
+        "origin_chunk_id": origin_chunk.node_id if origin_chunk else None,
+        "origin_chunk_box_id": (
+            str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
+        ),
+    }
+    # Propagate the click-trail. When the trail head is an evaluation,
+    # also write breadcrumbs (verdict + reasoning) so a later
+    # extract_claims on this chunk sees WHY it is being researched.
+    if triggered_from_node_id:
+        promoted_payload["triggered_from_node_id"] = triggered_from_node_id
+        trail_node = by_id.get(triggered_from_node_id)
+        if trail_node is not None and trail_node.kind == "evaluation":
+            promoted_payload["origin_evaluation_id"] = trail_node.node_id
+            promoted_payload["origin_evaluation_verdict"] = str(
+                trail_node.payload.get("verdict", "")
+            )
+            promoted_payload["origin_evaluation_reasoning"] = str(
+                trail_node.payload.get("reasoning", "")
+            )[:400]
+    if box_id and doc_slug:
+        promoted_payload.update(_load_box_metadata(data_root, doc_slug, box_id))
+    return promoted_payload
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/promote-search-result",
+    status_code=201,
+)
+async def promote_search_result(
+    session_id: str, body: PromoteSearchResultRequest, request: Request
+) -> dict:
+    """Build an ``action_proposal`` (step_kind="promote_search_result") that
+    captures everything needed to spawn a derived chunk Node — text,
+    breadcrumbs, recursion_depth, box metadata.
+
+    The proposal lands as an audit-anchor; the actual chunk creation
+    happens in /decide on user accept (same shape as decompose_hit and
+    every other step). This wires promote_search_result into the standard
+    action_proposal + decision + triggers chain so the canvas can connect
+    the new chunk back to the proposal that produced it via
+    ``proposalSpawningNode`` (decision → triggers → chunk).
+
+    The new chunk inherits **breadcrumbs** from its origin: the claim that
+    triggered the search, the search query, and the source chunk. Stored
+    on the chunk payload (assembled here, materialised in /decide) so the
+    frontend can render context, and so a later ``extract_claims`` call
+    on this chunk can inject those breadcrumbs into the LLM prompt —
+    keeping the recursive exploration on-topic instead of producing
+    arbitrary claims about the result text.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, edges = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(status_code=400, detail=f"node is not a search_result: kind={sr.kind}")
+
+    chunk_args = _build_promoted_chunk_payload(
+        sr=sr,
+        nodes=nodes,
+        edges=edges,
+        data_root=cfg.data_root,
+        triggered_from_node_id=body.triggered_from_node_id,
+    )
+    text_preview = chunk_args.get("text", "")
+    label_preview = (text_preview[:60] + "…") if len(text_preview) > 60 else text_preview
+    payload = ActionProposalPayload(
+        step_kind="promote_search_result",
+        anchor_node_id=body.search_result_node_id,
+        recommended=ActionOption(
+            label=f'Neuer Chunk: "{label_preview}"' if label_preview else "Neuer Chunk",
+            args=chunk_args,
+        ),
+        alternatives=[],
+        reasoning=(
+            "Suchtreffer wird als abgeleiteter Chunk geöffnet — extract_claims "
+            "läuft regulär darauf und neue Claim-Knoten anlegt (recursive "
+            f"claim tracing, depth → {chunk_args.get('recursion_depth', 1)})."
+        ),
+        guidance_consulted=[],
+        pre_reasoning="",
+        system_prompt_used="",
+        tool_used=None,
+    )
+    actor = "human"
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
+class RefreshChunkResponse(BaseModel):
+    """Response shape for ``POST .../chunks/{id}/refresh``.
+
+    ``refreshed=False`` when the chunk's stored text + box_kind +
+    reading_order already match the current mineru.json/segments.json —
+    nothing was appended. ``refreshed=True`` when a new chunk Node was
+    appended with the current source content; ``new_chunk`` carries the
+    freshly-spawned node so the frontend can switch focus to it.
+    """
+
+    refreshed: bool
+    reason: Literal["current", "updated", "source-missing"]
+    new_chunk: dict | None = None
+
+
+def _refresh_chunk_one(cfg, sd, session_id: str, chunk: Node) -> RefreshChunkResponse:
+    """Diff one chunk Node against current segments.json/mineru.json
+    and append a refreshed chunk + ``refreshes`` edge if the source
+    has changed. Shared by the per-chunk and per-session refresh
+    endpoints.
+    """
+    box_id = str(chunk.payload.get("box_id", ""))
+    doc_slug = str(chunk.payload.get("doc_slug", ""))
+    if not box_id or not doc_slug:
+        return RefreshChunkResponse(refreshed=False, reason="source-missing")
+
+    mineru = read_mineru(cfg.data_root, doc_slug) or {"elements": []}
+    el = next(
+        (e for e in mineru.get("elements", []) if e.get("box_id") == box_id),
+        None,
+    )
+    if el is None:
+        return RefreshChunkResponse(refreshed=False, reason="source-missing")
+
+    current_text = _strip_html(el.get("html_snippet", ""))
+    current_meta = _load_box_metadata(cfg.data_root, doc_slug, box_id)
+
+    stored_text = str(chunk.payload.get("text", ""))
+    stored_box_kind = chunk.payload.get("box_kind")
+    stored_reading_order = chunk.payload.get("reading_order")
+    stored_caption_text = str(chunk.payload.get("caption_text", ""))
+    stored_caption_box_id = str(chunk.payload.get("caption_box_id", ""))
+
+    text_changed = _chunk_text_hash(current_text) != _chunk_text_hash(stored_text)
+    kind_changed = current_meta.get("box_kind") != stored_box_kind
+    order_changed = current_meta.get("reading_order") != stored_reading_order
+    caption_changed = (
+        str(current_meta.get("caption_text", "")) != stored_caption_text
+        or str(current_meta.get("caption_box_id", "")) != stored_caption_box_id
+    )
+    if not (text_changed or kind_changed or order_changed or caption_changed):
+        return RefreshChunkResponse(refreshed=False, reason="current")
+
+    new_payload: dict[str, Any] = {
+        "box_id": box_id,
+        "doc_slug": doc_slug,
+        "text": current_text,
+        **current_meta,
+    }
+    for k in (
+        "promoted_from",
+        "origin_claim_id",
+        "origin_claim_text",
+        "origin_query",
+        "origin_chunk_id",
+        "origin_chunk_box_id",
+    ):
+        if k in chunk.payload:
+            new_payload[k] = chunk.payload[k]
+
+    new_chunk = append_node(
         sd,
         Node(
             node_id=new_id(),
             session_id=session_id,
             kind="chunk",
-            payload={
-                "box_id": box_id,
-                "doc_slug": doc_slug,
-                "text": text,
-                "promoted_from": sr.node_id,
-                "origin_claim_id": claim.node_id if claim else None,
-                "origin_claim_text": str(claim.payload.get("text", "")) if claim else None,
-                "origin_query": str(task.payload.get("query", "")) if task else None,
-                "origin_chunk_id": origin_chunk.node_id if origin_chunk else None,
-                "origin_chunk_box_id": (
-                    str(origin_chunk.payload.get("box_id", "")) if origin_chunk else None
-                ),
-            },
+            payload=new_payload,
             actor="human",
         ),
     )
@@ -636,20 +1048,241 @@ async def promote_search_result(
         Edge(
             edge_id=new_id(),
             session_id=session_id,
-            from_node=chunk.node_id,
-            to_node=sr.node_id,
-            kind="promoted-from",
+            from_node=new_chunk.node_id,
+            to_node=chunk.node_id,
+            kind="refreshes",
             reason=None,
             actor="human",
         ),
     )
-    return chunk.__dict__
+    return RefreshChunkResponse(refreshed=True, reason="updated", new_chunk=new_chunk.__dict__)
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/chunks/{chunk_node_id}/refresh",
+)
+async def refresh_chunk(
+    session_id: str, chunk_node_id: str, request: Request
+) -> RefreshChunkResponse:
+    """Spawn a fresh chunk Node from the current segments.json/mineru.json
+    when the underlying source has been edited in the Extract tab.
+
+    Append-only audit semantics: the old chunk + all its descendants
+    (claims/tasks/evaluations) stay; a new chunk Node with a NEW node_id
+    but the SAME box_id is appended, plus a ``refreshes`` edge from the
+    new chunk to the old one. The ``refreshes`` edge is intentionally NOT
+    in ``_DEPENDS_ON_EDGE_KINDS`` — neither side cascades on delete; both
+    chunks stand independently for audit.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    chunk = next((n for n in nodes if n.node_id == chunk_node_id), None)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail=f"chunk not found: {chunk_node_id}")
+    if chunk.kind != "chunk":
+        raise HTTPException(status_code=400, detail=f"node is not a chunk: kind={chunk.kind}")
+    if not chunk.payload.get("box_id") or not chunk.payload.get("doc_slug"):
+        raise HTTPException(
+            status_code=400,
+            detail="chunk payload missing box_id/doc_slug — cannot refresh",
+        )
+    return _refresh_chunk_one(cfg, sd, session_id, chunk)
+
+
+class RefreshAllChunksResponse(BaseModel):
+    """Result of a session-level chunk refresh sweep."""
+
+    total: int
+    refreshed: int
+    current: int
+    source_missing: int
+    new_chunks: list[dict]
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/chunks/refresh-all",
+)
+async def refresh_all_chunks(session_id: str, request: Request) -> RefreshAllChunksResponse:
+    """Walk every chunk node in the session and refresh those whose
+    source has changed. Cheap (file IO only, no LLM calls) so safe to
+    run on demand. Returns counts + the freshly-spawned chunk nodes
+    so the frontend can summarise.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    chunks = [n for n in nodes if n.kind == "chunk"]
+    refreshed = 0
+    current = 0
+    missing = 0
+    new_chunks: list[dict] = []
+    for chunk in chunks:
+        if not chunk.payload.get("box_id") or not chunk.payload.get("doc_slug"):
+            missing += 1
+            continue
+        result = _refresh_chunk_one(cfg, sd, session_id, chunk)
+        if result.refreshed and result.new_chunk is not None:
+            refreshed += 1
+            new_chunks.append(result.new_chunk)
+        elif result.reason == "source-missing":
+            missing += 1
+        else:
+            current += 1
+    return RefreshAllChunksResponse(
+        total=len(chunks),
+        refreshed=refreshed,
+        current=current,
+        source_missing=missing,
+        new_chunks=new_chunks,
+    )
+
+
+def _build_decision_context(
+    claim: Node,
+    nodes: list[Node],
+    meta: SessionMeta | None = None,
+    *,
+    task: Node | None = None,
+    max_chunk_chars: int = 1500,
+    consuming_step: str = "",
+    data_root: Path | None = None,
+) -> str:
+    """Render the decision-support bundle (Ziel + Recherche-Frage +
+    Quell-Chunk + Such-Aufgabe) as a system-prompt prefix.
+
+    Used by formulate_task, evaluate, re-evaluate. Each part is omitted
+    when not available, so caller doesn't need to branch.
+
+    Args:
+        claim: the claim node — source for chunk-lookup + per-claim goal.
+        nodes: full session node list, for chunk resolution.
+        meta: session meta, for the session goal. Optional.
+        task: the task node, for the search query. Pass for evaluate /
+            re-evaluate; omit for formulate_task (task doesn't exist
+            yet at that point).
+        max_chunk_chars: cap on the inlined chunk text (chunks can be
+            multi-page). Truncated with " […]" suffix.
+        consuming_step: name of the step that will consume this context
+            (e.g. ``"formulate_task"`` / ``"evaluate"``). Used to filter
+            enrichment-skill annotations by their declared
+            ``output.consumed_by``. Empty string → include any
+            ``enriches``-edged annotation on the claim.
+        data_root: workspace root, needed to look up enrichment skills
+            and decide which annotation kinds belong to ``consuming_step``.
+            Optional; when omitted, falls back to including any
+            annotation with ``payload.claim_node_id == claim.node_id``
+            and a non-empty ``text`` field.
+    """
+    parts: list[str] = []
+
+    if meta and meta.goal and meta.goal.strip():
+        parts.append(f"## SITZUNGS-ZIEL\n{meta.goal.strip()}")
+
+    claim_goal = str(claim.payload.get("goal", "")).strip()
+    if claim_goal:
+        parts.append(f"## RECHERCHE-FRAGE ZUR AUSSAGE\n{claim_goal}")
+
+    src_id = claim.payload.get("source_node_id")
+    if isinstance(src_id, str) and src_id:
+        chunk = next((n for n in nodes if n.node_id == src_id), None)
+        if chunk is not None and chunk.kind == "chunk":
+            chunk_text = str(chunk.payload.get("text", "")).strip()
+            claim_text = str(claim.payload.get("text", "")).strip()
+            if chunk_text and chunk_text != claim_text:
+                truncated = chunk_text[:max_chunk_chars]
+                if len(chunk_text) > max_chunk_chars:
+                    truncated += " […]"
+                parts.append(
+                    "## QUELL-KONTEXT (Original-Textabschnitt aus dem die "
+                    "Hypothese extrahiert wurde — KEIN Beleg!)\n"
+                    f"{truncated}\n\n"
+                    "Dieser Block ist die HERKUNFT der Hypothese, nicht ein "
+                    "weiteres Belegstück. Nutze ihn ausschließlich, um "
+                    "Begriffe, Einheiten und Bezüge im Kandidaten-Treffer "
+                    "korrekt einzuordnen. Wenn die Hypothese hier wörtlich "
+                    "steht: das beweist sie NICHT — der Kandidat-Treffer "
+                    "muss die Hypothese aus seinem eigenen Inhalt belegen."
+                )
+
+    # Per-claim enrichment annotations — produced by enrichment skills
+    # at extract_claims time, attached to the claim via an `enriches`
+    # edge. Skills whose ``output.consumed_by`` includes the current
+    # ``consuming_step`` contribute their latest annotation. Latest one
+    # wins per (skill_id, kind) pair.
+    relevant_annotation_kinds: set[str] | None = None
+    if data_root is not None:
+        try:
+            from local_pdf.provenienz.skills import read_skills
+
+            relevant_annotation_kinds = set()
+            # Pick up enrichment skills that attach to claims, regardless
+            # of ``fires_on`` (which describes when they run, not when
+            # they're consumed).
+            for s in read_skills(data_root):
+                if not s.enabled:
+                    continue
+                if s.output.attaches_to != "claim":
+                    continue
+                if not s.output.annotation_kind:
+                    continue
+                if consuming_step and consuming_step not in s.output.consumed_by:
+                    continue
+                relevant_annotation_kinds.add(s.output.annotation_kind)
+        except Exception:  # pragma: no cover - defensive
+            relevant_annotation_kinds = None
+
+    annotation_nodes = [
+        n
+        for n in nodes
+        if n.payload.get("claim_node_id") == claim.node_id
+        and (relevant_annotation_kinds is None or n.kind in relevant_annotation_kinds)
+        and str(n.payload.get("text", "")).strip()
+    ]
+    # Group by kind, take the latest per kind.
+    latest_by_kind: dict[str, Node] = {}
+    for n in annotation_nodes:
+        prev = latest_by_kind.get(n.kind)
+        if prev is None or n.created_at > prev.created_at:
+            latest_by_kind[n.kind] = n
+    for kind in sorted(latest_by_kind):
+        ann = latest_by_kind[kind]
+        ann_text = str(ann.payload.get("text", "")).strip()
+        if not ann_text:
+            continue
+        heading = ann.payload.get("skill_name") or kind
+        parts.append(f"## ANNOTATION ({heading})\n{ann_text}")
+
+    if task is not None and task.kind == "task":
+        task_text = str(task.payload.get("query") or task.payload.get("text") or "").strip()
+        if task_text:
+            parts.append(
+                f"## SUCH-AUFGABE (Suchanfrage, die zu diesem Ergebnis führte)\n{task_text}"
+            )
+
+    if not parts:
+        return ""
+    return "\n\n" + "\n\n".join(parts) + "\n"
+
+
+# Backwards-compat alias — older call sites used the chunk-only helper.
+def _build_claim_source_context(claim: Node, nodes: list[Node]) -> str:
+    return _build_decision_context(claim, nodes, meta=None, task=None)
 
 
 def _build_origin_context(chunk: Node) -> str:
     """Render the breadcrumbs stored on a promoted chunk's payload as a
     German prompt-prefix the next ``extract_claims`` LLM call can use to
     stay on-topic. Empty string for chunks that weren't promoted.
+
+    When the chunk inherits a Bewertungs-Trail (origin_evaluation_*),
+    the verdict + reasoning are appended as an extra block so the LLM
+    knows WHY this chunk is being researched (e.g. "the evaluation was
+    'partially-supported' — focus on the unsupported parts").
     """
     p = chunk.payload
     if not p.get("promoted_from"):
@@ -661,15 +1294,518 @@ def _build_origin_context(chunk: Node) -> str:
     origin_query = p.get("origin_query")
     if isinstance(origin_query, str) and origin_query.strip():
         parts.append(f'Damalige Suchanfrage: "{origin_query.strip()}"')
-    if not parts:
+    if not parts and not p.get("origin_evaluation_id"):
         return ""
-    return (
-        "\n\n## Kontext der Recherche\n"
-        "Dieser Textabschnitt wurde als möglicher Beleg für eine frühere "
-        "Aussage in derselben Sitzung identifiziert. "
-        + " · ".join(parts)
-        + ".\nKonzentriere dich auf Aussagen, die zur ursprünglichen Recherche passen."
+    blocks: list[str] = []
+    if parts:
+        blocks.append(
+            "\n\n## Kontext der Recherche\n"
+            "Dieser Textabschnitt wurde als möglicher Beleg für eine frühere "
+            "Aussage in derselben Sitzung identifiziert. "
+            + " · ".join(parts)
+            + ".\nKonzentriere dich auf Aussagen, die zur ursprünglichen Recherche passen."
+        )
+    eval_verdict = p.get("origin_evaluation_verdict")
+    eval_reasoning = p.get("origin_evaluation_reasoning")
+    if isinstance(eval_verdict, str) and eval_verdict.strip():
+        reasoning_text = (
+            str(eval_reasoning).strip()
+            if isinstance(eval_reasoning, str) and eval_reasoning.strip()
+            else ""
+        )
+        eval_block = (
+            "\n\n## Vorherige Bewertung\n"
+            f"Bewertung: {eval_verdict.strip()}"
+            + (f' — "{reasoning_text}"' if reasoning_text else "")
+            + "\nKonzentriere dich auf Aussagen, die im Bewertungs-Kontext "
+            "relevant sind — z.B. Berechnungen oder Werte die hier zitiert "
+            "werden, könnten ihrerseits Belege brauchen."
+        )
+        blocks.append(eval_block)
+    return "".join(blocks)
+
+
+def _attach_trail(node: Node, trail_id: str | None) -> Node:
+    """Stamp ``triggered_from_node_id`` onto an action_proposal Node's
+    payload when the request body carried one. No-op when ``trail_id``
+    is empty/None — keeps the payload shape identical to today's
+    direct-anchor invocations so the diff stays contained.
+
+    Mutates ``node.payload`` in place AND returns the same Node so the
+    call site reads as ``append_node(sd, _attach_trail(build…, body.trail))``.
+    """
+    if trail_id:
+        node.payload["triggered_from_node_id"] = trail_id
+    return node
+
+
+def _calculator_tool_call(
+    claim_text: str, candidate_text: str
+) -> tuple[str, dict[str, Any] | None]:
+    """Run the deterministic Calculator across (number, unit) pairs in
+    both texts. Returns ``(hint_string, tool_call_record)``.
+
+    - ``hint_string``: German prompt-block injected into the LLM's
+      evaluate user prompt. Empty when either side has no parseable
+      quantities.
+    - ``tool_call_record``: structured audit entry
+      ``{tool, operation, input, output}`` persisted on the
+      action_proposal / evaluation payload so the UI can render
+      "this tool ran with these inputs and got these outputs"
+      (parallel to the existing capability_scan for skills).
+      ``None`` when no quantities to compare.
+    """
+    from local_pdf.provenienz.calculator import (
+        best_pairwise_compare,
+        parse_quantities,
     )
+
+    a_qs = parse_quantities(claim_text)
+    b_qs = parse_quantities(candidate_text)
+    if not a_qs or not b_qs:
+        return "", None
+    # Strict equality only — domain interpretation (conservative
+    # rounding, measurement-uncertainty windows, etc.) is the job of
+    # Skills, not the calculator. The tool reports raw facts; the LLM
+    # and Skill prompts decide what those facts mean for the verdict.
+    out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=0.0)
+    lines = [out["reasoning"]]
+    for r in out.get("results", []):
+        lines.append(f"- {r['reasoning']}")
+    hint = "\n".join(lines)
+    tool_call = {
+        "tool": "calculator",
+        "operation": "compare",
+        "input": {
+            "rel_tolerance": 0.0,
+            "claim_quantities": [
+                {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit} for q in a_qs
+            ],
+            "candidate_quantities": [
+                {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit} for q in b_qs
+            ],
+        },
+        "output": out,
+    }
+    return hint, tool_call
+
+
+def _persisted_tool_calls_for_sr(
+    sr_node_id: str, nodes: list[Node], edges: list[Edge]
+) -> tuple[str, list[dict[str, Any]]]:
+    """Gather Calculator (and future tool) results that were already
+    persisted as tool_annotation Nodes attached to *sr_node_id* via
+    "enriches" edges. Returns (hint_string, tool_call_dicts) — same
+    shape as :func:`_calculator_tool_call` so the evaluate route
+    drops in unchanged.
+
+    The user (or planner) must have explicitly run the tool via the
+    /calculator-on-result endpoint beforehand; nothing is computed
+    here. Empty when no annotations exist — keeps the evaluate prompt
+    clean for purely semantic claims.
+    """
+    annotation_node_ids = {
+        e.from_node for e in edges if e.to_node == sr_node_id and e.kind == "enriches"
+    }
+    annotations = [
+        n for n in nodes if n.node_id in annotation_node_ids and n.kind == "tool_annotation"
+    ]
+    if not annotations:
+        return "", []
+    tool_calls: list[dict[str, Any]] = []
+    lines: list[str] = []
+    for ann in annotations:
+        tc = ann.payload.get("tool_call")
+        if not isinstance(tc, dict):
+            continue
+        tool_calls.append(tc)
+        out = tc.get("output", {}) if isinstance(tc.get("output"), dict) else {}
+        if isinstance(out.get("reasoning"), str):
+            lines.append(str(out["reasoning"]))
+        for r in out.get("results", []) or []:
+            if isinstance(r, dict) and isinstance(r.get("reasoning"), str):
+                lines.append(f"- {r['reasoning']}")
+    return "\n".join(lines), tool_calls
+
+
+def _collect_applied_capabilities_in_chain(prior_eval_id: str, nodes: list[Node]) -> set[str]:
+    """Walk back through the evaluation chain via ``prior_evaluation_node_id``
+    and return the union of every ``applied_capabilities`` set seen.
+
+    Used by capability_scan in /decide-evaluate to filter out skills
+    that have already been injected into a re-eval prompt earlier in
+    the same chain — re-firing them would re-create the same gate
+    they just resolved (the loop the user reported).
+
+    Returns empty set when *prior_eval_id* is empty (= first-time
+    evaluate) or when the linked nodes can't be resolved.
+    """
+    by_id = {n.node_id: n for n in nodes}
+    out: set[str] = set()
+    seen: set[str] = set()
+    cursor = prior_eval_id
+    while cursor and cursor not in seen:
+        seen.add(cursor)
+        node = by_id.get(cursor)
+        if node is None or node.kind != "evaluation":
+            break
+        applied = node.payload.get("applied_capabilities") or []
+        for sid in applied:
+            if isinstance(sid, str) and sid:
+                out.add(sid)
+        cursor = str(node.payload.get("prior_evaluation_node_id") or "")
+    return out
+
+
+_TABLE_PARSER_SCHEMA_VERSION = 2  # bumped when colspan/rowspan support landed
+_TABLE_CONSISTENCY_SCHEMA_VERSION = 2  # bumped when row-sum axis landed
+
+
+def _ensure_table_consistency_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """If a parsed-table annotation exists for *sr* but no consistency-
+    check annotation at the current schema version, run
+    TableConsistencyChecker on the parsed table and persist the report
+    as a second tool_annotation.
+
+    Runs AFTER ``_ensure_table_annotation`` so the parsed structure is
+    available. Reads the parsed table directly off the latest
+    parser annotation. Legacy consistency annotations (schema_version
+    < current) are treated as missing so improvements to the checker
+    (e.g. row-sum axis) automatically re-fire on resumed sessions
+    without manual cache invalidation.
+    """
+    from local_pdf.provenienz.table_consistency import (
+        check_consistency,
+        render_report,
+    )
+    from local_pdf.provenienz.table_consistency import (
+        to_dict as consistency_to_dict,
+    )
+    from local_pdf.provenienz.table_parser import StructuredTable, TableRow
+
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    parsed_ann: Node | None = None
+    has_current_consistency = False
+    for n in nodes:
+        if n.kind != "tool_annotation" or n.node_id not in existing_ann_ids:
+            continue
+        tc = n.payload.get("tool_call")
+        if not isinstance(tc, dict):
+            continue
+        if tc.get("tool") == "table_parser":
+            parsed_ann = n
+        elif tc.get("tool") == "table_consistency_checker":
+            schema = int(tc.get("schema_version", 1))
+            if schema >= _TABLE_CONSISTENCY_SCHEMA_VERSION:
+                has_current_consistency = True
+    if parsed_ann is None or has_current_consistency:
+        return
+    # Reconstruct StructuredTable from the persisted parsed-table dict.
+    parsed_dict = (parsed_ann.payload.get("tool_call") or {}).get("output", {})
+    headers = list(parsed_dict.get("headers") or [])
+    raw_rows = parsed_dict.get("rows") or []
+    rows: list[TableRow] = []
+    for r in raw_rows:
+        if not isinstance(r, dict):
+            continue
+        rows.append(TableRow(label=str(r.get("label", "")), cells=dict(r.get("cells") or {})))
+    if not rows or not headers:
+        return
+    table = StructuredTable(caption=str(parsed_dict.get("caption", "")), headers=headers, rows=rows)
+    report = check_consistency(table)
+    md = render_report(report)
+    tool_call = {
+        "tool": "table_consistency_checker",
+        "operation": "check",
+        "schema_version": _TABLE_CONSISTENCY_SCHEMA_VERSION,
+        "input": {
+            "n_rows": len(rows),
+            "n_columns": len(headers),
+            "sum_rel_tolerance": 0.001,
+        },
+        "output": consistency_to_dict(report),
+    }
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": md,
+        "annotation_kind": "table_consistency",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
+def _ensure_table_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
+) -> None:
+    """If the search_result is a kind=table box AND no parsed-table
+    annotation exists yet, run the deterministic TableParser on the
+    box's html_snippet and persist the structured 2D mapping as a
+    tool_annotation Node + "enriches" edge to the SR.
+
+    Engineering-rationale: tables are 2D bindings (row x column to
+    value). LLMs handle this poorly when the input is plain text;
+    deterministic parsing eliminates the parse-failure mode entirely.
+    """
+    from local_pdf.provenienz.table_parser import (
+        parse_table,
+        render_markdown,
+        to_dict,
+    )
+
+    if str(sr.payload.get("box_kind", "")) != "table":
+        return
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    # Treat parser annotations with an older schema as missing so the
+    # next evaluate re-parses with the current parser (colspan/rowspan
+    # support, etc.) without manual cache invalidation.
+    has_current_table_ann = False
+    for n in nodes:
+        if n.kind != "tool_annotation" or n.node_id not in existing_ann_ids:
+            continue
+        tc = n.payload.get("tool_call")
+        if not isinstance(tc, dict) or tc.get("tool") != "table_parser":
+            continue
+        schema = int(tc.get("schema_version", 1))
+        if schema >= _TABLE_PARSER_SCHEMA_VERSION:
+            has_current_table_ann = True
+            break
+    if has_current_table_ann:
+        return
+    box_id = str(sr.payload.get("box_id", ""))
+    doc_slug = str(sr.payload.get("doc_slug", ""))
+    if not box_id or not doc_slug:
+        return
+    mineru = read_mineru(data_root, doc_slug)
+    if mineru is None:
+        return
+    html_snippet = ""
+    for el in mineru.get("elements", []) or []:
+        if el.get("box_id") == box_id:
+            html_snippet = str(el.get("html_snippet", ""))
+            break
+    if not html_snippet:
+        return
+    fallback_caption = str(sr.payload.get("caption_text", ""))
+    parsed = parse_table(html_snippet, fallback_caption=fallback_caption)
+    if parsed is None:
+        return
+    md = render_markdown(parsed)
+    tool_call = {
+        "tool": "table_parser",
+        "operation": "parse",
+        "schema_version": _TABLE_PARSER_SCHEMA_VERSION,
+        "input": {
+            "box_id": box_id,
+            "had_caption_in_html": bool(parsed.caption and not fallback_caption),
+            "fallback_caption_used": bool(fallback_caption and parsed.caption == fallback_caption),
+        },
+        "output": {
+            **to_dict(parsed),
+            "reasoning": (
+                f"Tabelle geparst: {len(parsed.rows)} Zeilen, "
+                f"{len(parsed.headers)} Spalten."
+                + (f" Caption: {parsed.caption}" if parsed.caption else "")
+            ),
+            "markdown": md,
+        },
+    }
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": md,
+        "annotation_kind": "table_parsed",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
+def _ensure_calculator_annotation(
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    claim: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """If no Calculator annotation already exists for *sr*, run the
+    Calculator on (claim_text, sr_text) and persist the result as a
+    tool_annotation Node + "enriches" edge. No-op when:
+
+      - an annotation already exists for this SR (don't double-run),
+      - the texts have no parseable (number, unit) pairs (nothing to
+        compute).
+
+    Auto-fire rationale: when an LLM evaluates a claim with numbers
+    against a candidate with numbers, it should NEVER do mental
+    arithmetic. The Calculator must run first; this helper guarantees
+    that, while still leaving the manual /calculator-on-result path
+    available for explicit re-runs (different tolerance, etc.).
+    """
+    existing_ann_ids = {
+        e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
+    }
+    has_calc_ann = any(
+        n.kind == "tool_annotation"
+        and n.node_id in existing_ann_ids
+        and isinstance(n.payload.get("tool_call"), dict)
+        and (n.payload.get("tool_call") or {}).get("tool") == "calculator"
+        for n in nodes
+    )
+    if has_calc_ann:
+        return
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    hint, tool_call = _calculator_tool_call(claim_text, candidate_text)
+    if tool_call is None:
+        return
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": hint,
+        "annotation_kind": "calculator_result",
+        "attaches_to_node_id": sr.node_id,
+        "auto_fired": True,
+    }
+    append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+
+def _build_calculator_hint(claim_text: str, candidate_text: str) -> str:
+    """Backwards-compat wrapper — only the hint string. Prefer
+    :func:`_calculator_tool_call` so the structured record gets
+    persisted on the eval payload.
+    """
+    hint, _ = _calculator_tool_call(claim_text, candidate_text)
+    return hint
+
+
+def _ancestor_chunk_box_ids(
+    nodes: list[Node],
+    edges: list[Edge],
+    start_node_id: str,
+) -> list[str]:
+    """Walk parent edges upward from *start_node_id* and collect every
+    chunk Node's ``box_id`` along the ancestry path.
+
+    Used by /search to populate ``exclude_box_ids`` so the searcher
+    doesn't re-surface chunks the investigation already derived from.
+    On a fresh session this returns just ``[meta.root_chunk_id]``;
+    after a promote_search_result it grows to include the promoted
+    chunk's box_id; after multiple nested promotes the whole chain is
+    excluded — exactly the boxes whose contents we've already mined
+    for claims.
+
+    Edge convention in this graph is **dependent → dependency**
+    (see ``_DEPENDS_ON_EDGE_KINDS``): claim → chunk, task → claim,
+    search_result → task, promoted_chunk → search_result, etc. So
+    "walking upward" means following each node's OUTGOING depends-on
+    edges back to its parents — not incoming, which would walk down
+    into descendants.
+    """
+    by_id = {n.node_id: n for n in nodes}
+    parents: dict[str, list[str]] = {}
+    for e in edges:
+        if e.kind not in _DEPENDS_ON_EDGE_KINDS:
+            continue
+        parents.setdefault(e.from_node, []).append(e.to_node)
+    seen: set[str] = set()
+    box_ids: list[str] = []
+    queue: list[str] = [start_node_id]
+    while queue:
+        nid = queue.pop()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        node = by_id.get(nid)
+        if node is None:
+            continue
+        if node.kind == "chunk":
+            bid = str(node.payload.get("box_id") or "")
+            if bid:
+                box_ids.append(bid)
+        for parent in parents.get(nid, []):
+            queue.append(parent)
+    return box_ids
 
 
 class PinApproachRequest(BaseModel):
@@ -712,14 +1848,46 @@ async def unpin_approach(session_id: str, body: PinApproachRequest, request: Req
     return {"meta": _meta_to_response(written).model_dump()}
 
 
+def _strip_thinking_tags(s: str) -> str:
+    """Strip ``<think>...</think>`` reasoning blocks (Qwen3, DeepSeek-R1).
+
+    Standalone helper for plain-text outputs (pre_reason etc.) that
+    don't go through ``_strip_json_fence``. Empty thinking blocks
+    (``<think>\\n\\n</think>``) leak into German one-liners when
+    ``/no_think`` is honored partially.
+    """
+    import re as _re
+
+    s = _re.sub(r"<think>.*?</think>", "", s, flags=_re.DOTALL)
+    return s.strip()
+
+
 def _strip_json_fence(s: str) -> str:
-    """Strip ```json ... ``` or ``` ... ``` fences and extract the first
-    top-level JSON value (object or array) from prose-wrapped output.
+    """Strip ```json ... ``` fences, ``<think>...</think>`` reasoning
+    blocks (Qwen3, DeepSeek-R1, etc.), and extract the first top-level
+    JSON value (object or array) from prose-wrapped output.
 
     Small models routinely return ``Hier ist die Antwort: {...}`` or wrap
-    JSON in code fences; we want both shapes to parse.
+    JSON in code fences. Reasoning-tuned models like Qwen3 prepend
+    ``<think>…</think>`` chain-of-thought before the JSON; we strip
+    those so callers downstream get clean JSON.
     """
     s = s.strip()
+    # Reasoning blocks (Qwen3, DeepSeek-R1) — close-tag may be missing
+    # if the model truncated mid-thought, so handle both shapes.
+    import re as _re
+
+    s = _re.sub(r"<think>.*?</think>", "", s, flags=_re.DOTALL).strip()
+    # If only an opening tag survived a truncation, drop everything up
+    # to the first ``{`` / ``[`` so we still try to parse what's there.
+    if s.startswith("<think>"):
+        for marker in ("{", "["):
+            idx = s.find(marker)
+            if idx != -1:
+                s = s[idx:]
+                break
+    s = s.strip()
+
     if s.startswith("```"):
         first_newline = s.find("\n")
         s = s[first_newline + 1 :] if first_newline != -1 else s[3:]
@@ -786,6 +1954,24 @@ _EVALUATE_VERDICTS = {"likely-source", "partial-support", "unrelated", "contradi
 # Edit here → both the live LLM call and the docs UI update.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Reasoning-tuned models (Qwen3, DeepSeek-R1) emit <think>...</think> chain-
+# of-thought before their final answer. For our structured-JSON outputs that
+# pollutes the parse and burns through max_tokens. ``/no_think`` is the
+# Qwen3 directive that disables thinking-mode for a single call. Non-
+# reasoning models silently ignore this token, so it's safe to append
+# universally. Combined with the <think>-stripping in _strip_json_fence,
+# we're robust whether the model honors the directive or not.
+_NO_THINK = "\n\n/no_think"
+
+# Output-token budget. Has to fit alongside the input prompt within the
+# model's max_model_len. With max_model_len=8192 (current default) and
+# our system+user prompts running 4000-6500 input tokens (skill-stacked
+# next_step + evaluate), 1024 leaves enough headroom for JSON output +
+# small <think> block leakage.
+# Default vLLM max_tokens can be as low as 16 which truncates anything
+# non-trivial, so we always pass this explicitly.
+_MAX_TOKENS_STRUCTURED = 1024
+
 EXTRACT_CLAIMS_SYSTEM = (
     "Du extrahierst überprüfbare Aussagen aus einem Textabschnitt. Eine Aussage "
     "ist eine spezifische, faktische Behauptung — Zahl, Datum, Eigenschaft, "
@@ -800,11 +1986,88 @@ FORMULATE_TASK_SYSTEM = (
     "Zeilenumbruch davor oder danach."
 )
 EVALUATE_SYSTEM = (
-    "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer Aussage "
-    "ist. Antworte ausschließlich als JSON-Objekt mit den Feldern verdict "
-    "(eines von: 'likely-source', 'partial-support', 'unrelated', "
-    "'contradicts'), confidence (Zahl 0.0-1.0) und reasoning (kurzer "
-    "deutscher Satz). Kein Vor- oder Nachtext, keine Codeblöcke."
+    "Du bewertest, ob ein Kandidaten-Textabschnitt die Quelle einer "
+    "Hypothese ist.\n\n"
+    "GRUND-PRINZIP — strikt einhalten:\n"
+    "Der Kandidat-Treffer muss die Hypothese AUS SEINEM EIGENEN INHALT "
+    "belegen. Wenn ein QUELL-KONTEXT (Original-Textabschnitt aus dem die "
+    "Hypothese extrahiert wurde) im System-Prompt erwähnt ist, dient er "
+    "NUR der Disambiguierung von Begriffen und Einheiten — er ist "
+    "NIEMALS Beleg dafür, dass die Hypothese stimmt. Genauso ein "
+    "möglicher Untersuchungs-Pfad oder eine Recherche-Frage: das ist "
+    "Vergangenheit, nicht Evidenz.\n\n"
+    "Beispiel: Hypothese 'Gesamtwärmeleistung 5,596'. Kandidat ist eine "
+    "Tabellenzelle '5,596' ohne semantische Bindung. → 'partial-support' "
+    "(NICHT 'likely-source') — die Tabelle alleine sagt nicht, was die "
+    "Zahl bedeutet. Selbst wenn QUELL-KONTEXT 'Gesamtwärmeleistung "
+    "5,596' wörtlich nennt: das ist nur die Herkunft der Hypothese, "
+    "kein zweites Belegstück.\n\n"
+    "ARBEITSWEISE - strikt einhalten:\n"
+    "1. Lies den Kandidaten-Text VOLLSTÄNDIG.\n"
+    "2. Liste JEDEN selbständigen Satz / jede Aussage einzeln auf.\n"
+    "3. Pro Satz markiere: STÜTZT / WIDERSPRICHT / NICHT-RELEVANT "
+    "für die zu prüfende Hypothese.\n"
+    "4. Sätze mit Zahlen, Datumsangaben, technischen Werten, "
+    "Einheiten oder Eigennamen sind IMMER potentiell relevant — "
+    "beweise das Gegenteil bevor du sie als nicht-relevant markierst.\n"
+    "5. Erst NACH dieser per-Satz-Aufstellung gib das Gesamt-Verdict. "
+    "Bewerte ausschliesslich, was im Kandidat steht — nicht was im "
+    "QUELL-KONTEXT, der Recherche-Frage oder anderen Vergangenheits-"
+    "Hinweisen steht.\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
+    "{\n"
+    '  "sentences": [\n'
+    '    {"text": <wörtlicher Satz>, "tag": "STÜTZT" | "WIDERSPRICHT" '
+    '| "NICHT-RELEVANT", "why": <kurzer deutscher Grund>}\n'
+    "  ],\n"
+    '  "verdict": "likely-source" | "partial-support" | "unrelated" '
+    '| "contradicts",\n'
+    '  "confidence": <0.0-1.0>,\n'
+    '  "reasoning": <Gesamtfazit als deutscher Satz, der die '
+    "sentences-Liste zusammenfasst>\n"
+    "}\n\n"
+    "Kein Vor- oder Nachtext, keine Codeblöcke."
+)
+DECOMPOSE_HIT_SYSTEM = (
+    "Du zerlegst einen Suchtreffer-Text in atomare Sub-Aussagen, "
+    "damit jede einzeln auf Stützung der Original-Behauptung "
+    "geprüft werden kann.\n\n"
+    "REGELN:\n"
+    "1. Eine Sub-Aussage = EINE faktische Behauptung (genau eine Zahl, "
+    "ein Datum, eine Eigenschaft, eine Beziehung).\n"
+    "2. Splitte an natürlichen Satz- und Klausel-Grenzen — keine "
+    "willkürliche Wort-Aufteilung.\n"
+    "3. Inkludiere Sätze mit Zahlen, Datumsangaben, technischen "
+    "Werten — diese sind oft die wichtigsten.\n"
+    "4. Verneine NIEMALS — gib die Aussage so wieder wie sie im Text "
+    "steht.\n\n"
+    "Antworte ausschließlich als JSON-Array von Strings, jeder String "
+    "ist eine Sub-Aussage. Kein Vor- oder Nachtext, keine Codeblöcke."
+)
+REFLECT_EVALUATE_SYSTEM = (
+    "Du prüfst eine bereits abgegebene Bewertung eines Suchtreffers "
+    "auf Vollständigkeit. Du bekommst:\n"
+    "1. Die zu prüfende Behauptung (claim)\n"
+    "2. Den vollständigen Treffer-Text (kandidat)\n"
+    "3. Das bisherige verdict + reasoning + die per-Satz-Tagging-Liste\n\n"
+    "Aufgabe: kritisiere die bestehende Bewertung. Hat das Modell:\n"
+    "- JEDEN Satz im Treffer-Text addressiert (per-Satz-Liste vollständig)?\n"
+    "- Sätze mit Zahlen, Datumsangaben, technischen Werten richtig getagt?\n"
+    "- Sätze als NICHT-RELEVANT markiert obwohl sie eigentlich stützen "
+    "oder widersprechen?\n"
+    "- Das verdict konsistent mit der per-Satz-Tagging-Liste vergeben?\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
+    "{\n"
+    '  "self_assessment": "vollständig" | "lückenhaft" | "fehlerhaft",\n'
+    '  "missed_statements": [<wörtliche Sätze die übersehen / falsch '
+    "getagt wurden>],\n"
+    '  "concerns": [<deutsche Sätze: WAS genau ist die Lücke / der '
+    "Fehler>],\n"
+    '  "recommendation": "accept" | "re-evaluate" | "expand-context",\n'
+    '  "recommended_focus": <wenn re-evaluate: deutscher Satz mit dem '
+    "Fokus für den nächsten Lauf, sonst leer>\n"
+    "}\n\n"
+    "Kein Vor- oder Nachtext, keine Codeblöcke."
 )
 PROPOSE_STOP_SYSTEM = (
     "Du formulierst einen kurzen deutschen Satz (max. 25 Wörter), warum "
@@ -833,21 +2096,71 @@ EXTRACT_CLAIM_GOALS_SYSTEM = (
 PRE_REASON_SYSTEM = (
     "Du bist die reflektierende Schicht eines Recherche-Agenten. Vor "
     "jeder Aktion erklärst du in EINEM kurzen deutschen Satz (max. "
-    "30 Wörter), was diese Aktion zum Recherche-Ziel beiträgt — warum "
-    "sie jetzt für DIESEN Knoten sinnvoll ist. Beziehe dich konkret "
-    "auf den Knoten und das Ziel. Antworte ausschließlich mit dem "
-    "Satz selbst, keine Anführungszeichen, kein Vor- oder Nachtext, "
-    "kein Markdown."
+    "30 Wörter), warum diese Art von Aktion JETZT für DIESEN Knoten "
+    "der richtige Prozess-Schritt ist UND was konkret geprüft wird.\n\n"
+    "ANFORDERUNGEN:\n"
+    "- Nenne konkret die Hypothese / Aussage, die geprüft wird. "
+    "Schreibe sie als Hypothese, mit dem Wort 'Hypothese' oder "
+    "'Aussage' davor — z.B. 'Bewertung des Treffers gegen die "
+    "Hypothese der Wärmeleistung von 5,6 kW' oder 'Prüfung der "
+    "Aussage zur Brennelement-Anzahl gegen den Treffer'.\n"
+    "- Mache klar, dass es eine ZU PRÜFENDE Behauptung ist — nicht "
+    "ein bewiesener Fakt.\n\n"
+    "STRIKTE VERBOTE:\n"
+    "- Du URTEILST NICHT über das Ergebnis. VERMEIDE Outcome-Verben "
+    "wie 'stützt', 'unterstützt', 'bestätigt', 'widerlegt', "
+    "'beweist', 'zeigt'. Diese Wörter gehören in die nachfolgende "
+    "Aktion, nicht in deine Vor-Begründung.\n"
+    "- Behandle Inhalte aus dem Anker NIEMALS als Tatsache. Schreibe "
+    "z.B. NICHT 'Die Angabe von 5,6 kW unterstützt die Annahme' "
+    "(das ist Vorgriff). Schreibe stattdessen 'Bewertung des Treffers "
+    "gegen die Hypothese der Wärmeleistung von 5,6 kW' (neutral).\n"
+    "- Mische niemals Hypothese und Kandidat zu einer einzigen "
+    "Aussage. Die Hypothese ist das Subjekt der Prüfung; der "
+    "Kandidat-Inhalt erscheint NICHT in der Vor-Begründung.\n\n"
+    "Antworte ausschließlich mit dem Satz selbst, keine "
+    "Anführungszeichen-Zaun, kein Vor- oder Nachtext, kein Markdown."
 )
 NEXT_STEP_SYSTEM = (
     "Du bist der reflektierende Teil eines Recherche-Agenten. Du bekommst "
     "einen Knoten + Sitzungs-Ziel + Liste der verfügbaren Steps + Liste "
     "der verfügbaren Tools (mit Agent-Hinweisen wann welches Tool zu "
-    "wählen ist). Wähle den nächsten Schritt — ABER nur wenn ein "
-    "registrierter Step wirklich passt. Wenn kein Step + kein Tool "
-    "ausreicht, darfst du auch ehrlich sagen: 'wir bräuchten X, das "
-    "fehlt' (capability_request) oder 'das ist Mensch-Arbeit' "
-    "(manual_review).\n\n"
+    "wählen ist). Wähle den nächsten Schritt.\n\n"
+    "PRÄZEDENZ — strikt einhalten, in dieser Reihenfolge:\n\n"
+    "1. executable_step ist die DEFAULT-Wahl. Prüfe ZUERST ob ein "
+    "registrierter Step für den Anker-Typ existiert und auf den "
+    "Untersuchungs-Zustand passt. Beispiele die Anker → Step "
+    "abdecken: chunk → extract_claims; claim → formulate_task; "
+    "task → search; search_result → evaluate / promote_search_result; "
+    "evaluation → next-step-along-the-trail. Diese Steps sind ALLE "
+    "autonom (LLM + Skills + Tools); sie sind NICHT Mensch-Arbeit, "
+    "auch wenn die Aufgabe Urteil verlangt — Urteilen ist genau was "
+    "evaluate (und vergleichbare Steps) macht.\n\n"
+    "2. capability_request NUR wenn die Aufgabe ein Tool oder Skill "
+    "braucht das im Registry nicht existiert (oder nur als "
+    "deaktivierter Stub). Schreibe in `description` was fehlt; "
+    "`name` ist der spezifische Tool-Name.\n\n"
+    "3. manual_review IST legitim, aber NUR als Fallback wenn weder "
+    "ein registrierter executable_step noch ein vorstellbares Tool "
+    "den Fall abdecken könnten. Beispiele für legitime "
+    "Mensch-Arbeit: ethische Abwägung, widersprüchliche "
+    "Domain-Belege wo keine Skill-Regel greift, Untersuchungs-Pause "
+    "auf User-Wunsch, völlig neue Situationen jenseits des Step-"
+    "Repertoires.\n\n"
+    "manual_review ist NICHT das Mittel um vor einer schwierigen "
+    "Bewertung zu kapitulieren — schwierige Bewertungen erledigt "
+    "evaluate (mit allen Skills + Tools). Wenn Du an evaluate denkst "
+    "aber 'lieber Mensch' wählen willst: nimm executable_step "
+    "name='evaluate', NICHT manual_review.\n\n"
+    "ANTI-PATTERN — wenn Du gerade dabei bist, einen Step aus der "
+    "verfügbaren Liste (z.B. promote_search_result, search, evaluate) "
+    "als `kind: manual_review` zu deklarieren weil die Aufgabe "
+    "'Urteil' erfordert: STOPP. Sobald der name aus der verfügbaren "
+    "Step-Liste kommt, ist `kind: executable_step` die EINZIG korrekte "
+    "Wahl — der Step ist autonom ausführbar (LLM + Skills + Tools), "
+    "und der User klickt 'Akzeptieren'. manual_review ist NUR für "
+    "Aufgaben deren name KEIN registrierter Step ist (z.B. "
+    "'Juristische Bewertung', 'Vertrags-Konsultation').\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
@@ -855,6 +2168,12 @@ NEXT_STEP_SYSTEM = (
     '  "description": <bei capability_request/manual_review: was fehlt / '
     "warum Mensch — deutscher Satz>,\n"
     '  "reasoning": <warum diese Wahl jetzt — deutscher Satz>,\n'
+    '  "goal_alignment": <Pflicht: zitiere das Sitzungs-Ziel wörtlich und '
+    "erkläre konkret, wie der gewählte Step diesem Ziel näher bringt. "
+    "Beispiel: \"Ziel ist 'Worauf beruhen die Aussagen?'. extract_claims "
+    "teilt den Text in einzelne Behauptungen, damit ich für jede die "
+    'Quelle suchen kann." Schreibe vollständige Sätze ohne Platzhalter '
+    "(< >). Wenn kein Sitzungs-Ziel gesetzt ist: leerer String.>,\n"
     '  "considered_alternatives": [\n'
     '    {"name": <name>, "kind": <kind>, "why_not": <Grund>}\n'
     "  ],\n"
@@ -931,45 +2250,174 @@ def _gather_reason_guidance(
     return block, refs
 
 
-def _gather_guidance(
-    data_root: Path, meta: SessionMeta, step_kind: str
-) -> tuple[str, list[GuidanceRef]]:
-    """Combine pinned approaches (explicit) with the reason corpus
-    (implicit). Approaches come first as named overlays; reasons come
-    after as "lessons learned" examples.
+def _walk_approaches(
+    data_root: Path,
+    meta: SessionMeta,
+    step_kind: str,
+    *,
+    anchor: Node | None,
+) -> tuple[list[tuple[Approach, GuidanceRef]], list[tuple[Approach, GuidanceRef]]]:
+    """Walk pinned + auto-selected approaches and partition them by
+    ``mode`` (``passive`` vs ``active``).
 
-    Approaches are filtered to those that are enabled and have
-    *step_kind* in their step_kinds list. Disabled or non-matching
-    pinned approaches are silently skipped.
+    Returns ``(passive_with_refs, active_with_refs)``. Each tuple
+    bundles the Approach (so the caller has ``extra_system`` available
+    for prompt-injection or active-skill calls) with its matching
+    GuidanceRef (auto-vs-pinned + match reasons captured for audit).
+
+    Both lists share the same ordering: pinned-first, auto-second.
     """
-    blocks: list[str] = []
-    refs: list[GuidanceRef] = []
+    passive: list[tuple[Approach, GuidanceRef]] = []
+    active: list[tuple[Approach, GuidanceRef]] = []
+    seen_ids: set[str] = set()
 
-    if meta.pinned_approach_ids:
-        approach_block_lines: list[str] = []
-        for app_id in meta.pinned_approach_ids:
-            a = get_approach(data_root, app_id)
-            if a is None or not a.enabled:
-                continue
-            if step_kind not in a.step_kinds:
-                continue
-            approach_block_lines.append(f"## Vorgehen: {a.name}\n{a.extra_system}")
-            refs.append(
+    def _push(a: Approach, ref: GuidanceRef) -> None:
+        if a.approach_id in seen_ids:
+            return
+        seen_ids.add(a.approach_id)
+        target = active if a.mode == "active" else passive
+        target.append((a, ref))
+
+    for app_id in meta.pinned_approach_ids:
+        a = get_approach(data_root, app_id)
+        if a is None or not a.enabled:
+            continue
+        if step_kind not in a.step_kinds:
+            continue
+        _push(
+            a,
+            GuidanceRef(
+                kind="approach",
+                id=a.approach_id,
+                summary=a.name[:80],
+                auto_selected=False,
+            ),
+        )
+
+    if anchor is not None:
+        candidates = [
+            a
+            for a in read_approaches(data_root, step_kind=step_kind, enabled_only=True)
+            if a.approach_id not in seen_ids
+        ]
+        anchor_text = str(anchor.payload.get("text", "")) or str(anchor.payload.get("query", ""))
+        for a, match_reasons in auto_select_approaches(
+            candidates,
+            anchor_kind=anchor.kind,
+            anchor_text=anchor_text,
+            goal=meta.goal,
+        ):
+            _push(
+                a,
                 GuidanceRef(
                     kind="approach",
                     id=a.approach_id,
                     summary=a.name[:80],
+                    auto_selected=True,
+                    selection_reasons=match_reasons,
+                ),
+            )
+
+    return passive, active
+
+
+def _build_passive_block(passive: list[tuple[Approach, GuidanceRef]]) -> str:
+    """Concat passive approaches into the system-prompt overlay block."""
+    if not passive:
+        return ""
+    parts = [f"## Vorgehen: {a.name}\n{a.extra_system}" for a, _ in passive]
+    return "\n\n" + "\n\n".join(parts)
+
+
+def _gather_guidance_via_skills(
+    data_root: Path,
+    meta: SessionMeta | None,
+    step_kind: str,
+    *,
+    anchor: Node | None = None,
+) -> tuple[str, list[GuidanceRef]]:
+    """Skills-backed replacement for the legacy ``_gather_guidance``.
+
+    Returns the same ``(extra_system, refs)`` tuple shape so callers do
+    not need to change. The unified ``skills.jsonl`` storage replaces
+    the approaches+reasons split, but the ``GuidanceRef.kind`` field
+    keeps the legacy ``"approach"`` / ``"reason"`` values so existing
+    audit consumers (UI, tests, /sessions/{sid} payloads) stay valid.
+    Active/sub-agent skills are deliberately **not** mixed into the
+    passive overlay text — they fire via the multi-agent pipeline in
+    :func:`_gather_guidance_split`.
+    """
+    del meta  # session_goal not consumed yet — anchor matching lands later
+    del anchor
+
+    from local_pdf.provenienz.skills import SkillKind, read_skills
+
+    overlay_parts: list[str] = []
+    note_parts: list[str] = []
+    refs: list[GuidanceRef] = []
+    for skill in read_skills(data_root, fires_on=step_kind, enabled_only=True):
+        if skill.skill_kind == SkillKind.PROMPT_OVERLAY and skill.prompt.free_text:
+            overlay_parts.append(skill.prompt.free_text)
+            refs.append(
+                GuidanceRef(
+                    kind="approach",
+                    id=skill.skill_id,
+                    summary=skill.name[:80],
                 )
             )
-        if approach_block_lines:
-            blocks.append("\n\n" + "\n\n".join(approach_block_lines))
+        elif skill.skill_kind == SkillKind.NOTE and skill.prompt.free_text:
+            note_parts.append(skill.prompt.free_text)
+            refs.append(
+                GuidanceRef(
+                    kind="reason",
+                    id=skill.skill_id,
+                    summary=skill.prompt.free_text[:80],
+                )
+            )
+        # subagent / enrichment / reactive skills route through their
+        # own dispatchers — they must NOT bleed into the passive overlay.
 
+    text = ""
+    if overlay_parts:
+        text += "\n\n" + "\n\n".join(overlay_parts)
+    if note_parts:
+        text += "\n\n## Frühere Korrekturen durch den Nutzer\n"
+        text += "\n".join(f"- {n}" for n in note_parts)
+        text += "\nBerücksichtige diese Korrekturen, wenn sie auf die aktuelle Aufgabe zutreffen."
+    return text, refs
+
+
+def _gather_guidance_split(
+    data_root: Path,
+    meta: SessionMeta,
+    step_kind: str,
+    *,
+    anchor: Node | None,
+) -> tuple[str, list[tuple[Approach, GuidanceRef]], list[GuidanceRef]]:
+    """Phase-3 multi-agent variant.
+
+    Returns ``(passive_extra_system, active_with_refs, all_refs)``:
+
+    - ``passive_extra_system``: legacy text block (passive approaches +
+      reason corpus) for direct prompt injection into the Meta-Planer.
+    - ``active_with_refs``: list of (Approach, GuidanceRef) for every
+      ``mode=active`` approach that matched. The pipeline fires each
+      via :func:`_llm_active_skill`.
+    - ``all_refs``: union of passive + active + reason refs for the
+      audit / live-run UI.
+    """
+    passive, active = _walk_approaches(data_root, meta, step_kind, anchor=anchor)
+    blocks: list[str] = []
+    extra = _build_passive_block(passive)
+    if extra:
+        blocks.append(extra)
+    refs: list[GuidanceRef] = [ref for _a, ref in passive]
+    refs.extend(ref for _a, ref in active)
     reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind)
     if reason_block:
         blocks.append(reason_block)
         refs.extend(reason_refs)
-
-    return ("".join(blocks), refs)
+    return ("".join(blocks), active, refs)
 
 
 def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "") -> list[str]:
@@ -980,12 +2428,13 @@ def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "")
+    system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "") + _NO_THINK
     user = f"Textabschnitt:\n{chunk_text}\n\nGib das JSON-Array der Aussagen zurück."
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
     raw = completion.text or ""
     cleaned = _strip_json_fence(raw)
@@ -1003,6 +2452,10 @@ def _llm_extract_claims(chunk_text: str, provider: str, *, extra_system: str = "
 class ExtractClaimsRequest(BaseModel):
     chunk_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned downstream node
+    # (claim, claim_background, …). Empty/None → omitted from payload.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1032,7 +2485,7 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "extract_claims")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "extract_claims")
     # Promoted chunks carry breadcrumbs back to the original claim/query;
     # prepend them so the LLM stays on-topic for the recursive exploration.
     origin_context = _build_origin_context(chunk)
@@ -1046,10 +2499,17 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         session_goal=meta.goal,
         claim_goal="",
     )
-    full_system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "")
+    full_system = EXTRACT_CLAIMS_SYSTEM + (extra_system or "") + _NO_THINK
+    # For figure/table chunks: prepend the caption (if attached at
+    # session-creation / promote time) so the agent reads label and
+    # content together when extracting claims.
+    extract_text = str(chunk.payload.get("text", ""))
+    cap = str(chunk.payload.get("caption_text", "")).strip()
+    if cap:
+        extract_text = f"Caption: {cap}\n\n{extract_text}"
     try:
         claims = _llm_extract_claims(
-            chunk.payload.get("text", ""),
+            extract_text,
             body.provider or "vllm",
             extra_system=extra_system,
         )
@@ -1075,7 +2535,10 @@ async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: R
         system_prompt_used=full_system,
         tool_used=None,
     )
-    node = build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    node = _attach_trail(
+        build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+        body.triggered_from_node_id,
+    )
     landed = append_node(sd, node)
     return landed.__dict__
 
@@ -1087,14 +2550,15 @@ def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = FORMULATE_TASK_SYSTEM + (extra_system or "")
+    system = FORMULATE_TASK_SYSTEM + (extra_system or "") + _NO_THINK
     user = f"Aussage: {claim_text}\nSuchanfrage:"
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     # strip outer matching single/double quotes if present
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
         raw = raw[1:-1].strip()
@@ -1107,6 +2571,10 @@ def _llm_formulate_task(claim_text: str, provider: str, *, extra_system: str = "
 class FormulateTaskRequest(BaseModel):
     claim_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned task. Empty/None →
+    # omitted from payload.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1130,7 +2598,19 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         raise HTTPException(status_code=400, detail=f"anchor must be claim, got kind={claim.kind}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "formulate_task")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "formulate_task")
+    # Prepend session-goal + per-claim research-question + source-chunk
+    # so the LLM can form a search query that's targeted, not generic.
+    extra_system = (
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            consuming_step="formulate_task",
+            data_root=cfg.data_root,
+        )
+        + extra_system
+    )
     pre_reasoning = _llm_pre_reason(
         step_kind="formulate_task",
         step_label="Aufgabe formulieren",
@@ -1138,7 +2618,7 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         session_goal=meta.goal,
         claim_goal=str(claim.payload.get("goal", "")),
     )
-    full_system = FORMULATE_TASK_SYSTEM + (extra_system or "")
+    full_system = FORMULATE_TASK_SYSTEM + (extra_system or "") + _NO_THINK
     try:
         query = _llm_formulate_task(
             claim.payload.get("text", ""),
@@ -1161,7 +2641,11 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -1169,13 +2653,810 @@ async def formulate_task(session_id: str, body: FormulateTaskRequest, request: R
 class SearchStepRequest(BaseModel):
     task_node_id: str
     top_k: int = 5
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned search_result.
+    triggered_from_node_id: str | None = None
+
+
+class CalculatorOnResultRequest(BaseModel):
+    """Run the Calculator on a session's search_result and persist the
+    output as a tool_annotation Node attached to that result.
+
+    Used as the explicit "user reasons → triggers tool" path: instead
+    of auto-injecting a calculator pass into every evaluate, the user
+    (or a future auto-executor reading capability_request Nodes) hits
+    this endpoint to materialise the comparison. Subsequent evaluate
+    on the same search_result will pick up the persisted annotation
+    via :func:`_persisted_tool_calls_for_sr` and feed it to the LLM
+    as ground truth.
+    """
+
+    search_result_node_id: str
+    rel_tolerance: float = 0.0
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
-    "/api/admin/provenienz/sessions/{session_id}/search",
+    "/api/admin/provenienz/sessions/{session_id}/calculator-on-result",
     status_code=201,
 )
-async def search_step(session_id: str, body: SearchStepRequest, request: Request) -> dict:
+async def calculator_on_result(
+    session_id: str, body: CalculatorOnResultRequest, request: Request
+) -> dict:
+    """Run a Calculator compare against the search_result's text vs.
+    the linked claim's text, and persist the result as a
+    tool_annotation Node + "enriches" edge to the search_result.
+
+    Idempotency-light: re-running just appends a new annotation.
+    Older annotations remain in the graph as audit history; evaluate
+    consumes ALL of them, so the user sees their full tool-call
+    history per search_result.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    nodes, _ = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"search_result node not found: {body.search_result_node_id}",
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400,
+            detail=f"anchor must be search_result, got kind={sr.kind}",
+        )
+    # Resolve linked claim by walking sr → task → focus_claim.
+    task_id = sr.payload.get("task_node_id")
+    task = (
+        next((n for n in nodes if n.node_id == task_id), None) if isinstance(task_id, str) else None
+    )
+    claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == claim_id), None)
+        if isinstance(claim_id, str)
+        else None
+    )
+    if claim is None:
+        raise HTTPException(
+            status_code=400,
+            detail="no linked claim — search_result must descend from a task with focus_claim_id",
+        )
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    hint, tool_call = _calculator_tool_call(claim_text, candidate_text)
+    if tool_call is None:
+        raise HTTPException(
+            status_code=400,
+            detail="no parseable (number, unit) pairs in claim or candidate",
+        )
+    if body.rel_tolerance > 0.0:
+        # Caller-supplied tolerance — re-run with that. Domain-Skill
+        # path: a planner Skill that knows the legitimate tolerance for
+        # this domain (conservative rounding etc.) drives this value.
+        from local_pdf.provenienz.calculator import (
+            best_pairwise_compare,
+            parse_quantities,
+        )
+
+        a_qs = parse_quantities(claim_text)
+        b_qs = parse_quantities(candidate_text)
+        out = best_pairwise_compare(a_qs, b_qs, rel_tolerance=body.rel_tolerance)
+        tool_call["input"]["rel_tolerance"] = body.rel_tolerance
+        tool_call["output"] = out
+        lines = [out["reasoning"]]
+        for r in out.get("results", []) or []:
+            lines.append(f"- {r.get('reasoning', '')}")
+        hint = "\n".join(lines)
+
+    annotation_id = new_id()
+    annotation_payload = {
+        "tool_call": tool_call,
+        "text": hint,
+        "annotation_kind": "calculator_result",
+        "attaches_to_node_id": sr.node_id,
+    }
+    if body.triggered_from_node_id:
+        annotation_payload["triggered_from_node_id"] = body.triggered_from_node_id
+    annotation = append_node(
+        sd,
+        Node(
+            node_id=annotation_id,
+            session_id=session_id,
+            kind="tool_annotation",
+            payload=annotation_payload,
+            actor="human",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=annotation.node_id,
+            to_node=sr.node_id,
+            kind="enriches",
+            reason=None,
+            actor="human",
+        ),
+    )
+    return annotation.__dict__
+
+
+class InvestigateTableRequest(BaseModel):
+    """Spawn a 3-axis follow-up investigation around a table-typed
+    search_result. The 4th axis (Konsistenz-Pruefung) is already
+    auto-fired as a tool_annotation by ``_ensure_table_consistency_
+    annotation`` during evaluate, so this endpoint covers only the
+    remaining three:
+
+    1. **Text-Referenz**: search the document for textual mentions
+       of the table's identifier ("Tabelle 3.7", "Tab. 3-7", ...).
+       Catches text passages that DESCRIBE what the table shows.
+    2. **Quellen-Attribution**: search for the source token cited
+       in the caption ("[4]", "(nach Mueller 2019)", ...). Catches
+       the upstream reference if the table was copied from elsewhere.
+    3. **Semantik-Rueckpruefung**: re-evaluate this search_result with
+       extra system prompt that emphasizes (row, column, value)
+       binding so an LLM can't accept a table as 'likely-source'
+       just because the right numbers appear in the right region —
+       the BINDING must match too.
+
+    Each spawned action_proposal is a regular proposal the user
+    accepts/rejects in the canvas. Searches are pre-run server-side
+    so the user sees real hits before deciding.
+    """
+
+    search_result_node_id: str
+    triggered_from_node_id: str | None = None
+
+
+_TABLE_REF_RE = re.compile(
+    r"\b(?:Tabelle|Tab\.?)\s*(\d+(?:[.\-]\d+)*)",
+    re.IGNORECASE,
+)
+_SOURCE_TOKEN_RE = re.compile(
+    r"(?:nach\s+|gemaess\s+|gemäß\s+)?(?:\[\d+\]|\(\d{4}\)|\([A-ZÄÖÜ][a-zäöüß]+(?:\s+et\s+al\.)?\s+\d{4}\))",
+    re.IGNORECASE,
+)
+
+
+def _extract_table_identifier(caption: str) -> str | None:
+    """Return the canonical table-identifier from a caption, e.g.
+    ``"Tabelle 3.7"`` from ``"Tabelle 3.7: Reaktorparameter"``.
+
+    Returns None when no identifier-pattern is present.
+    """
+    if not caption:
+        return None
+    m = _TABLE_REF_RE.search(caption)
+    if m is None:
+        return None
+    return f"Tabelle {m.group(1)}"
+
+
+def _extract_source_attribution(caption: str) -> str | None:
+    """Return a search-friendly source-attribution token from the
+    caption, e.g. ``"[4]"`` from ``"... nach [4]"`` or
+    ``"(Mueller 2019)"``. Returns None when nothing matches.
+    """
+    if not caption:
+        return None
+    m = _SOURCE_TOKEN_RE.search(caption)
+    if m is None:
+        return None
+    return m.group(0).strip()
+
+
+_SEMANTIK_EXTRA_SYSTEM = (
+    "\n\n## TABELLEN-SEMANTIK-RUECKPRUEFUNG (zwingend)\n"
+    "Du re-pruefst eine bereits bewertete Tabelle aus genau einem "
+    "Blickwinkel: stimmt die BINDUNG (Zeilen-Label, Spalten-Label, "
+    "Wert) der zu pruefenden Aussage zu? Es reicht NICHT, dass die "
+    "behauptete Zahl irgendwo in der Tabelle vorkommt. Sie muss in "
+    "der EXAKT bezeichneten Zeile UND der EXAKT bezeichneten Spalte "
+    "stehen. Wenn die Aussage z.B. 'Gesamt-Wert: 5,6' lautet, dann "
+    "darf 5,6 nicht in einer beliebigen Komponenten-Zeile auftauchen "
+    "— die Zeile MUSS 'Gesamt' (oder Synonym) heissen, sonst ist die "
+    "Bindung verletzt. Verletzte Bindung ⇒ partial-support oder "
+    "contradicts, nicht likely-source.\n\n"
+    "Falls Zeilen- oder Spalten-Label nicht eindeutig aus der "
+    "Aussage hervorgehen: das ist selbst schon eine Bindungs-Luecke "
+    "(partial-support, in der reasoning festhalten welche Achse "
+    "unklar bleibt).\n\n"
+    "## KONSISTENZ-WERKZEUG LESEN — fuenf Faelle\n"
+    "Schau im Block 'Werkzeug-Ergebnis' nach dem Konsistenz-"
+    "Pruefungs-Text und entscheide explizit nach Fall:\n\n"
+    "  (A) Enthaelt 'deterministisch vom Werkzeug verifiziert': "
+    "Summen-Quervergleich (Spalten- ODER Zeilen-Achse) ist bereits "
+    "durch Code geprueft und stimmt. Du darfst dich auf den Tool-"
+    "Befund stuetzen; keine Kopf-Rechnung noetig.\n\n"
+    "  (B) Enthaelt '[ERROR] Spalte ... stimmt nicht mit Total-"
+    "Zeile ueberein': Spalten-Summen-Mismatch — Tabelle intern "
+    "inkonsistent. Die behauptete Gesamt-Zahl wird durch die "
+    "Komponenten NICHT bestaetigt. Verdict = contradicts oder "
+    "partial-support, NIE likely-source.\n\n"
+    "  (B2) Enthaelt '[ERROR] Zeile ... Summe der Komponenten-"
+    "Spalten ergibt X, die Total-Spalte ... nennt aber Y': Zeilen-"
+    "Summen-Mismatch — gleiches Urteil wie (B). Das ist der typische "
+    "Fall bei Tabellen mit einer 'Summe'-Spalte: die einzelnen "
+    "Komponenten-Werte ergeben nicht den behaupteten Gesamt-Wert. "
+    "Entweder ist die Tabelle ein abgeleitetes Aggregat (Skalierungs-"
+    "Faktor, gewichtete Summe), oder es liegt ein Tabellen-Fehler "
+    "vor. In beiden Faellen: NIE likely-source ohne weitere "
+    "Klaerung; verdict = partial-support mit explizitem reasoning, "
+    "dass die behauptete Summe NICHT direkt aus den sichtbaren "
+    "Komponenten ableitbar ist.\n\n"
+    "  (C) Enthaelt '[UNVERIFIED] Weder Total-Zeile noch Total-"
+    "Spalte': Das Werkzeug konnte gar nichts aggregieren. 'Keine "
+    "Probleme' bedeutet hier NICHT 'Summe ist korrekt'. Wenn die "
+    "Aussage eine Summe / einen Gesamt-Wert behauptet, ist sie "
+    "UNGEPRUEFT — max. partial-support, in reasoning vermerken.\n\n"
+    "  (D) KEIN Konsistenz-Werkzeug-Ergebnis am Treffer: ebenso "
+    "ungeprueft — partial-support, in der reasoning vermerken.\n\n"
+    "Wichtig: Erfinde NICHT, du habest die Summe selbst nachgerechnet. "
+    "Wenn keine externe deterministische Verifikation vorliegt, ist "
+    "die Summe ungeprueft."
+)
+
+
+def _backfill_evaluate_args(
+    args: dict,
+    anchor_sr_id: str,
+    nodes: list[Node],
+    *,
+    sd: Path | None = None,
+    session_id: str = "",
+    edges: list[Edge] | None = None,
+    data_root: Path | None = None,
+) -> dict:
+    """Run :func:`_llm_evaluate` to populate verdict/confidence/
+    reasoning/against_claim_id on an evaluate proposal whose args were
+    left without a pre-baked verdict.
+
+    Called from /decide's evaluate branch as an auto-heal path for
+    older Semantik-Rueckpruefung proposals (spawned before pre-baking
+    landed). Falls back to a 'unknown' verdict marker rather than
+    raising so /decide never hard-fails on a missing verdict.
+
+    The choreography flag ``investigation_axis == "Semantik-Rueckpruefung"``
+    selects the Semantik extra_system so the back-filled verdict
+    reflects the proposal's intent.
+
+    When ``sd``/``session_id``/``edges``/``data_root`` are supplied,
+    auto-fires the deterministic tool annotations on the SR and pulls
+    the persisted ``calc_hint`` into the LLM prompt. Without this the
+    Semantik LLM sees no TableConsistency report and would trust the
+    table's stated total blindly.
+    """
+    sr = next((n for n in nodes if n.node_id == anchor_sr_id), None)
+    if sr is None or sr.kind != "search_result":
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": (
+                "Konnte den Suchtreffer zur Bewertung nicht aufloesen "
+                "(anchor_node_id passt nicht auf einen search_result-Knoten)."
+            ),
+            "against_claim_id": args.get("against_claim_id", ""),
+            "sentences": [],
+        }
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    focus_claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == focus_claim_id), None)
+        if isinstance(focus_claim_id, str)
+        else None
+    )
+    if claim is None or claim.kind != "claim":
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": (
+                "Konnte die Aussage zum Suchtreffer nicht aufloesen "
+                "(task_node_id / focus_claim_id fehlt)."
+            ),
+            "against_claim_id": "",
+            "sentences": [],
+        }
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    cap = str(sr.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
+    extra_system = (
+        _SEMANTIK_EXTRA_SYSTEM if args.get("investigation_axis") == "Semantik-Rueckpruefung" else ""
+    )
+    calc_hint = ""
+    tool_calls: list[dict[str, Any]] = []
+    if sd is not None and edges is not None and data_root is not None:
+        _ensure_table_annotation(sd, session_id, sr, nodes, edges, data_root)
+        refreshed_nodes, refreshed_edges = read_session(sd)
+        _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
+        _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
+        final_nodes, final_edges = read_session(sd)
+        calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
+    try:
+        out = _llm_evaluate(
+            claim_text,
+            candidate_text,
+            "vllm",
+            extra_system=extra_system,
+            calc_hint=calc_hint,
+        )
+    except Exception as exc:
+        _log.warning("Auto-heal evaluate LLM call failed: %s", exc)
+        return {
+            **args,
+            "verdict": "unknown",
+            "confidence": 0.0,
+            "reasoning": f"LLM-Auto-Heal scheiterte: {exc}",
+            "against_claim_id": str(claim.node_id),
+            "sentences": [],
+            "tool_calls": tool_calls,
+        }
+    return {
+        **args,
+        "verdict": str(out.get("verdict", "unknown")),
+        "confidence": float(out.get("confidence", 0.0)),
+        "reasoning": str(out.get("reasoning", "")),
+        "sentences": out.get("sentences", []),
+        "against_claim_id": args.get("against_claim_id") or str(claim.node_id),
+        # Forward tool_calls so the evaluation Node's panel renders
+        # the Werkzeug-Ergebnisse block (TableConsistency, Calculator,
+        # TableParser annotations that fired during auto-heal).
+        "tool_calls": tool_calls,
+    }
+
+
+def _spawn_semantik_rueckpruefung_proposal(
+    *,
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
+    triggered_from_node_id: str | None,
+) -> dict | None:
+    """Pre-bake a Semantik-Rueckpruefung evaluate action_proposal for a
+    table search_result.
+
+    Resolves claim via sr → task → focus_claim_id, auto-fires the
+    deterministic tool annotations (TableParser + TableConsistency +
+    Calculator) so the LLM sees structural ground truth — in particular
+    the column-sum-mismatch report that prevents blindly trusting a
+    table's stated total. Then runs ``_llm_evaluate`` with the Semantik
+    extra_system and persists an action_proposal with the same args
+    shape as a regular evaluate proposal. Returns the landed Node dict
+    or ``None`` if the claim could not be resolved or the LLM call
+    failed (caller reports the axis as skipped).
+    """
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    focus_claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == focus_claim_id), None)
+        if isinstance(focus_claim_id, str)
+        else None
+    )
+    if claim is None or claim.kind != "claim":
+        return None
+
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    cap = str(sr.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
+
+    # Auto-fire deterministic tools and pull the persisted hint so the
+    # LLM sees the TableConsistency report (column-sum mismatch,
+    # unit drift) and the Calculator results. Without this the Semantik
+    # eval trusts the table's stated total blindly even though the
+    # tool has already verified or refuted it.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, data_root)
+    refreshed_nodes, refreshed_edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
+    _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
+    final_nodes, final_edges = read_session(sd)
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
+
+    try:
+        verdict_payload = _llm_evaluate(
+            claim_text,
+            candidate_text,
+            "vllm",
+            extra_system=_SEMANTIK_EXTRA_SYSTEM,
+            calc_hint=calc_hint,
+        )
+    except Exception as exc:
+        _log.warning("Semantik-Rueckpruefung LLM call failed: %s", exc)
+        return None
+
+    verdict = str(verdict_payload.get("verdict", "unknown"))
+    confidence = float(verdict_payload.get("confidence", 0.0))
+    reasoning = str(verdict_payload.get("reasoning", ""))
+    sentences = verdict_payload.get("sentences", [])
+
+    payload = ActionProposalPayload(
+        step_kind="evaluate",
+        anchor_node_id=sr.node_id,
+        recommended=ActionOption(
+            label=f"Semantik-Rueckpruefung: {verdict} (conf {confidence:.2f})",
+            args={
+                "search_result_node_id": sr.node_id,
+                "against_claim_id": str(claim.node_id),
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "sentences": sentences,
+                "investigation_axis": "Semantik-Rueckpruefung",
+                # Tool-call audit: forward through args so /decide
+                # copies it onto the evaluation Node payload, where the
+                # EvaluationPanel renders the Werkzeug-Ergebnisse block.
+                # Without this, "no tool ran" is what the user sees in
+                # the panel even though tools fired -- they're just
+                # invisible.
+                "tool_calls": tool_calls,
+            },
+        ),
+        alternatives=[],
+        reasoning=(
+            "Tabellen-Untersuchung — Semantik-Rueckpruefung: prueft ob die "
+            "(Zeilen-Label, Spalten-Label, Wert)-Bindung der Aussage "
+            "entspricht (nicht nur ob die Zahl irgendwo in der Tabelle "
+            "vorkommt). LLM-Verdict bereits berechnet — Akzeptieren "
+            f"persistiert die Bewertung. Verdict: {verdict}."
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
+def _spawn_investigate_table_axes(
+    *,
+    cfg: Any,
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    task: Node,
+    nodes: list[Node],
+    edges: list[Edge],
+    meta: SessionMeta,
+    triggered_from_node_id: str | None,
+) -> dict:
+    """Spawn the 3 follow-up action_proposals around a table search_result
+    (Text-Referenz + Quellen-Attribution + Semantik-Rueckpruefung).
+
+    Shared helper for the explicit POST /investigate-table route and for
+    the planner-driven step_kind=investigate_table /decide branch — both
+    paths produce the same audit-trail shape.
+    """
+    caption = str(sr.payload.get("caption_text", ""))
+    table_box_id = str(sr.payload.get("box_id", ""))
+
+    proposals: list[dict] = []
+    skipped: list[dict] = []
+
+    task_context = get_context(task.payload)
+    visited = list(task_context.get("visited_box_ids", []))
+    if not visited:
+        visited = _ancestor_chunk_box_ids(nodes, edges, task.node_id)
+    exclude_set = {meta.root_chunk_id, *visited}
+    if table_box_id:
+        exclude_set.add(table_box_id)
+    searcher = InDocSearcher(
+        data_root=cfg.data_root,
+        slug=meta.slug,
+        exclude_box_ids=tuple(sorted(exclude_set)),
+    )
+
+    def _spawn_search_proposal(query: str, axis_label: str, axis_reason: str) -> dict:
+        hits = searcher.search(query, top_k=5)
+        hits_payload = [
+            {
+                "box_id": h.box_id,
+                "text": h.text,
+                "score": h.score,
+                "doc_slug": h.doc_slug,
+                "searcher": h.searcher,
+            }
+            for h in hits
+        ]
+        payload = ActionProposalPayload(
+            step_kind="search",
+            anchor_node_id=task.node_id,
+            recommended=ActionOption(
+                label=f"{axis_label}: {len(hits_payload)} Treffer übernehmen",
+                args={"hits": hits_payload, "investigation_axis": axis_label},
+            ),
+            alternatives=[
+                ActionOption(
+                    label=f"{axis_label}: nur Top-1 übernehmen",
+                    args={"hits": hits_payload[:1], "investigation_axis": axis_label},
+                ),
+            ],
+            reasoning=(
+                f"Tabellen-Untersuchung — {axis_reason}. Query='{query}', hits={len(hits_payload)}."
+            ),
+            guidance_consulted=[],
+        )
+        landed = append_node(
+            sd,
+            _attach_trail(
+                build_proposal_node(session_id=session_id, actor="system", payload=payload),
+                triggered_from_node_id,
+            ),
+        )
+        return landed.__dict__
+
+    # Axis 2: Text-Referenz
+    table_id = _extract_table_identifier(caption)
+    if table_id:
+        proposals.append(
+            _spawn_search_proposal(
+                query=table_id,
+                axis_label="Text-Referenz",
+                axis_reason=(
+                    f"Suche nach Text-Stellen die '{table_id}' explizit erwaehnen "
+                    "(beschreibender Kontext)"
+                ),
+            )
+        )
+    else:
+        skipped.append(
+            {
+                "axis": "Text-Referenz",
+                "reason": "Kein Tabellen-Bezeichner in der Caption (Tabelle X / Tab. X).",
+            }
+        )
+
+    # Axis 3: Quellen-Attribution
+    source_token = _extract_source_attribution(caption)
+    if source_token:
+        proposals.append(
+            _spawn_search_proposal(
+                query=source_token,
+                axis_label="Quellen-Attribution",
+                axis_reason=(
+                    f"Suche nach der in der Caption angegebenen Quelle '{source_token}' im Korpus"
+                ),
+            )
+        )
+    else:
+        skipped.append(
+            {
+                "axis": "Quellen-Attribution",
+                "reason": (
+                    "Keine erkennbare Quellen-Attribution in der Caption "
+                    "([n] / (Autor Jahr) / nach ...)."
+                ),
+            }
+        )
+
+    # Axis 4: Semantik-Rueckpruefung — pre-bake the verdict so the
+    # spawned action_proposal has the same shape as a regular evaluate
+    # proposal (args contain verdict/confidence/reasoning/...). The
+    # /decide handler for step_kind=evaluate then accepts it without a
+    # special branch. Costs one LLM call at investigate-time, but the
+    # user has explicitly opted into the choreography so the spend is
+    # warranted.
+    semantik_axis_proposal = _spawn_semantik_rueckpruefung_proposal(
+        sd=sd,
+        session_id=session_id,
+        sr=sr,
+        nodes=nodes,
+        edges=edges,
+        data_root=cfg.data_root,
+        triggered_from_node_id=triggered_from_node_id,
+    )
+    if semantik_axis_proposal is not None:
+        proposals.append(semantik_axis_proposal)
+    else:
+        skipped.append(
+            {
+                "axis": "Semantik-Rueckpruefung",
+                "reason": (
+                    "Konnte die Aussage zum search_result nicht aufloesen "
+                    "(task_node_id / focus_claim_id fehlt) oder LLM-Aufruf "
+                    "scheiterte."
+                ),
+            }
+        )
+
+    return {
+        "proposals": proposals,
+        "skipped": skipped,
+        "table_caption": caption,
+        "axes_run": ["Text-Referenz", "Quellen-Attribution", "Semantik-Rueckpruefung"],
+    }
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/investigate-table",
+    status_code=201,
+)
+async def investigate_table(
+    session_id: str, body: InvestigateTableRequest, request: Request
+) -> dict:
+    """Choreography orchestrator: spawn 2 search action_proposals
+    (text-reference + source-attribution) plus 1 evaluate
+    action_proposal (semantic re-check) for a table-typed
+    search_result.
+
+    Thin HTTP wrapper around :func:`_spawn_investigate_table_axes`. The
+    same helper is invoked from the /decide handler when the planner
+    picks step_kind=investigate_table — keeps the audit-trail shape
+    identical regardless of how the choreography was triggered.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None:
+        raise HTTPException(
+            status_code=404, detail=f"search_result not found: {body.search_result_node_id}"
+        )
+    if sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400, detail=f"anchor must be search_result, got kind={sr.kind}"
+        )
+    if str(sr.payload.get("box_kind", "")) != "table":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"investigate-table requires box_kind=table on search_result, "
+                f"got box_kind={sr.payload.get('box_kind')!r}"
+            ),
+        )
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    if task is None:
+        raise HTTPException(
+            status_code=400,
+            detail="search_result has no parent task — cannot anchor follow-up search proposals",
+        )
+    return _spawn_investigate_table_axes(
+        cfg=cfg,
+        sd=sd,
+        session_id=session_id,
+        sr=sr,
+        task=task,
+        nodes=nodes,
+        edges=edges,
+        meta=meta,
+        triggered_from_node_id=body.triggered_from_node_id,
+    )
+
+
+class CalculatorRequest(BaseModel):
+    """Stateless deterministic numerical-comparison endpoint.
+
+    Two operations:
+      - ``compare``: extract (number, unit) pairs from ``a_text`` and
+        ``b_text``, return pairwise best-match summary.
+      - ``sum``: extract numbers with consistent units from ``text``,
+        return the total.
+
+    No session writes — the agent uses this as a verification step
+    when its own LLM-based numerical reasoning is unreliable.
+    """
+
+    operation: Literal["compare", "sum"]
+    a_text: str | None = None
+    b_text: str | None = None
+    text: str | None = None
+    rel_tolerance: float = 0.01
+
+
+@router.post("/api/admin/provenienz/calculator")
+async def calculator_step(body: CalculatorRequest, request: Request) -> dict:
+    """Run the requested numerical operation deterministically and
+    return a structured result the agent can use without re-doing
+    the math itself.
+    """
+    del request  # stateless endpoint — config + session unused
+    from local_pdf.provenienz.calculator import (
+        best_pairwise_compare,
+        parse_quantities,
+        sum_quantities,
+    )
+
+    def _q(q: Any) -> dict[str, Any]:
+        return {"value": q.value, "unit": q.unit, "raw_unit": q.raw_unit}
+
+    if body.operation == "compare":
+        if not body.a_text or not body.b_text:
+            raise HTTPException(status_code=400, detail="compare requires a_text and b_text")
+        a_qs = parse_quantities(body.a_text)
+        b_qs = parse_quantities(body.b_text)
+        result = best_pairwise_compare(a_qs, b_qs, rel_tolerance=body.rel_tolerance)
+        return {
+            "operation": "compare",
+            "a_quantities": [_q(q) for q in a_qs],
+            "b_quantities": [_q(q) for q in b_qs],
+            **result,
+        }
+    if body.operation == "sum":
+        if not body.text:
+            raise HTTPException(status_code=400, detail="sum requires text")
+        qs = parse_quantities(body.text)
+        result = sum_quantities(qs)
+        return {
+            "operation": "sum",
+            "quantities": [_q(q) for q in qs],
+            **result,
+        }
+    raise HTTPException(status_code=400, detail=f"unknown operation: {body.operation}")
+
+
+class RegisterLookupRequest(BaseModel):
+    """Body for the RegisterLookup tool executor.
+
+    The agent's planner emits ``capability_request name='RegisterLookup'``
+    when a claim references a Verzeichnis entry ("siehe Tabelle 5",
+    "[3]", "Abb. 7", "Kapitel 3.2"). This route runs the actual lookup
+    against the on-disk consolidated Verzeichnis and emits a search-style
+    ActionProposal.
+
+    Both ``kind`` and ``number`` are optional — if missing, they're
+    parsed out of the task's ``query`` payload via
+    ``detect_register_target``. Specifying them lets the caller bypass
+    the heuristic when it already knows the target.
+    """
+
+    task_node_id: str
+    kind: str | None = None  # toc / list_of_tables / list_of_figures / bibliography
+    number: str | None = None
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/register-lookup",
+    status_code=201,
+)
+async def register_lookup_step(
+    session_id: str, body: RegisterLookupRequest, request: Request
+) -> dict:
+    """Execute the RegisterLookup tool: resolve a Verzeichnis-reference
+    in the task's query into a structured ``{number, title, page}`` hit.
+
+    Detection precedence:
+      1. If body.kind + body.number are provided, use those verbatim.
+      2. Else parse the task's query via ``detect_register_target``.
+      3. Else return an empty proposal (no register reference found).
+
+    For non-bibliography hits the proposal carries
+    ``follow_up_query_suggestion`` — the entry's title — so the user/UI
+    can one-click kick off a regular ``search`` step that retrieves the
+    actual table/figure content (the metadata alone doesn't verify a
+    claim about the table values). Bibliography hits don't get a
+    suggestion since the citation IS the answer.
+    """
+    from local_pdf.api.schemas import BoxKind
+    from local_pdf.provenienz.bib_matcher import match_bib_to_corpus
+    from local_pdf.provenienz.registers import (
+        detect_register_target,
+        lookup_register_entry,
+    )
+
     cfg = request.app.state.config
     sd = _find_session_dir(cfg.data_root, session_id)
     if sd is None:
@@ -1191,11 +3472,219 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
         raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
 
     query = task.payload.get("query", "")
+    target_kind: BoxKind | None
+    target_number: str | None
+    if body.kind and body.number:
+        try:
+            target_kind = BoxKind(body.kind)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"invalid kind: {body.kind}") from e
+        target_number = body.number
+        detection_source = "explicit"
+    else:
+        detected = detect_register_target(query)
+        if detected is None:
+            target_kind = None
+            target_number = None
+        else:
+            target_kind, target_number = detected
+        detection_source = "from-query"
+
+    hits_payload: list[dict] = []
+    follow_up: str | None = None
+    if target_kind is not None and target_number is not None:
+        entry = lookup_register_entry(cfg.data_root, meta.slug, target_kind, target_number)
+        if entry is not None:
+            text = (
+                f"{target_kind.value} #{entry['number']} (Seite {entry['page']}): {entry['title']}"
+                if entry["page"]
+                else f"{target_kind.value} #{entry['number']}: {entry['title']}"
+            )
+            hit: dict = {
+                "box_id": f"register:{target_kind.value}:{entry['number']}",
+                "text": text,
+                "score": 1.0,
+                "doc_slug": meta.slug,
+                "searcher": "register_lookup",
+            }
+            # Reactive: bibliography hits auto-fire BibFileMatcher so the
+            # user immediately sees whether the cited document is already
+            # in the local corpus. Token-overlap heuristic — falsy /
+            # ambiguous matches return None and are simply not attached.
+            # The matcher excludes the current slug so we don't surface
+            # "this same doc cites itself".
+            if target_kind == BoxKind.bibliography:
+                corpus_match = match_bib_to_corpus(entry["title"], cfg.data_root)
+                if corpus_match is not None and corpus_match["slug"] != meta.slug:
+                    hit["corpus_match"] = corpus_match
+            hits_payload.append(hit)
+            if target_kind != BoxKind.bibliography:
+                follow_up = entry["title"]
+
+    if hits_payload:
+        recommended = ActionOption(
+            label=f"{len(hits_payload)} Verzeichnis-Treffer übernehmen",
+            args={"hits": hits_payload, "follow_up_query_suggestion": follow_up},
+        )
+        alternatives: list[ActionOption] = []
+    else:
+        recommended = ActionOption(
+            label="Kein Verzeichnis-Treffer — als manual_review markieren",
+            args={"hits": [], "follow_up_query_suggestion": None},
+        )
+        alternatives = []
+
+    reasoning_parts = [f"detection={detection_source}"]
+    if target_kind is not None:
+        reasoning_parts.append(f"kind={target_kind.value}")
+    if target_number is not None:
+        reasoning_parts.append(f"number={target_number}")
+    reasoning_parts.append(f"hits={len(hits_payload)}")
+
+    payload = ActionProposalPayload(
+        step_kind="search",
+        anchor_node_id=body.task_node_id,
+        recommended=recommended,
+        alternatives=alternatives,
+        reasoning="RegisterLookup: " + ", ".join(reasoning_parts),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
+class CrossDocSearchRequest(BaseModel):
+    """Run an InDocSearcher in a DIFFERENT slug than the session's
+    own. Used to "continue the task" in a cited document the user just
+    opened via BibFileMatcher's corpus_match — no new session needed,
+    the search_result Nodes land in the current session and carry
+    ``doc_slug=target_slug`` so downstream consumers see they came
+    from elsewhere.
+    """
+
+    task_node_id: str
+    target_slug: str
+    top_k: int = 5
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/cross-doc-search",
+    status_code=201,
+)
+async def cross_doc_search_step(
+    session_id: str, body: CrossDocSearchRequest, request: Request
+) -> dict:
+    """Same shape as ``/search`` but uses ``body.target_slug`` for the
+    InDocSearcher corpus instead of the session's own slug. The hits
+    are still appended into the current session — the session itself
+    stays bound to its original slug, only the per-hit ``doc_slug``
+    changes.
+
+    Validates that *target_slug* exists in the data_root (a meta.json
+    must be present); otherwise the agent could spawn nodes pointing
+    at non-existent docs.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    if not (cfg.data_root / body.target_slug / "meta.json").exists():
+        raise HTTPException(
+            status_code=404, detail=f"target slug not in corpus: {body.target_slug}"
+        )
+    nodes, _ = read_session(sd)
+    task = next((n for n in nodes if n.node_id == body.task_node_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
+    if task.kind != "task":
+        raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
+
+    query = task.payload.get("query", "")
+    # No exclude_box_ids — the foreign doc has no root_chunk in this
+    # session, so nothing to exclude.
+    searcher = InDocSearcher(data_root=cfg.data_root, slug=body.target_slug)
+    hits = searcher.search(query, top_k=body.top_k)
+    hits_payload = [
+        {
+            "box_id": h.box_id,
+            "text": h.text,
+            "score": h.score,
+            "doc_slug": h.doc_slug,  # = body.target_slug
+            "searcher": h.searcher,
+        }
+        for h in hits
+    ]
+    payload = ActionProposalPayload(
+        step_kind="search",
+        anchor_node_id=body.task_node_id,
+        recommended=ActionOption(
+            label=f"{len(hits_payload)} Treffer aus {body.target_slug} übernehmen",
+            args={"hits": hits_payload},
+        ),
+        alternatives=[
+            ActionOption(label="Nur Top-1 übernehmen", args={"hits": hits_payload[:1]}),
+        ],
+        reasoning=(
+            f"CrossDocSearch InDocSearcher in {body.target_slug}, "
+            f"top_k={body.top_k}, hits={len(hits_payload)}"
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/search",
+    status_code=201,
+)
+async def search_step(session_id: str, body: SearchStepRequest, request: Request) -> dict:
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+    task = next((n for n in nodes if n.node_id == body.task_node_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task node not found: {body.task_node_id}")
+    if task.kind != "task":
+        raise HTTPException(status_code=400, detail=f"anchor must be task, got kind={task.kind}")
+
+    query = task.payload.get("query", "")
     actor = "system"  # this step doesn't call an LLM in v1
+    # Exclude every chunk the investigation already derived from. The
+    # task's forward-flowing context lists them; for legacy tasks
+    # without that context, the ancestor walk reconstructs the same
+    # set from the edge graph. Either way, root_chunk_id is added as
+    # a defensive fallback.
+    task_context = get_context(task.payload)
+    visited = task_context.get("visited_box_ids", [])
+    if not visited:
+        visited = _ancestor_chunk_box_ids(nodes, edges, body.task_node_id)
+    exclude_set = {meta.root_chunk_id, *visited}
     searcher = InDocSearcher(
         data_root=cfg.data_root,
         slug=meta.slug,
-        exclude_box_ids=(meta.root_chunk_id,),
+        exclude_box_ids=tuple(sorted(exclude_set)),
     )
     hits = searcher.search(query, top_k=body.top_k)
     hits_payload = [
@@ -1226,7 +3715,11 @@ async def search_step(session_id: str, body: SearchStepRequest, request: Request
         guidance_consulted=[],
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -1237,6 +3730,7 @@ def _llm_evaluate(
     provider: str,
     *,
     extra_system: str = "",
+    calc_hint: str = "",
 ) -> dict:
     """Ask the LLM whether a candidate chunk is the source of a claim.
 
@@ -1246,12 +3740,52 @@ def _llm_evaluate(
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = EVALUATE_SYSTEM + (extra_system or "")
-    user = f"Aussage:\n{claim_text}\n\nKandidat:\n{candidate_chunk_text}\n\nJSON:"
+    system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
+    # Frame the claim as a hypothesis to be tested by the candidate's
+    # own content, not as an established fact looking for confirmation.
+    # Combined with the GRUND-PRINZIP block in EVALUATE_SYSTEM, this
+    # blocks confirmation bias when the upstream QUELL-KONTEXT happens
+    # to contain the claim text verbatim.
+    #
+    # Calculator hint: deterministic (number, unit) comparison results
+    # injected as ground truth so the LLM doesn't have to do the math
+    # in its head. Built by the caller via _build_calculator_hint.
+    parts = [
+        "## Hypothese (zu prüfen)",
+        claim_text,
+        "",
+        "## Kandidaten-Treffer (muss die Hypothese AUS SICH SELBST belegen)",
+        candidate_chunk_text,
+        "",
+    ]
+    if calc_hint:
+        parts.extend(
+            [
+                "## Werkzeug-Ergebnis: deterministischer Zahlen-Vergleich",
+                calc_hint,
+                "",
+                "Diese Werte stammen aus einer deterministischen Berechnung "
+                "und gelten als Tatsachen — korrigiere sie nicht aus eigener "
+                "Schätzung. Das Werkzeug prüft NUR strikte Gleichheit, ohne "
+                "Toleranz. Wenn die Werte exakt übereinstimmen, ist das ein "
+                "starkes Indiz für 'likely-source'. Wenn sie nicht exakt "
+                "übereinstimmen, urteile NICHT eigenmächtig 'na ja, fast' — "
+                "die Bewertung der Differenz ist eine Domain-Frage und wird "
+                "ausschließlich durch aktive Skills (z.B. konservative "
+                "Aufrundung in bestimmten Sicherheits-Kontexten) entschieden. "
+                "Ohne aktiven Skill der die Differenz domain-spezifisch "
+                "rechtfertigt: Zahlen-Differenz = WIDERSPRUCH oder "
+                "PARTIAL-SUPPORT, nicht 'likely-source'.",
+                "",
+            ]
+        )
+    parts.append("JSON:")
+    user = "\n".join(parts)
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
     raw = completion.text or ""
     cleaned = _strip_json_fence(raw)
@@ -1261,24 +3795,37 @@ def _llm_evaluate(
     except json.JSONDecodeError:
         parsed = None
 
-    # Coerce many model-output shapes into our expected (verdict, conf, reasoning).
+    # Coerce many model-output shapes into our expected fields.
     # Degrades gracefully — never raises — so the side-panel always shows
     # *something*, even if the LLM was creative. Frontend handles unknown
     # verdicts by falling back to the neutral chip color.
     verdict = "unknown"
     confidence = 0.0
     reasoning = f"LLM-Antwort konnte nicht interpretiert werden: {raw[:200]}"
+    sentences: list[dict] = []
 
     if isinstance(parsed, dict):
         v = parsed.get("verdict")
         c = parsed.get("confidence")
         r = parsed.get("reasoning")
+        s = parsed.get("sentences")
         if isinstance(v, str) and v.strip():
             verdict = v.strip()
         if isinstance(c, (int, float)) and 0.0 <= float(c) <= 1.0:
             confidence = float(c)
         if isinstance(r, str) and r.strip():
             reasoning = r.strip()
+        # Per-sentence enumeration. Tolerant: accept any list of dicts
+        # with at least a text or tag field. Drops malformed entries.
+        if isinstance(s, list):
+            for item in s:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "") or "").strip()
+                tag = str(item.get("tag", "") or "").strip().upper()
+                why = str(item.get("why", "") or "").strip()
+                if text or tag:
+                    sentences.append({"text": text, "tag": tag, "why": why})
     elif isinstance(parsed, list) and len(parsed) >= 1:
         # Positional fallback: [verdict, confidence, reasoning]
         if isinstance(parsed[0], str) and parsed[0].strip():
@@ -1296,13 +3843,99 @@ def _llm_evaluate(
         "verdict": verdict,
         "confidence": float(confidence),
         "reasoning": reasoning,
+        "sentences": sentences,
+    }
+
+
+def _llm_reflect_evaluate(
+    *,
+    claim_text: str,
+    candidate_text: str,
+    prior_verdict: str,
+    prior_reasoning: str,
+    prior_sentences: list[dict],
+    extra_system: str = "",
+) -> dict:
+    """Self-critique an existing evaluate-style action_proposal.
+
+    Returns a dict with ``self_assessment``, ``missed_statements``,
+    ``concerns``, ``recommendation``, ``recommended_focus``. Tolerant
+    parser — falls back to a generic "could not parse" record so the
+    UI always shows *something*.
+    """
+    system = REFLECT_EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
+    sentences_json = json.dumps(prior_sentences, ensure_ascii=False)
+    user = (
+        f"## Aussage (zu prüfen)\n{claim_text}\n\n"
+        f"## Kandidaten-Text (vollständig)\n{candidate_text}\n\n"
+        f"## Bisherige Bewertung\n"
+        f"verdict: {prior_verdict}\n"
+        f"reasoning: {prior_reasoning}\n"
+        f"sentences: {sentences_json}\n\n"
+        "Kritisiere diese Bewertung als JSON:"
+    )
+    fallback: dict = {
+        "self_assessment": "vollständig",
+        "missed_statements": [],
+        "concerns": [],
+        "recommendation": "accept",
+        "recommended_focus": "",
+    }
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=system),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+            max_tokens=_MAX_TOKENS_STRUCTURED,
+        )
+    except Exception as exc:
+        _log.warning("reflect_evaluate LLM call failed: %s", exc)
+        fallback["concerns"] = [f"LLM-Aufruf fehlgeschlagen: {exc}"]
+        return fallback
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        fallback["concerns"] = [f"LLM-Antwort nicht parsbar: {raw[:200]}"]
+        return fallback
+    if not isinstance(parsed, dict):
+        return fallback
+    assessment = str(parsed.get("self_assessment", "") or "").strip()
+    if assessment not in ("vollständig", "lückenhaft", "fehlerhaft"):
+        assessment = "vollständig"
+    missed = parsed.get("missed_statements", [])
+    if not isinstance(missed, list):
+        missed = []
+    concerns = parsed.get("concerns", [])
+    if not isinstance(concerns, list):
+        concerns = []
+    rec = str(parsed.get("recommendation", "") or "").strip()
+    if rec not in ("accept", "re-evaluate", "expand-context"):
+        rec = "accept"
+    return {
+        "self_assessment": assessment,
+        "missed_statements": [str(m) for m in missed if str(m).strip()],
+        "concerns": [str(c) for c in concerns if str(c).strip()],
+        "recommendation": rec,
+        "recommended_focus": str(parsed.get("recommended_focus", "") or ""),
     }
 
 
 class EvaluateStepRequest(BaseModel):
     search_result_node_id: str
-    against_claim_id: str
+    # Optional: if omitted, the backend walks the chain
+    # search_result → task → claim to resolve it. Lets the agent's
+    # plan_proposal flow accept evaluate without the panel having to
+    # know the upstream claim.
+    against_claim_id: str | None = None
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned evaluation.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1318,30 +3951,92 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
     if meta is None:
         raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
 
-    nodes, _ = read_session(sd)
-    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
-    if sr is None:
+    nodes, edges = read_session(sd)
+    anchor = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if anchor is None:
         raise HTTPException(
             status_code=404,
-            detail=f"search_result node not found: {body.search_result_node_id}",
+            detail=f"anchor node not found: {body.search_result_node_id}",
         )
-    if sr.kind != "search_result":
+    if anchor.kind not in ("search_result", "sub_statement"):
         raise HTTPException(
             status_code=400,
-            detail=f"anchor must be search_result, got kind={sr.kind}",
+            detail=f"anchor must be search_result or sub_statement, got kind={anchor.kind}",
         )
-    claim = next((n for n in nodes if n.node_id == body.against_claim_id), None)
+    # Resolve to the upstream search_result for chain-walk + candidate
+    # text. For sub_statement anchors, the candidate text is the
+    # sub_statement's own atomic claim (one fact at a time). For
+    # search_result anchors, candidate text is the full hit.
+    if anchor.kind == "sub_statement":
+        parent_id = str(anchor.payload.get("parent_search_result_id", ""))
+        sr = next((n for n in nodes if n.node_id == parent_id), None)
+        if sr is None or sr.kind != "search_result":
+            raise HTTPException(
+                status_code=400,
+                detail=f"sub_statement {body.search_result_node_id} has no parent search_result",
+            )
+        candidate_text = str(anchor.payload.get("text", ""))
+        sr_for_caption = anchor
+    else:
+        sr = anchor
+        candidate_text = str(sr.payload.get("text", ""))
+        sr_for_caption = sr
+    # When the candidate hit / sub-statement carries a caption (figure
+    # or table), prepend it so the LLM evaluating the candidate sees
+    # the label alongside the content.
+    cap = str(sr_for_caption.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
+    # Resolve the upstream claim_id either from the request or via the
+    # chain search_result → task → claim. The chain hops are stable:
+    # search_result.payload.task_node_id and task.payload.focus_claim_id
+    # are written when those nodes get spawned (see /search and
+    # /formulate-task handlers).
+    claim_id = body.against_claim_id
+    if not claim_id:
+        task_id = sr.payload.get("task_node_id")
+        task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+        focus_claim_id = task.payload.get("focus_claim_id") if task else None
+        if not focus_claim_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "against_claim_id missing and could not resolve from "
+                    "search_result chain (task_node_id / focus_claim_id "
+                    "not set on upstream nodes)."
+                ),
+            )
+        claim_id = str(focus_claim_id)
+    claim = next((n for n in nodes if n.node_id == claim_id), None)
     if claim is None:
-        raise HTTPException(
-            status_code=404, detail=f"claim node not found: {body.against_claim_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"claim node not found: {claim_id}")
     if claim.kind != "claim":
         raise HTTPException(
             status_code=400, detail=f"against_claim_id must be claim, got kind={claim.kind}"
         )
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "evaluate")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "evaluate")
+    # Decision-support bundle: Sitzungs-Ziel + Recherche-Frage zur
+    # Aussage + Original-Chunk + Such-Aufgabe. Resolve task via
+    # search_result → task chain.
+    eval_task_id = sr.payload.get("task_node_id")
+    eval_task = (
+        next((n for n in nodes if n.node_id == eval_task_id), None)
+        if isinstance(eval_task_id, str)
+        else None
+    )
+    extra_system = (
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            task=eval_task,
+            consuming_step="evaluate",
+            data_root=cfg.data_root,
+        )
+        + extra_system
+    )
     pre_reasoning = _llm_pre_reason(
         step_kind="evaluate",
         step_label="Bewerten",
@@ -1352,19 +4047,34 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         session_goal=meta.goal,
         claim_goal=str(claim.payload.get("goal", "")),
     )
-    full_system = EVALUATE_SYSTEM + (extra_system or "")
+    full_system = EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK
+    # Auto-fire deterministic tools and persist results as
+    # tool_annotation Nodes BEFORE building the prompt. The LLM never
+    # has to do mental table-parsing, mental arithmetic, or mental
+    # consistency-checking; structured ground-truth is always
+    # available when applicable.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
+    nodes, edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, nodes, edges)
+    _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
+    # Re-read after potential persist so the gather sees the new
+    # annotations. Cheap: read_session is a single-pass JSONL scan.
+    nodes, edges = read_session(sd)
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(body.search_result_node_id, nodes, edges)
     try:
         verdict_payload = _llm_evaluate(
             claim.payload.get("text", ""),
-            sr.payload.get("text", ""),
+            candidate_text,
             body.provider or "vllm",
             extra_system=extra_system,
+            calc_hint=calc_hint,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
     verdict = verdict_payload["verdict"]
     confidence = verdict_payload["confidence"]
     reasoning = verdict_payload["reasoning"]
+    sentences = verdict_payload.get("sentences", [])
 
     payload = ActionProposalPayload(
         step_kind="evaluate",
@@ -1375,7 +4085,13 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                 "verdict": verdict,
                 "confidence": confidence,
                 "reasoning": reasoning,
+                "sentences": sentences,
                 "against_claim_id": body.against_claim_id,
+                # Tool-call audit travels through the args bundle so it
+                # lands on the eval Node payload at /decide. Mirrors how
+                # capability_scan persists; lets the UI render "tools
+                # that fired during this evaluation".
+                "tool_calls": tool_calls,
             },
         ),
         alternatives=[
@@ -1386,6 +4102,7 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                     "confidence": 1.0,
                     "reasoning": "manuell verworfen",
                     "against_claim_id": body.against_claim_id,
+                    "tool_calls": [],
                 },
             ),
         ],
@@ -1396,26 +4113,455 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
         tool_used=None,
     )
     landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
+# ── Phase B: Self-Critique / Reflect ───────────────────────────────────
+
+
+class ReflectRequest(BaseModel):
+    proposal_node_id: str
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/reflect",
+    status_code=201,
+)
+async def reflect_step(session_id: str, body: ReflectRequest, request: Request) -> dict:
+    """Run a self-critique LLM call against an existing action_proposal.
+
+    Today supports evaluate-style proposals (input: claim+search_result,
+    output: verdict). Other step_kinds return 400 — extend as needed.
+    Result lands as a ``reflection`` Node anchored to the proposal so
+    the canvas can chain it visually under the action_proposal.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    proposal = next((n for n in nodes if n.node_id == body.proposal_node_id), None)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail=f"proposal not found: {body.proposal_node_id}")
+    if proposal.kind != "action_proposal":
+        raise HTTPException(
+            status_code=400,
+            detail=f"reflect target must be action_proposal, got kind={proposal.kind}",
+        )
+    step_kind = str(proposal.payload.get("step_kind", ""))
+    if step_kind != "evaluate":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"reflect-Implementierung deckt aktuell nur step_kind=evaluate ab "
+                f"(angefragt: {step_kind}). Andere Step-Typen folgen separat."
+            ),
+        )
+
+    sr_id = str(proposal.payload.get("anchor_node_id", ""))
+    sr = next((n for n in nodes if n.node_id == sr_id), None)
+    if sr is None or sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400,
+            detail="proposal anchor is not a search_result — kann nicht reflektieren.",
+        )
+    recommended = proposal.payload.get("recommended", {})
+    rec_args = recommended.get("args", {}) if isinstance(recommended, dict) else {}
+    claim_id = str(rec_args.get("against_claim_id", "") or "")
+    if not claim_id:
+        # Fallback: walk sr → task → claim (same chain as evaluate
+        # endpoint's auto-resolve).
+        task_id = sr.payload.get("task_node_id")
+        task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+        focus = task.payload.get("focus_claim_id") if task else None
+        if focus:
+            claim_id = str(focus)
+    claim = next((n for n in nodes if n.node_id == claim_id), None)
+    if claim is None or claim.kind != "claim":
+        raise HTTPException(
+            status_code=400,
+            detail="Konnte den ursprünglichen claim nicht auflösen — kann nicht reflektieren.",
+        )
+
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "reflect")
+    critique = _llm_reflect_evaluate(
+        claim_text=str(claim.payload.get("text", "")),
+        candidate_text=str(sr.payload.get("text", "")),
+        prior_verdict=str(rec_args.get("verdict", "")),
+        prior_reasoning=str(rec_args.get("reasoning", "")),
+        prior_sentences=list(rec_args.get("sentences", []) or []),
+        extra_system=extra_system,
+    )
+    actor = resolve_provider(body.provider)
+    audit = {
+        "source_label": "Reflektieren (POST /reflect → _llm_reflect_evaluate)",
+        "system_prompt_used": REFLECT_EVALUATE_SYSTEM + (extra_system or "") + _NO_THINK,
+        "input_summary": {
+            "proposal_node_id": body.proposal_node_id,
+            "search_result_node_id": sr_id,
+            "claim_node_id": claim_id,
+            "prior_verdict": str(rec_args.get("verdict", "")),
+        },
+        "guidance_consulted": [g.__dict__ for g in guidance_refs],
+    }
+    reflection_node = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="reflection",
+            payload={
+                "anchor_node_id": body.proposal_node_id,
+                "step_kind_reviewed": step_kind,
+                **critique,
+                "audit": audit,
+            },
+            actor=actor,
+        ),
+    )
+    return reflection_node.__dict__
+
+
+# ── Reactive-Capability Re-Evaluate ────────────────────────────────────
+
+
+class ReEvaluateRequest(BaseModel):
+    capability_gate_node_id: str
+    capability_ids: list[str]
+    provider: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/re-evaluate",
+    status_code=201,
+)
+async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Request) -> dict:
+    """Re-run evaluate with the capability_gate's selected capabilities
+    injected as domain rules into the prompt.
+
+    Spawns a fresh ``action_proposal`` (step_kind=evaluate) — the user
+    decides as usual. The action_proposal's audit field carries
+    ``capabilities_used`` for traceability.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, edges = read_session(sd)
+    gate = next((n for n in nodes if n.node_id == body.capability_gate_node_id), None)
+    if gate is None or gate.kind != "capability_gate":
+        raise HTTPException(
+            status_code=404,
+            detail=f"capability_gate not found: {body.capability_gate_node_id}",
+        )
+    sr_id = str(gate.payload.get("search_result_node_id", ""))
+    sr = next((n for n in nodes if n.node_id == sr_id), None)
+    if sr is None or sr.kind != "search_result":
+        raise HTTPException(status_code=400, detail="capability_gate's search_result not found")
+    claim_id = str(gate.payload.get("claim_node_id", ""))
+    claim = next((n for n in nodes if n.node_id == claim_id), None)
+    if claim is None or claim.kind != "claim":
+        raise HTTPException(status_code=400, detail="capability_gate's claim not found")
+    selected: list[Approach] = []
+    for app_id in body.capability_ids:
+        a = get_approach(cfg.data_root, app_id)
+        if a is not None and a.enabled:
+            selected.append(a)
+    if not selected:
+        raise HTTPException(status_code=400, detail="keine gültigen capability_ids ausgewählt")
+    prior_evaluation = next(
+        (n for n in nodes if n.node_id == str(gate.payload.get("evaluation_node_id", ""))),
+        None,
+    )
+    prior_verdict = str(prior_evaluation.payload.get("verdict", "")) if prior_evaluation else ""
+    prior_reasoning = str(prior_evaluation.payload.get("reasoning", "")) if prior_evaluation else ""
+    rules_blocks = [f"## {a.name}\n{a.domain_rules}" for a in selected if a.domain_rules]
+    re_task_id = sr.payload.get("task_node_id")
+    re_task = (
+        next((n for n in nodes if n.node_id == re_task_id), None)
+        if isinstance(re_task_id, str)
+        else None
+    )
+    extra_system = (
+        _build_decision_context(
+            claim,
+            nodes,
+            meta,
+            task=re_task,
+            consuming_step="evaluate",
+            data_root=cfg.data_root,
+        )
+        + "\n\n# GELADENE DOMÄNEN-CAPABILITIES\n\n"
+        + "\n\n".join(rules_blocks)
+        + "\n\n# WICHTIG\n"
+        + "Du hast diese Bewertung schon einmal abgegeben:\n"
+        + f"  Original-Verdict: {prior_verdict}\n"
+        + f"  Original-Reasoning: {prior_reasoning}\n\n"
+        + "Berücksichtige nun die Domänen-Capabilities und prüfe, ob das "
+        + "Verdict angepasst werden muss. Wenn ja: erkläre WARUM das "
+        + "Domänen-Wissen die ursprüngliche Bewertung umkippt."
+    )
+    actor = resolve_provider(body.provider)
+    pre_reasoning = _llm_pre_reason(
+        step_kind="evaluate",
+        step_label="Re-Evaluate (mit Capabilities)",
+        anchor_summary=(
+            f"Treffer: {sr.payload.get('text', '')[:200]} | "
+            f"vs. Aussage: {claim.payload.get('text', '')[:200]} | "
+            f"Capabilities: {', '.join(a.name for a in selected)}"
+        ),
+        session_goal=meta.goal,
+        claim_goal=str(claim.payload.get("goal", "")),
+    )
+    full_system = EVALUATE_SYSTEM + extra_system + _NO_THINK
+    # Same auto-fire-and-persist as the main evaluate route — see there.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, cfg.data_root)
+    nodes, edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, nodes, edges)
+    _ensure_calculator_annotation(sd, session_id, sr, claim, nodes, edges)
+    nodes, edges = read_session(sd)
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, nodes, edges)
+    try:
+        verdict_payload = _llm_evaluate(
+            claim.payload.get("text", ""),
+            sr.payload.get("text", ""),
+            body.provider or "vllm",
+            extra_system=extra_system,
+            calc_hint=calc_hint,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
+    verdict = verdict_payload["verdict"]
+    confidence = verdict_payload["confidence"]
+    reasoning = verdict_payload["reasoning"]
+    sentences = verdict_payload.get("sentences", [])
+    payload = ActionProposalPayload(
+        step_kind="evaluate",
+        anchor_node_id=sr.node_id,
+        recommended=ActionOption(
+            label=f"{verdict} (re-eval, conf {confidence:.2f})",
+            args={
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "sentences": sentences,
+                "against_claim_id": claim.node_id,
+                "capabilities_used": [a.approach_id for a in selected],
+                "capability_gate_node_id": body.capability_gate_node_id,
+                "prior_evaluation_node_id": gate.payload.get("evaluation_node_id"),
+                "tool_calls": tool_calls,
+            },
+        ),
+        alternatives=[
+            ActionOption(
+                label="Verwerfen — bei alter Bewertung bleiben",
+                args={
+                    "verdict": prior_verdict or "manual",
+                    "confidence": 1.0,
+                    "reasoning": "Re-Evaluate verworfen — alte Bewertung bleibt.",
+                    "against_claim_id": claim.node_id,
+                    "tool_calls": [],
+                },
+            ),
+        ],
+        reasoning="Re-Evaluation mit geladenen Domänen-Capabilities.",
+        guidance_consulted=[],
+        pre_reasoning=pre_reasoning,
+        system_prompt_used=full_system,
+        tool_used=None,
+    )
+    landed = append_node(
         sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+    )
+    # Mark the gate as accepted + record the new proposal id.
+    gate_update = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="capability_gate",
+            payload={
+                **gate.payload,
+                "status": "accepted",
+                "re_evaluate_proposal_id": landed.node_id,
+                "selected_capability_ids": [a.approach_id for a in selected],
+            },
+            actor="human",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=gate.node_id,
+            to_node=landed.node_id,
+            kind="re-evaluated-with",
+            reason=None,
+            actor="human",
+        ),
+    )
+    return {
+        "action_proposal": landed.__dict__,
+        "gate_update": gate_update.__dict__,
+    }
+
+
+def _llm_decompose_hit(candidate_text: str, *, extra_system: str = "") -> list[str]:
+    """Split a search-hit text into atomic sub-statements.
+
+    Returns a list of strings — each is one self-contained claim that
+    can be evaluated independently. Strict parser: rejects non-list
+    output by raising RuntimeError, so the calling endpoint can
+    surface a clear 502.
+    """
+    system = DECOMPOSE_HIT_SYSTEM + (extra_system or "") + _NO_THINK
+    user = f"Treffer-Text:\n{candidate_text}\n\nGib das JSON-Array der Sub-Aussagen zurück."
+    client = get_llm_client()
+    completion = client.complete(
+        messages=[
+            Message(role="system", content=system),
+            Message(role="user", content=user),
+        ],
+        model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
+    )
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"_llm_decompose_hit: could not parse LLM response: {raw[:500]}"
+        ) from exc
+    if not isinstance(parsed, list) or not all(isinstance(s, str) and s.strip() for s in parsed):
+        raise RuntimeError(
+            f"_llm_decompose_hit: response is not a list of non-empty strings: {raw[:500]}"
+        )
+    return [s.strip() for s in parsed]
+
+
+class DecomposeHitRequest(BaseModel):
+    search_result_node_id: str
+    provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto every spawned sub_statement.
+    triggered_from_node_id: str | None = None
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/decompose-hit",
+    status_code=201,
+)
+async def decompose_hit_step(session_id: str, body: DecomposeHitRequest, request: Request) -> dict:
+    """Phase C: split a search_result into atomic sub_statements.
+
+    Lands as an action_proposal with step_kind="decompose_hit". On
+    /decide accept, each sub-statement becomes its own
+    ``sub_statement`` Node anchored to the search_result.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    sr = next((n for n in nodes if n.node_id == body.search_result_node_id), None)
+    if sr is None or sr.kind != "search_result":
+        raise HTTPException(
+            status_code=400,
+            detail=f"node not a search_result: {body.search_result_node_id}",
+        )
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "decompose_hit")
+    try:
+        sub_statements = _llm_decompose_hit(
+            str(sr.payload.get("text", "")), extra_system=extra_system
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
+    actor = resolve_provider(body.provider)
+    full_system = DECOMPOSE_HIT_SYSTEM + (extra_system or "") + _NO_THINK
+    payload = ActionProposalPayload(
+        step_kind="decompose_hit",
+        anchor_node_id=body.search_result_node_id,
+        recommended=ActionOption(
+            label=f"{len(sub_statements)} Sub-Aussagen",
+            args={"sub_statements": sub_statements},
+        ),
+        alternatives=[
+            ActionOption(label="Verwerfen — keine Decomposition", args={"sub_statements": []}),
+        ],
+        reasoning=(
+            f"LLM hat den Treffer in {len(sub_statements)} atomare "
+            "Sub-Aussagen zerlegt — jede kann einzeln gegen den Claim "
+            "evaluiert werden."
+        ),
+        guidance_consulted=guidance_refs,
+        pre_reasoning="",
+        system_prompt_used=full_system,
+        tool_used=None,
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
 
 def _llm_extract_claim_goals(
-    claim_texts: list[str], session_goal: str, provider: str, *, extra_system: str = ""
+    claim_texts: list[str],
+    session_goal: str,
+    provider: str,
+    *,
+    chunk_text: str = "",
+    extra_system: str = "",
 ) -> list[str]:
     """Batched per-claim-goal extraction. One LLM call returns N goals
     for N claims. JSON-array output, length must match input. On any
     parse / size failure, returns ``[""] * len(claim_texts)`` — best
     effort, never blocks claim creation.
+
+    ``chunk_text`` is the surrounding chunk the claims came from; used
+    to disambiguate topic, units, and pronoun references in the
+    research-question (so e.g. "Brennelement TRINO" gets a question
+    that references the reactor context, not a generic question).
     """
     del provider
     if not claim_texts:
         return []
-    system = EXTRACT_CLAIM_GOALS_SYSTEM + (extra_system or "")
+    system = EXTRACT_CLAIM_GOALS_SYSTEM + (extra_system or "") + _NO_THINK
     numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(claim_texts))
+    chunk_block = ""
+    if chunk_text and chunk_text.strip():
+        truncated = chunk_text.strip()[:1500]
+        if len(chunk_text) > 1500:
+            truncated += " […]"
+        chunk_block = (
+            f"Quell-Textabschnitt (Kontext der Aussagen — nutze ihn, "
+            f"um Thema und Bezüge der Recherche-Fragen zu konkretisieren):\n"
+            f"{truncated}\n\n"
+        )
     user = (
         f"Sitzungs-Ziel: {session_goal or '(kein Ziel gesetzt)'}\n\n"
+        f"{chunk_block}"
         f"Aussagen:\n{numbered}\n\n"
         f"JSON-Array der Recherche-Fragen (selbe Reihenfolge):"
     )
@@ -1423,6 +4569,7 @@ def _llm_extract_claim_goals(
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
     raw = completion.text or ""
     cleaned = _strip_json_fence(raw)
@@ -1442,6 +4589,7 @@ def _llm_next_step(
     tools_summary: str,
     *,
     extra_system: str = "",
+    triggered_from_node: Node | None = None,
 ) -> dict:
     """Open-ended planner. Returns a dict with discriminator ``kind``:
 
@@ -1454,15 +4602,63 @@ def _llm_next_step(
 
     Tolerant parser: on any LLM/parse failure returns a safe fallback
     that defaults to manual_review, so the user always sees *something*.
+
+    ``triggered_from_node`` carries the click-trail when "Was als
+    nächstes?" is invoked from a Folge-Knoten (e.g. a Bewertungs-Tile
+    routes to the parent search_result for re-planning). If the trail
+    points at an evaluation Node the planner is told NOT to re-evaluate
+    but to deepen the trace instead.
     """
     anchor_summary = (
         f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}"
     )
-    system = NEXT_STEP_SYSTEM + (extra_system or "")
+    metadata_block = _format_box_metadata_block(anchor)
+    trigger_block = ""
+    if triggered_from_node is not None and triggered_from_node.kind == "evaluation":
+        prior_verdict = str(triggered_from_node.payload.get("verdict", ""))
+        prior_reasoning = str(triggered_from_node.payload.get("reasoning", ""))[:200]
+        is_table_anchor = (
+            anchor.kind == "search_result" and str(anchor.payload.get("box_kind", "")) == "table"
+        )
+        is_likely_source = prior_verdict == "likely-source"
+        table_likely_source_block = ""
+        if is_table_anchor and is_likely_source:
+            table_likely_source_block = (
+                "- `investigate_table` ist hier der KANONISCHE Schritt: der "
+                "Treffer ist eine Tabelle UND wurde als wahrscheinliche "
+                "Quelle bewertet. Die Tabelle muss jetzt entlang von 3 "
+                "Achsen abgesichert werden (Text-Referenz / Quellen-"
+                "Attribution / Semantik-Rueckpruefung). Konsistenz wurde "
+                "bereits beim Bewerten als Werkzeug-Annotation gefeuert. "
+                "Diese Empfehlung gilt unabhängig vom bisherigen Pfad — "
+                "jede neue likely-source-Bewertung an einer Tabelle ist "
+                "eine eigene Untersuchungs-Gelegenheit.\n"
+            )
+        trigger_block = (
+            "## KONTEXT — du wirst aus einer Bewertung heraus aufgerufen\n"
+            f"Vorheriges Verdict: {prior_verdict}\n"
+            f"Vorherige Begründung: {prior_reasoning}\n\n"
+            "Der Suchtreffer wurde bereits bewertet. Der Nutzer will den "
+            "Treffer JETZT VERTIEFEN — nicht nochmal bewerten. `evaluate` "
+            "ist deshalb aus den verfügbaren Steps entfernt.\n\n"
+            "Wähle aus den verbleibenden Steps:\n"
+            f"{table_likely_source_block}"
+            "- `promote_search_result` wenn der Treffer weitere prüfbare "
+            "Aussagen enthält: spawnt einen abgeleiteten Chunk-Knoten, auf "
+            "dem extract_claims regulär läuft und neue Claim-Knoten "
+            "anlegt — recursive claim tracing über die kanonische "
+            "Pipeline.\n"
+            "- `propose_stop` nur wenn die Aussage hinreichend belegt ist "
+            "und der Treffer keine weiteren prüfbaren Behauptungen "
+            "enthält.\n\n"
+        )
+    system = NEXT_STEP_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
         f"## Knoten\n{anchor_summary}\n\n"
+        f"{metadata_block}"
         f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
-        f"## Verfügbare Steps\n{', '.join(available_steps)}\n\n"
+        f"{trigger_block}"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
         f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
         f"Was schlägst du vor? JSON:"
     )
@@ -1471,6 +4667,7 @@ def _llm_next_step(
         "name": "LLM-Antwort nicht verfügbar",
         "description": "Der Agent konnte keinen Vorschlag generieren — bitte manuell entscheiden.",
         "reasoning": "Fallback bei Parse-Fehler.",
+        "goal_alignment": "",
         "considered_alternatives": [],
         "confidence": 0.0,
         "tool": None,
@@ -1506,6 +4703,7 @@ def _llm_next_step(
         "name": str(parsed.get("name", "") or ""),
         "description": str(parsed.get("description", "") or ""),
         "reasoning": str(parsed.get("reasoning", "") or ""),
+        "goal_alignment": str(parsed.get("goal_alignment", "") or ""),
         "considered_alternatives": (
             parsed.get("considered_alternatives", [])
             if isinstance(parsed.get("considered_alternatives"), list)
@@ -1530,9 +4728,301 @@ _VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
     "chunk": ["extract_claims", "propose_stop"],
     "claim": ["formulate_task", "propose_stop"],
     "task": ["search", "propose_stop"],
-    "search_result": ["evaluate", "promote_search_result", "propose_stop"],
+    # ``decompose_hit`` is intentionally absent: recursive claim tracing
+    # goes through ``promote_search_result`` → new chunk →
+    # ``extract_claims``, which spawns regular claim Nodes. The legacy
+    # /decompose-hit endpoint stays callable for old action_proposals,
+    # but the planner won't recommend it for new flows.
+    "search_result": [
+        "evaluate",
+        "promote_search_result",
+        "investigate_table",
+        "propose_stop",
+    ],
+    # Legacy: ``sub_statement`` Nodes from before the unification still
+    # need their pipeline to read existing sessions.
+    "sub_statement": ["evaluate", "propose_stop"],
     "evaluation": ["propose_stop"],
 }
+
+
+# Human-readable descriptions of each registered step. The planner sees
+# these in the user prompt so it can pick the right step from semantics
+# instead of guessing from the bare name. Keep concise — these are read
+# by the LLM, not by humans, but a senior reviewer should still recognise
+# the rules of when each step applies.
+_STEP_DESCRIPTIONS: dict[str, str] = {
+    "extract_claims": (
+        "Aus dem Chunk-Text alle messbaren Aussagen herausziehen. Erste "
+        "Aktion auf einem neu eröffneten Chunk."
+    ),
+    "formulate_task": (
+        "Aus einer Aussage eine konkrete Suchanfrage formulieren — "
+        "Schlüsselwörter, Zahlen, Einheiten."
+    ),
+    "search": (
+        "Die formulierte Suchanfrage gegen das Korpus laufen lassen. "
+        "Liefert Suchtreffer als Kandidaten-Belege."
+    ),
+    "evaluate": (
+        "Beurteile ob ein einzelner Suchtreffer die Aussage stützt, "
+        "teilweise stützt, widerspricht oder unrelated ist. EINE Bewertung "
+        "pro Treffer-Aussage-Paar. Genug wenn der Treffer kurz, atomar und "
+        "selbst keine weiterzuverfolgenden Behauptungen enthält."
+    ),
+    "decompose_hit": (
+        "[DEPRECATED] Wurde durch promote_search_result + extract_claims "
+        "ersetzt. Bleibt nur für alte Sitzungen lesbar."
+    ),
+    "promote_search_result": (
+        "DER kanonische Weg, einen Suchtreffer tiefer zu erforschen: spawnt "
+        "einen abgeleiteten Chunk-Knoten (recursion_depth = parent + 1), "
+        "auf dem dann extract_claims regulär läuft und eigene Claim-Knoten "
+        "anlegt. Nutze IMMER, wenn der Treffer weitere prüfbare Aussagen "
+        "enthält — egal ob ein einzelner Satz oder ein ganzer Absatz. Die "
+        "Pipeline wiederholt sich auf jeder Tiefe."
+    ),
+    "propose_stop": (
+        "Diese Untersuchung abschließen — kein weiterer Schritt sinnvoll. "
+        "Nutze NUR wenn alle Behauptungen belegt oder unbelegbar sind ODER "
+        "wenn weitere Recherche das Ziel nicht voranbringt."
+    ),
+    "investigate_table": (
+        "Tabellen-Untersuchungs-Choreografie: spawnt 3 Folge-Aufgaben "
+        "rund um einen Tabellen-Treffer (Text-Referenz, Quellen-"
+        "Attribution, Semantik-Rueckpruefung). Konsistenz-Pruefung "
+        "wurde bereits beim Bewerten als Werkzeug-Annotation gefeuert. "
+        "Wähle DIESEN Step wenn der Anker ein search_result mit "
+        "box_kind=table ist UND eine Bewertung verdict=likely-source "
+        "vorliegt — die Tabelle wurde als wahrscheinliche Quelle "
+        "identifiziert, jetzt soll sie systematisch abgesichert werden. "
+        "Nicht für Nicht-Tabellen-Treffer."
+    ),
+}
+
+
+def _format_step_with_desc(name: str) -> str:
+    """Render one step as a markdown bullet with its description (or
+    just the name if no description is registered). Used by the next-step
+    family of prompts so the planner sees WHEN each step applies."""
+    desc = _STEP_DESCRIPTIONS.get(name, "")
+    return f"- **{name}**: {desc}" if desc else f"- **{name}**"
+
+
+def _steps_block(available_steps: list[str]) -> str:
+    """Format the available-steps section of a planner prompt: one
+    markdown bullet per step, or ``(keine)`` when the list is empty."""
+    if not available_steps:
+        return "(keine)"
+    return "\n".join(_format_step_with_desc(s) for s in available_steps)
+
+
+# ── Phase 3: Active Skill / Coordinator wrappers ─────────────────────────
+#
+# An ``active`` Approach (mode="active") is invoked as its own LLM call
+# with a wrapper prompt that frames the approach's extra_system as
+# specialist domain knowledge. The skill returns a structured opinion
+# (reasoning + suggested step + confidence). The Coordinator then merges
+# the Meta-Plan and all skill opinions into the final plan.
+
+ACTIVE_SKILL_SYSTEM = (
+    "Du bist ein spezialisierter Sub-Agent eines Recherche-Agenten. "
+    "Du bekommst einen Knoten + Sitzungs-Ziel + die verfügbaren Steps. "
+    "Deine Aufgabe: gib aus deiner Spezialist-Perspektive eine "
+    "fundierte Empfehlung — welcher Step ist deiner Meinung nach "
+    "jetzt richtig, warum, wie sicher bist du.\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON:\n"
+    "{\n"
+    '  "reasoning": <deutscher Satz: was siehst du, was schließt du daraus>,\n'
+    '  "suggested_step": <Step-Name aus der verfügbaren Liste oder leer>,\n'
+    '  "confidence": <0.0-1.0>\n'
+    "}\n\n"
+    "Kein Vor- oder Nachtext, keine Codeblöcke. Wenn dein Spezialwissen "
+    "auf diesen Knoten nicht zutrifft, gib leeren suggested_step zurück "
+    "und erkläre kurz warum nicht.\n\n"
+    "## DEIN SPEZIALWISSEN\n"
+)
+
+COORDINATOR_SYSTEM = (
+    "Du bist der Koordinator eines Multi-Agenten-Recherche-Systems. "
+    "Du bekommst:\n"
+    "1. Den Initial-Plan des Meta-Planers.\n"
+    "2. Empfehlungen mehrerer Spezialisten (jeweils reasoning + "
+    "suggested_step + confidence).\n\n"
+    "Deine Aufgabe: synthesisiere die FINALE Entscheidung. Bei "
+    "Konsens → folge dem Konsens. Bei Konflikten → gewichte nach "
+    "Konfidenz und Spezialisierung; bei klarer Mehrheit → folge der "
+    "Mehrheit; sonst entscheide nach Plausibilität.\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON-Objekt im selben Format wie "
+    "der Meta-Planer:\n"
+    "{\n"
+    '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
+    '  "name": <siehe Meta-Planer-Regeln>,\n'
+    '  "description": <bei capability_request/manual_review>,\n'
+    '  "reasoning": <warum diese finale Wahl - berücksichtige '
+    "Spezialisten-Stimmen wörtlich>,\n"
+    '  "goal_alignment": <Pflicht: zitiere das Sitzungs-Ziel wörtlich '
+    "und erkläre konkret, wie der gewählte Step diesem Ziel näher bringt. "
+    "Beispiel: \"Ziel ist 'Worauf beruhen die Aussagen?'. extract_claims "
+    "teilt den Text in einzelne Behauptungen, damit ich für jede die "
+    'Quelle suchen kann." Schreibe vollständige Sätze ohne Platzhalter '
+    "(< >).>,\n"
+    '  "considered_alternatives": [\n'
+    '    {"name": <name>, "kind": <kind>, "why_not": <Grund>}\n'
+    "  ],\n"
+    '  "confidence": <0.0-1.0>,\n'
+    '  "tool": <Tool-Name oder null>,\n'
+    '  "approach_id": <Approach-Name oder null>\n'
+    "}\n\n"
+    "Kein Vor- oder Nachtext, keine Codeblöcke."
+)
+
+
+def _llm_active_skill(
+    *,
+    skill_name: str,
+    skill_extra_system: str,
+    anchor: Node,
+    session_goal: str,
+    available_steps: list[str],
+) -> dict:
+    """Single active-skill call. Returns dict with keys ``reasoning``,
+    ``suggested_step``, ``confidence``. Tolerant on parse failures —
+    returns an empty-suggestion fallback so the coordinator can still
+    proceed with whatever specialists succeeded.
+    """
+    anchor_summary = (
+        f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:400]}"
+    )
+    system = ACTIVE_SKILL_SYSTEM + (skill_extra_system or "") + _NO_THINK
+    user = (
+        f"## Knoten\n{anchor_summary}\n\n"
+        f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
+        f"Was empfiehlst du? JSON:"
+    )
+    fallback: dict = {
+        "reasoning": f"({skill_name}: LLM-Aufruf fehlgeschlagen oder Antwort nicht parsbar)",
+        "suggested_step": "",
+        "confidence": 0.0,
+    }
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=system),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+        )
+    except Exception as exc:
+        _log.warning("active_skill %s LLM call failed: %s", skill_name, exc)
+        fallback["reasoning"] = f"({skill_name}: Aufruf fehlgeschlagen: {exc})"
+        return fallback
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return fallback
+    if not isinstance(parsed, dict):
+        return fallback
+    return {
+        "reasoning": str(parsed.get("reasoning", "") or ""),
+        "suggested_step": str(parsed.get("suggested_step", "") or ""),
+        "confidence": (
+            float(parsed["confidence"])
+            if isinstance(parsed.get("confidence"), (int, float))
+            else 0.5
+        ),
+    }
+
+
+def _llm_coordinator(
+    *,
+    meta_plan: dict,
+    skill_outputs: list[dict],
+    anchor: Node,
+    session_goal: str,
+    available_steps: list[str],
+    tools_summary: str,
+) -> dict:
+    """Coordinator call. Merges Meta-Plan + skill outputs into a final
+    plan dict (same shape as _llm_next_step). On parse failure, falls
+    back to the original Meta-Plan so the pipeline still has a result.
+    """
+    anchor_summary = (
+        f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:400]}"
+    )
+    skill_lines = []
+    for s in skill_outputs:
+        skill_lines.append(
+            f"- {s.get('skill_name', '?')}: "
+            f"step={s.get('suggested_step') or '(leer)'} "
+            f"({(s.get('confidence', 0) * 100):.0f}% conf) — "
+            f"{s.get('reasoning', '')}"
+        )
+    skills_block = "\n".join(skill_lines) if skill_lines else "(keine)"
+    meta_summary = (
+        f"kind={meta_plan.get('kind', '?')}, "
+        f"name={meta_plan.get('name', '')}, "
+        f"reasoning={meta_plan.get('reasoning', '')}"
+    )
+
+    user = (
+        f"## Knoten\n{anchor_summary}\n\n"
+        f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
+        f"## Verfügbare Steps\n{_steps_block(available_steps)}\n\n"
+        f"## Verfügbare Tools\n{tools_summary or '(keine)'}\n\n"
+        f"## Meta-Planer Initial-Plan\n{meta_summary}\n\n"
+        f"## Spezialisten-Empfehlungen\n{skills_block}\n\n"
+        f"Synthesisiere die finale Entscheidung als JSON:"
+    )
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=COORDINATOR_SYSTEM + _NO_THINK),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+        )
+    except Exception as exc:
+        _log.warning("coordinator LLM call failed, falling back to meta-plan: %s", exc)
+        return dict(meta_plan)
+    raw = completion.text or ""
+    cleaned = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        _log.warning("coordinator response unparsable, falling back to meta-plan")
+        return dict(meta_plan)
+    if not isinstance(parsed, dict):
+        return dict(meta_plan)
+    kind = str(parsed.get("kind", "")).strip()
+    if kind not in ("executable_step", "capability_request", "manual_review"):
+        kind = "manual_review"
+    return {
+        "kind": kind,
+        "name": str(parsed.get("name", "") or ""),
+        "description": str(parsed.get("description", "") or ""),
+        "reasoning": str(parsed.get("reasoning", "") or ""),
+        "goal_alignment": str(parsed.get("goal_alignment", "") or ""),
+        "considered_alternatives": (
+            parsed.get("considered_alternatives", [])
+            if isinstance(parsed.get("considered_alternatives"), list)
+            else []
+        ),
+        "confidence": (
+            float(parsed["confidence"])
+            if isinstance(parsed.get("confidence"), (int, float))
+            else 0.5
+        ),
+        "tool": parsed.get("tool") if isinstance(parsed.get("tool"), str) else None,
+        "approach_id": (
+            parsed.get("approach_id") if isinstance(parsed.get("approach_id"), str) else None
+        ),
+    }
 
 
 def _llm_pre_reason(
@@ -1550,13 +5040,18 @@ def _llm_pre_reason(
     relevant). Best-effort: returns "" on parse / LLM failure so the
     action path never blocks on the reflective layer.
     """
-    system = PRE_REASON_SYSTEM + (extra_system or "")
+    system = PRE_REASON_SYSTEM + (extra_system or "") + _NO_THINK
+    # Anker-Inhalt is intentionally truncated to 400 chars and labeled as
+    # "Anker-Inhalt (zur Orientierung, KEINE Fakten)" so the LLM treats it
+    # as topic-only context, not as established truth to reason about.
     user = (
-        f"Schritt: {step_label} ({step_kind})\n"
-        f"Knoten-Inhalt: {anchor_summary[:400]}\n"
+        f"Geplanter Prozess-Schritt: {step_label} ({step_kind})\n\n"
         f"Sitzungs-Ziel: {session_goal or '(nicht gesetzt)'}\n"
         f"Recherche-Frage zur Aussage: {claim_goal or '(nicht relevant)'}\n\n"
-        f"Begründung in einem Satz:"
+        f"Anker-Inhalt (NUR zur Themen-Orientierung, NICHT als bewiesene "
+        f"Tatsachen behandeln): {anchor_summary[:400]}\n\n"
+        f"Begründung in einem Satz, warum dieser Schritt jetzt der "
+        f"richtige Prozess-Zug ist (kein Outcome-Vorgriff):"
     )
     try:
         client = get_llm_client()
@@ -1570,7 +5065,7 @@ def _llm_pre_reason(
     except Exception as exc:
         _log.warning("pre_reason LLM call failed: %s", exc)
         return ""
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     while len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"', "„"):
         raw = raw[1:-1].strip()
     return raw[:300]
@@ -1593,7 +5088,7 @@ def _llm_extract_goal(
     back to the chunk text.
     """
     del provider  # reserved for Stage 6 routing
-    system = EXTRACT_GOAL_SYSTEM + (extra_system or "")
+    system = EXTRACT_GOAL_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
         f"Textabschnitt:\n{chunk_text}\n\n"
         f"Erste überprüfbare Aussage:\n{first_claim_text}\n\n"
@@ -1603,8 +5098,9 @@ def _llm_extract_goal(
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     # Strip outer quote pairs the model sometimes emits.
     while len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"', "„"):
         raw = raw[1:-1].strip()
@@ -1630,7 +5126,7 @@ def _maybe_extract_goal(cfg: object, sd: Path, meta: SessionMeta, claim_text: st
     if chunk is None:
         return meta
     chunk_text = str(chunk.payload.get("text", ""))
-    extra_system, _ = _gather_guidance(cfg.data_root, meta, "extract_goal")  # type: ignore[attr-defined]
+    extra_system, _ = _gather_guidance_via_skills(cfg.data_root, meta, "extract_goal")  # type: ignore[attr-defined]
     try:
         goal = _llm_extract_goal(chunk_text, claim_text, "vllm", extra_system=extra_system)
     except Exception as exc:
@@ -1801,7 +5297,7 @@ def _llm_plan(
     ``_strip_json_fence`` + extracts first balanced JSON object).
     """
     del provider  # reserved for Stage 6 routing
-    system = PLAN_SYSTEM + (extra_system or "")
+    system = PLAN_SYSTEM + (extra_system or "") + _NO_THINK
     user = (
         f"## Ziel der Sitzung\n{goal or '(kein Ziel gesetzt — leite aus dem Zustand ab)'}\n\n"
         f"## Aktueller Zustand\n{state_summary}\n\n"
@@ -1813,6 +5309,7 @@ def _llm_plan(
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
     raw = completion.text or ""
     cleaned = _strip_json_fence(raw)
@@ -1859,14 +5356,15 @@ def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = ""
     monkey-patch this symbol on the module.
     """
     del provider  # reserved for Stage 6 routing
-    system = PROPOSE_STOP_SYSTEM + (extra_system or "")
+    system = PROPOSE_STOP_SYSTEM + (extra_system or "") + _NO_THINK
     user = f"Aktueller Knoten: {anchor_text}\nBegründung für Stopp:"
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
         model=get_default_model(),
+        max_tokens=_MAX_TOKENS_STRUCTURED,
     )
-    raw = (completion.text or "").strip()
+    raw = _strip_thinking_tags(completion.text or "")
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ("'", '"'):
         raw = raw[1:-1].strip()
     raw = raw[:300]
@@ -1878,6 +5376,9 @@ def _llm_propose_stop(anchor_text: str, provider: str, *, extra_system: str = ""
 class ProposeStopRequest(BaseModel):
     anchor_node_id: str
     provider: str | None = None
+    # Click-trail: persisted on the spawned action_proposal so the
+    # decide-handler can copy it onto the spawned stop_proposal.
+    triggered_from_node_id: str | None = None
 
 
 @router.post(
@@ -1899,7 +5400,7 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
 
     actor = resolve_provider(body.provider)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "propose_stop")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "propose_stop")
     pre_reasoning = _llm_pre_reason(
         step_kind="propose_stop",
         step_label="Stopp vorschlagen",
@@ -1907,7 +5408,7 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         session_goal=meta.goal,
         claim_goal=str(anchor.payload.get("goal", "")) if anchor.kind == "claim" else "",
     )
-    full_system = PROPOSE_STOP_SYSTEM + (extra_system or "")
+    full_system = PROPOSE_STOP_SYSTEM + (extra_system or "") + _NO_THINK
     try:
         reason_text = _llm_propose_stop(
             anchor.payload.get("text", ""),
@@ -1936,7 +5437,11 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
         tool_used=None,
     )
     landed = append_node(
-        sd, build_proposal_node(session_id=session_id, actor=actor, payload=payload)
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor=actor, payload=payload),
+            body.triggered_from_node_id,
+        ),
     )
     return landed.__dict__
 
@@ -2034,7 +5539,7 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
     state_summary = _summarize_session_state(meta, nodes, edges)
     tools_summary = _summarize_tools_for_planner()
     approaches_summary = _summarize_approaches_for_planner(cfg.data_root)
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "plan")
+    extra_system, guidance_refs = _gather_guidance_via_skills(cfg.data_root, meta, "plan")
 
     try:
         plan_dict = _llm_plan(
@@ -2068,102 +5573,367 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
 class NextStepRequest(BaseModel):
     anchor_node_id: str
     provider: str | None = None
+    # Click-trail: when "Was als nächstes?" is invoked from a Folge-Knoten
+    # (e.g. a Bewertungs-Tile that routes to the parent search_result),
+    # the frontend forwards the original tile's node_id here. The backend
+    # persists it on the spawned plan_proposal so the canvas can draw a
+    # "triggered-from" edge, and the planner sees it as extra context
+    # (deepen the trace, not re-evaluate). Optional — None = unchanged
+    # behaviour for direct-anchor invocations.
+    triggered_from_node_id: str | None = None
 
 
-@router.post(
-    "/api/admin/provenienz/sessions/{session_id}/next-step",
-    status_code=201,
-)
-async def next_step(session_id: str, body: NextStepRequest, request: Request) -> dict:
-    """Open-ended planner — the primary "Was als nächstes?" surface.
+# ── Live-Run-Stream: phases of one /next-step execution ──────────────────
+#
+# Each /next-step call walks the same five phases. The streaming endpoint
+# emits one PhaseEvent per phase boundary (started + completed/failed)
+# plus a final CompleteEvent carrying the persisted Node. The
+# non-streaming endpoint exhausts the same generator.
 
-    Calls _llm_next_step which returns one of three outcomes:
 
-      - executable_step: caller would route to the matching step LLM,
-        but for v1 we just emit the planner's recommendation as a
-        plan_proposal Node. The user clicks Akzeptieren on the tile
-        which fires the matching step route from the frontend.
-      - capability_request: emits a capability_request Node with the
-        agent's description of what's missing. No further LLM call.
-      - manual_review: emits a manual_review Node — terminal, the
-        user reads it and decides offline.
+@dataclass
+class PhaseEvent:
+    phase: str
+    status: Literal["started", "completed", "failed"]
+    label: str
+    ms_since_run_start: int
+    ms_elapsed: int = 0
+    payload: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    type: Literal["phase"] = "phase"
 
-    All three outcomes are fully audited: every event lands in
-    events.jsonl as a node line.
+
+@dataclass
+class CompleteEvent:
+    node: dict
+    type: Literal["complete"] = "complete"
+
+
+def _next_step_run(
+    *,
+    cfg: Any,
+    session_id: str,
+    body: NextStepRequest,
+    anchor: Node,
+    meta: SessionMeta,
+    sd: Path,
+    triggered_from_node: Node | None = None,
+) -> Iterator[PhaseEvent | CompleteEvent]:
+    """Phase-by-phase execution of /next-step.
+
+    Yields PhaseEvent on every started/completed boundary and a final
+    CompleteEvent with the persisted Node. Both /next-step (drained)
+    and /next-step/stream (forwarded as SSE) consume this iterator.
+
+    ``triggered_from_node`` carries the click-trail Node when the
+    request was raised from a Folge-Knoten (e.g. a Bewertungs-Tile).
+    The node_id is persisted on the spawned plan_proposal so the layout
+    can draw a "triggered-from" edge, and the planner gets a context
+    block instructing it to deepen the trace rather than re-run the
+    same evaluation.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
-    if sd is None:
-        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
-    meta = read_meta(sd)
-    if meta is None:
-        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
-    nodes, _ = read_session(sd)
-    anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
-    if anchor is None:
-        raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
+    t0 = time.monotonic()
 
-    available_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
+    def now_ms() -> int:
+        return int((time.monotonic() - t0) * 1000)
+
+    # ── Phase 1: gather_guidance (split passive vs active) ────────────
+    p_start = time.monotonic()
+    yield PhaseEvent(
+        phase="gather_guidance",
+        status="started",
+        label="Heuristiken sammeln",
+        ms_since_run_start=now_ms(),
+    )
+    extra_system, active_with_refs, guidance_refs = _gather_guidance_split(
+        cfg.data_root, meta, "next_step", anchor=anchor
+    )
+    yield PhaseEvent(
+        phase="gather_guidance",
+        status="completed",
+        label="Heuristiken sammeln",
+        ms_since_run_start=now_ms(),
+        ms_elapsed=int((time.monotonic() - p_start) * 1000),
+        payload={
+            "active_guidance": [g.__dict__ for g in guidance_refs],
+            "extra_system_chars": len(extra_system or ""),
+            "active_skill_count": len(active_with_refs),
+        },
+    )
+
+    # ── Phase 2: gather_tools ─────────────────────────────────────────
+    p_start = time.monotonic()
+    yield PhaseEvent(
+        phase="gather_tools",
+        status="started",
+        label="Tool-Hinweise sammeln",
+        ms_since_run_start=now_ms(),
+    )
+    available_steps = list(_VALID_STEPS_FOR_KIND.get(anchor.kind, []))
+    # Click-trail constraint: when the run was triggered from a
+    # Bewertungs-Tile (evaluation Node) on its parent search_result,
+    # `evaluate` is structurally removed from the available steps —
+    # the hit was just evaluated, the user wants to deepen, not
+    # re-bewerten. Forces the planner to pick decompose_hit /
+    # promote_search_result / propose_stop.
+    if (
+        triggered_from_node is not None
+        and triggered_from_node.kind == "evaluation"
+        and anchor.kind == "search_result"
+        and "evaluate" in available_steps
+    ):
+        available_steps = [s for s in available_steps if s != "evaluate"]
+    # investigate_table is only applicable to table-typed search_results.
+    # Strip it from the offer set otherwise so the planner can't pick it
+    # for text/figure hits.
+    if (
+        anchor.kind == "search_result"
+        and str(anchor.payload.get("box_kind", "")) != "table"
+        and "investigate_table" in available_steps
+    ):
+        available_steps = [s for s in available_steps if s != "investigate_table"]
     tools_summary = _summarize_tools_for_planner()
-    extra_system, guidance_refs = _gather_guidance(cfg.data_root, meta, "next_step")
-    plan = _llm_next_step(
+    yield PhaseEvent(
+        phase="gather_tools",
+        status="completed",
+        label="Tool-Hinweise sammeln",
+        ms_since_run_start=now_ms(),
+        ms_elapsed=int((time.monotonic() - p_start) * 1000),
+        payload={
+            "available_steps": available_steps,
+            "anchor_kind": anchor.kind,
+            "tools_summary_chars": len(tools_summary or ""),
+        },
+    )
+
+    # ── Phase 3: llm_call — Meta-Planner (Layer 1) ────────────────────
+    full_system = NEXT_STEP_SYSTEM + (extra_system or "") + _NO_THINK
+    anchor_preview = (
+        str(anchor.payload.get("text", ""))[:300]
+        or str(anchor.payload.get("query", ""))[:300]
+        or ""
+    )
+    p_start = time.monotonic()
+    yield PhaseEvent(
+        phase="llm_call",
+        status="started",
+        label="L1 Meta-Planer LLM-Call",
+        ms_since_run_start=now_ms(),
+        payload={
+            "model": get_default_model(),
+            "system_prompt_chars": len(full_system),
+            "system_prompt_preview": full_system[:800],
+            "anchor_text_preview": anchor_preview,
+            "session_goal": meta.goal,
+        },
+    )
+    meta_plan = _llm_next_step(
         anchor,
         meta.goal,
         available_steps,
         tools_summary,
         extra_system=extra_system,
+        triggered_from_node=triggered_from_node,
+    )
+    yield PhaseEvent(
+        phase="llm_call",
+        status="completed",
+        label="L1 Meta-Planer LLM-Call",
+        ms_since_run_start=now_ms(),
+        ms_elapsed=int((time.monotonic() - p_start) * 1000),
+        payload={
+            "kind": meta_plan["kind"],
+            "name": meta_plan.get("name", ""),
+            "reasoning": meta_plan.get("reasoning", ""),
+            "goal_alignment": meta_plan.get("goal_alignment", ""),
+            "confidence": meta_plan.get("confidence", 0.0),
+            "tool": meta_plan.get("tool"),
+            "approach_id": meta_plan.get("approach_id"),
+        },
     )
 
-    # Validate executable_step output: the picked name MUST be in the
-    # registered list for this anchor kind. LLM hallucinations (e.g.
-    # picking "search" for a chunk where only extract_claims is valid)
-    # get demoted to manual_review with the inconsistency captured in
-    # description — visible in audit, doesn't trigger an invalid step.
+    # ── Phase 4..N: skill_call:idx — Layer 2 active specialists ───────
+    skill_outputs: list[dict] = []
+    for idx, (approach, _ref) in enumerate(active_with_refs):
+        phase_id = f"skill_call:{idx}"
+        label = f"L2 Spezialist: {approach.name}"
+        p_start = time.monotonic()
+        yield PhaseEvent(
+            phase=phase_id,
+            status="started",
+            label=label,
+            ms_since_run_start=now_ms(),
+            payload={
+                "approach_id": approach.approach_id,
+                "approach_name": approach.name,
+                "approach_extra_system_preview": approach.extra_system[:400],
+            },
+        )
+        skill_out = _llm_active_skill(
+            skill_name=approach.name,
+            skill_extra_system=approach.extra_system,
+            anchor=anchor,
+            session_goal=meta.goal,
+            available_steps=available_steps,
+        )
+        skill_out["skill_name"] = approach.name
+        skill_out["approach_id"] = approach.approach_id
+        skill_outputs.append(skill_out)
+        yield PhaseEvent(
+            phase=phase_id,
+            status="completed",
+            label=label,
+            ms_since_run_start=now_ms(),
+            ms_elapsed=int((time.monotonic() - p_start) * 1000),
+            payload={
+                "approach_id": approach.approach_id,
+                "approach_name": approach.name,
+                "reasoning": skill_out.get("reasoning", ""),
+                "suggested_step": skill_out.get("suggested_step", ""),
+                "confidence": skill_out.get("confidence", 0.0),
+            },
+        )
+
+    # ── Phase N+1: coordinate — Layer 3 synthesis (only when L2 ran) ──
+    if active_with_refs:
+        p_start = time.monotonic()
+        yield PhaseEvent(
+            phase="coordinate",
+            status="started",
+            label="L3 Koordinator LLM-Call",
+            ms_since_run_start=now_ms(),
+            payload={
+                "skill_count": len(skill_outputs),
+                "meta_pick": f"{meta_plan.get('kind')}/{meta_plan.get('name', '')}",
+                "skill_picks": [
+                    f"{s.get('skill_name')}→{s.get('suggested_step') or '(leer)'}"
+                    for s in skill_outputs
+                ],
+            },
+        )
+        plan = _llm_coordinator(
+            meta_plan=meta_plan,
+            skill_outputs=skill_outputs,
+            anchor=anchor,
+            session_goal=meta.goal,
+            available_steps=available_steps,
+            tools_summary=tools_summary,
+        )
+        yield PhaseEvent(
+            phase="coordinate",
+            status="completed",
+            label="L3 Koordinator LLM-Call",
+            ms_since_run_start=now_ms(),
+            ms_elapsed=int((time.monotonic() - p_start) * 1000),
+            payload={
+                "kind": plan["kind"],
+                "name": plan.get("name", ""),
+                "reasoning": plan.get("reasoning", ""),
+                "goal_alignment": plan.get("goal_alignment", ""),
+                "confidence": plan.get("confidence", 0.0),
+            },
+        )
+    else:
+        plan = meta_plan
+
+    # ── Phase: validate (clamp invalid step picks + auto-promote) ─────
+    p_start = time.monotonic()
+    yield PhaseEvent(
+        phase="validate",
+        status="started",
+        label="Step-Wahl validieren",
+        ms_since_run_start=now_ms(),
+    )
+    invalid_step_picked: str | None = None
+    promoted_from_kind: str | None = None
     if (
         plan["kind"] == "executable_step"
         and available_steps
         and plan["name"] not in available_steps
     ):
-        invalid_name = plan["name"]
+        invalid_step_picked = plan["name"]
         plan = {
             **plan,
             "kind": "manual_review",
             "name": "Ungültige Step-Wahl",
             "description": (
-                f"Der Agent hat '{invalid_name}' für einen Knoten vom Typ "
+                f"Der Agent hat '{invalid_step_picked}' für einen Knoten vom Typ "
                 f"'{anchor.kind}' gewählt — das steht aber nicht in den "
                 f"verfügbaren Steps ({', '.join(available_steps)}). "
                 "Wahrscheinlich LLM-Halluzination. Bitte manuell prüfen "
                 "oder den Vorschlag verwerfen."
             ),
         }
+    # Auto-promote: when the LLM picks kind=manual_review (oder
+    # capability_request) but names a registered executable_step from
+    # available_steps, that is a Präzedenz-Fehler — der Step existiert
+    # und ist autonom ausführbar. Den Vorschlag deterministisch zum
+    # executable_step zurückbiegen statt den User mit einer
+    # Pseudo-Mensch-Aufgabe zu konfrontieren.
+    elif (
+        plan["kind"] in ("manual_review", "capability_request")
+        and available_steps
+        and plan.get("name") in available_steps
+    ):
+        promoted_from_kind = plan["kind"]
+        plan = {
+            **plan,
+            "kind": "executable_step",
+            "description": (
+                f"[Auto-promoted from {promoted_from_kind}] " + str(plan.get("description") or "")
+            ),
+        }
+    yield PhaseEvent(
+        phase="validate",
+        status="completed",
+        label="Step-Wahl validieren",
+        ms_since_run_start=now_ms(),
+        ms_elapsed=int((time.monotonic() - p_start) * 1000),
+        payload={
+            "ok": invalid_step_picked is None,
+            "demoted_from": invalid_step_picked,
+            "promoted_from": promoted_from_kind,
+            "final_kind": plan["kind"],
+            "final_name": plan.get("name", ""),
+        },
+    )
 
+    # ── Phase: persist ────────────────────────────────────────────────
+    p_start = time.monotonic()
+    yield PhaseEvent(
+        phase="persist",
+        status="started",
+        label="Knoten schreiben",
+        ms_since_run_start=now_ms(),
+    )
     actor = resolve_provider(body.provider)
-    # All three outcomes share the same Node shape, only the kind differs.
-    # That keeps the audit trail uniform: one Node per "what the agent said
-    # to do next", with kind discriminating the type.
     out_kind = {
         "executable_step": "plan_proposal",
         "capability_request": "capability_request",
         "manual_review": "manual_review",
     }[plan["kind"]]
-    # Audit: capture the literal system_prompt the LLM saw (NEXT_STEP_SYSTEM
-    # plus any approach overlays) and the input summary so the panel can
-    # show "where this reasoning comes from."
-    full_system = NEXT_STEP_SYSTEM + (extra_system or "")
+    audit_label = (
+        "Was als nächstes? (Multi-Agent: Meta + L2 Skills + Coordinator)"
+        if active_with_refs
+        else "Was als nächstes? (POST /next-step → _llm_next_step)"
+    )
     audit = {
-        "source_label": "Was als nächstes? (POST /next-step → _llm_next_step)",
+        "source_label": audit_label,
         "system_prompt_used": full_system,
         "input_summary": {
             "anchor_kind": anchor.kind,
-            "anchor_text_preview": str(anchor.payload.get("text", ""))[:300]
-            or str(anchor.payload.get("query", ""))[:300]
-            or "",
+            "anchor_text_preview": anchor_preview,
             "session_goal": meta.goal,
             "available_steps": available_steps,
             "tools_summary": tools_summary,
         },
         "guidance_consulted": [g.__dict__ for g in guidance_refs],
+        # Multi-agent transparency: when active skills fired, persist
+        # the meta-plan + each skill's verbatim output so the audit
+        # panel can reconstruct the full L1+L2+L3 chain. Empty list
+        # when no active skills participated.
+        "meta_plan": dict(meta_plan) if active_with_refs else None,
+        "skill_outputs": skill_outputs,
     }
     node = append_node(
         sd,
@@ -2174,12 +5944,127 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
             payload={
                 **plan,
                 "anchor_node_id": body.anchor_node_id,
+                # Click-trail: empty string when this run came from a
+                # direct-anchor click. Non-empty when "Was als nächstes?"
+                # was invoked from a Folge-Knoten (e.g. Bewertungs-Tile)
+                # — the layout reads this to draw the "triggered-from"
+                # edge from the trail node back to this plan_proposal.
+                "triggered_from_node_id": (body.triggered_from_node_id or ""),
                 "audit": audit,
             },
             actor=actor,
         ),
     )
-    return node.__dict__
+    yield PhaseEvent(
+        phase="persist",
+        status="completed",
+        label="Knoten schreiben",
+        ms_since_run_start=now_ms(),
+        ms_elapsed=int((time.monotonic() - p_start) * 1000),
+        payload={"node_id": node.node_id, "node_kind": out_kind},
+    )
+
+    yield CompleteEvent(node=node.__dict__)
+
+
+def _resolve_next_step_inputs(
+    cfg: Any, session_id: str, body: NextStepRequest
+) -> tuple[Path, SessionMeta, Node, Node | None]:
+    """Pre-flight resolution shared by both /next-step variants.
+
+    Returns ``(session_dir, meta, anchor, triggered_from_node)`` —
+    the trail node is None when ``body.triggered_from_node_id`` is
+    unset or doesn't resolve. A missing trail node is non-fatal (the
+    click-trail is purely informational); only the anchor must exist.
+
+    Raises HTTPException 404 if session/meta/anchor are missing.
+    """
+    sd = _find_session_dir(cfg.data_root, session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+    meta = read_meta(sd)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"session meta missing: {session_id}")
+    nodes, _ = read_session(sd)
+    anchor = next((n for n in nodes if n.node_id == body.anchor_node_id), None)
+    if anchor is None:
+        raise HTTPException(status_code=404, detail=f"anchor node not found: {body.anchor_node_id}")
+    triggered_from_node: Node | None = None
+    if body.triggered_from_node_id:
+        triggered_from_node = next(
+            (n for n in nodes if n.node_id == body.triggered_from_node_id), None
+        )
+    return sd, meta, anchor, triggered_from_node
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/next-step",
+    status_code=201,
+)
+async def next_step(session_id: str, body: NextStepRequest, request: Request) -> dict:
+    """Open-ended planner — the primary "Was als nächstes?" surface.
+
+    Drains the phase generator and returns the persisted Node. Use
+    /next-step/stream for the live-run UI variant.
+    """
+    cfg = request.app.state.config
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
+    final: dict | None = None
+    for ev in _next_step_run(
+        cfg=cfg,
+        session_id=session_id,
+        body=body,
+        anchor=anchor,
+        meta=meta,
+        sd=sd,
+        triggered_from_node=triggered_from_node,
+    ):
+        if isinstance(ev, CompleteEvent):
+            final = ev.node
+    assert final is not None, "next_step_run terminated without a CompleteEvent"
+    return final
+
+
+@router.post("/api/admin/provenienz/sessions/{session_id}/next-step/stream")
+async def next_step_stream(
+    session_id: str, body: NextStepRequest, request: Request
+) -> StreamingResponse:
+    """SSE variant of /next-step — emits one event per phase boundary
+    so the frontend can render a live-run panel.
+
+    Event types:
+      - ``phase``    : PhaseEvent (started/completed/failed)
+      - ``complete`` : CompleteEvent with the persisted Node
+      - ``error``    : unexpected exception during run
+    """
+    cfg = request.app.state.config
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
+
+    def event_stream() -> Iterator[str]:
+        try:
+            for ev in _next_step_run(
+                cfg=cfg,
+                session_id=session_id,
+                body=body,
+                anchor=anchor,
+                meta=meta,
+                sd=sd,
+                triggered_from_node=triggered_from_node,
+            ):
+                if isinstance(ev, PhaseEvent):
+                    yield f"event: phase\ndata: {json.dumps(asdict(ev), ensure_ascii=False)}\n\n"
+                else:
+                    yield f"event: complete\ndata: {json.dumps(asdict(ev), ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            _log.exception("next_step_stream failed")
+            err = {"type": "error", "message": str(exc)}
+            yield f"event: error\ndata: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post(
@@ -2192,7 +6077,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
 
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     proposal = next((n for n in nodes if n.node_id == body.proposal_node_id), None)
     if proposal is None:
         raise HTTPException(
@@ -2236,6 +6121,20 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
     # 2. Dispatch on step_kind.
     step_kind = proposal.payload["step_kind"]
     spawned_nodes: list[Node] = []
+    # Trail-as-Trunk: when the action_proposal carries a click-trail
+    # (set by /extract-claims, /formulate-task, /search, /evaluate,
+    # /decompose-hit, /propose-stop step routes when triggered_from_node_id
+    # was forwarded from the frontend), every node spawned by this
+    # decision inherits the same trail. The layout reads the trail to
+    # render a single visual strand "Bewertung → plan → action → new_node"
+    # instead of branching back to the structural anchor.
+    trail_id = str(proposal.payload.get("triggered_from_node_id", "") or "")
+    trail_node = next((n for n in nodes if n.node_id == trail_id), None) if trail_id else None
+
+    def _payload_with_trail(payload: dict) -> dict:
+        if trail_id:
+            return {**payload, "triggered_from_node_id": trail_id}
+        return payload
 
     if step_kind == "extract_claims":
         anchor_chunk = proposal.payload["anchor_node_id"]
@@ -2244,24 +6143,85 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         # Batched per-claim goal extraction. Best-effort: failure → "" goals.
         claim_meta = read_meta(sd)
         session_goal_for_extract = claim_meta.goal if claim_meta else ""
+        # Pass the source chunk text along so the LLM can form
+        # context-aware research questions ("Welche Wärmeleistung hat
+        # TRINO?" rather than "Welche Wärmeleistung?").
+        chunk_for_goals = next((n for n in nodes if n.node_id == anchor_chunk), None)
+        chunk_text_for_goals = (
+            str(chunk_for_goals.payload.get("text", "")) if chunk_for_goals is not None else ""
+        )
         try:
-            claim_goals = _llm_extract_claim_goals(claim_texts, session_goal_for_extract, "vllm")
+            claim_goals = _llm_extract_claim_goals(
+                claim_texts,
+                session_goal_for_extract,
+                "vllm",
+                chunk_text=chunk_text_for_goals,
+            )
         except Exception as exc:
             _log.warning("extract_claim_goals failed: %s", exc)
             claim_goals = [""] * len(claim_texts)
+        # Auto-extract per-claim enrichment annotations via enrichment
+        # skills that fire on ``extract_claims`` and attach to claims.
+        # The default ``claim_background`` skill is seeded by the
+        # legacy-to-skills migration; users can register additional
+        # skills (or disable the default) without touching this code.
+        from local_pdf.provenienz.skill_dispatcher import (
+            list_enrichment_skills,
+            run_enrichment_skill,
+        )
+
+        enrichment_skills = [
+            s
+            for s in list_enrichment_skills(cfg.data_root, fires_on="extract_claims")
+            if s.output.attaches_to == "claim"
+        ]
+        skill_results: dict[str, list[str]] = {}
+        for skill in enrichment_skills:
+            try:
+                skill_results[skill.skill_id] = run_enrichment_skill(
+                    skill,
+                    claim_texts,
+                    chunk_text=chunk_text_for_goals,
+                    data_root=cfg.data_root,
+                )
+            except Exception as exc:
+                _log.warning("enrichment skill %s failed: %s", skill.name, exc)
+                skill_results[skill.skill_id] = [""] * len(claim_texts)
+        # Claims inherit recursion_depth from the chunk they're extracted
+        # from. Pre-unification chunks miss the field → fall back to 0.
+        chunk_depth = (
+            int(chunk_for_goals.payload.get("recursion_depth", 0))
+            if chunk_for_goals is not None
+            else 0
+        )
+        # Forward-flow context for claims: inherit from the origin
+        # chunk so a later /search on a task derived from this claim
+        # sees the full ancestor visited_box_ids list.
+        claim_parent_context = (
+            get_context(chunk_for_goals.payload) if chunk_for_goals is not None else empty_context()
+        )
         for idx, ct in enumerate(claim_texts):
             goal_for_claim = claim_goals[idx] if idx < len(claim_goals) else ""
+            claim_node_id = new_id()
+            claim_context = merge_contexts(
+                claim_parent_context,
+                {"origin_chain": [origin_entry(claim_node_id, "claim", ct[:160])]},
+            )
             claim = append_node(
                 sd,
                 Node(
-                    node_id=new_id(),
+                    node_id=claim_node_id,
                     session_id=session_id,
                     kind="claim",
-                    payload={
-                        "text": ct,
-                        "source_node_id": anchor_chunk,
-                        "goal": goal_for_claim,
-                    },
+                    payload=_payload_with_trail(
+                        {
+                            "text": ct,
+                            "source_node_id": anchor_chunk,
+                            "goal": goal_for_claim,
+                            "recursion_depth": chunk_depth,
+                            "context": claim_context,
+                        }
+                    ),
                     actor=claim_actor,
                 ),
             )
@@ -2294,6 +6254,49 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                     ),
                 )
             )
+            # Per-claim enrichment annotations — one Node per enrichment
+            # skill that produced a non-empty result for this claim.
+            # Empty results are LLM-signalled "nothing to add" / parse
+            # failure → skipped silently.
+            for skill in enrichment_skills:
+                results = skill_results.get(skill.skill_id, [])
+                ann_text = results[idx] if idx < len(results) else ""
+                if not ann_text or not ann_text.strip():
+                    continue
+                ann_node = append_node(
+                    sd,
+                    Node(
+                        node_id=new_id(),
+                        session_id=session_id,
+                        kind=skill.output.annotation_kind,
+                        payload=_payload_with_trail(
+                            {
+                                "text": ann_text.strip(),
+                                "claim_node_id": claim.node_id,
+                                "source_chunk_node_id": anchor_chunk,
+                                "skill_id": skill.skill_id,
+                                "skill_name": skill.name,
+                                "skill_version": skill.version,
+                            }
+                        ),
+                        actor="system",
+                    ),
+                )
+                spawned_nodes.append(ann_node)
+                spawned_edges.append(
+                    append_edge(
+                        sd,
+                        Edge(
+                            edge_id=new_id(),
+                            session_id=session_id,
+                            from_node=ann_node.node_id,
+                            to_node=claim.node_id,
+                            kind="enriches",
+                            reason=None,
+                            actor="system",
+                        ),
+                    )
+                )
         _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         # Auto-extract the session goal off the *first* claim. Best-effort —
         # failures are logged + swallowed inside the helper.
@@ -2301,6 +6304,171 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             decide_meta = read_meta(sd)
             if decide_meta is not None:
                 _maybe_extract_goal(cfg, sd, decide_meta, claim_texts[0])
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "decompose_hit":
+        anchor_sr = proposal.payload["anchor_node_id"]
+        sub_texts = []
+        if body.accepted == "recommended":
+            sub_texts = list(
+                proposal.payload["recommended"]["args"].get("sub_statements", []) or []
+            )
+        sub_actor = "human" if body.accepted == "override" else proposal.actor
+        # Evaluation breadcrumbs for sub_statements: when the action_proposal
+        # carries a trail pointing at an evaluation Node, attach the verdict
+        # + reasoning to each spawned sub_statement so the downstream prompt
+        # context (and side-panel) can show why this fact is being checked.
+        sub_breadcrumbs: dict[str, str] = {}
+        if trail_node is not None and trail_node.kind == "evaluation":
+            sub_breadcrumbs = {
+                "origin_evaluation_id": trail_node.node_id,
+                "origin_evaluation_verdict": str(trail_node.payload.get("verdict", "")),
+                "origin_evaluation_reasoning": str(trail_node.payload.get("reasoning", ""))[:400],
+            }
+        for sub_text in sub_texts:
+            if not isinstance(sub_text, str) or not sub_text.strip():
+                continue
+            sub_node = append_node(
+                sd,
+                Node(
+                    node_id=new_id(),
+                    session_id=session_id,
+                    kind="sub_statement",
+                    payload=_payload_with_trail(
+                        {
+                            "text": sub_text.strip(),
+                            "parent_search_result_id": anchor_sr,
+                            **sub_breadcrumbs,
+                        }
+                    ),
+                    actor=sub_actor,
+                ),
+            )
+            spawned_nodes.append(sub_node)
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=sub_node.node_id,
+                        to_node=anchor_sr,
+                        kind="extracts-from",
+                        reason=None,
+                        actor=sub_actor,
+                    ),
+                )
+            )
+            spawned_edges.append(
+                append_edge(
+                    sd,
+                    Edge(
+                        edge_id=new_id(),
+                        session_id=session_id,
+                        from_node=decision_landed.node_id,
+                        to_node=sub_node.node_id,
+                        kind="triggers",
+                        reason=None,
+                        actor="human",
+                    ),
+                )
+            )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
+        return {
+            "decision_node": decision_landed.__dict__,
+            "spawned_nodes": [n.__dict__ for n in spawned_nodes],
+            "spawned_edges": [e.__dict__ for e in spawned_edges],
+        }
+
+    if step_kind == "promote_search_result":
+        # The proposal carries the full chunk payload (built at proposal-time
+        # by walking the search_result's audit chain). On accept we just
+        # materialise it into a chunk Node and wire the standard
+        # decision → triggers → chunk + chunk → search_result (promoted-from)
+        # edges. Override is not supported v1 — the promote step has no free
+        # parameters the user could meaningfully override.
+        anchor_sr_id = proposal.payload["anchor_node_id"]
+        if body.accepted == "override":
+            raise HTTPException(
+                status_code=400,
+                detail="override path not supported for promote_search_result step (v1)",
+            )
+        if body.accepted == "recommended":
+            chunk_args = dict(proposal.payload["recommended"]["args"] or {})
+        else:  # alt
+            idx = body.alt_index or 0
+            alts = proposal.payload.get("alternatives", [])
+            if not (0 <= idx < len(alts)):
+                raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
+            chunk_args = dict(alts[idx]["args"] or {})
+        # Trail propagation: mirror the other branches — the proposal-level
+        # trail (read off the proposal payload) is the source of truth for
+        # what the chunk should carry. The args copy from
+        # _build_promoted_chunk_payload happens to set the same value at
+        # proposal-creation time, but we re-apply here so the chunk stays
+        # consistent with `_payload_with_trail` semantics used elsewhere.
+        chunk_args.pop("triggered_from_node_id", None)
+        # Stamp this chunk's origin_chain entry now that we have a
+        # concrete node_id. The helper that built chunk_args already
+        # populated visited_box_ids + recursion_depth; we just append
+        # the breadcrumb.
+        chunk_node_id = new_id()
+        # get_context normalises whatever shape arrived in chunk_args
+        # (dict-from-JSON or already-typed NodeContext) into a clean
+        # NodeContext so the type checker stops complaining about the
+        # union return.
+        existing_ctx = get_context(chunk_args)
+        chunk_text_for_label = str(chunk_args.get("text", ""))[:160] or str(
+            chunk_args.get("box_id", "")
+        )
+        chunk_args["context"] = merge_contexts(
+            existing_ctx,
+            {"origin_chain": [origin_entry(chunk_node_id, "chunk", chunk_text_for_label)]},
+        )
+        chunk_node = append_node(
+            sd,
+            Node(
+                node_id=chunk_node_id,
+                session_id=session_id,
+                kind="chunk",
+                payload=_payload_with_trail(chunk_args),
+                actor="human",
+            ),
+        )
+        spawned_nodes.append(chunk_node)
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=decision_landed.node_id,
+                    to_node=chunk_node.node_id,
+                    kind="triggers",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        spawned_edges.append(
+            append_edge(
+                sd,
+                Edge(
+                    edge_id=new_id(),
+                    session_id=session_id,
+                    from_node=chunk_node.node_id,
+                    to_node=anchor_sr_id,
+                    kind="promoted-from",
+                    reason=None,
+                    actor="human",
+                ),
+            )
+        )
+        _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
             "spawned_nodes": [n.__dict__ for n in spawned_nodes],
@@ -2324,13 +6492,33 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         if not query.strip():
             raise HTTPException(status_code=400, detail="query is empty")
         task_actor = "human" if body.accepted == "override" else proposal.actor
+        # Forward-flow context for tasks: inherit from the focus claim
+        # (which inherited from its origin chunk). search_step's
+        # exclude_box_ids comes from this context's visited_box_ids.
+        anchor_claim_node = next((n for n in nodes if n.node_id == anchor_claim_id), None)
+        task_parent_context = (
+            get_context(anchor_claim_node.payload)
+            if anchor_claim_node is not None
+            else empty_context()
+        )
+        task_node_id = new_id()
+        task_context = merge_contexts(
+            task_parent_context,
+            {"origin_chain": [origin_entry(task_node_id, "task", query[:160])]},
+        )
         task_node = append_node(
             sd,
             Node(
-                node_id=new_id(),
+                node_id=task_node_id,
                 session_id=session_id,
                 kind="task",
-                payload={"query": query, "focus_claim_id": anchor_claim_id},
+                payload=_payload_with_trail(
+                    {
+                        "query": query,
+                        "focus_claim_id": anchor_claim_id,
+                        "context": task_context,
+                    }
+                ),
                 actor=task_actor,
             ),
         )
@@ -2385,14 +6573,57 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             if not (0 <= idx < len(alts)):
                 raise HTTPException(status_code=400, detail=f"alt_index out of range: {idx}")
             hits = alts[idx]["args"].get("hits", [])
+        # Forward-flow context for search_results: inherit from the
+        # task. When a hit lands in a foreign slug (cross-doc search)
+        # the slug is added to visited_doc_slugs so a future
+        # cross-doc step doesn't loop back into it.
+        anchor_task_node = next((n for n in nodes if n.node_id == anchor_task_id), None)
+        sr_parent_context = (
+            get_context(anchor_task_node.payload)
+            if anchor_task_node is not None
+            else empty_context()
+        )
         for h in hits:
+            # Enrich the hit's payload with structured box metadata
+            # (page / box_kind / reading_order / bbox / continues_*)
+            # from segments.json. Lets the agent + UI reason about
+            # whether a hit is a table / figure / paragraph, on which
+            # page, in which reading-order position. Falls back to {}
+            # if segments.json is missing or the box_id isn't found.
+            sr_metadata = _load_box_metadata(
+                cfg.data_root,
+                str(h.get("doc_slug", "")),
+                str(h.get("box_id", "")),
+            )
+            sr_node_id = new_id()
+            hit_doc_slug = str(h.get("doc_slug", ""))
+            sr_context = merge_contexts(
+                sr_parent_context,
+                {
+                    "visited_doc_slugs": [hit_doc_slug] if hit_doc_slug else [],
+                    "origin_chain": [
+                        origin_entry(
+                            sr_node_id,
+                            "search_result",
+                            str(h.get("text", ""))[:160] or str(h.get("box_id", "")),
+                        )
+                    ],
+                },
+            )
             sr = append_node(
                 sd,
                 Node(
-                    node_id=new_id(),
+                    node_id=sr_node_id,
                     session_id=session_id,
                     kind="search_result",
-                    payload={**h, "task_node_id": anchor_task_id},
+                    payload=_payload_with_trail(
+                        {
+                            **h,
+                            "task_node_id": anchor_task_id,
+                            "context": sr_context,
+                            **sr_metadata,
+                        }
+                    ),
                     actor=proposal.actor,
                 ),
             )
@@ -2451,20 +6682,179 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 "reasoning": body.override,
                 "against_claim_id": rec_args.get("against_claim_id"),
             }
+        # Auto-heal: legacy or partially-baked evaluate proposals may
+        # arrive without verdict (e.g. Semantik-Rueckpruefung proposals
+        # spawned before pre-baking landed). Fire the LLM inline so the
+        # rest of this branch sees a fully-populated args dict instead
+        # of crashing on args["verdict"]. The investigation_axis flag,
+        # when present, picks the right extra_system; the
+        # session-handle bundle (sd/session_id/edges/data_root) lets
+        # the helper auto-fire deterministic tools and feed the
+        # TableConsistency report into the LLM prompt.
+        if "verdict" not in args:
+            args = _backfill_evaluate_args(
+                args,
+                anchor_sr_id,
+                nodes,
+                sd=sd,
+                session_id=session_id,
+                edges=edges,
+                data_root=cfg.data_root,
+            )
         eval_actor = "human" if body.accepted == "override" else proposal.actor
+        # Run the reactive-capability scan FIRST so the per-approach
+        # summary (matched + considered-but-not-matched) lands on the
+        # evaluation Node payload itself. The user can then see "0/3
+        # capabilities triggered" even when no gate is shown, plus the
+        # *reasons* per non-match for debugging.
+        capability_scan: list[dict] = []
+        capability_matches: list[tuple] = []
+        try:
+            sentence_texts_for_scan = [
+                str((s or {}).get("text", ""))
+                for s in args.get("sentences", []) or []
+                if isinstance(s, dict)
+            ]
+            sr_for_claim = next((n for n in nodes if n.node_id == anchor_sr_id), None)
+            claim_id_for_scan = args.get("against_claim_id") or ""
+            if not claim_id_for_scan and sr_for_claim is not None:
+                task_id_scan = sr_for_claim.payload.get("task_node_id")
+                tnode_scan = (
+                    next((n for n in nodes if n.node_id == task_id_scan), None)
+                    if task_id_scan
+                    else None
+                )
+                claim_id_for_scan = (
+                    str(tnode_scan.payload.get("focus_claim_id")) if tnode_scan else ""
+                )
+            cnode_scan = (
+                next((n for n in nodes if n.node_id == claim_id_for_scan), None)
+                if claim_id_for_scan
+                else None
+            )
+            claim_text_for_scan = (
+                str(cnode_scan.payload.get("text", ""))
+                if cnode_scan is not None and cnode_scan.kind == "claim"
+                else ""
+            )
+            all_apps_for_scan = read_approaches(cfg.data_root, enabled_only=True)
+            verdict_str = str(args.get("verdict", ""))
+            # B: walk back through the eval-chain (prior_evaluation_node_id
+            # links one re-eval to its predecessor) and collect all skill
+            # IDs that were already injected into prompts. Filter them out
+            # so we don't re-fire skills that already had their say —
+            # otherwise re-eval → same skills → same gate → infinite loop.
+            already_applied = _collect_applied_capabilities_in_chain(
+                args.get("prior_evaluation_node_id", ""), nodes
+            )
+            relevant_apps_for_scan = [
+                a for a in all_apps_for_scan if a.approach_id not in already_applied
+            ]
+            capability_matches = scan_capabilities(
+                relevant_apps_for_scan,
+                verdict=verdict_str,
+                sentence_texts=sentence_texts_for_scan,
+                claim_text=claim_text_for_scan,
+            )
+            # Build per-approach summary covering EVERY enabled approach
+            # with non-empty triggers, matched or not. Lets the eval
+            # panel show the full skill-scan, not just the winners.
+            matched_ids = set()
+            for top, _, subs in capability_matches:
+                matched_ids.add(top.approach_id)
+                for sub, _ in subs:
+                    matched_ids.add(sub.approach_id)
+            for app in all_apps_for_scan:
+                if not app.triggers:
+                    continue
+                ok, reasons = match_triggers(
+                    app.triggers,
+                    verdict=verdict_str,
+                    sentence_texts=sentence_texts_for_scan,
+                    claim_text=claim_text_for_scan,
+                )
+                is_applied = app.approach_id in already_applied
+                if is_applied:
+                    reasons = ["Bereits in einem früheren Re-Eval auf dieser Eval-Kette angewendet"]
+                capability_scan.append(
+                    {
+                        "approach_id": app.approach_id,
+                        "name": app.name,
+                        "parent_capability": app.parent_capability or "",
+                        "matched": ok and app.approach_id in matched_ids,
+                        "applied_previously": is_applied,
+                        "reasons": reasons,
+                    }
+                )
+        except Exception as exc:
+            _log.warning("capability scan pre-eval failed: %s", exc)
+            capability_scan = []
+            capability_matches = []
+
+        # Forward-flow context for evaluations: inherit from the
+        # search_result that's being evaluated.
+        anchor_sr_node = next((n for n in nodes if n.node_id == anchor_sr_id), None)
+        eval_parent_context = (
+            get_context(anchor_sr_node.payload) if anchor_sr_node is not None else empty_context()
+        )
+        eval_node_id = new_id()
+        eval_context = merge_contexts(
+            eval_parent_context,
+            {
+                "origin_chain": [
+                    origin_entry(
+                        eval_node_id,
+                        "evaluation",
+                        f"{args['verdict']} · {str(args.get('reasoning', ''))[:120]}",
+                    )
+                ],
+            },
+        )
         eval_node = append_node(
             sd,
             Node(
-                node_id=new_id(),
+                node_id=eval_node_id,
                 session_id=session_id,
                 kind="evaluation",
-                payload={
-                    "verdict": args["verdict"],
-                    "confidence": args["confidence"],
-                    "reasoning": args["reasoning"],
-                    "against_claim_id": args["against_claim_id"],
-                    "search_result_node_id": anchor_sr_id,
-                },
+                payload=_payload_with_trail(
+                    {
+                        "verdict": args["verdict"],
+                        "confidence": args["confidence"],
+                        "reasoning": args["reasoning"],
+                        "against_claim_id": args["against_claim_id"],
+                        "search_result_node_id": anchor_sr_id,
+                        "context": eval_context,
+                        # Carry the per-sentence enumeration through to the
+                        # evaluation node so the canvas tile / panel can
+                        # render the full audit without re-loading the
+                        # parent action_proposal.
+                        "sentences": args.get("sentences", []),
+                        "proposal_node_id": proposal.node_id,
+                        # Per-approach scan: which capabilities were
+                        # considered (have triggers != {}) and which fired.
+                        # Always present, even when empty / no matches.
+                        "capability_scan": capability_scan,
+                        # Tool-call audit — which deterministic tools
+                        # (Calculator, etc.) ran during this evaluate
+                        # step. Parallel to capability_scan but for
+                        # tools, not skills. Empty list when no tool
+                        # produced output.
+                        "tool_calls": args.get("tool_calls", []),
+                        # Capabilities that were injected into THIS
+                        # evaluate's prompt — used by future
+                        # capability_scans on descendant evals (via
+                        # prior_evaluation_node_id chain) to skip
+                        # already-applied skills, breaking the
+                        # gate-creation loop. Empty for first-time
+                        # evaluates; populated by re_evaluate_step.
+                        "applied_capabilities": args.get("capabilities_used", []),
+                        # Link to the eval that came before this one in
+                        # a re-eval chain — empty for first-time
+                        # evaluates, set when this eval was kicked off
+                        # from a capability_gate's re-eval flow.
+                        "prior_evaluation_node_id": args.get("prior_evaluation_node_id", ""),
+                    }
+                ),
                 actor=eval_actor,
             ),
         )
@@ -2497,6 +6887,92 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 ),
             )
         )
+        # ── Capability gate (only if at least one match) ─────────────────
+        # The scan itself ran above (pre-eval_node) so the per-approach
+        # summary is on eval_node.payload. Here we just persist the gate
+        # Node when at least one approach actually fired, so the canvas
+        # shows the orange "Re-evaluate?" tile.
+        #
+        # A — verdict-based gate threshold: at "good enough" verdicts
+        # (likely-source / partial-support) the investigation has
+        # converged on a position; further re-eval rarely flips it AND
+        # would create the gate-loop the user reported. Skills only
+        # gate-up the verdict if it's still in "needs work" territory:
+        # unrelated or contradicts.
+        gate_eligible = str(args.get("verdict", "")) in {
+            "unrelated",
+            "contradicts",
+        }
+        if capability_matches and gate_eligible:
+            try:
+                rules_preview_parts: list[str] = []
+                detected_summary: list[dict] = []
+                cap_ids: list[str] = []
+                for top, top_reasons, subs in capability_matches:
+                    cap_ids.append(top.approach_id)
+                    detected_summary.append(
+                        {
+                            "name": top.name,
+                            "approach_id": top.approach_id,
+                            "kind": "top",
+                            "reasons": top_reasons,
+                        }
+                    )
+                    if top.domain_rules:
+                        rules_preview_parts.append(f"## {top.name}\n{top.domain_rules}")
+                    for sub, sub_reasons in subs:
+                        cap_ids.append(sub.approach_id)
+                        detected_summary.append(
+                            {
+                                "name": sub.name,
+                                "approach_id": sub.approach_id,
+                                "kind": "sub",
+                                "parent": top.name,
+                                "reasons": sub_reasons,
+                            }
+                        )
+                        if sub.domain_rules:
+                            rules_preview_parts.append(
+                                f"## {sub.name} (sub von {top.name})\n{sub.domain_rules}"
+                            )
+                gate_node = append_node(
+                    sd,
+                    Node(
+                        node_id=new_id(),
+                        session_id=session_id,
+                        kind="capability_gate",
+                        payload=_payload_with_trail(
+                            {
+                                "evaluation_node_id": eval_node.node_id,
+                                "anchor_node_id": eval_node.node_id,
+                                "search_result_node_id": anchor_sr_id,
+                                "claim_node_id": claim_id_for_scan,
+                                "detected": detected_summary,
+                                "capability_ids": cap_ids,
+                                "loaded_rules_preview": "\n\n".join(rules_preview_parts),
+                                "status": "pending",
+                            }
+                        ),
+                        actor="system",
+                    ),
+                )
+                spawned_nodes.append(gate_node)
+                spawned_edges.append(
+                    append_edge(
+                        sd,
+                        Edge(
+                            edge_id=new_id(),
+                            session_id=session_id,
+                            from_node=eval_node.node_id,
+                            to_node=gate_node.node_id,
+                            kind="triggers-capability",
+                            reason=None,
+                            actor="system",
+                        ),
+                    )
+                )
+            except Exception as exc:
+                _log.warning("capability gate persist failed: %s", exc)
         _maybe_record_reason(cfg, body, proposal, step_kind, session_id)
         return {
             "decision_node": decision_landed.__dict__,
@@ -2525,11 +7001,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                 node_id=new_id(),
                 session_id=session_id,
                 kind="stop_proposal",
-                payload={
-                    "reason": args["reason"],
-                    "close_session": args["close_session"],
-                    "anchor_node_id": anchor_id,
-                },
+                payload=_payload_with_trail(
+                    {
+                        "reason": args["reason"],
+                        "close_session": args["close_session"],
+                        "anchor_node_id": anchor_id,
+                    }
+                ),
                 actor=stop_actor,
             ),
         )

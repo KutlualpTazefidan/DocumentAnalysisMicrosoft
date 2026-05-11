@@ -28,6 +28,12 @@ export function AgentInspector({ info, selectedId, onClose }: Props): JSX.Elemen
   }
   if (selectedId.startsWith("step:")) {
     const kind = selectedId.slice("step:".length);
+    // The Meta-Planer (next_step) lives on info.next_step, not info.steps —
+    // adapt to AgentStepInfo so StepView can render it uniformly.
+    if (kind === "next_step") {
+      const step: AgentStepInfo = { ...info.next_step, user_template: "" };
+      return <StepView info={info} step={step} onClose={onClose} />;
+    }
     const step = info.steps.find((s) => s.kind === kind);
     if (!step) return <NotFound onClose={onClose} />;
     return <StepView info={info} step={step} onClose={onClose} />;

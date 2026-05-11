@@ -27,7 +27,7 @@ class _FakeClient:
         self._text = response_text
         self.captured_system: str | None = None
 
-    def complete(self, *, messages, model):
+    def complete(self, *, messages, model, max_tokens=None, **_):
         for m in messages:
             if m.role == "system":
                 self.captured_system = m.content

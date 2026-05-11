@@ -1,5 +1,5 @@
 // frontend/src/admin/routes/extract.tsx
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ import { apiBase } from "../api/adminClient";
 import {
   useCreateBox,
   useDeleteBox,
+  useDetectRegisters,
   useMergeBoxDown,
   useMergeBoxUp,
   useResetBox,
@@ -30,6 +31,8 @@ import {
   useUpdateBox,
 } from "../hooks/useSegments";
 import { BoxPropertiesPanel } from "../components/BoxPropertiesPanel";
+import { RegisterClusterOverlay } from "../components/RegisterClusterOverlay";
+import { RegistersPanel } from "../components/RegistersPanel";
 import type { BoxKind } from "../types/domain";
 import {
   streamSegment,
@@ -37,7 +40,7 @@ import {
   useExtractRegion,
   useHtml,
   useMineru,
-  usePutHtml,
+  useUpdateElement,
 } from "../hooks/useExtract";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import { loadConf, effectiveThreshold } from "../lib/confThreshold";
@@ -105,7 +108,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const segments = useSegments(slug ?? "", token);
   const html = useHtml(slug ?? "", token);
   const mineru = useMineru(slug ?? "", token);
-  const putHtml = usePutHtml(slug ?? "", token);
+  const updateElement = useUpdateElement(slug ?? "", token);
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
   // Segment-route mutation hooks reused so the extract sidebar can edit
@@ -113,6 +116,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   // user switch routes.
   const updateBoxMut = useUpdateBox(slug ?? "", token);
   const resetBoxMut = useResetBox(slug ?? "", token);
+  const detectRegistersMut = useDetectRegisters(slug ?? "", token);
   const mergeUpMut = useMergeBoxUp(slug ?? "", token);
   const mergeDownMut = useMergeBoxDown(slug ?? "", token);
   const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
@@ -140,8 +144,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     const stored = parseFloat(localStorage.getItem("admin.extract.scale") ?? "");
     return Number.isFinite(stored) && stored >= 0.25 && stored <= 4 ? stored : 1.2;
   });
-  const debounceRef = useRef<number | null>(null);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
+  const [registersOpen, setRegistersOpen] = useState(false);
   const { success, error } = useToast();
 
   function persistScale(s: number) {
@@ -150,16 +154,21 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     localStorage.setItem("admin.extract.scale", String(clamped));
   }
 
-  function handleHtmlChange(next: string) {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      putHtml.mutate(next);
-    }, 300);
+  /**
+   * Save a single edited element back to mineru.json. Called by the
+   * in-place editor on blur. The backend re-runs `_convert_inline_latex`
+   * so user-typed `$..$` / bare LaTeX gets re-rendered consistently with
+   * the segment-time pipeline.
+   */
+  function handleElementChange(boxId: string, newOuterHtml: string) {
+    updateElement.mutate(
+      { boxId, html: newOuterHtml },
+      {
+        onError: (e) =>
+          error(e instanceof Error ? e.message : "Speichern fehlgeschlagen"),
+      },
+    );
   }
-
-  useEffect(() => () => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-  }, []);
 
   // After Step 1, segmentation = extraction (single VLM pass produces both
   // bboxes and content). The buttons that used to call /extract now call
@@ -293,18 +302,49 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     [html.data, page, slug],
   );
 
-  // ── Saving status derived from putHtml mutation state ─────────────────
-  const savingStatus = putHtml.isPending
-    ? "Saving…"
-    : putHtml.isSuccess
-    ? "Saved"
-    : null;
+  // ── Saving status derived from updateElement mutation state ───────────
+  const savingStatus = updateElement.isPending
+    ? "Speichert…"
+    : updateElement.isSuccess
+      ? "Gespeichert"
+      : null;
 
   // ── Action buttons — right-aligned in top bar ─────────────────────────
   // Re-extract-this-box and Re-extract-this-page live in the side pane now;
   // the top bar holds only the doc-level actions (Alle Seiten / Export).
   const actionButtons = (
     <div className="flex items-center gap-1.5">
+      <button
+        aria-label="Verzeichnisse erkennen und anzeigen"
+        title="Erkennt Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis im ganzen Dokument und öffnet die strukturierte Tabellenansicht. Manuell gesetzte Boxen bleiben unverändert — Re-Klick ist sicher."
+        className={`${T.body} px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+        onClick={() =>
+          detectRegistersMut.mutate(undefined, {
+            onError: (e) =>
+              error(
+                e instanceof Error
+                  ? e.message
+                  : "Verzeichnis-Erkennung fehlgeschlagen",
+              ),
+            onSuccess: (out) => {
+              if (out.boxes_reclassified === 0) {
+                success("Keine neuen Verzeichnisse erkannt");
+              } else {
+                success(
+                  `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
+                );
+              }
+              // Open the panel either way — the user pressed the button
+              // because they want to see the registers, not just trigger
+              // a silent re-classification.
+              setRegistersOpen(true);
+            },
+          })
+        }
+        disabled={detectRegistersMut.isPending}
+      >
+        {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse extrahieren"}
+      </button>
       <button
         aria-label="Re-extract all"
         className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
@@ -380,6 +420,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <div className="absolute inset-0 overflow-auto p-4">
             <div className="flex justify-center">
               <PdfPage slug={slug!} token={token} page={page} scale={scale}>
+                {/* Wrapper rectangles for Verzeichnis-clusters render
+                    BEHIND the individual box outlines so the per-box
+                    colours stay primary; the wrapper just signals
+                    "these belong together". pointer-events:none means
+                    it never blocks click handlers on inner boxes. */}
+                <RegisterClusterOverlay boxes={boxesOnPage} scale={boxScale} />
                 {boxesOnPage.map((b) => (
                   <BoxOverlay
                     key={b.box_id}
@@ -412,7 +458,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* HTML editor pane — shows only the current page's content */}
         <div className="flex-[2] flex flex-col border-l border-slate-200 min-w-0">
-          <HtmlEditor html={visibleHtml} onChange={handleHtmlChange} onClickElement={handleClickElement} />
+          <HtmlEditor
+            html={visibleHtml}
+            onClickElement={handleClickElement}
+            onElementChange={handleElementChange}
+            highlightedBoxId={highlight}
+            status={savingStatus ?? undefined}
+          />
         </div>
 
         {/* Sidebar — colored page-button grid */}
@@ -708,6 +760,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </div>
 
       <StageIndicator state={streamState} />
+
+      <RegistersPanel
+        open={registersOpen}
+        slug={slug ?? ""}
+        token={token}
+        onClose={() => setRegistersOpen(false)}
+      />
     </div>
   );
 }

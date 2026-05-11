@@ -10,7 +10,7 @@ port = 8000
 [model]
 # Default fits ~8 GB VRAM at bf16 with 4096-context. Multilingual incl.
 # German. No Hugging Face auth required.
-name = "Qwen/Qwen2.5-3B-Instruct"
+name = "Qwen/Qwen3-8B"
 
 # Optional: override the dtype. vLLM auto-detects, but bf16 is a safe
 # explicit pick for modern Ampere+/RDNA3+ GPUs. Comment out to let vLLM
@@ -18,7 +18,15 @@ name = "Qwen/Qwen2.5-3B-Instruct"
 # dtype = "bfloat16"
 
 # Cap context window. Lower values reduce KV-cache memory.
-max_model_len = 4096
+# 8192 fits Qwen3-8B on a 24 GB GPU comfortably:
+#   ~16 GB weights + ~4 GB KV-cache = ~20 GB at 0.85 utilization.
+# Required for the next_step planner once multiple prompt-overlay
+# Skills (sicherheits-ingenieur, step-praezedenz, tabellen-2d-bindung,
+# etc.) stack their content onto the system prompt — 4096 was
+# overflowing on evaluate-on-table cases.
+# Reduce to 4096 if switching to the multimodal Qwen3.5-9B (vision-
+# encoder eats extra VRAM). 16384 only with headroom on 24 GB.
+max_model_len = 8192
 
 [runtime]
 # Fraction of GPU memory vLLM is allowed to occupy. Lower if you share

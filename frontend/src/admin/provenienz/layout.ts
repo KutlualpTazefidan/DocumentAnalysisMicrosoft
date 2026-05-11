@@ -1,4 +1,8 @@
-import type { Edge as RfEdge, Node as RfNode } from "reactflow";
+import {
+  MarkerType,
+  type Edge as RfEdge,
+  type Node as RfNode,
+} from "reactflow";
 
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 
@@ -27,10 +31,15 @@ export type ViewNodeKind =
   | "claim"
   | "task"
   | "search_results_bag"
+  | "search_result"
   | "action_proposal"
   | "plan_proposal"
   | "capability_request"
-  | "manual_review";
+  | "manual_review"
+  | "reflection"
+  | "sub_statement"
+  | "evaluation"
+  | "capability_gate";
 
 export interface ChunkView {
   view_id: string;
@@ -41,6 +50,12 @@ export interface ChunkView {
   claimCount: number;
   /** True if this chunk was created via promote-search-result. */
   promoted: boolean;
+  /** True when a newer chunk Node carries a ``refreshes`` edge pointing
+   *  at this one — i.e. this chunk was respawned from the current
+   *  segments.json. The tile dims so the audit trail visually flows
+   *  predecessor → successor; both stay clickable for historical
+   *  research. */
+  replacedByRefresh?: boolean;
 }
 
 export interface ClaimView {
@@ -63,6 +78,26 @@ export interface SearchResultsBagView {
   kind: "search_results_bag";
   task: ProvNode;
   rows: { result: ProvNode; evaluation?: ProvNode }[];
+  /** node_id of the search-action_proposal that triggered this bag.
+   *  Null only for legacy results that pre-date the proposal-spawning
+   *  audit. The bag panel uses this id for "Bag löschen" — deleting
+   *  the proposal cascades through decision → triggers → results. */
+  searchProposalId: string | null;
+}
+
+/**
+ * Per-row tile, only for results that have a downstream
+ * plan_proposal or action_proposal anchored to them. Extracted from
+ * the bag so each "actioned" row gets its own audit chain
+ * (bag → result_tile → plan_proposal → action_proposal → ...).
+ * Unactioned rows stay folded into the bag.
+ */
+export interface SearchResultTileView {
+  view_id: string;
+  kind: "search_result";
+  result: ProvNode;
+  /** The evaluation Node, if one exists for this row. */
+  evaluation?: ProvNode;
 }
 
 export interface ActionProposalView {
@@ -82,6 +117,11 @@ export interface PlanProposalView {
    *  with chosen step name + considered alternatives + reasoning. The
    *  user's "Akzeptieren" fires the underlying step from the panel. */
   plan: ProvNode;
+  /** True once a downstream action_proposal has been attached to this
+   *  plan in the chain — i.e. the user clicked Akzeptieren and the
+   *  step actually fired. Triggers the dimmed/faded tile variant
+   *  (same look as decided action_proposals). */
+  consumed?: boolean;
 }
 
 export interface CapabilityRequestView {
@@ -96,6 +136,54 @@ export interface ManualReviewView {
   kind: "manual_review";
   /** The manual_review node — agent escalated to human. */
   review: ProvNode;
+}
+
+/**
+ * Self-critique node attached to an action_proposal. Lives in the
+ * canvas as a small tile under the proposal that was reviewed,
+ * showing the self_assessment + recommendation.
+ */
+export interface ReflectionView {
+  view_id: string;
+  kind: "reflection";
+  reflection: ProvNode;
+}
+
+/**
+ * Atomic sub-statement extracted from a search_result via the
+ * decompose_hit step. One self-contained claim per tile, evaluated
+ * independently against the upstream claim. Sits below its parent
+ * search_result_tile in the canvas.
+ */
+export interface SubStatementView {
+  view_id: string;
+  kind: "sub_statement";
+  sub_statement: ProvNode;
+}
+
+/**
+ * Spawned evaluation Node (from /decide on an evaluate action_proposal).
+ * Rendered as a Folge-Knoten under the action_proposal so the chain
+ * shows ``proposal → evaluation`` explicitly. The verdict + sentences
+ * detail are still folded into the parent search_result tile too;
+ * this view exposes them as their own clickable audit anchor.
+ */
+export interface EvaluationView {
+  view_id: string;
+  kind: "evaluation";
+  evaluation: ProvNode;
+}
+
+/**
+ * Reactive-Capability gate — auto-spawned after an evaluate decision
+ * if any approach with non-empty triggers matched. Carries the list
+ * of detected top-level + sub capabilities. User accepts the gate to
+ * trigger a re-evaluate with the loaded domain rules; or dismisses it.
+ */
+export interface CapabilityGateView {
+  view_id: string;
+  kind: "capability_gate";
+  gate: ProvNode;
 }
 
 export interface GoalView {
@@ -113,10 +201,15 @@ export type ViewNode =
   | ClaimView
   | TaskView
   | SearchResultsBagView
+  | SearchResultTileView
   | ActionProposalView
   | PlanProposalView
   | CapabilityRequestView
-  | ManualReviewView;
+  | ManualReviewView
+  | ReflectionView
+  | SubStatementView
+  | EvaluationView
+  | CapabilityGateView;
 
 export interface ViewEdge {
   id: string;
@@ -137,6 +230,11 @@ export type LayoutDirection = "TB" | "LR";
 
 interface LayoutOptions {
   direction?: LayoutDirection;
+  /** Per-view-id measured tile dimensions, captured from ReactFlow's
+   * post-render measurement. When provided, layout uses these instead
+   * of NODE_DIMS so wrapped/oversized tiles don't push neighbours into
+   * overlap. Missing entries fall back to NODE_DIMS. */
+  measuredDims?: Map<string, { w: number; h: number }>;
 }
 
 /**
@@ -150,16 +248,16 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   claim: { w: 272, h: 144 },
   task: { w: 256, h: 112 },
   search_results_bag: { w: 336, h: 304 },
+  search_result: { w: 320, h: 144 },
   action_proposal: { w: 320, h: 240 },
   plan_proposal: { w: 320, h: 220 },
   capability_request: { w: 320, h: 180 },
   manual_review: { w: 320, h: 160 },
+  reflection: { w: 320, h: 180 },
+  sub_statement: { w: 280, h: 112 },
+  evaluation: { w: 320, h: 144 },
+  capability_gate: { w: 320, h: 168 },
 };
-
-/** Round to the nearest multiple so positions land on the snap grid. */
-function snap(v: number, grid = 16): number {
-  return Math.round(v / grid) * grid;
-}
 
 // ─── view-graph builder ───────────────────────────────────────────────────────
 
@@ -337,8 +435,112 @@ export function buildViewGraph(
     }
   }
 
+  // ── Trail-as-Trunk pre-pass ──────────────────────────────────────────────
+  // When a node carries `triggered_from_node_id`, the canvas should render
+  // the trunk edge from the trail-parent (the nearest ancestor in the same
+  // trail), not from the structural anchor. This produces a single visual
+  // strand "Bewertung → plan → action → new_node" instead of branching
+  // back to the structural origin.
+  //
+  // For each trail-bearing node we resolve the trail-parent:
+  //   1. Find the spawning proposal (the action_proposal that decided it).
+  //      If that proposal carries the SAME trail, use its view as parent.
+  //   2. Otherwise the trail-bearing node is the immediate child of the
+  //      trail head — use the trail head's view directly. Plan/action
+  //      proposal nodes whose `triggered_from_node_id` was set by /next-step
+  //      take this path (they're the entry into the trail).
+  const trailParentByViewId = new Map<string, string>();
+  // Reverse map: when a node has a trail-parent, the structural edge for
+  // that node should be skipped (the trail subsumes it). Keyed by viewId.
+  const trailCoversNode = new Set<string>();
+  for (const n of provNodes) {
+    const trail = String(n.payload.triggered_from_node_id ?? "");
+    if (!trail) continue;
+    const nodeViewId = `view:${n.node_id}`;
+    const spawningProposal = proposalSpawningNode.get(n.node_id);
+    if (spawningProposal) {
+      const proposalTrail = String(
+        spawningProposal.payload.triggered_from_node_id ?? "",
+      );
+      if (proposalTrail === trail) {
+        trailParentByViewId.set(nodeViewId, `view:${spawningProposal.node_id}`);
+        trailCoversNode.add(nodeViewId);
+        continue;
+      }
+    }
+    // No spawning proposal in the same trail — this node IS the immediate
+    // child of the trail head (typically a plan_proposal or action_proposal
+    // raised from a Folge-Knoten). Parent edge points at the trail head.
+    if (g.byId.has(trail)) {
+      trailParentByViewId.set(nodeViewId, `view:${trail}`);
+      trailCoversNode.add(nodeViewId);
+    }
+  }
+
+  // ── Bag-bucket data prep (pre-pass) ───────────────────────────────────────
+  // Multiple search-runs on the same task each get their own bag,
+  // keyed by spawning search-action_proposal. Built BEFORE pass #1 so
+  // the chunk + sub-statement edge passes can resolve a result-id to
+  // its specific bag-view-id.
+  type BagBucket = {
+    bagViewId: string;
+    task: ProvNode;
+    results: ProvNode[];
+    searchProposalId: string | null;
+    parentEdge: {
+      source: string;
+      kind: "spawns" | "candidates-for";
+      edgeIdSuffix: string;
+    } | null;
+  };
+  const bagViewIdByResultId = new Map<string, string>();
+  const bagBuckets = new Map<string, BagBucket>();
+  for (const [taskId, results] of resultsByTaskId.entries()) {
+    const task = g.byId.get(taskId);
+    if (!task) continue;
+    for (const r of results) {
+      const proposal = proposalSpawningNode.get(r.node_id);
+      const key = proposal ? `prop:${proposal.node_id}` : `legacy:${taskId}`;
+      let bucket = bagBuckets.get(key);
+      if (!bucket) {
+        const bagViewId = proposal
+          ? `view:bag:${proposal.node_id}`
+          : `view:bag:legacy:${taskId}`;
+        bucket = {
+          bagViewId,
+          task,
+          results: [],
+          searchProposalId: proposal?.node_id ?? null,
+          parentEdge: proposal
+            ? {
+                source: `view:${proposal.node_id}`,
+                kind: "spawns",
+                edgeIdSuffix: `prop:${proposal.node_id}`,
+              }
+            : g.byId.has(taskId)
+              ? {
+                  source: `view:${taskId}`,
+                  kind: "candidates-for",
+                  edgeIdSuffix: `task:${taskId}`,
+                }
+              : null,
+        };
+        bagBuckets.set(key, bucket);
+      }
+      bucket.results.push(r);
+      bagViewIdByResultId.set(r.node_id, bucket.bagViewId);
+    }
+  }
+
   // ── 1) Chunks ─────────────────────────────────────────────────────────────
   const chunkNodes = provNodes.filter((n) => n.kind === "chunk");
+  // Pre-compute: chunks that have been *replaced* by a newer refresh
+  // (i.e. a `refreshes` edge points at them). Used to dim the predecessor
+  // tile so the visible chain visually flows old → new.
+  const refreshedChunkIds = new Set<string>();
+  for (const e of provEdges) {
+    if (e.kind === "refreshes") refreshedChunkIds.add(e.to_node);
+  }
   for (const chunk of chunkNodes) {
     const promoted = !!chunk.payload.promoted_from;
     viewNodes.push({
@@ -348,23 +550,70 @@ export function buildViewGraph(
       closedByStop: stopByAnchorId.get(chunk.node_id),
       claimCount: claimCountByChunkId.get(chunk.node_id) ?? 0,
       promoted,
+      replacedByRefresh: refreshedChunkIds.has(chunk.node_id),
     });
 
-    // Promoted chunks: bag → new chunk (trunk continuation through the loop).
+    // Promoted chunks: trunk parent priority is
+    //   1. trail-parent (when this chunk inherits a click-trail) — keeps
+    //      the visual strand "Bewertung → plan → action → chunk" intact,
+    //   2. proposalSpawningNode — the action_proposal that spawned the
+    //      chunk via promote_search_result. Without this the chain
+    //      visually breaks back to the bag, even though audit-wise the
+    //      proposal is the real parent,
+    //   3. structural fallback: bag → chunk via `promoted-from` (legacy
+    //      data without a spawning proposal/decision triplet).
+    // The structural "bag → chunk" relationship stays in the chunk's
+    // payload (`promoted_from`) for audit either way.
+    const chunkViewId = `view:${chunk.node_id}`;
     if (promoted) {
       const srId = String(chunk.payload.promoted_from);
       const sr = g.byId.get(srId);
       if (sr && sr.kind === "search_result") {
-        const taskId = sr.payload.task_node_id as string | undefined;
-        if (taskId && resultsByTaskId.has(taskId)) {
+        const trailParent = trailParentByViewId.get(chunkViewId);
+        const spawningProposal = proposalSpawningNode.get(chunk.node_id);
+        if (trailParent) {
           viewEdges.push({
             id: `e:promoted:${chunk.node_id}`,
-            source: `view:bag:${taskId}`,
-            target: `view:${chunk.node_id}`,
-            kind: "promoted-from",
-            sourceHandle: `row-${srId}`,
+            source: trailParent,
+            target: chunkViewId,
+            kind: "trail-trunk",
           });
+        } else if (spawningProposal) {
+          viewEdges.push({
+            id: `e:promoted:${chunk.node_id}`,
+            source: `view:${spawningProposal.node_id}`,
+            target: chunkViewId,
+            kind: "spawns",
+          });
+        } else {
+          const bagViewId = bagViewIdByResultId.get(srId);
+          if (bagViewId) {
+            viewEdges.push({
+              id: `e:promoted:${chunk.node_id}`,
+              source: bagViewId,
+              target: chunkViewId,
+              kind: "promoted-from",
+              sourceHandle: `row-${srId}`,
+            });
+          }
         }
+      }
+    }
+
+    // Refresh chain: when this chunk was spawned via /refresh from an
+    // older chunk, draw a SIDE edge old_chunk → new_chunk. Side
+    // placement keeps both tiles independent in the trunk layout (the
+    // new chunk inherits its own claim subtree; the old one keeps its
+    // historical descendants).
+    for (const e of g.outEdges.get(chunk.node_id) ?? []) {
+      if (e.kind === "refreshes" && g.byId.has(e.to_node)) {
+        viewEdges.push({
+          id: `e:refreshes:${e.edge_id}`,
+          source: `view:${e.to_node}`,
+          target: `view:${chunk.node_id}`,
+          kind: "refreshes",
+          placement: "side",
+        });
       }
     }
   }
@@ -434,47 +683,217 @@ export function buildViewGraph(
     }
   }
 
-  // ── 4) Search results bags (one per task that has results) ────────────────
-  for (const [taskId, results] of resultsByTaskId.entries()) {
-    const task = g.byId.get(taskId)!;
-    const bagViewId = `view:bag:${taskId}`;
+  // ── 4) Search results bags ────────────────────────────────────────────────
+  // Buckets were built in the pre-pass. Here we just push view nodes +
+  // their parent edges.
+  for (const bucket of bagBuckets.values()) {
     viewNodes.push({
-      view_id: bagViewId,
+      view_id: bucket.bagViewId,
       kind: "search_results_bag",
-      task,
-      rows: results.map((r) => ({
+      task: bucket.task,
+      rows: bucket.results.map((r) => ({
         result: r,
         evaluation: evaluationByResultId.get(r.node_id),
       })),
+      searchProposalId: bucket.searchProposalId,
     });
-    // Trunk: parent = the search action_proposal that triggered the search.
-    // Fallback: the task itself (if no proposal recorded — legacy path).
-    const firstResult = results[0];
-    const searchProposal = firstResult
-      ? proposalSpawningNode.get(firstResult.node_id)
-      : undefined;
-    if (searchProposal) {
+    if (bucket.parentEdge) {
       viewEdges.push({
-        id: `e:bag:${taskId}`,
-        source: `view:${searchProposal.node_id}`,
-        target: bagViewId,
-        kind: "spawns",
-      });
-    } else if (g.byId.has(taskId)) {
-      viewEdges.push({
-        id: `e:bag-task:${taskId}`,
-        source: `view:${taskId}`,
-        target: bagViewId,
-        kind: "candidates-for",
+        id: `e:bag:${bucket.parentEdge.edgeIdSuffix}`,
+        source: bucket.parentEdge.source,
+        target: bucket.bagViewId,
+        kind: bucket.parentEdge.kind,
       });
     }
   }
 
-  // ── 5) Action-Proposals (decision folded inline) ──────────────────────────
-  // Every action_proposal becomes a trunk tile under its anchor. When
-  // decided, the decision Node is folded INTO the proposal view (passed
-  // as `decision` field) — no separate decision tile in the canvas. The
-  // decision Node still lives in events.jsonl for audit.
+  // ── 4.5) Extracted search-result tiles ───────────────────────────────────
+  // Any search_result that has a downstream plan_proposal or
+  // action_proposal anchored to it gets pulled out of the bag as its
+  // own tile. Each one starts an audit chain
+  // (bag → result_tile → plan/action). Unactioned rows stay folded
+  // into the bag.
+  const actionedResultIds = new Set<string>();
+  for (const n of provNodes) {
+    if (n.kind !== "plan_proposal" && n.kind !== "action_proposal") continue;
+    const anchorId = n.payload.anchor_node_id as string | undefined;
+    if (!anchorId) continue;
+    const anchor = g.byId.get(anchorId);
+    if (anchor && anchor.kind === "search_result") {
+      actionedResultIds.add(anchorId);
+    }
+  }
+  for (const resultId of actionedResultIds) {
+    const result = g.byId.get(resultId);
+    if (!result) continue;
+    const tileViewId = `view:${resultId}`;
+    viewNodes.push({
+      view_id: tileViewId,
+      kind: "search_result",
+      result,
+      evaluation: evaluationByResultId.get(resultId),
+    });
+    const bagViewId = bagViewIdByResultId.get(resultId);
+    if (bagViewId) {
+      viewEdges.push({
+        id: `e:extracted:${resultId}`,
+        source: bagViewId,
+        target: tileViewId,
+        kind: "extracted",
+        sourceHandle: `row-${resultId}`,
+      });
+    }
+  }
+
+  // ── 4.6) Sub-Statement tiles (atomare Aussagen aus decompose_hit) ────────
+  // Trunk parent priority:
+  //   1. trail-parent — when the spawning chain carries a triggered_from
+  //      (i.e. the user accepted decompose_hit from a Bewertungs-Trail),
+  //      the sub_statement hangs from the trail-parent (the action_proposal
+  //      that spawned it) — keeps the visual trail strand intact,
+  //   2. proposalSpawningNode — the decompose_hit action_proposal that
+  //      decided this sub_statement. Without this lookup the chain
+  //      visually breaks back to the structural search_result even when
+  //      the audit chain says "proposal spawned this",
+  //   3. structural fallback: parent_search_result_id (extracted tile
+  //      when actioned, bag otherwise) — legacy data without a spawning
+  //      proposal/decision triplet.
+  for (const n of provNodes) {
+    if (n.kind !== "sub_statement") continue;
+    const subViewId = `view:${n.node_id}`;
+    viewNodes.push({
+      view_id: subViewId,
+      kind: "sub_statement",
+      sub_statement: n,
+    });
+    const trailParent = trailParentByViewId.get(subViewId);
+    if (trailParent) {
+      viewEdges.push({
+        id: `e:sub-trail:${n.node_id}`,
+        source: trailParent,
+        target: subViewId,
+        kind: "trail-trunk",
+      });
+      continue;
+    }
+    const spawningProposal = proposalSpawningNode.get(n.node_id);
+    if (spawningProposal) {
+      viewEdges.push({
+        id: `e:sub:${n.node_id}`,
+        source: `view:${spawningProposal.node_id}`,
+        target: subViewId,
+        kind: "spawns",
+      });
+      continue;
+    }
+    const parentSrId = n.payload.parent_search_result_id as string | undefined;
+    if (parentSrId && actionedResultIds.has(parentSrId)) {
+      viewEdges.push({
+        id: `e:sub:${n.node_id}`,
+        source: `view:${parentSrId}`,
+        target: subViewId,
+        kind: "extracts-from",
+      });
+    } else if (parentSrId) {
+      // Fallback: parent is not yet actioned (rare race) — link from
+      // its bag instead.
+      const bagViewId = bagViewIdByResultId.get(parentSrId);
+      if (bagViewId) {
+        viewEdges.push({
+          id: `e:sub:${n.node_id}`,
+          source: bagViewId,
+          target: subViewId,
+          kind: "extracts-from",
+        });
+      }
+    }
+  }
+
+  // ── 5) Plan-Proposals from /next-step (executable_step path) ─────────────
+  // The agent picked a registered step. The user accepts/dismisses to fire
+  // the step's existing /extract-claims, /formulate-task, etc. route.
+  // Built BEFORE action_proposals so the action-proposal pass can chain
+  // through the matching plan_proposal where one exists.
+  const planByAnchor = new Map<
+    string,
+    { node: (typeof provNodes)[number]; viewId: string }[]
+  >();
+  // We push placeholder PlanProposalView entries here and update them
+  // (set ``consumed=true``) in the action_proposal pass below. Keeping
+  // a side-map so we can flip the flag without re-finding the entry.
+  const planViewByNodeId = new Map<string, PlanProposalView>();
+  for (const n of provNodes) {
+    if (n.kind !== "plan_proposal") continue;
+    const planViewId = `view:${n.node_id}`;
+    const view: PlanProposalView = {
+      view_id: planViewId,
+      kind: "plan_proposal",
+      plan: n,
+      consumed: false,
+    };
+    viewNodes.push(view);
+    planViewByNodeId.set(n.node_id, view);
+    const anchor = n.payload.anchor_node_id as string | undefined;
+    // Trail-as-Trunk: when this plan_proposal carries a trail (i.e. was
+    // invoked from a Folge-Knoten that re-anchored to its parent — e.g.
+    // a Bewertungs-Tile routes its run to the parent search_result),
+    // the trunk parent is the trail head itself, NOT the structural
+    // anchor. The structural anchor stays in the payload for audit;
+    // the canvas renders one continuous trail strand instead of
+    // branching back to the structural origin.
+    const trailParent = trailParentByViewId.get(planViewId);
+    if (trailParent) {
+      viewEdges.push({
+        id: `e:plan:${n.node_id}`,
+        source: trailParent,
+        target: planViewId,
+        kind: "trail-trunk",
+      });
+      // Still record the structural anchor for the action_proposal pass
+      // below — it uses planByAnchor to chain plan → action via the
+      // anchor's tile lookup.
+      if (anchor && g.byId.has(anchor)) {
+        const list = planByAnchor.get(anchor) ?? [];
+        list.push({ node: n, viewId: planViewId });
+        planByAnchor.set(anchor, list);
+      }
+      continue;
+    }
+    if (anchor && g.byId.has(anchor)) {
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
+      if (anchorViewId) {
+        viewEdges.push({
+          id: `e:plan:${n.node_id}`,
+          source: anchorViewId,
+          target: planViewId,
+          kind: "planner",
+        });
+      }
+      const list = planByAnchor.get(anchor) ?? [];
+      list.push({ node: n, viewId: planViewId });
+      planByAnchor.set(anchor, list);
+    }
+  }
+  // Sort each anchor's plan_proposals by creation time so the chain
+  // pass picks the most recent plan that predates each action_proposal.
+  for (const list of planByAnchor.values()) {
+    list.sort((a, b) => a.node.created_at.localeCompare(b.node.created_at));
+  }
+
+  // ── 6) Action-Proposals (decision folded inline) ──────────────────────────
+  // Every action_proposal becomes a trunk tile. Source edge:
+  //   • If a plan_proposal exists for the same anchor created BEFORE this
+  //     action_proposal, edge: plan_proposal → action_proposal (full
+  //     audit chain anchor → plan → action).
+  //   • Otherwise, edge: anchor → action_proposal (manual-trigger path).
+  // When decided, the decision Node is folded INTO the proposal view
+  // (passed as `decision` field) — no separate decision tile.
   for (const n of provNodes) {
     if (n.kind !== "action_proposal") continue;
     const proposalViewId = `view:${n.node_id}`;
@@ -486,36 +905,52 @@ export function buildViewGraph(
       decision,
     });
     const anchorNodeId = n.payload.anchor_node_id as string | undefined;
-    if (anchorNodeId && g.byId.has(anchorNodeId)) {
-      const anchorViewId = mapAnchorToViewId(anchorNodeId, g, taskByClaimId);
-      if (anchorViewId) {
+    if (!anchorNodeId || !g.byId.has(anchorNodeId)) continue;
+    // Look for the most recent plan_proposal for this anchor that
+    // predates the action_proposal — that's the chain link.
+    const plans = planByAnchor.get(anchorNodeId) ?? [];
+    const linkingPlan = [...plans]
+      .reverse()
+      .find((p) => p.node.created_at < n.created_at);
+    if (linkingPlan) {
+      viewEdges.push({
+        id: `e:ap:${n.node_id}`,
+        source: linkingPlan.viewId,
+        target: proposalViewId,
+        kind: "proposed",
+      });
+      // Mark the chained plan as "consumed" so the tile fades.
+      const planView = planViewByNodeId.get(linkingPlan.node.node_id);
+      if (planView) planView.consumed = true;
+    } else {
+      // Trail-as-Trunk: action_proposals raised directly from a
+      // Folge-Knoten (no plan-proposal in between) get their trunk
+      // edge from the trail head. The structural anchor stays in the
+      // payload for audit; the canvas renders the trail strand.
+      const trailParent = trailParentByViewId.get(proposalViewId);
+      if (trailParent) {
         viewEdges.push({
           id: `e:ap:${n.node_id}`,
-          source: anchorViewId,
+          source: trailParent,
           target: proposalViewId,
-          kind: "proposed",
+          kind: "trail-trunk",
         });
-      }
-    }
-  }
-
-  // ── 6) Plan-Proposals from /next-step (executable_step path) ──────────────
-  // The agent picked a registered step. The user accepts/dismisses to fire
-  // the step's existing /extract-claims, /formulate-task, etc. route.
-  for (const n of provNodes) {
-    if (n.kind !== "plan_proposal") continue;
-    const planViewId = `view:${n.node_id}`;
-    viewNodes.push({ view_id: planViewId, kind: "plan_proposal", plan: n });
-    const anchor = n.payload.anchor_node_id as string | undefined;
-    if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
-      if (anchorViewId) {
-        viewEdges.push({
-          id: `e:plan:${n.node_id}`,
-          source: anchorViewId,
-          target: planViewId,
-          kind: "planner",
-        });
+      } else {
+        const anchorViewId = mapAnchorToViewId(
+          anchorNodeId,
+          g,
+          taskByClaimId,
+          actionedResultIds,
+          bagViewIdByResultId,
+        );
+        if (anchorViewId) {
+          viewEdges.push({
+            id: `e:ap:${n.node_id}`,
+            source: anchorViewId,
+            target: proposalViewId,
+            kind: "proposed",
+          });
+        }
       }
     }
   }
@@ -527,7 +962,13 @@ export function buildViewGraph(
     viewNodes.push({ view_id: cvId, kind: "capability_request", request: n });
     const anchor = n.payload.anchor_node_id as string | undefined;
     if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
       if (anchorViewId) {
         viewEdges.push({
           id: `e:cap:${n.node_id}`,
@@ -539,6 +980,87 @@ export function buildViewGraph(
     }
   }
 
+  // ── 6.5) Evaluations als Folge-Knoten unter ihrem action_proposal ─────────
+  // Die evaluation Node trägt verdict + reasoning + sentences[]. Wir
+  // hängen sie als eigenes Tile unter den evaluate-action_proposal,
+  // damit die Chain anchor → plan → action → evaluation explizit
+  // sichtbar ist (statt nur als Verdict-Badge im search_result Tile).
+  for (const n of provNodes) {
+    if (n.kind !== "evaluation") continue;
+    const evalViewId = `view:${n.node_id}`;
+    viewNodes.push({ view_id: evalViewId, kind: "evaluation", evaluation: n });
+    const proposalId = n.payload.proposal_node_id as string | undefined;
+    if (proposalId && g.byId.has(proposalId)) {
+      viewEdges.push({
+        id: `e:eval:${n.node_id}`,
+        source: `view:${proposalId}`,
+        target: evalViewId,
+        kind: "spawns",
+      });
+    }
+  }
+
+  // ── 6.6) Capability-Gates (reactive-capability auto-scan) ────────────────
+  // Latest gate per (evaluation_node_id) wins — re-evaluate decisions
+  // append a new gate-record with status="accepted" so the canvas
+  // reflects the current state. Gate hangs off its evaluation.
+  const gateByEvaluation = new Map<string, ProvNode>();
+  for (const n of provNodes) {
+    if (n.kind !== "capability_gate") continue;
+    const evalId = String(n.payload.evaluation_node_id ?? "");
+    if (!evalId) continue;
+    const prev = gateByEvaluation.get(evalId);
+    if (!prev || prev.created_at < n.created_at) {
+      gateByEvaluation.set(evalId, n);
+    }
+  }
+  for (const [evalId, gateNode] of gateByEvaluation) {
+    const gateViewId = `view:${gateNode.node_id}`;
+    viewNodes.push({
+      view_id: gateViewId,
+      kind: "capability_gate",
+      gate: gateNode,
+    });
+    if (g.byId.has(evalId)) {
+      viewEdges.push({
+        id: `e:gate:${gateNode.node_id}`,
+        source: `view:${evalId}`,
+        target: gateViewId,
+        kind: "triggers-capability",
+      });
+    }
+    // If the gate has a re-evaluate proposal attached, draw the
+    // chain edge gate → action_proposal so the audit chain extends.
+    const reProposalId = String(gateNode.payload.re_evaluate_proposal_id ?? "");
+    if (reProposalId && g.byId.has(reProposalId)) {
+      viewEdges.push({
+        id: `e:re-eval:${gateNode.node_id}`,
+        source: gateViewId,
+        target: `view:${reProposalId}`,
+        kind: "re-evaluated-with",
+      });
+    }
+  }
+
+  // ── 7.5) Reflections (self-critique nodes) ────────────────────────────────
+  // A reflection.payload.anchor_node_id points at the action_proposal
+  // it critiqued. Attach as a side branch under the proposal so the
+  // audit chain extends but doesn't disrupt the trunk layout.
+  for (const n of provNodes) {
+    if (n.kind !== "reflection") continue;
+    const refViewId = `view:${n.node_id}`;
+    viewNodes.push({ view_id: refViewId, kind: "reflection", reflection: n });
+    const proposalId = n.payload.anchor_node_id as string | undefined;
+    if (proposalId && g.byId.has(proposalId)) {
+      viewEdges.push({
+        id: `e:reflect:${n.node_id}`,
+        source: `view:${proposalId}`,
+        target: refViewId,
+        kind: "reflects",
+      });
+    }
+  }
+
   // ── 8) Manual-Review (agent escalates to human) ───────────────────────────
   for (const n of provNodes) {
     if (n.kind !== "manual_review") continue;
@@ -546,7 +1068,13 @@ export function buildViewGraph(
     viewNodes.push({ view_id: mvId, kind: "manual_review", review: n });
     const anchor = n.payload.anchor_node_id as string | undefined;
     if (anchor && g.byId.has(anchor)) {
-      const anchorViewId = mapAnchorToViewId(anchor, g, taskByClaimId);
+      const anchorViewId = mapAnchorToViewId(
+        anchor,
+        g,
+        taskByClaimId,
+        actionedResultIds,
+        bagViewIdByResultId,
+      );
       if (anchorViewId) {
         viewEdges.push({
           id: `e:mr:${n.node_id}`,
@@ -576,6 +1104,8 @@ function mapAnchorToViewId(
   anchorNodeId: string,
   g: IndexedGraph,
   _taskByClaimId: Map<string, ProvNode>,
+  extractedResultIds?: Set<string>,
+  bagViewIdByResultId?: Map<string, string>,
 ): string | undefined {
   const anchor = g.byId.get(anchorNodeId);
   if (!anchor) return undefined;
@@ -587,11 +1117,19 @@ function mapAnchorToViewId(
       // task is now its own view tile
       return `view:${anchorNodeId}`;
     case "search_result": {
-      // result is folded into its task's bag view
-      const taskId = anchor.payload.task_node_id as string | undefined;
-      if (taskId) return `view:bag:${taskId}`;
-      return undefined;
+      // If the result has been actioned (a plan_proposal or
+      // action_proposal hangs off it), it has its own extracted tile.
+      // Otherwise it stays folded into its bag view.
+      if (extractedResultIds?.has(anchorNodeId)) {
+        return `view:${anchorNodeId}`;
+      }
+      return bagViewIdByResultId?.get(anchorNodeId);
     }
+    case "sub_statement":
+      // sub_statement tiles are always rendered (one per row from the
+      // decompose_hit decision). plan_proposals anchored to a sub
+      // can therefore link directly.
+      return `view:${anchorNodeId}`;
     default:
       // best-effort: claims and chunks already covered; for stop_proposal,
       // evaluation, decision, action_proposal, fall through.
@@ -616,10 +1154,24 @@ function mapAnchorToViewId(
  * For LR direction the same idea applies rotated 90°.
  */
 
-const TILE_SEP = 56; // sibling-to-sibling padding within a level
-const RANK_SEP = 96; // parent-to-child padding (trunk depth)
-const ROOT_SEP = 160; // gap between independent root subtrees
-const MARGIN = 32;
+// Box-to-box gaps. 5rem default for trunk + sibling padding — leaves
+// enough vertical breathing room that the smoothstep offset doesn't
+// crowd the rank gap, and gives long-content tiles space to render
+// without overlapping neighbours. ROOT_SEP stays a notch larger so
+// independent subtrees remain distinguishable as separate groups.
+// MARGIN is zero — ReactFlow's viewport padding takes over.
+const TILE_SEP = 80; // sibling-to-sibling padding within a level (5rem)
+const RANK_SEP = 80; // parent-to-child padding (trunk depth) (5rem)
+const ROOT_SEP = 96; // gap between independent root subtrees (also row gap) (6rem)
+const MARGIN = 0;
+/**
+ * Wrap roots onto a new row once the cumulative subtree width on the current
+ * row would exceed this. 2400px covers the vast majority of monitors at
+ * comfortable zoom; users still pan/zoom freely beyond it. A single
+ * oversize subtree still gets a full row to itself — we only wrap when
+ * there's at least one root already placed on the current row.
+ */
+const WRAP_WIDTH = 2400;
 
 interface SubtreeBox {
   width: number;
@@ -635,8 +1187,9 @@ function layoutSubtree(
   childrenOf: Map<string, string[]>,
   kindOf: Map<string, ViewNodeKind>,
   direction: LayoutDirection,
+  measuredDims?: Map<string, { w: number; h: number }>,
 ): SubtreeBox {
-  const dims = NODE_DIMS[kindOf.get(viewId)!];
+  const dims = measuredDims?.get(viewId) ?? NODE_DIMS[kindOf.get(viewId)!];
   const children = childrenOf.get(viewId) ?? [];
   const positions = new Map<string, { x: number; y: number }>();
 
@@ -659,7 +1212,7 @@ function layoutSubtree(
   }
 
   const childBoxes = children.map((c) =>
-    layoutSubtree(c, childrenOf, kindOf, direction),
+    layoutSubtree(c, childrenOf, kindOf, direction, measuredDims),
   );
 
   if (direction === "TB") {
@@ -755,42 +1308,155 @@ export function layoutViewGraph(
     hasParent.add(e.target);
   }
 
-  // Roots = nodes with no incoming trunk edge. Lay each out independently.
+  // Roots = nodes with no incoming trunk edge.
+  const roots: string[] = [];
+  for (const v of viewNodes) {
+    if (!hasParent.has(v.view_id)) roots.push(v.view_id);
+  }
+
+  // ── Subtree X layout (children stay packed under their parent) ─────────
+  // We still rely on layoutSubtree for sibling packing along the
+  // transverse axis (X for TB, Y for LR). Its longitudinal coordinate
+  // (Y for TB, X for LR) is overwritten below by the rank-alignment
+  // pass — we only keep the relative-x mapping it produced.
+  const subtreeBoxes = new Map<string, SubtreeBox>();
+  for (const root of roots) {
+    subtreeBoxes.set(
+      root,
+      layoutSubtree(root, childrenOf, kindOf, direction, opts.measuredDims),
+    );
+  }
+
+  // ── Subtree wrapping: greedy bin-pack roots into rows ──────────────────
+  // Each row collects roots until the cumulative width (TB) or height
+  // (LR) exceeds WRAP_WIDTH. A single oversized subtree still gets a
+  // row to itself.
+  interface PackedRow {
+    roots: string[];
+    /** Per-root local-frame offset along the row's primary axis
+     *  (X for TB, Y for LR). The non-primary axis is rank-aligned
+     *  within the row in the next pass. */
+    rootStart: Map<string, number>;
+    /** Row's bounding box in the primary axis (after packing).
+     *  Used to position subsequent rows along the secondary axis. */
+    rowExtent: number;
+  }
+  const rows: PackedRow[] = [];
+  {
+    let current: PackedRow = {
+      roots: [],
+      rootStart: new Map(),
+      rowExtent: 0,
+    };
+    let cursor = 0;
+    for (const root of roots) {
+      const box = subtreeBoxes.get(root)!;
+      const primary = direction === "TB" ? box.width : box.height;
+      const tooWide = cursor + primary > WRAP_WIDTH;
+      if (tooWide && current.roots.length > 0) {
+        // Close current row, start a new one.
+        current.rowExtent = cursor - ROOT_SEP; // last separator wasn't needed
+        rows.push(current);
+        current = { roots: [], rootStart: new Map(), rowExtent: 0 };
+        cursor = 0;
+      }
+      current.rootStart.set(root, cursor);
+      current.roots.push(root);
+      cursor += primary + ROOT_SEP;
+    }
+    if (current.roots.length > 0) {
+      current.rowExtent = cursor - ROOT_SEP;
+      rows.push(current);
+    }
+  }
+
+  // ── Rank computation ───────────────────────────────────────────────────
+  // BFS from every root assigns each view its depth in the tree.
+  const rankOf = new Map<string, number>();
+  for (const root of roots) {
+    rankOf.set(root, 0);
+    const queue: string[] = [root];
+    while (queue.length > 0) {
+      const v = queue.shift()!;
+      const r = rankOf.get(v)!;
+      for (const c of childrenOf.get(v) ?? []) {
+        if (rankOf.has(c)) continue;
+        rankOf.set(c, r + 1);
+        queue.push(c);
+      }
+    }
+  }
+
+  // ── Rank-aligned Y (TB) / X (LR) per row ───────────────────────────────
+  // Within a row, every node at depth N sits at the same secondary
+  // coordinate, regardless of which subtree it belongs to. The rank
+  // baseline is row-local — row 2 starts a fresh baseline below row 1.
   const positions = new Map<string, { x: number; y: number }>();
-  if (direction === "TB") {
-    let cursorX = MARGIN;
-    for (const v of viewNodes) {
-      if (hasParent.has(v.view_id)) continue;
-      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
-      for (const [k, p] of box.positions) {
-        positions.set(k, { x: p.x + cursorX, y: p.y + MARGIN });
-      }
-      cursorX += box.width + ROOT_SEP;
+  let rowCursor = MARGIN; // secondary-axis cursor advancing row by row
+  for (const row of rows) {
+    // Bucket nodes-in-this-row by rank, take the max dim per rank.
+    const nodesInRow = new Set<string>();
+    for (const root of row.roots) {
+      const box = subtreeBoxes.get(root)!;
+      for (const k of box.positions.keys()) nodesInRow.add(k);
     }
-  } else {
-    let cursorY = MARGIN;
-    for (const v of viewNodes) {
-      if (hasParent.has(v.view_id)) continue;
-      const box = layoutSubtree(v.view_id, childrenOf, kindOf, direction);
-      for (const [k, p] of box.positions) {
-        positions.set(k, { x: p.x + MARGIN, y: p.y + cursorY });
-      }
-      cursorY += box.height + ROOT_SEP;
+    const rankSize = new Map<number, number>(); // rank → max secondary-dim
+    for (const v of nodesInRow) {
+      const r = rankOf.get(v) ?? 0;
+      const dims = opts.measuredDims?.get(v) ?? NODE_DIMS[kindOf.get(v)!];
+      const sec = direction === "TB" ? dims.h : dims.w;
+      const prev = rankSize.get(r) ?? 0;
+      if (sec > prev) rankSize.set(r, sec);
     }
+    const ranks = [...rankSize.keys()].sort((a, b) => a - b);
+    const rankPos = new Map<number, number>();
+    let acc = rowCursor;
+    for (const r of ranks) {
+      rankPos.set(r, acc);
+      acc += rankSize.get(r)! + RANK_SEP;
+    }
+    // acc now sits one RANK_SEP past the bottom of the last rank.
+    // Strip that trailing separator to get the row's true secondary
+    // extent (top-of-first-rank to bottom-of-last-rank).
+    const rowSecondaryExtent =
+      ranks.length > 0 ? acc - RANK_SEP - rowCursor : 0;
+
+    // Apply: primary axis from subtree + row offset; secondary from rank.
+    for (const root of row.roots) {
+      const box = subtreeBoxes.get(root)!;
+      const startPrimary = (row.rootStart.get(root) ?? 0) + MARGIN;
+      for (const [k, local] of box.positions) {
+        const r = rankOf.get(k) ?? 0;
+        const rankSecondary = rankPos.get(r) ?? rowCursor;
+        if (direction === "TB") {
+          positions.set(k, {
+            x: local.x + startPrimary,
+            y: rankSecondary,
+          });
+        } else {
+          positions.set(k, {
+            x: rankSecondary,
+            y: local.y + startPrimary,
+          });
+        }
+      }
+    }
+
+    rowCursor += rowSecondaryExtent + ROOT_SEP;
   }
 
   // Side placement: dock each side-edge target next to its source. For
   // TB direction the target sits to the right of the source at the same
   // vertical centre; for LR direction it sits below.
-  const SIDE_GAP = 64;
+  const SIDE_GAP = 80; // 5rem — matches TILE_SEP / RANK_SEP for visual consistency
   for (const e of sideEdges) {
     const sourcePos = positions.get(e.source);
     if (!sourcePos) continue;
     const sourceKind = kindOf.get(e.source);
     const targetKind = kindOf.get(e.target);
     if (!sourceKind || !targetKind) continue;
-    const srcDims = NODE_DIMS[sourceKind];
-    const tgtDims = NODE_DIMS[targetKind];
+    const srcDims = opts.measuredDims?.get(e.source) ?? NODE_DIMS[sourceKind];
+    const tgtDims = opts.measuredDims?.get(e.target) ?? NODE_DIMS[targetKind];
     if (direction === "TB") {
       positions.set(e.target, {
         x: sourcePos.x + srcDims.w + SIDE_GAP,
@@ -806,22 +1472,37 @@ export function layoutViewGraph(
 
   const rfNodes: RfNode[] = viewNodes.map((v) => {
     const p = positions.get(v.view_id) ?? { x: 0, y: 0 };
+    // Positions come from layoutSubtree's exact arithmetic; snapping to
+    // a 16-grid here was rounding parent.x and child.x INDEPENDENTLY,
+    // which breaks center-alignment whenever NODE_DIMS differ across
+    // ranks (e.g. task=256 over chunk=272 → 8 px center offset → smooth-
+    // step renders a hairpin loop). Keep raw positions; ReactFlow handles
+    // sub-pixel rendering fine.
     return {
       id: v.view_id,
       type: v.kind,
-      position: { x: snap(p.x), y: snap(p.y) },
+      position: { x: p.x, y: p.y },
       data: v,
     };
   });
 
-  const rfEdges: RfEdge[] = viewEdges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourceHandle,
-    type: "default",
-    style: { stroke: edgeColor(e.kind), strokeWidth: 1.5 },
-  }));
+  const rfEdges: RfEdge[] = viewEdges.map((e) => {
+    const color = edgeColor(e.kind);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      type: "smoothstep",
+      // offset = half RANK_SEP keeps smoothstep's perpendicular run-out
+      // small enough to fit inside the rank gap (no loop) while leaving
+      // a vertical segment at both ends so the arrow marker points
+      // straight down, not sideways.
+      pathOptions: { borderRadius: 4, offset: 8 },
+      style: { stroke: color, strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color },
+    };
+  });
 
   return { nodes: rfNodes, edges: rfEdges };
 }
@@ -862,6 +1543,29 @@ function edgeColor(kind: string): string {
       return "#f472b6";
     case "planner":
       return "#fbbf24";
+    case "extracted":
+      return "#06b6d4"; // cyan — search-result row pulled out of the bag
+    case "reflects":
+      return "#a78bfa"; // violet — self-critique side branch
+    case "triggers-capability":
+      return "#f97316"; // orange — reactive capability gate
+    case "re-evaluated-with":
+      return "#fb923c"; // orange-light — re-eval chain after gate
+    case "triggered-from":
+      return "#fde047"; // yellow-300 — click-trail when "Was als
+    // nächstes?" was invoked from a Folge-Knoten and re-anchored
+    // to its parent. Distinct hue from amber-400/proposed so the
+    // user spots the trail edge instantly.
+    case "trail-trunk":
+      return "#fde047"; // yellow-300 — same hue as triggered-from so
+    // the click-trail reads as one continuous strand. Used for
+    // every trunk edge that follows the trail through plan →
+    // action → spawned-node, replacing the structural anchor edge.
+    case "refreshes":
+      return "#fb923c"; // orange-400 — chunk respawned from current
+    // segments.json. Old chunk → new chunk, drawn as a side edge so
+    // the trunk layout treats both as independent roots while the
+    // user still sees "this replaces that".
     default:
       return "#475569";
   }

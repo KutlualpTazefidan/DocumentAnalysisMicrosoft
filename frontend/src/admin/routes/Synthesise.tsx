@@ -6,7 +6,6 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlPreview } from "../components/HtmlPreview";
-import { LlmServerPanel } from "../components/LlmServerPanel";
 import { QuestionList } from "../components/QuestionList";
 import { StageIndicator } from "../components/StageIndicator";
 import { useHtml } from "../hooks/useExtract";
@@ -525,10 +524,6 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           >
             {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
           </button>
-
-          <hr className="border-slate-200" />
-
-          <LlmServerPanel token={token} />
 
           <hr className="border-slate-200" />
 

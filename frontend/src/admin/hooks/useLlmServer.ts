@@ -73,3 +73,68 @@ export function useLlmStop(token: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["llm-status"] }),
   });
 }
+
+// ── Model picker (Phase: top-bar control) ──────────────────────────────
+
+export interface ModelOption {
+  name: string;
+  label: string;
+  parameters_b: number;
+  vram_bf16_gb: number;
+  fits_24gb_bf16: boolean;
+  multilingual: boolean;
+  license: string;
+  notes: string;
+}
+
+export interface ModelsResponse {
+  models: ModelOption[];
+  current: string | null;
+}
+
+export function useLlmModels(token: string) {
+  return useQuery<ModelsResponse>({
+    queryKey: ["llm-models"],
+    queryFn: async () => {
+      const r = await fetch(`${apiBase()}/api/admin/llm/models`, {
+        headers: { "X-Auth-Token": token },
+      });
+      if (!r.ok) throw new Error(`models ${r.status}`);
+      return r.json() as Promise<ModelsResponse>;
+    },
+    // Curated list rarely changes; current model only on /select-model
+    // which we invalidate manually below.
+    staleTime: 60_000,
+  });
+}
+
+export function useLlmSelectModel(token: string) {
+  const qc = useQueryClient();
+  return useMutation<LlmStatus, Error, string>({
+    mutationFn: async (modelName) => {
+      const r = await fetch(`${apiBase()}/api/admin/llm/select-model`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth-Token": token,
+        },
+        body: JSON.stringify({ model_name: modelName }),
+      });
+      if (!r.ok) {
+        let detail = `${r.status} ${r.statusText}`;
+        try {
+          const body = (await r.json()) as { detail?: string };
+          if (body && typeof body.detail === "string") detail = body.detail;
+        } catch {
+          /* keep status fallback */
+        }
+        throw new Error(detail);
+      }
+      return r.json() as Promise<LlmStatus>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["llm-status"] });
+      qc.invalidateQueries({ queryKey: ["llm-models"] });
+    },
+  });
+}

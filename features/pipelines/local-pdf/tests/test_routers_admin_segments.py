@@ -1933,6 +1933,53 @@ def test_vlm_segment_reactivate_restores_box_in_html_even_if_vlm_fails(
     assert 'data-source-box="p1-b1"' in html_on
 
 
+def test_update_element_persists_and_refreshes_html(client_vlm_segment) -> None:
+    """PATCH /elements/{box_id} updates mineru.json + html.html, runs LaTeX pass."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    new_html = '<p data-source-box="p1-b1">Updated paragraph $\\alpha$ value.</p>'
+    r = client_vlm_segment.patch(
+        "/api/admin/docs/doc/elements/p1-b1",
+        headers={"X-Auth-Token": "tok"},
+        json={"html_snippet": new_html},
+    )
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert payload["box_id"] == "p1-b1"
+    # Stored raw is the user-submitted form
+    assert payload["html_snippet_raw"] == new_html
+    # Rendered runs through _convert_inline_latex — symbol map / MathML pass
+    # turns $\alpha$ into a lifted form. Either MathML or the Unicode glyph
+    # (U+03B1, GREEK SMALL LETTER ALPHA, built from \u escape so ruff
+    # RUF001 doesn't flag the literal char).
+    alpha = "\u03b1"
+    assert "<math" in payload["html_snippet"] or alpha in payload["html_snippet"]
+
+    # mineru.json reflects the change.
+    mineru = client_vlm_segment.get(
+        "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
+    ).json()
+    el = next(e for e in mineru["elements"] if e["box_id"] == "p1-b1")
+    assert el["html_snippet_raw"] == new_html
+
+    # html.html got regenerated and contains the updated paragraph (filtered
+    # by data-source-box so we don't depend on exact rendering).
+    html = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert "Updated paragraph" in html
+
+
+def test_update_element_unknown_box_returns_404(client_vlm_segment) -> None:
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.patch(
+        "/api/admin/docs/doc/elements/p99-bxx",
+        headers={"X-Auth-Token": "tok"},
+        json={"html_snippet": "<p>nope</p>"},
+    )
+    assert r.status_code == 404
+
+
 def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
     """DELETE /segments/{box_id} marks discard AND refreshes html."""
     _run_segment_vlm(client_vlm_segment, "doc")

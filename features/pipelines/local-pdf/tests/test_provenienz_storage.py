@@ -213,3 +213,161 @@ def test_cascade_helper_walks_dependency_chain():
     cascade = _collect_cascade("chunk1", nodes, edges)
     assert cascade == {"chunk1", "claim1", "task1", "sr1", "eval1", "prop1", "dec1"}
     assert "bystander" not in cascade
+
+
+def test_cascade_deletes_search_bag_via_action_proposal():
+    """Deleting a search-action_proposal must cascade through its
+    decision's `triggers` edges to every search_result it spawned, plus
+    any evaluations or capability_gates anchored to those results.
+    """
+    from local_pdf.api.routers.admin.provenienz import _collect_cascade
+
+    nodes = [
+        Node(node_id="task1", session_id="s", kind="task", payload={}, actor="h"),
+        Node(
+            node_id="search_prop",
+            session_id="s",
+            kind="action_proposal",
+            payload={"anchor_node_id": "task1", "step_kind": "search"},
+            actor="h",
+        ),
+        Node(node_id="search_dec", session_id="s", kind="decision", payload={}, actor="h"),
+        Node(
+            node_id="sr_a",
+            session_id="s",
+            kind="search_result",
+            payload={"task_node_id": "task1"},
+            actor="h",
+        ),
+        Node(
+            node_id="sr_b",
+            session_id="s",
+            kind="search_result",
+            payload={"task_node_id": "task1"},
+            actor="h",
+        ),
+        Node(node_id="eval_a", session_id="s", kind="evaluation", payload={}, actor="h"),
+        Node(node_id="bystander", session_id="s", kind="search_result", payload={}, actor="h"),
+    ]
+    edges = [
+        Edge(
+            edge_id="e_dec",
+            session_id="s",
+            from_node="search_dec",
+            to_node="search_prop",
+            kind="decided-by",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_trig_a",
+            session_id="s",
+            from_node="search_dec",
+            to_node="sr_a",
+            kind="triggers",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_trig_b",
+            session_id="s",
+            from_node="search_dec",
+            to_node="sr_b",
+            kind="triggers",
+            reason=None,
+            actor="h",
+        ),
+        Edge(
+            edge_id="e_eval",
+            session_id="s",
+            from_node="eval_a",
+            to_node="sr_a",
+            kind="evaluates",
+            reason=None,
+            actor="h",
+        ),
+    ]
+    cascade = _collect_cascade("search_prop", nodes, edges)
+    assert cascade == {"search_prop", "search_dec", "sr_a", "sr_b", "eval_a"}
+    assert "bystander" not in cascade
+    assert "task1" not in cascade  # task itself must survive
+
+
+def test_cascade_deletes_claim_background_with_claim():
+    """Deleting a claim must cascade to its claim_background nodes via
+    the `enriches` edge (chunk-comprehension result)."""
+    from local_pdf.api.routers.admin.provenienz import _collect_cascade
+
+    nodes = [
+        Node(node_id="claim1", session_id="s", kind="claim", payload={}, actor="h"),
+        Node(
+            node_id="bg1",
+            session_id="s",
+            kind="claim_background",
+            payload={"claim_node_id": "claim1", "text": "Hintergrund …"},
+            actor="system",
+        ),
+        Node(node_id="bystander", session_id="s", kind="claim", payload={}, actor="h"),
+    ]
+    edges = [
+        Edge(
+            edge_id="e_enr",
+            session_id="s",
+            from_node="bg1",
+            to_node="claim1",
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    ]
+    cascade = _collect_cascade("claim1", nodes, edges)
+    assert cascade == {"claim1", "bg1"}
+    assert "bystander" not in cascade
+
+
+def test_strip_html_renders_tables_as_markdown():
+    """Tables in html_snippet should become markdown tables, not flat
+    cell-text — preserves row+column structure for the LLM agent."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = (
+        "<div><p>Vorher.</p>"
+        "<table><tr><td>Name</td><td>Datum</td></tr>"
+        "<tr><td>Vallentin</td><td>18.06.2003</td></tr></table>"
+        "<p>Nachher.</p></div>"
+    )
+    out = _strip_html(html)
+    assert "Vorher." in out
+    assert "| Name | Datum |" in out
+    assert "| --- | --- |" in out
+    assert "| Vallentin | 18.06.2003 |" in out
+    assert "Nachher." in out
+
+
+def test_strip_html_handles_ragged_rows_and_pipe_in_cell():
+    """Cell containing | gets escaped; ragged rows are padded."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = "<table><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>x|y</td><td>z</td></tr></table>"
+    out = _strip_html(html)
+    assert "| A | B | C |" in out
+    assert "| --- | --- | --- |" in out
+    # pipe escaped, ragged row padded with empty cell
+    assert "| x\\|y | z | |" in out
+
+
+def test_strip_html_no_table_falls_back_to_flat_strip():
+    """Plain paragraph: existing flat-strip behaviour is preserved."""
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    html = '<p data-source-box="p2-b0" class="caption">Revisionsstand</p>'
+    out = _strip_html(html)
+    assert out == "Revisionsstand"
+
+
+def test_strip_html_empty_or_whitespace_returns_empty():
+    from local_pdf.api.routers.admin.provenienz import _strip_html
+
+    assert _strip_html("") == ""
+    assert _strip_html("   ") == ""
+    assert _strip_html(None) == ""  # type: ignore[arg-type]

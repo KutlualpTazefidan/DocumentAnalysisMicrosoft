@@ -125,16 +125,138 @@ TOOL_REGISTRY: list[ToolInfo] = [
     ToolInfo(
         name="calculator",
         label="Calculator",
-        description="Zahlen-Verifikation: Summen, Mittelwerte, Einheiten-Umrechnung.",
-        when_to_use="Wenn evaluate eine Rechenoperation prüfen muss bevor ein Verdict steht.",
+        description=(
+            "Deterministische Zahlen-Verifikation. Operationen: 'compare' "
+            "(strikte Gleichheit von (Wert, Einheit)-Paaren), 'sum' "
+            "(Summen mit konsistenter Einheit). Ersetzt LLM-In-The-Head-"
+            "Mathematik durch echten Code. Toleranzen sind nicht "
+            "eingebaut — die fachliche Bewertung einer Differenz ist "
+            "Domain-Sache (Skills entscheiden)."
+        ),
+        when_to_use=(
+            "Wenn ein search_result und seine zu prüfende Aussage Zahlen "
+            "mit Einheit enthalten und ein deterministischer Wert-Vergleich "
+            "vor evaluate gewünscht ist. Wird NICHT mehr automatisch in "
+            "evaluate aufgerufen — der Agent / User muss ihn explizit "
+            "anstoßen."
+        ),
         scope="compute",
         cost_hint="schnell",
-        enabled=False,
-        used_by=["evaluate"],
+        enabled=True,
+        used_by=["search_result", "evaluate"],
         agent_hint=(
-            "capability_request mit name='Calculator' nur in evaluate-Kontext wenn "
-            "die Aussage eine Rechnung enthält (z.B. '5.6 kW = 2.1+1.5+2.0') und "
-            "der Treffer-Text die Einzelwerte aber nicht die Summe nennt."
+            "capability_request mit name='Calculator' im next_step "
+            "wenn der Anker ein search_result ist UND sowohl Aussage als "
+            "auch Treffer-Text Zahlen mit Einheit enthalten, deren "
+            "exakte Übereinstimmung den Verdict beeinflussen würde. "
+            "Ausführung: User triggert per Knopf am search_result-Tile "
+            "ODER Auto-Executor postet "
+            "/api/admin/provenienz/sessions/{id}/calculator-on-result "
+            "mit search_result_node_id. Ergebnis landet als "
+            "tool_annotation Node am Treffer und wird automatisch in den "
+            "nächsten evaluate-Prompt eingespeist."
+        ),
+    ),
+    ToolInfo(
+        name="table_parser",
+        label="TableParser",
+        description=(
+            "Deterministischer HTML-Tabellen-Parser. Extrahiert Caption, "
+            "Spalten-Headers und Zeilen-Labels und legt die Zellen als "
+            "2D-Bindung (Zeile, Spalte) -> Wert ab. Beseitigt LLM-In-"
+            "The-Head-Tabellen-Parsen; macht (Zeilen-Label, Spalten-"
+            "Label) -> Wert eindeutig."
+        ),
+        when_to_use=(
+            "Wenn ein search_result kind=table ist, fasst das Tool die "
+            "Zellen vor dem evaluate strukturiert auf. Persistiert sich "
+            "selbst als tool_annotation am Treffer; evaluate-Prompt "
+            "konsumiert das."
+        ),
+        scope="compute",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search_result", "evaluate"],
+        agent_hint=(
+            "Auto-fire im evaluate-Pfad wenn Treffer-Box-Kind == 'table'. "
+            "Ergebnis landet als tool_annotation am search_result und "
+            "wird vom evaluate-Prompt automatisch eingespeist. Engineering-"
+            "Prinzipien fuer das LESEN der strukturierten Tabelle stehen "
+            "im Skill 'tabellen-2d-bindung'."
+        ),
+    ),
+    ToolInfo(
+        name="table_consistency_checker",
+        label="TableConsistencyChecker",
+        description=(
+            "Pruefe interne Konsistenz einer geparsten Tabelle: Spalten-"
+            "Summen vs. Total-Zeile, Einheits-Konsistenz pro Spalte. "
+            "Engineering-Pruefung ohne Domain-Wissen."
+        ),
+        when_to_use=(
+            "Auto-fire bei evaluate auf einem Tabellen-Treffer, sobald "
+            "TableParser-Annotation existiert. Liefert ConsistencyReport "
+            "mit Issues (Schweregrad: error/warning/info) als zweite "
+            "tool_annotation am Treffer."
+        ),
+        scope="compute",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["evaluate", "search_result"],
+        agent_hint=(
+            "Auto-fire-Pattern wie TableParser. Output landet als "
+            "tool_annotation 'table_consistency'. Engineering-Prinzipien "
+            "fuer das LESEN des Reports stehen im Skill 'tabellen-"
+            "untersuchungs-choreografie'."
+        ),
+    ),
+    ToolInfo(
+        name="bib_file_matcher",
+        label="BibFileMatcher",
+        description=(
+            "Schlägt eine Bibliography-Citation gegen die meta.json aller "
+            "Slugs im data_root nach. Token-Overlap, kein BM25 — schnell, "
+            "deterministisch, no LLM."
+        ),
+        when_to_use=(
+            "Wenn ein RegisterLookup-Treffer kind=bibliography liefert und "
+            "der Agent prüfen will, ob das zitierte Dokument bereits im "
+            "lokalen Korpus liegt."
+        ),
+        scope="cross-doc",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search"],
+        agent_hint=(
+            "Reactive: feuert automatisch im register_lookup-Endpoint wenn "
+            "kind=bibliography. Output landet als corpus_match Feld am Hit. "
+            "Kein manueller capability_request nötig."
+        ),
+    ),
+    ToolInfo(
+        name="register_lookup",
+        label="RegisterLookup",
+        description=(
+            "Konsolidiertes Verzeichnis (Inhalts-/Tabellen-/Abbildungs-/"
+            "Literaturverzeichnis) als strukturierte Liste mit Markdown-Tabelle. "
+            "Nutze für Cross-Reference-Auflösung — NICHT für allgemeine Inhaltssuche."
+        ),
+        when_to_use=(
+            "Wenn die Aussage explizit einen Verzeichnis-Eintrag referenziert "
+            "('siehe Tabelle 3', 'Abbildung 7', 'in [4]', 'gemäß Quelle X')."
+        ),
+        scope="in-doc",
+        cost_hint="schnell",
+        enabled=True,
+        used_by=["search"],
+        agent_hint=(
+            "capability_request mit name='RegisterLookup' wenn die Aussage einen "
+            "Verzeichnis-Treffer braucht: Quellen-Zitat ([n], (Autor Jahr)) → "
+            "bibliography; Tabellen-Verweis (Tabelle/Tab. n) → list_of_tables; "
+            "Abbildungs-Verweis (Abbildung/Abb. n) → list_of_figures; "
+            "Kapitel-Verweis (Kapitel n, Abschnitt n.m) → toc. "
+            "Verzeichnisse sind aus dem InDocSearcher-Korpus AUSGESCHLOSSEN, "
+            "deshalb braucht man dieses Tool für Querverweise."
         ),
     ),
 ]

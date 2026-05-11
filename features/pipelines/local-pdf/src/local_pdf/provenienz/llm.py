@@ -29,6 +29,10 @@ class GuidanceRef:
     kind: Literal["reason", "approach"]
     id: str
     summary: str
+    # Auto-vs-manual provenance for approaches. Reasons are always
+    # implicit-corpus (auto), so these fields stay default for them.
+    auto_selected: bool = False
+    selection_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

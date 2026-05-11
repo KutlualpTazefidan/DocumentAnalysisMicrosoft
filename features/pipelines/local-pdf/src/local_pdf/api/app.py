@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 from local_pdf.api.auth import install_auth_middleware
 from local_pdf.api.config import ApiConfig
 from local_pdf.api.schemas import HealthResponse
+
+_log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -55,6 +58,17 @@ def create_app() -> FastAPI:
     cfg = ApiConfig()
     cfg.data_root.mkdir(parents=True, exist_ok=True)
 
+    # Run skill-system migration at startup so the first request after
+    # deploy already has skills.jsonl populated. Idempotent — no-op if
+    # the _meta.json flag exists. Failure must NOT prevent boot: log and
+    # degrade rather than crash.
+    try:
+        from local_pdf.provenienz.skill_migration import migrate_legacy_to_skills
+
+        migrate_legacy_to_skills(cfg.data_root)
+    except Exception as exc:
+        _log.warning("skill migration at startup failed: %s", exc)
+
     app = FastAPI(
         title="local-pdf-api",
         version="0.2.0",
@@ -89,6 +103,7 @@ def create_app() -> FastAPI:
         router as provenienz_approaches_router,
     )
     from local_pdf.api.routers.admin.segments import router as segments_router
+    from local_pdf.api.routers.admin.skills import router as skills_router
     from local_pdf.api.routers.admin.synthesise import router as synthesise_router
     from local_pdf.api.routers.auth import router as auth_router
     from local_pdf.api.routers.curate.docs import router as curate_docs_router
@@ -105,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(pipelines_router)
     app.include_router(provenienz_router)
     app.include_router(provenienz_approaches_router)
+    app.include_router(skills_router)
     app.include_router(llm_server_router)
     app.include_router(admin_curators_router)
     app.include_router(curate_docs_router)

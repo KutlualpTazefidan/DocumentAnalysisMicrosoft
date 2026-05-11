@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import UTC, datetime
 
@@ -16,6 +17,7 @@ from local_pdf.api.schemas import (
     WorkFailedEvent,
 )
 from local_pdf.convert.source_elements import build_source_elements_payload
+from local_pdf.provenienz.registers import detect_and_persist_registers
 from local_pdf.storage.sidecar import (
     doc_dir,
     read_html,
@@ -42,7 +44,7 @@ def _now_iso() -> str:
 
 _PDF_STYLE = (
     "<style>"
-    "body{font-family:Georgia,'Times New Roman',serif;"
+    "body{font-family:Georgia,'Times New Roman',serif;font-size:15px;"
     "max-width:720px;margin:2rem auto;padding:0 2rem;line-height:1.6;color:#1f2937}"
     "h1{font-size:2em;font-weight:bold;text-align:center;margin:1.5em 0 0.5em}"
     "h2{font-size:1.5em;font-weight:bold;margin:1.2em 0 0.4em;"
@@ -391,6 +393,16 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     {"elements": merged, "diagnostics": merged_diagnostics},
                 )
                 write_html(cfg.data_root, slug, _wrap_html(merged))
+                # Verzeichnis-detection: full-doc extraction is the only
+                # state where we have heading-text for every box, so this
+                # only runs when ``page is None``. Manual per-page reruns
+                # don't re-trigger the walk — the user can still flip kinds
+                # via the dropdown in the Extract tab when they need to.
+                # Detection is best-effort; never let a heuristic regression
+                # block extraction completion (suppress all exceptions).
+                if page is None:
+                    with contextlib.suppress(Exception):
+                        detect_and_persist_registers(cfg.data_root, slug)
                 for ev in worker.unload():
                     yield ev.model_dump_json() + "\n"
         except Exception as exc:

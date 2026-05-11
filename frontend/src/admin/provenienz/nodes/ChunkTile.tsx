@@ -1,4 +1,4 @@
-import { CornerDownRight, FileText, Lock, Quote } from "lucide-react";
+import { CornerDownRight, FileText, History, Lock, Quote } from "lucide-react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
 import type { ChunkView } from "../layout";
@@ -7,13 +7,22 @@ import type { ChunkView } from "../layout";
  * Root tile of a session — the source-document chunk the user picked.
  * Promoted chunks (created via "Weiter erforschen" on a search result row)
  * render with a small purple "abgeleitet" marker.
+ *
+ * When ``replacedByRefresh`` is set, the tile dims and shows a "ersetzt"
+ * badge — a newer chunk Node carries a ``refreshes`` edge pointing here,
+ * so this one is the historical predecessor. Both stay clickable: the
+ * old chunk's claims/tasks/evaluations remain anchored here for audit,
+ * fresh research happens on the new one.
  */
 export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
   const text = String((data.chunk.payload.text as string) ?? "");
   const boxId = String((data.chunk.payload.box_id as string) ?? "");
   const closed = !!data.closedByStop;
   const promoted = data.promoted;
+  const replaced = !!data.replacedByRefresh;
   const claimCount = data.claimCount;
+  const depthRaw = data.chunk.payload.recursion_depth;
+  const depth = typeof depthRaw === "number" ? depthRaw : 0;
 
   return (
     <div
@@ -21,7 +30,7 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
         promoted
           ? "border-purple-400 bg-slate-700"
           : "border-slate-500 bg-slate-700"
-      }`}
+      } ${replaced ? "opacity-60" : ""}`}
     >
       <Handle
         type="target"
@@ -32,6 +41,22 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
         <span className="flex items-center gap-1">
           <FileText className="w-3 h-3" aria-hidden />
           {promoted ? "Chunk · abgeleitet" : "Chunk"}
+          {depth > 0 && (
+            <span
+              className="ml-1 font-mono text-cyan-300"
+              title={`Rekursionstiefe: ${depth}. Erzeugt durch ${depth}× promote_search_result.`}
+            >
+              ↳ Ebene {depth}
+            </span>
+          )}
+          {replaced && (
+            <span
+              className="ml-1 flex items-center gap-0.5 text-orange-300"
+              title="Wurde durch eine neuere Version ersetzt — bleibt für den Audit erhalten."
+            >
+              <History className="w-3 h-3" aria-hidden /> ersetzt
+            </span>
+          )}
         </span>
         {boxId && (
           <span className="font-mono text-blue-300 bg-navy-900/60 px-1 rounded">

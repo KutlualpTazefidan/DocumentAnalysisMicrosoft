@@ -51,6 +51,25 @@ CONFIG_PATH = VLLM_SERVER_DIR / "config.toml"
 # panel. Bounded so a chatty vLLM doesn't OOM the backend.
 LOG_TAIL_LINES = 200
 
+
+def configured_model_name() -> str:
+    """Read ``[model].name`` from config.toml without instantiating
+    a VllmProcess. Used by ``llm.get_default_model()`` so the model
+    name follows whatever the picker last selected — single source of
+    truth, eliminates VLLM_MODEL-env vs config.toml drift.
+
+    Returns empty string if the file is missing or malformed.
+    """
+    if not CONFIG_PATH.exists():
+        return ""
+    try:
+        cfg = tomllib.loads(CONFIG_PATH.read_text())
+    except (tomllib.TOMLDecodeError, OSError):
+        return ""
+    name = cfg.get("model", {}).get("name", "")
+    return str(name)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Status model
 
@@ -117,6 +136,66 @@ class VllmProcess:
         cfg = self._read_config().get("model", {})
         name = cfg.get("name", "")
         return str(name)
+
+    def set_model_name(self, name: str, *, quantization: str | None = None) -> None:
+        """Rewrite ``[model].name`` (and optionally ``quantization``) in
+        config.toml in-place.
+
+        The next ``start()`` picks up the new values via
+        ``_read_config()``. Does NOT auto-restart a running process —
+        callers (UI / tests) decide whether to stop + start or apply
+        on next boot.
+
+        ``quantization`` semantics:
+          - ``None``  → strip any existing ``quantization = ...`` line
+            (the new model wants vLLM auto-detect).
+          - non-None  → set/replace the line so vLLM uses that quantizer
+            (e.g. ``"moe_wna16"`` for Qwen3.5-27B-GPTQ-Int4).
+
+        Implementation: regex-replace inside the ``[model]`` section.
+        Avoids adding a TOML-writer dep (tomllib is read-only) and
+        preserves comments + formatting.
+        """
+        if not self._config_path.exists():
+            raise FileNotFoundError(f"config.toml not found: {self._config_path}")
+        text = self._config_path.read_text()
+        import re
+
+        # 1) Update the ``name`` line.
+        name_pattern = re.compile(
+            r'(\[model\][^\[]*?\bname\s*=\s*)"[^"]*"',
+            re.MULTILINE | re.DOTALL,
+        )
+        text, name_count = name_pattern.subn(rf'\g<1>"{name}"', text, count=1)
+        if name_count == 0:
+            raise ValueError(
+                f"could not find [model].name in {self._config_path}; config.toml may be malformed"
+            )
+
+        # 2) Manage the optional ``quantization`` line. Match an existing
+        #    one (commented or not) inside the [model] block.
+        quant_pattern = re.compile(
+            r'^[ \t]*#?[ \t]*quantization\s*=\s*"[^"]*"[ \t]*\n',
+            re.MULTILINE,
+        )
+        if quantization:
+            replacement = f'quantization = "{quantization}"\n'
+            new_text, hit = quant_pattern.subn(replacement, text, count=1)
+            if hit == 0:
+                # No existing line — append it right after the name line
+                # in the [model] section.
+                new_text = name_pattern.sub(
+                    lambda m: m.group(0) + f'\nquantization = "{quantization}"',
+                    text,
+                    count=1,
+                )
+            text = new_text
+        else:
+            # Strip any existing quantization line so the new model
+            # doesn't inherit a stale quantizer.
+            text = quant_pattern.sub("", text)
+
+        self._config_path.write_text(text)
 
     # ── Process control ────────────────────────────────────────────────────
 

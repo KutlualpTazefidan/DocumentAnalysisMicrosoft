@@ -10,8 +10,32 @@ const KINDS: BoxKind[] = [
   "formula",
   "list_item",
   "auxiliary",
+  "toc",
+  "list_of_tables",
+  "list_of_figures",
+  "bibliography",
   "discard",
 ];
+
+// Human-readable labels for the dropdown. Without this the user sees the
+// raw enum values; with it Verzeichnis kinds show their proper German
+// names so manual reclassification matches the badges and detection
+// hints.
+const KIND_LABELS: Record<BoxKind, string> = {
+  heading: "heading",
+  paragraph: "paragraph",
+  table: "table",
+  figure: "figure",
+  caption: "caption",
+  formula: "formula",
+  list_item: "list_item",
+  auxiliary: "auxiliary",
+  toc: "Inhaltsverzeichnis",
+  list_of_tables: "Tabellenverzeichnis",
+  list_of_figures: "Abbildungsverzeichnis",
+  bibliography: "Literaturverzeichnis",
+  discard: "discard",
+};
 
 interface Props {
   selected: SegmentBox | null;
@@ -75,7 +99,7 @@ export function BoxPropertiesPanel({
             >
               {KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {KIND_LABELS[k]}
                 </option>
               ))}
             </select>

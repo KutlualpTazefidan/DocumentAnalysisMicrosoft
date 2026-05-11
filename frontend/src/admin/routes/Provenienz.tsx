@@ -1,14 +1,15 @@
 import { useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, FolderTree, GitMerge, Plus, Trash2 } from "lucide-react";
+import { Bot, FolderTree, GitMerge, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
-import { ApproachLibrary } from "../provenienz/ApproachLibrary";
 import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
+import { SkillLibrary } from "../provenienz/skills/SkillLibrary";
+import { StepRegistry } from "../provenienz/StepRegistry";
 import { ToolRegistry } from "../provenienz/ToolRegistry";
 import { Canvas } from "../provenienz/Canvas";
 import { ChunkPicker } from "../provenienz/ChunkPicker";
@@ -17,10 +18,12 @@ import {
   useAgentInfo,
   useCreateSession,
   useDeleteSession,
+  useRefreshAllChunks,
   useSession,
   useSessions,
   type SessionMeta,
 } from "../hooks/useProvenienz";
+import { useToast } from "../../shared/components/useToast";
 import type { ViewNode } from "../provenienz/layout";
 import { T } from "../styles/typography";
 
@@ -225,7 +228,12 @@ function ViewToggle({
   );
 }
 
-type AgentTab = "auswahl" | "tools" | "heuristiken" | "wuensche";
+type AgentTab =
+  | "auswahl"
+  | "schritte"
+  | "tools"
+  | "skills"
+  | "wuensche";
 
 function AgentView({
   agentInfo,
@@ -276,9 +284,13 @@ function AgentView({
             <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
           </div>
           <p className={`${T.tiny} text-slate-400`}>
-            Klick im Diagramm → Detail rechts. Reiter zeigen Werkzeuge (was er
-            kann), Heuristiken (wie ihm beigebracht wurde zu denken),
-            Capability-Wünsche (was er sagt fehlt).
+            Klick im Diagramm → Detail rechts. Reiter:{" "}
+            <span className="text-slate-300">Schritte</span> (was er tun kann),{" "}
+            <span className="text-slate-300">Werkzeuge</span> (welche Tools er
+            ruft), <span className="text-slate-300">Fähigkeiten</span> (wie er denkt
+            + Domain-Wissen, alles ohne Code editierbar),{" "}
+            <span className="text-slate-300">Wünsche</span> (was er sagt
+            fehlt).
           </p>
         </header>
         <div className="flex-1 min-h-0">
@@ -303,14 +315,19 @@ function AgentView({
               onClose={() => handleSelect(null)}
             />
           )}
+          {tab === "schritte" && (
+            <div className="p-4">
+              <StepRegistry info={agentInfo} onSelect={handleSelect} />
+            </div>
+          )}
           {tab === "tools" && (
             <div className="p-4">
               <ToolRegistry tools={agentInfo.tools} onSelect={handleSelect} />
             </div>
           )}
-          {tab === "heuristiken" && (
+          {tab === "skills" && (
             <div className="p-4">
-              <ApproachLibrary token={token} />
+              <SkillLibrary token={token} />
             </div>
           )}
           {tab === "wuensche" && <CapabilityRequestsTab token={token} />}
@@ -347,8 +364,9 @@ function AgentTabBar({
   return (
     <nav className="flex items-center border-b border-navy-700 px-2 bg-navy-900/40">
       {item("auswahl", "Auswahl")}
+      {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
-      {item("heuristiken", "Heuristiken")}
+      {item("skills", "Fähigkeiten")}
       {item("wuensche", "Wünsche")}
     </nav>
   );
@@ -356,20 +374,62 @@ function AgentTabBar({
 
 function SessionHeader({
   detail,
+  token,
 }: {
   detail: { meta: SessionMeta; nodes: { kind: string }[]; edges: unknown[] };
   token: string;
 }): JSX.Element {
+  const refreshAll = useRefreshAllChunks(token, detail.meta.session_id);
+  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
+  const chunkCount = detail.nodes.filter((n) => n.kind === "chunk").length;
+
+  async function handleRefreshAll(): Promise<void> {
+    try {
+      const out = await refreshAll.mutateAsync();
+      if (out.refreshed === 0) {
+        toastInfo(
+          `Alle ${out.total} Chunks aktuell — keine Änderungen in segments.json`,
+        );
+        return;
+      }
+      toastSuccess(
+        `${out.refreshed} von ${out.total} Chunks aktualisiert` +
+          (out.source_missing > 0
+            ? ` · ${out.source_missing} Quelle(n) fehlen`
+            : ""),
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
   return (
-    <header className="border-b border-navy-700 px-4 py-2">
-      <h2 className={`${T.cardTitle} text-white`}>
-        Sitzung {detail.meta.session_id}
-      </h2>
-      <p className={`text-slate-400 ${T.body}`}>
-        Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
-        {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
-        {detail.edges.length} Kanten
-      </p>
+    <header className="border-b border-navy-700 px-4 py-2 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className={`${T.cardTitle} text-white`}>
+          Sitzung {detail.meta.session_id}
+        </h2>
+        <p className={`text-slate-400 ${T.body}`}>
+          Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
+          {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
+          {detail.edges.length} Kanten
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleRefreshAll()}
+        disabled={refreshAll.isPending || chunkCount === 0}
+        title={`Alle ${chunkCount} Chunks gegen aktuelle segments.json prüfen — geänderte werden als neue Chunks angefügt, alte bleiben für den Audit.`}
+        className={`shrink-0 px-3 py-1.5 rounded border border-orange-700/60 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center gap-1.5 disabled:opacity-50`}
+      >
+        <RefreshCw
+          className={`w-3.5 h-3.5 ${refreshAll.isPending ? "animate-spin" : ""}`}
+          aria-hidden
+        />
+        {refreshAll.isPending
+          ? "Prüfe…"
+          : `Alle Chunks aktualisieren (${chunkCount})`}
+      </button>
     </header>
   );
 }

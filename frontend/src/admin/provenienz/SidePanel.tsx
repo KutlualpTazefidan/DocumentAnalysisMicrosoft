@@ -2,13 +2,18 @@ import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
 import type { ViewNode } from "./layout";
 
 import { ActionProposalPanel } from "./panels/ActionProposalPanel";
+import { CapabilityGatePanel } from "./panels/CapabilityGatePanel";
 import { CapabilityRequestPanel } from "./panels/CapabilityRequestPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
 import { ClaimPanel } from "./panels/ClaimPanel";
+import { EvaluationPanel } from "./panels/EvaluationPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { ManualReviewPanel } from "./panels/ManualReviewPanel";
 import { PlanProposalPanel } from "./panels/PlanProposalPanel";
+import { ReflectionPanel } from "./panels/ReflectionPanel";
+import { SearchResultPanel } from "./panels/SearchResultPanel";
 import { SearchResultsBagPanel } from "./panels/SearchResultsBagPanel";
+import { SubStatementPanel } from "./panels/SubStatementPanel";
 import { TaskPanel } from "./panels/TaskPanel";
 import { T } from "../styles/typography";
 
@@ -78,6 +83,8 @@ export function SidePanel({
       return <TaskPanel {...common} />;
     case "search_results_bag":
       return <SearchResultsBagPanel {...common} />;
+    case "search_result":
+      return <SearchResultPanel {...common} />;
     case "action_proposal":
       return <ActionProposalPanel {...common} />;
     case "plan_proposal":
@@ -86,6 +93,14 @@ export function SidePanel({
       return <CapabilityRequestPanel {...common} />;
     case "manual_review":
       return <ManualReviewPanel {...common} />;
+    case "reflection":
+      return <ReflectionPanel {...common} />;
+    case "sub_statement":
+      return <SubStatementPanel {...common} />;
+    case "evaluation":
+      return <EvaluationPanel {...common} />;
+    case "capability_gate":
+      return <CapabilityGatePanel {...common} />;
   }
 }
 

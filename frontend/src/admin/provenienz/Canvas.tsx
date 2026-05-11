@@ -4,6 +4,7 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -11,10 +12,13 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import {
   Grid3x3,
+  Hand,
   Maximize2,
   MoveVertical,
   MoveHorizontal,
+  MousePointer2,
   RotateCcw,
+  Wand2,
 } from "lucide-react";
 
 import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
@@ -54,15 +58,72 @@ export function Canvas({
   const [snap, setSnap] = useState(true);
   const [resetSignal, setResetSignal] = useState(0);
   const lastResetRef = useRef(0);
+  /** "pan"    = left-drag = pan (classic, default).
+   *  "select" = left-drag = lasso, mid/right = pan. */
+  const [mouseMode, setMouseMode] = useState<"select" | "pan">("pan");
+  /** When true, every time a new node arrives the layout auto-rearranges
+   *  (= triggers a reset) so the new tile sits properly. When false,
+   *  the user's manual moves are preserved and new tiles get an offset
+   *  relative to the dragged root. */
+  const [autoLayout, setAutoLayout] = useState(true);
+  const prevNodeCountRef = useRef(0);
 
   const persisted = usePersistedPositions(sessionId ?? null);
 
+  // Measured tile dimensions captured AFTER ReactFlow's first render.
+  // The first layout pass uses NODE_DIMS estimates (each tile-kind has
+  // a fixed estimate); when the browser actually measures the rendered
+  // tiles we feed the real sizes back into a second layout pass so
+  // wrapped/oversized tiles don't push neighbours into overlap.
+  const [measuredDims, setMeasuredDims] = useState<
+    Map<string, { w: number; h: number }>
+  >(new Map());
+
   const laid = useMemo(
-    () => layoutGraph(nodes, edges, { direction }, meta),
-    [nodes, edges, direction, meta],
+    () => layoutGraph(nodes, edges, { direction, measuredDims }, meta),
+    [nodes, edges, direction, meta, measuredDims],
   );
+
+  // Auto-layout on new-node arrival: detect when the node count went up
+  // and bump resetSignal so the position-pipeline below uses fresh laid
+  // positions for everything (= "Layout neu berechnen" effect).
+  useEffect(() => {
+    const prev = prevNodeCountRef.current;
+    const curr = nodes.length;
+    prevNodeCountRef.current = curr;
+    if (autoLayout && curr > prev && prev > 0) {
+      setResetSignal((n) => n + 1);
+    }
+  }, [nodes.length, autoLayout]);
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
+
+  // After ReactFlow measures the rendered tiles, feed real sizes back
+  // into the layout. ReactFlow v11 stores measured dims directly on
+  // node.width / node.height (set after first render). Compares the new
+  // map against the previous so we only trigger a re-layout when sizes
+  // actually change — without that guard the laid → rfNodes → measured
+  // → laid loop never settles.
+  useEffect(() => {
+    setMeasuredDims((prev) => {
+      const next = new Map<string, { w: number; h: number }>();
+      for (const n of rfNodes) {
+        if (typeof n.width === "number" && typeof n.height === "number") {
+          next.set(n.id, { w: n.width, h: n.height });
+        }
+      }
+      // No measurements yet (or partial) → keep prior state to avoid
+      // re-layout flicker before the first full pass lands.
+      if (next.size === 0 || next.size < rfNodes.length) return prev;
+      const stable =
+        next.size === prev.size &&
+        [...next].every(([k, v]) => {
+          const p = prev.get(k);
+          return p !== undefined && p.w === v.w && p.h === v.h;
+        });
+      return stable ? prev : next;
+    });
+  }, [rfNodes]);
 
   // Position pipeline:
   //   1. Reset → discard everything; use fresh dagre positions
@@ -143,6 +204,15 @@ export function Canvas({
         snapGrid={[16, 16]}
         fitView
         proOptions={{ hideAttribution: true }}
+        // Mouse-mode toggle (toolbar):
+        //   "select" → left-drag draws a lasso, mid/right-drag pans
+        //   "pan"    → left-drag pans (classic), no lasso
+        // Multi-selection via Cmd/Ctrl-click works in both modes.
+        selectionOnDrag={mouseMode === "select"}
+        panOnDrag={mouseMode === "select" ? [1, 2] : true}
+        selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode={["Meta", "Control"]}
+        selectionKeyCode={null}
       >
         <Background
           variant={BackgroundVariant.Lines}
@@ -159,6 +229,12 @@ export function Canvas({
           }
           snap={snap}
           onToggleSnap={() => setSnap((s) => !s)}
+          mouseMode={mouseMode}
+          onToggleMouseMode={() =>
+            setMouseMode((m) => (m === "select" ? "pan" : "select"))
+          }
+          autoLayout={autoLayout}
+          onToggleAutoLayout={() => setAutoLayout((a) => !a)}
           onReset={() => {
             persisted.clear();
             setResetSignal((n) => n + 1);
@@ -178,12 +254,20 @@ function Toolbar({
   onToggleDirection,
   snap,
   onToggleSnap,
+  mouseMode,
+  onToggleMouseMode,
+  autoLayout,
+  onToggleAutoLayout,
   onReset,
 }: {
   direction: LayoutDirection;
   onToggleDirection: () => void;
   snap: boolean;
   onToggleSnap: () => void;
+  mouseMode: "select" | "pan";
+  onToggleMouseMode: () => void;
+  autoLayout: boolean;
+  onToggleAutoLayout: () => void;
   onReset: () => void;
 }): JSX.Element {
   const rf = useReactFlow();
@@ -221,6 +305,32 @@ function Toolbar({
         active={snap}
       >
         <Grid3x3 className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          mouseMode === "select"
+            ? "Maus: Auswahl-Modus (Links-Drag = Lasso). Klick zum Wechseln auf Pan."
+            : "Maus: Pan-Modus (Links-Drag = verschieben). Klick zum Wechseln auf Auswahl."
+        }
+        onClick={onToggleMouseMode}
+        active={mouseMode === "select"}
+      >
+        {mouseMode === "select" ? (
+          <MousePointer2 className="w-4 h-4" />
+        ) : (
+          <Hand className="w-4 h-4" />
+        )}
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          autoLayout
+            ? "Auto-Layout an: bei neuen Tiles wird neu angeordnet"
+            : "Auto-Layout aus: manuelle Positionen bleiben, neue Tiles werden eingefügt"
+        }
+        onClick={onToggleAutoLayout}
+        active={autoLayout}
+      >
+        <Wand2 className="w-4 h-4" />
       </ToolbarButton>
     </div>
   );

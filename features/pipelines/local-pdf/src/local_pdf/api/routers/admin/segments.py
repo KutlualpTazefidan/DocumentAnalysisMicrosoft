@@ -24,6 +24,7 @@ from local_pdf.api.schemas import (
     SegmentsFile,
     SplitBoxRequest,
     UpdateBoxRequest,
+    UpdateElementRequest,
     WorkFailedEvent,
 )
 from local_pdf.storage.sidecar import (
@@ -41,6 +42,7 @@ from local_pdf.storage.sidecar import (
 from local_pdf.workers.base import now_ms
 from local_pdf.workers.mineru import (
     VlmSegmentBlock,
+    _convert_inline_latex,
     _inject_outer_attrs,
     vlm_extract_bbox,
     vlm_segment_doc,
@@ -620,6 +622,40 @@ async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
 
+@router.patch("/api/admin/docs/{slug}/elements/{box_id}")
+async def update_element(
+    slug: str,
+    box_id: str,
+    body: UpdateElementRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Update one element's html_snippet from the in-place editor.
+
+    The submitted HTML is run through ``_convert_inline_latex`` so user
+    typing of ``$\\alpha$`` / ``$$..$$`` / bare LaTeX commands stays
+    consistent with what the segment-time pipeline produces. The user's
+    raw input is preserved in ``html_snippet_raw`` so the Quelltext panel
+    reflects exactly what they typed.
+    """
+    cfg = request.app.state.config
+    m = read_mineru(cfg.data_root, slug)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"no mineru output for {slug}")
+    elements = list(m.get("elements", []))
+    for i, el in enumerate(elements):
+        if el.get("box_id") == box_id:
+            new_rendered = _convert_inline_latex(body.html_snippet)
+            elements[i] = {
+                **el,
+                "html_snippet": new_rendered,
+                "html_snippet_raw": body.html_snippet,
+            }
+            write_mineru(cfg.data_root, slug, {**m, "elements": elements})
+            _refresh_active_html(cfg, slug)
+            return dict(elements[i])
+    raise HTTPException(status_code=404, detail=f"element not found: {box_id}")
+
+
 @router.post("/api/admin/docs/{slug}/segments/merge")
 async def merge_boxes(slug: str, body: MergeBoxesRequest, request: Request) -> dict[str, Any]:
     cfg = request.app.state.config
@@ -738,6 +774,56 @@ async def reset_page(slug: str, page: int, request: Request) -> dict[str, Any]:
     _replace_segments(cfg.data_root, slug, new_boxes)
     seg = SegmentsFile(slug=slug, boxes=new_boxes)
     return dict(seg.model_dump(mode="json"))
+
+
+@router.post("/api/admin/docs/{slug}/segments/detect-registers")
+async def detect_registers_endpoint(slug: str, request: Request) -> dict[str, Any]:
+    """Retroactively run the Verzeichnis-detection heuristic on an
+    already-extracted document. Useful for slugs that finished
+    extraction before this feature shipped — they don't get the
+    auto-detection on extract finalize, but a manual sweep reclassifies
+    matching boxes in-place.
+
+    Manually-activated boxes are NEVER touched (user override always wins),
+    so it's safe to re-run.
+    """
+    from local_pdf.provenienz.registers import detect_and_persist_registers
+
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    changed = detect_and_persist_registers(cfg.data_root, slug)
+    return {"slug": slug, "boxes_reclassified": changed}
+
+
+@router.get("/api/admin/docs/{slug}/registers")
+async def list_registers(slug: str, request: Request) -> dict[str, Any]:
+    """Return the four consolidated Verzeichnisse (TOC, Tabellen-,
+    Abbildungs-, Literaturverzeichnis) for *slug*, each with structured
+    ``{number, title, page}`` entries plus a rendered Markdown table.
+
+    Verzeichnisse with no boxes (none of that kind exist on disk) are
+    omitted from the list rather than emitted as empty stubs — the UI
+    decides what to show based on which keys arrived.
+    """
+    from local_pdf.api.schemas import BoxKind
+    from local_pdf.provenienz.registers import read_register
+
+    cfg = request.app.state.config
+    if not doc_dir(cfg.data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    register_kinds = (
+        BoxKind.toc,
+        BoxKind.list_of_tables,
+        BoxKind.list_of_figures,
+        BoxKind.bibliography,
+    )
+    registers: list[dict[str, Any]] = []
+    for kind in register_kinds:
+        out = read_register(cfg.data_root, slug, kind)
+        if out is not None:
+            registers.append(out)
+    return {"slug": slug, "registers": registers}
 
 
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/reset")

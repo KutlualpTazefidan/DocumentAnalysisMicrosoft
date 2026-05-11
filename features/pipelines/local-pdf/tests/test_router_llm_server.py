@@ -155,3 +155,101 @@ def test_routes_require_auth(client) -> None:
     assert client.get("/api/admin/llm/status").status_code == 401
     assert client.post("/api/admin/llm/start").status_code == 401
     assert client.post("/api/admin/llm/stop").status_code == 401
+
+
+# ── Phase: model picker / select-model ──────────────────────────────────────
+
+
+def test_models_route_returns_curated_list(client) -> None:
+    r = client.get("/api/admin/llm/models", headers={"X-Auth-Token": "tok"})
+    assert r.status_code == 200
+    body = r.json()
+    names = [m["name"] for m in body["models"]]
+    # Sanity: the curated allowlist contains the project's defaults.
+    # Only models that fit in 24 GB without further quantization make
+    # the list — bf16 14B / Phi-4 / Gemma-bf16 / Mistral-bf16 are
+    # excluded by design (they'd OOM on the target hardware).
+    assert "Qwen/Qwen2.5-3B-Instruct" in names
+    assert "Qwen/Qwen2.5-7B-Instruct" in names
+    assert "Qwen/Qwen3.5-9B" in names
+    assert "RedHatAI/gemma-3-27b-it-FP8-dynamic" in names
+    # Every listed model must self-report as fitting on 24 GB.
+    assert all(m["fits_24gb_bf16"] for m in body["models"])
+    # ``current`` reflects the fake config.toml the test fixture set up.
+    assert body["current"] == "test/fake-model"
+
+
+def test_select_model_writes_config_toml_for_allowlisted(client) -> None:
+    r = client.post(
+        "/api/admin/llm/select-model",
+        headers={"X-Auth-Token": "tok"},
+        json={"model_name": "Qwen/Qwen2.5-7B-Instruct"},
+    )
+    assert r.status_code == 200, r.text
+    # The status route now reflects the new model.
+    status_r = client.get("/api/admin/llm/status", headers={"X-Auth-Token": "tok"})
+    assert status_r.json()["model"] == "Qwen/Qwen2.5-7B-Instruct"
+
+
+def test_select_model_rejects_unknown_name(client) -> None:
+    r = client.post(
+        "/api/admin/llm/select-model",
+        headers={"X-Auth-Token": "tok"},
+        json={"model_name": "evil/SomeRandom-99B"},
+    )
+    assert r.status_code == 400
+    assert "nicht in der curated Liste" in r.json()["detail"]
+
+
+def test_select_model_does_not_auto_restart(client) -> None:
+    """Switching the model while running must not silently restart —
+    it just rewrites config.toml. The user must explicitly stop+start."""
+    client.post("/api/admin/llm/start", headers={"X-Auth-Token": "tok"})
+    r = client.post(
+        "/api/admin/llm/select-model",
+        headers={"X-Auth-Token": "tok"},
+        json={"model_name": "Qwen/Qwen2.5-3B-Instruct"},
+    )
+    assert r.status_code == 200
+    # State is whatever it was before the switch (still starting/running).
+    assert r.json()["state"] in {"starting", "running"}
+
+
+def test_select_model_routes_require_auth(client) -> None:
+    assert client.get("/api/admin/llm/models").status_code == 401
+    assert client.post("/api/admin/llm/select-model").status_code == 401
+
+
+# ── Phase: quantization-line plumbing ───────────────────────────────────
+
+
+def test_select_quantized_model_writes_quantization_line(tmp_path: Path) -> None:
+    """When the picker model has a non-None ``quantization``, the new
+    config.toml must have a ``quantization = "..."`` line under
+    [model]. Tested with a synthetic model name — the registry's
+    current entries don't need explicit quantization on a 24-GB box."""
+    cfg = _fake_config(tmp_path)
+    p = VllmProcess(config_path=cfg, start_script=_fake_script(tmp_path))
+    p.set_model_name("test/synthetic-int4", quantization="awq")
+    text = cfg.read_text()
+    assert 'quantization = "awq"' in text
+    assert 'name = "test/synthetic-int4"' in text
+    p.stop(grace_seconds=1.0)
+
+
+def test_select_unquantized_model_strips_stale_quantization_line(tmp_path: Path) -> None:
+    """Switching from a quantized model to a plain bf16 one must remove
+    the stale ``quantization = ...`` line — otherwise vLLM would try
+    to apply the wrong quantizer to a non-quantized checkpoint."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        '[server]\nhost = "127.0.0.1"\nport = 19999\n'
+        '[model]\nname = "test/some-int4"\n'
+        'quantization = "awq"\n'
+    )
+    p = VllmProcess(config_path=cfg, start_script=_fake_script(tmp_path))
+    p.set_model_name("Qwen/Qwen2.5-7B-Instruct", quantization=None)
+    text = cfg.read_text()
+    assert "quantization" not in text
+    assert 'name = "Qwen/Qwen2.5-7B-Instruct"' in text
+    p.stop(grace_seconds=1.0)

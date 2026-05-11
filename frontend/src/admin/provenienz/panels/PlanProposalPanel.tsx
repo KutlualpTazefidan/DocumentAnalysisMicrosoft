@@ -1,9 +1,13 @@
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useDecomposeHit,
   useDeleteNode,
+  useEvaluate,
   useExtractClaims,
   useFormulateTask,
+  useInvestigateTable,
   useProposeStop,
+  usePromoteSearchResult,
   useSearchStep,
 } from "../../hooks/useProvenienz";
 import { T } from "../../styles/typography";
@@ -16,13 +20,18 @@ const STEP_LABEL: Record<string, string> = {
   search: "Suchen",
   evaluate: "Bewerten",
   propose_stop: "Stopp vorschlagen",
+  promote_search_result: "Treffer vertiefen",
+  decompose_hit: "Treffer zerlegen",
+  investigate_table: "Tabellen-Untersuchung",
 };
 
 /**
  * Side-panel for a plan_proposal tile from /next-step. Shows the agent's
  * picked step + reasoning + considered alternatives. "Akzeptieren" fires
- * the matching step route and tombstones this plan_proposal so the canvas
- * cleans up automatically.
+ * the matching step route AND keeps the plan_proposal tile in the canvas
+ * — the audit trail is the point of Provenienz, the resulting
+ * action_proposal renders alongside it. User can manually "Verwerfen"
+ * to tombstone if a tile turned out to be noise.
  */
 export function PlanProposalPanel({
   sessionId,
@@ -41,6 +50,11 @@ export function PlanProposalPanel({
     tool: string | null;
     approach_id: string | null;
     anchor_node_id: string;
+    /** Click-trail persisted by the planner when the run was invoked
+     *  from a Folge-Knoten (e.g. Bewertungs-Tile). The accept-handler
+     *  forwards it to the underlying step mutation so the trail
+     *  propagates plan → action_proposal → spawned nodes. */
+    triggered_from_node_id?: string;
     audit?: {
       source_label?: string;
       system_prompt_used?: string;
@@ -58,41 +72,100 @@ export function PlanProposalPanel({
   const formulate = useFormulateTask(token, sessionId);
   const search = useSearchStep(token, sessionId);
   const stop = useProposeStop(token, sessionId);
+  const evaluate = useEvaluate(token, sessionId);
+  const promote = usePromoteSearchResult(token, sessionId);
+  const decompose = useDecomposeHit(token, sessionId);
+  const investigate = useInvestigateTable(token, sessionId);
   const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
+  const { error: toastError, success: toastSuccess } = useToast();
   const isPending =
     extract.isPending ||
     formulate.isPending ||
     search.isPending ||
     stop.isPending ||
+    evaluate.isPending ||
+    promote.isPending ||
+    decompose.isPending ||
+    investigate.isPending ||
     del.isPending;
 
   async function handleAccept(): Promise<void> {
+    // Forward the click-trail from the plan_proposal onto every step
+    // mutation so the trail propagates plan → action_proposal → spawned
+    // nodes (Trail-as-Trunk). Empty/undefined when this plan didn't
+    // come from a Folge-Knoten — the step mutations omit the field
+    // accordingly.
+    const trail = p.triggered_from_node_id || undefined;
     try {
       switch (p.name) {
         case "extract_claims":
-          await extract.mutateAsync({ chunk_node_id: p.anchor_node_id });
+          await extract.mutateAsync({
+            chunk_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "formulate_task":
-          await formulate.mutateAsync({ claim_node_id: p.anchor_node_id });
+          await formulate.mutateAsync({
+            claim_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "search":
-          await search.mutateAsync({ task_node_id: p.anchor_node_id, top_k: 5 });
+          await search.mutateAsync({
+            task_node_id: p.anchor_node_id,
+            top_k: 5,
+            triggered_from_node_id: trail,
+          });
           break;
         case "propose_stop":
-          await stop.mutateAsync({ anchor_node_id: p.anchor_node_id });
+          await stop.mutateAsync({
+            anchor_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
           break;
         case "evaluate":
+          // Backend resolves against_claim_id from the search_result
+          // chain (sr → task.focus_claim_id) when omitted.
+          await evaluate.mutateAsync({
+            search_result_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
+          break;
         case "promote_search_result":
-          toastError(
-            `${p.name} braucht eine konkrete Treffer-Zeile — bitte direkt am Bag wählen.`,
-          );
-          return;
+          await promote.mutateAsync({
+            searchResultNodeId: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
+          break;
+        case "decompose_hit":
+          await decompose.mutateAsync({
+            searchResultNodeId: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
+          break;
+        case "investigate_table": {
+          const out = await investigate.mutateAsync({
+            search_result_node_id: p.anchor_node_id,
+            triggered_from_node_id: trail,
+          });
+          const skipped = out.skipped
+            .map((s) => `${s.axis}: ${s.reason}`)
+            .join(" | ");
+          const msg =
+            `${out.proposals.length} Vorschläge gespawnt` +
+            (skipped ? ` — übersprungen: ${skipped}` : "");
+          toastSuccess(msg);
+          break;
+        }
         default:
           toastError(`Unbekannter Schritt: ${p.name}`);
           return;
       }
-      await del.mutateAsync(node.node_id);
+      // Do NOT auto-delete the plan_proposal here. The audit trail is
+      // the point of Provenienz: keep the tile visible alongside the
+      // resulting action_proposal so reviewers see "agent suggested X
+      // → step Y produced Z". Use "Verwerfen" below to tombstone an
+      // individual proposal manually.
       onSelectView(null);
     } catch (e) {
       toastError(e instanceof Error ? e.message : "Fehler");

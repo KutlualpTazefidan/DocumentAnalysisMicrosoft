@@ -58,6 +58,14 @@ class BoxKind(StrEnum):
     # (running headers, footers, page numbers). Renamed to "auxiliary" for
     # user-facing clarity; legacy "abandon" values are migrated on read.
     auxiliary = "auxiliary"
+    # Verzeichnis-Einträge: detected by `provenienz.registers.detect_registers`
+    # after extraction completes, or set manually via the Extract-Tab dropdown.
+    # Excluded from the BM25 search corpus by default; consolidated lookup via
+    # `RegisterLookup` tool (see `provenienz.registers.read_register`).
+    toc = "toc"
+    list_of_tables = "list_of_tables"
+    list_of_figures = "list_of_figures"
+    bibliography = "bibliography"
     discard = "discard"
 
 
@@ -157,6 +165,18 @@ class ExtractRegionRequest(BaseModel):
 class HtmlPayload(BaseModel):
     model_config = ConfigDict(frozen=True)
     html: str
+
+
+class UpdateElementRequest(BaseModel):
+    """PATCH body for ``/api/admin/docs/<slug>/elements/<box_id>``.
+
+    User-edited HTML for a single element. The router re-runs the inline-LaTeX
+    conversion before storing so user input ($\\alpha$, $$..$$, ``\\dot{q}``)
+    stays consistent with what the segment-time pipeline produces.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    html_snippet: str
 
 
 class HealthResponse(BaseModel):
