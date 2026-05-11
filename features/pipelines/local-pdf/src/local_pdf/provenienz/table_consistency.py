@@ -171,7 +171,18 @@ def check_consistency(
 
 
 def render_report(report: ConsistencyReport) -> str:
-    """Format the consistency report as a German prompt-block."""
+    """Format the consistency report as a German prompt-block.
+
+    The wording differentiates clearly between three states so the
+    downstream LLM never reads 'no issues' as 'sum verified' when the
+    tool actually couldn't run the sum check:
+
+      - has_total_row + no issues   -> sum was verified by the tool
+      - no has_total_row            -> sum was NOT verified; flagged as
+                                        unverified with an explicit
+                                        [UNVERIFIED] marker
+      - any issues                  -> rendered with severity markers
+    """
     lines: list[str] = []
     severity_count = {
         "error": sum(1 for i in report.issues if i.severity == "error"),
@@ -179,15 +190,24 @@ def render_report(report: ConsistencyReport) -> str:
         "info": sum(1 for i in report.issues if i.severity == "info"),
     }
     if not report.issues:
-        lines.append(
-            f"Konsistenz-Pruefung: {report.n_rows_checked} Zeilen x "
-            f"{report.n_columns_checked} Spalten. Keine Probleme erkannt"
-            + (
-                " (Total-Zeile vorhanden)."
-                if report.has_total_row
-                else " (keine Total-Zeile zum Quervergleich)."
+        if report.has_total_row:
+            lines.append(
+                f"Konsistenz-Pruefung: {report.n_rows_checked} Zeilen x "
+                f"{report.n_columns_checked} Spalten. Spalten-Summe(n) "
+                "stimmen mit der Total-Zeile ueberein (deterministisch "
+                "vom Werkzeug verifiziert)."
             )
-        )
+        else:
+            lines.append(
+                f"Konsistenz-Pruefung: {report.n_rows_checked} Zeilen x "
+                f"{report.n_columns_checked} Spalten. [UNVERIFIED] "
+                "Keine Total-Zeile in der Tabelle vorhanden — das "
+                "Werkzeug konnte die Spalten-Summe NICHT gegen einen "
+                "behaupteten Gesamtwert pruefen. Eine in der Aussage "
+                "behauptete Summe ist damit NICHT verifiziert; sie "
+                "muss anders gepruefte werden (z.B. Calculator auf "
+                "Komponenten-Spalte)."
+            )
         return "\n".join(lines)
     lines.append(
         f"Konsistenz-Pruefung: {len(report.issues)} Befund(e) "

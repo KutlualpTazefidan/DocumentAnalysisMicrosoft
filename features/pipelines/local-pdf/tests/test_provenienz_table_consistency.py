@@ -88,12 +88,28 @@ def test_table_without_total_row_skips_sum_check():
     assert all(i.kind != "column_sum_mismatch" for i in r.issues)
 
 
-def test_render_report_clean_table():
+def test_render_report_clean_table_with_total():
     t = parse_table(TABLE_WITH_CORRECT_TOTAL)
     assert t is not None
     r = check_consistency(t)
     text = render_report(r)
-    assert "Keine Probleme" in text
+    # Table HAS a Total row -> tool verified the sum; downstream LLM
+    # may treat this as confirmation.
+    assert "verifiziert" in text
+    assert "Total-Zeile" in text
+
+
+def test_render_report_no_total_row_flags_unverified():
+    """Without a Total row the consistency tool can't run the column-
+    sum check. The report must NOT read like 'no issues found' but
+    explicitly flag the sum as UNVERIFIED so downstream prompts don't
+    treat the silence as confirmation."""
+    t = parse_table(TABLE_NO_TOTAL_ROW)
+    assert t is not None
+    r = check_consistency(t)
+    text = render_report(r)
+    assert "[UNVERIFIED]" in text
+    assert "NICHT" in text  # the prompt explicitly says NICHT verifiziert
 
 
 def test_render_report_with_issues():
