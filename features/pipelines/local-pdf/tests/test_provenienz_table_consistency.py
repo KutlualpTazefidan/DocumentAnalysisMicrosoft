@@ -133,6 +133,59 @@ def test_to_dict_serializes_full_report():
     assert "ERROR" in d["reasoning"]
 
 
+REAL_MINERU_TABLE_WITH_TOTAL_COLUMN = """
+<table>
+  <tr><td>Position im Trag-korb</td><td>A</td><td>B</td><td>C</td><td>D</td>
+      <td>E</td><td>F</td><td>Summe im Behaelter, kW</td></tr>
+  <tr><td>Max. Waerme-leistung pro BE, kW</td>
+      <td>0,249</td><td>0,255</td><td>0,572</td><td>0,255</td>
+      <td>0,255</td><td>0,255</td><td>5,597</td></tr>
+</table>
+"""
+
+
+def test_real_mineru_table_row_sum_mismatch_is_flagged():
+    """The shape that triggered the original bug: one data row, a 'Summe'
+    column where the stated total (5,597) does NOT equal the sum of the
+    per-position cells (0,249+0,255+0,572+0,255+0,255+0,255 = 1,841).
+
+    Without row-sum detection the consistency tool returned '[UNVERIFIED]'
+    and the Semantik LLM blindly trusted the 5,597 figure. With it, the
+    tool flags an ERROR which the LLM must downgrade to partial-support
+    or contradicts.
+    """
+    t = parse_table(REAL_MINERU_TABLE_WITH_TOTAL_COLUMN)
+    assert t is not None
+    r = check_consistency(t)
+    assert r.has_total_column is True
+    row_mismatches = [i for i in r.issues if i.kind == "row_sum_mismatch"]
+    assert len(row_mismatches) == 1
+    desc = row_mismatches[0].description
+    assert "Max. Waerme-leistung" in desc
+    assert "Summe im Behaelter" in desc
+    assert "1.841" in desc or "1,841" in desc.replace(",", ".")
+    assert "5.597" in desc or "5,597" in desc.replace(",", ".")
+    # And the render text carries the ERROR marker for the LLM prompt.
+    text = render_report(r)
+    assert "[ERROR]" in text
+
+
+def test_consistent_total_column_passes():
+    html = """
+    <table>
+      <tr><td>Groesse</td><td>A</td><td>B</td><td>Summe</td></tr>
+      <tr><td>Wert</td><td>5</td><td>3</td><td>8</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    r = check_consistency(t)
+    assert r.has_total_column is True
+    assert not [i for i in r.issues if i.kind == "row_sum_mismatch"]
+    text = render_report(r)
+    assert "verifiziert" in text
+
+
 def test_tolerance_param_softens_strict_mismatch():
     """A 1% off total can be accepted by loosening the tolerance."""
     html = """

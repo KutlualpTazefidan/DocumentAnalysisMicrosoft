@@ -63,9 +63,13 @@ class _TableExtractor(HTMLParser):
         self.rows: list[list[str]] = []
         self._current_row: list[str] = []
         self._cell_buf: list[str] = []
+        # Span tracking for the active <td>/<th>. Read from the
+        # 'colspan' attribute on the start tag; consumed on the
+        # matching end tag (cell text repeated N times so column
+        # alignment with the header row is preserved).
+        self._current_colspan = 1
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
         if self._captured:
             return
         if tag == "table":
@@ -78,6 +82,15 @@ class _TableExtractor(HTMLParser):
         elif tag in ("td", "th") and self.in_row:
             self.in_cell = True
             self._cell_buf = []
+            colspan = 1
+            for k, v in attrs:
+                if k == "colspan" and v is not None:
+                    try:
+                        colspan = max(1, int(v))
+                    except ValueError:
+                        colspan = 1
+                    break
+            self._current_colspan = colspan
         # br within a cell becomes whitespace
         elif tag == "br" and self.in_cell:
             self._cell_buf.append(" ")
@@ -87,7 +100,12 @@ class _TableExtractor(HTMLParser):
             self.in_caption = False
         elif tag in ("td", "th") and self.in_cell:
             text = " ".join("".join(self._cell_buf).split()).strip()
-            self._current_row.append(text)
+            # Emit the cell text once per column it spans so the row's
+            # cell count lines up with the header row. Empty cells are
+            # legitimate, hence we emit the literal text even when "".
+            for _ in range(self._current_colspan):
+                self._current_row.append(text)
+            self._current_colspan = 1
             self.in_cell = False
         elif tag == "tr":
             if self._current_row:

@@ -166,6 +166,85 @@ def test_cells_with_numbers_extracts_number_bearing_cells():
     assert isinstance(cells, list)
 
 
+def test_parse_real_mineru_table_with_div_wrapper_and_td_headers():
+    """Real MinerU output: <div class='extracted-table'> wrapper around
+    <table>, headers in <td> tags (not <th>), and the row-label column
+    can carry a long German label. Catches regressions where the parser
+    would either drop the wrapper-div tables or misclassify the header
+    row.
+    """
+    html = (
+        '<div data-source-box="p16-b3" class="extracted-table">'
+        "<table>"
+        "<tr><td>Position im Trag-korb</td><td>A</td><td>B</td>"
+        "<td>C</td><td>D</td><td>E</td><td>F</td>"
+        "<td>Summe im Behaelter, kW</td></tr>"
+        "<tr><td>Max. Waerme-leistung pro BE, kW</td>"
+        "<td>0,249</td><td>0,255</td><td>0,572</td><td>0,255</td>"
+        "<td>0,255</td><td>0,255</td><td>5,597</td></tr>"
+        "</table></div>"
+    )
+    t = parse_table(html)
+    assert t is not None
+    assert len(t.headers) == 8
+    assert t.headers[0] == "Position im Trag-korb"
+    assert t.headers[-1] == "Summe im Behaelter, kW"
+    assert len(t.rows) == 1
+    row = t.rows[0]
+    assert row.label == "Max. Waerme-leistung pro BE, kW"
+    assert row.cells["A"] == "0,249"
+    assert row.cells["Summe im Behaelter, kW"] == "5,597"
+
+
+def test_parse_table_expands_colspan():
+    """A header cell with colspan=2 must occupy 2 column slots so the
+    data row aligns to the right header. Without this, BE-Daten would
+    silently land under the wrong column.
+    """
+    html = """
+    <table>
+      <tr><th>Groesse</th><th colspan="2">Werte (zwei BE)</th><th>Summe</th></tr>
+      <tr><td>Druck</td><td>1,0</td><td>1,2</td><td>2,2</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    # 4 column slots after expansion: Groesse + 2x"Werte ..." + Summe
+    assert len(t.headers) == 4
+    assert t.headers[0] == "Groesse"
+    assert t.headers[1] == "Werte (zwei BE)"
+    assert t.headers[2] == "Werte (zwei BE)"
+    assert t.headers[3] == "Summe"
+    # Data row binds correctly to expanded headers.
+    assert len(t.rows) == 1
+    assert t.rows[0].label == "Druck"
+    assert t.rows[0].cells["Summe"] == "2,2"
+
+
+def test_parse_table_with_thead_tbody_groups():
+    """Real-world HTML often groups header rows under <thead> and body
+    rows under <tbody>. The parser must traverse both without dropping
+    rows.
+    """
+    html = """
+    <table>
+      <thead>
+        <tr><th>Groesse</th><th>Wert</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Druck</td><td>5,5 MPa</td></tr>
+        <tr><td>Temperatur</td><td>350 K</td></tr>
+      </tbody>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    assert t.headers == ["Groesse", "Wert"]
+    assert len(t.rows) == 2
+    assert t.rows[0].label == "Druck"
+    assert t.rows[1].cells["Wert"] == "350 K"
+
+
 def test_cells_with_numbers_picks_up_number_with_unit():
     html = """
     <table>
