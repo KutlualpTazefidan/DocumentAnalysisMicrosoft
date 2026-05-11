@@ -29,6 +29,19 @@ def client(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setenv("GOLDENS_API_TOKEN", "tok")
     monkeypatch.setenv("LOCAL_PDF_DATA_ROOT", str(root))
+    # Semantik-Rueckpruefung pre-bakes the verdict via _llm_evaluate at
+    # investigate-table-spawn time. Stub the LLM so tests stay
+    # deterministic + fast.
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_evaluate",
+        lambda claim_text, candidate_text, provider, *, extra_system="", calc_hint="": {
+            "verdict": "partial-support",
+            "confidence": 0.6,
+            "reasoning": "Stub-Bewertung: Zeilen-/Spalten-Bindung nicht eindeutig.",
+            "sentences": [],
+        },
+    )
     from fastapi.testclient import TestClient
     from local_pdf.api.app import create_app
 
@@ -176,6 +189,74 @@ def test_investigate_table_spawns_three_proposals_when_caption_complete(client):
     assert "Text-Referenz" in axes
     assert "Quellen-Attribution" in axes
     assert "Semantik-Rueckpruefung" in axes
+
+
+def test_investigate_table_semantik_proposal_carries_prebaked_verdict(client):
+    """The Semantik-Rueckpruefung proposal is a step_kind=evaluate
+    action_proposal. /decide on it must work without a special branch,
+    which requires args to carry verdict/confidence/reasoning/
+    against_claim_id like a regular evaluate proposal.
+    """
+    sid, sr_id = _setup_session_with_table_sr(
+        client,
+        caption_text="Tabelle 3.7: Reaktor-Hauptdaten",
+    )
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/investigate-table",
+        headers={"X-Auth-Token": "tok"},
+        json={"search_result_node_id": sr_id},
+    )
+    body = r.json()
+    semantik = next(
+        p
+        for p in body["proposals"]
+        if p["payload"]["recommended"]["args"].get("investigation_axis") == "Semantik-Rueckpruefung"
+    )
+    args = semantik["payload"]["recommended"]["args"]
+    # All fields /decide's evaluate branch reads must be present.
+    assert "verdict" in args
+    assert "confidence" in args
+    assert "reasoning" in args
+    assert "against_claim_id" in args
+    assert "search_result_node_id" in args
+    # Pre-baked values from the stubbed _llm_evaluate.
+    assert args["verdict"] == "partial-support"
+    assert args["confidence"] == 0.6
+    assert "Bindung" in args["reasoning"] or "Stub" in args["reasoning"]
+
+
+def test_investigate_table_decide_on_semantik_proposal_succeeds(client):
+    """End-to-end: spawn the Semantik proposal via /investigate-table,
+    accept it via /decide. The /decide call must NOT crash with the
+    KeyError on args['verdict'] that pre-bakeing was added to prevent.
+    """
+    sid, sr_id = _setup_session_with_table_sr(
+        client,
+        caption_text="Tabelle 3.7: Reaktor-Hauptdaten",
+    )
+    spawn = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/investigate-table",
+        headers={"X-Auth-Token": "tok"},
+        json={"search_result_node_id": sr_id},
+    ).json()
+    semantik = next(
+        p
+        for p in spawn["proposals"]
+        if p["payload"]["recommended"]["args"].get("investigation_axis") == "Semantik-Rueckpruefung"
+    )
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": semantik["node_id"],
+            "accepted": "recommended",
+        },
+    )
+    assert r.status_code == 201, r.text
+    decision = r.json()
+    eval_nodes = [n for n in decision["spawned_nodes"] if n["kind"] == "evaluation"]
+    assert len(eval_nodes) == 1
+    assert eval_nodes[0]["payload"]["verdict"] == "partial-support"
 
 
 def test_investigate_table_skips_text_reference_when_no_identifier(client):

@@ -2831,6 +2831,111 @@ def _extract_source_attribution(caption: str) -> str | None:
     return m.group(0).strip()
 
 
+_SEMANTIK_EXTRA_SYSTEM = (
+    "\n\n## TABELLEN-SEMANTIK-RUECKPRUEFUNG (zwingend)\n"
+    "Du re-pruefst eine bereits bewertete Tabelle aus genau einem "
+    "Blickwinkel: stimmt die BINDUNG (Zeilen-Label, Spalten-Label, "
+    "Wert) der zu pruefenden Aussage zu? Es reicht NICHT, dass die "
+    "behauptete Zahl irgendwo in der Tabelle vorkommt. Sie muss in "
+    "der EXAKT bezeichneten Zeile UND der EXAKT bezeichneten Spalte "
+    "stehen. Wenn die Aussage z.B. 'Gesamt-Wert: 5,6' lautet, dann "
+    "darf 5,6 nicht in einer beliebigen Komponenten-Zeile auftauchen "
+    "— die Zeile MUSS 'Gesamt' (oder Synonym) heissen, sonst ist die "
+    "Bindung verletzt. Verletzte Bindung ⇒ partial-support oder "
+    "contradicts, nicht likely-source.\n\n"
+    "Falls Zeilen- oder Spalten-Label nicht eindeutig aus der "
+    "Aussage hervorgehen: das ist selbst schon eine Bindungs-Luecke "
+    "(partial-support, in der reasoning festhalten welche Achse "
+    "unklar bleibt)."
+)
+
+
+def _spawn_semantik_rueckpruefung_proposal(
+    *,
+    sd: Path,
+    session_id: str,
+    sr: Node,
+    nodes: list[Node],
+    triggered_from_node_id: str | None,
+) -> dict | None:
+    """Pre-bake a Semantik-Rueckpruefung evaluate action_proposal for a
+    table search_result.
+
+    Resolves claim via sr → task → focus_claim_id, runs ``_llm_evaluate``
+    with the Semantik extra_system, and persists an action_proposal with
+    the same args shape as a regular evaluate proposal. Returns the
+    landed Node dict or ``None`` if the claim could not be resolved or
+    the LLM call failed (caller reports the axis as skipped).
+    """
+    task_id = sr.payload.get("task_node_id")
+    task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
+    focus_claim_id = task.payload.get("focus_claim_id") if task is not None else None
+    claim = (
+        next((n for n in nodes if n.node_id == focus_claim_id), None)
+        if isinstance(focus_claim_id, str)
+        else None
+    )
+    if claim is None or claim.kind != "claim":
+        return None
+
+    claim_text = str(claim.payload.get("text", ""))
+    candidate_text = str(sr.payload.get("text", ""))
+    cap = str(sr.payload.get("caption_text", "")).strip()
+    if cap:
+        candidate_text = f"Caption: {cap}\n\n{candidate_text}"
+
+    try:
+        verdict_payload = _llm_evaluate(
+            claim_text,
+            candidate_text,
+            "vllm",
+            extra_system=_SEMANTIK_EXTRA_SYSTEM,
+            calc_hint="",
+        )
+    except Exception as exc:
+        _log.warning("Semantik-Rueckpruefung LLM call failed: %s", exc)
+        return None
+
+    verdict = str(verdict_payload.get("verdict", "unknown"))
+    confidence = float(verdict_payload.get("confidence", 0.0))
+    reasoning = str(verdict_payload.get("reasoning", ""))
+    sentences = verdict_payload.get("sentences", [])
+
+    payload = ActionProposalPayload(
+        step_kind="evaluate",
+        anchor_node_id=sr.node_id,
+        recommended=ActionOption(
+            label=f"Semantik-Rueckpruefung: {verdict} (conf {confidence:.2f})",
+            args={
+                "search_result_node_id": sr.node_id,
+                "against_claim_id": str(claim.node_id),
+                "verdict": verdict,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "sentences": sentences,
+                "investigation_axis": "Semantik-Rueckpruefung",
+            },
+        ),
+        alternatives=[],
+        reasoning=(
+            "Tabellen-Untersuchung — Semantik-Rueckpruefung: prueft ob die "
+            "(Zeilen-Label, Spalten-Label, Wert)-Bindung der Aussage "
+            "entspricht (nicht nur ob die Zahl irgendwo in der Tabelle "
+            "vorkommt). LLM-Verdict bereits berechnet — Akzeptieren "
+            f"persistiert die Bewertung. Verdict: {verdict}."
+        ),
+        guidance_consulted=[],
+    )
+    landed = append_node(
+        sd,
+        _attach_trail(
+            build_proposal_node(session_id=session_id, actor="system", payload=payload),
+            triggered_from_node_id,
+        ),
+    )
+    return landed.__dict__
+
+
 def _spawn_investigate_table_axes(
     *,
     cfg: Any,
@@ -2952,37 +3057,33 @@ def _spawn_investigate_table_axes(
             }
         )
 
-    # Axis 4: Semantik-Rueckpruefung — spawn an evaluate action_proposal
-    # at proposal-time (no LLM run here). User accepts → standard
-    # /evaluate path runs with the choreografie skill loaded; the
-    # skill's Semantik-Rueckpruefung principle steers the prompt.
-    payload = ActionProposalPayload(
-        step_kind="evaluate",
-        anchor_node_id=sr.node_id,
-        recommended=ActionOption(
-            label="Semantik-Rueckpruefung: erneut bewerten",
-            args={
-                "search_result_node_id": sr.node_id,
-                "investigation_axis": "Semantik-Rueckpruefung",
-            },
-        ),
-        alternatives=[],
-        reasoning=(
-            "Tabellen-Untersuchung — Semantik-Rueckpruefung: pruefe ob die "
-            "(Zeilen-Label, Spalten-Label, Wert)-Bindung der zu pruefenden "
-            "Aussage entspricht (nicht nur ob die Zahl irgendwo in der "
-            "Tabelle vorkommt)."
-        ),
-        guidance_consulted=[],
+    # Axis 4: Semantik-Rueckpruefung — pre-bake the verdict so the
+    # spawned action_proposal has the same shape as a regular evaluate
+    # proposal (args contain verdict/confidence/reasoning/...). The
+    # /decide handler for step_kind=evaluate then accepts it without a
+    # special branch. Costs one LLM call at investigate-time, but the
+    # user has explicitly opted into the choreography so the spend is
+    # warranted.
+    semantik_axis_proposal = _spawn_semantik_rueckpruefung_proposal(
+        sd=sd,
+        session_id=session_id,
+        sr=sr,
+        nodes=nodes,
+        triggered_from_node_id=triggered_from_node_id,
     )
-    landed = append_node(
-        sd,
-        _attach_trail(
-            build_proposal_node(session_id=session_id, actor="system", payload=payload),
-            triggered_from_node_id,
-        ),
-    )
-    proposals.append(landed.__dict__)
+    if semantik_axis_proposal is not None:
+        proposals.append(semantik_axis_proposal)
+    else:
+        skipped.append(
+            {
+                "axis": "Semantik-Rueckpruefung",
+                "reason": (
+                    "Konnte die Aussage zum search_result nicht aufloesen "
+                    "(task_node_id / focus_claim_id fehlt) oder LLM-Aufruf "
+                    "scheiterte."
+                ),
+            }
+        )
 
     return {
         "proposals": proposals,
