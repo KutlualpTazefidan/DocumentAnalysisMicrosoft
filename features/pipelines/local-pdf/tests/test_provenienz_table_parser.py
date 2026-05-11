@@ -221,6 +221,96 @@ def test_parse_table_expands_colspan():
     assert t.rows[0].cells["Summe"] == "2,2"
 
 
+def test_parse_table_expands_rowspan_first_column():
+    """A first-column cell with rowspan=2 (typical 'Kategorie' label
+    that spans two data rows) must be repeated in the next row so the
+    row-label binding stays consistent.
+    """
+    html = """
+    <table>
+      <tr><th>Kategorie</th><th>Wert A</th><th>Wert B</th></tr>
+      <tr><td rowspan="2">Druck</td><td>5,0</td><td>5,5</td></tr>
+      <tr><td>5,8</td><td>6,1</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    # 3 columns from headers, 2 data rows. Both must carry "Druck" as
+    # their row label.
+    assert t.headers == ["Kategorie", "Wert A", "Wert B"]
+    assert len(t.rows) == 2
+    assert t.rows[0].label == "Druck"
+    assert t.rows[0].cells["Wert A"] == "5,0"
+    assert t.rows[1].label == "Druck"
+    assert t.rows[1].cells["Wert A"] == "5,8"
+    assert t.rows[1].cells["Wert B"] == "6,1"
+
+
+def test_parse_table_expands_rowspan_mid_column():
+    """Rowspan starting at a mid-column position. Subsequent rows
+    have fewer HTML cells; the carry must land in the right column.
+    """
+    html = """
+    <table>
+      <tr><th>X</th><th>Y</th><th>Z</th></tr>
+      <tr><td>A</td><td rowspan="2">B</td><td>C</td></tr>
+      <tr><td>D</td><td>E</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    assert len(t.rows) == 2
+    # Row 1: A | B | C
+    assert t.rows[0].label == "A"
+    assert t.rows[0].cells["Y"] == "B"
+    assert t.rows[0].cells["Z"] == "C"
+    # Row 2: D | B (carry) | E
+    assert t.rows[1].label == "D"
+    assert t.rows[1].cells["Y"] == "B"
+    assert t.rows[1].cells["Z"] == "E"
+
+
+def test_parse_table_rowspan_three_rows():
+    """A rowspan=3 cell must repeat in two subsequent rows (lives = 2)."""
+    html = """
+    <table>
+      <tr><th>Kategorie</th><th>Wert</th></tr>
+      <tr><td rowspan="3">Temperatur</td><td>300 K</td></tr>
+      <tr><td>320 K</td></tr>
+      <tr><td>340 K</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    assert len(t.rows) == 3
+    assert t.rows[0].label == "Temperatur"
+    assert t.rows[1].label == "Temperatur"
+    assert t.rows[2].label == "Temperatur"
+    assert t.rows[2].cells["Wert"] == "340 K"
+
+
+def test_parse_table_combined_colspan_and_rowspan():
+    """Cell with both colspan and rowspan -- block in the table grid."""
+    html = """
+    <table>
+      <tr><th>H1</th><th>H2</th><th>H3</th></tr>
+      <tr><td rowspan="2" colspan="2">Block</td><td>x</td></tr>
+      <tr><td>y</td></tr>
+    </table>
+    """
+    t = parse_table(html)
+    assert t is not None
+    assert len(t.rows) == 2
+    # Row 1: Block | Block | x
+    assert t.rows[0].label == "Block"
+    assert t.rows[0].cells["H2"] == "Block"
+    assert t.rows[0].cells["H3"] == "x"
+    # Row 2: Block (carry) | Block (carry) | y
+    assert t.rows[1].label == "Block"
+    assert t.rows[1].cells["H2"] == "Block"
+    assert t.rows[1].cells["H3"] == "y"
+
+
 def test_parse_table_with_thead_tbody_groups():
     """Real-world HTML often groups header rows under <thead> and body
     rows under <tbody>. The parser must traverse both without dropping

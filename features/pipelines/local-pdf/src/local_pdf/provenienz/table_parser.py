@@ -64,10 +64,35 @@ class _TableExtractor(HTMLParser):
         self._current_row: list[str] = []
         self._cell_buf: list[str] = []
         # Span tracking for the active <td>/<th>. Read from the
-        # 'colspan' attribute on the start tag; consumed on the
-        # matching end tag (cell text repeated N times so column
-        # alignment with the header row is preserved).
+        # 'colspan' / 'rowspan' attributes on the start tag.
         self._current_colspan = 1
+        self._current_rowspan = 1
+        # Column pointer for the currently-active row. Advances past
+        # both HTML cells (with colspan expansion) and rowspan carries
+        # consumed from previous rows.
+        self._next_free_col = 0
+        # Rowspan carries: cells started in a previous row that
+        # still need to be repeated in subsequent rows. Each carry:
+        # {"col_idx": int, "text": str, "lives_remaining": int}.
+        # ``lives_remaining`` is decremented every time the cell is
+        # placed; carries hit 0 are pruned at row-end.
+        self._row_carries: list[dict] = []
+
+    def _consume_carry_at_col(self, col: int) -> str | None:
+        """Pop one carry at the given column if it's still alive.
+        Returns the carry text or None. Lives are mutated in place."""
+        for carry in self._row_carries:
+            if carry["col_idx"] == col and carry["lives_remaining"] > 0:
+                carry["lives_remaining"] -= 1
+                return str(carry["text"])
+        return None
+
+    def _has_live_carry_at_col(self, col: int) -> bool:
+        return any(c["col_idx"] == col and c["lives_remaining"] > 0 for c in self._row_carries)
+
+    def _max_live_carry_col(self) -> int:
+        live = [c["col_idx"] for c in self._row_carries if c["lives_remaining"] > 0]
+        return max(live) if live else -1
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self._captured:
@@ -79,18 +104,25 @@ class _TableExtractor(HTMLParser):
         elif tag == "tr" and self.in_table:
             self.in_row = True
             self._current_row = []
+            self._next_free_col = 0
         elif tag in ("td", "th") and self.in_row:
             self.in_cell = True
             self._cell_buf = []
             colspan = 1
+            rowspan = 1
             for k, v in attrs:
                 if k == "colspan" and v is not None:
                     try:
                         colspan = max(1, int(v))
                     except ValueError:
                         colspan = 1
-                    break
+                elif k == "rowspan" and v is not None:
+                    try:
+                        rowspan = max(1, int(v))
+                    except ValueError:
+                        rowspan = 1
             self._current_colspan = colspan
+            self._current_rowspan = rowspan
         # br within a cell becomes whitespace
         elif tag == "br" and self.in_cell:
             self._cell_buf.append(" ")
@@ -100,16 +132,53 @@ class _TableExtractor(HTMLParser):
             self.in_caption = False
         elif tag in ("td", "th") and self.in_cell:
             text = " ".join("".join(self._cell_buf).split()).strip()
-            # Emit the cell text once per column it spans so the row's
-            # cell count lines up with the header row. Empty cells are
-            # legitimate, hence we emit the literal text even when "".
-            for _ in range(self._current_colspan):
+            colspan = self._current_colspan
+            rowspan = self._current_rowspan
+            # Before placing the new cell, advance past any active
+            # rowspan carries occupying the upcoming column slots —
+            # they were started in a previous row and must appear
+            # here before any new HTML cell.
+            while self._has_live_carry_at_col(self._next_free_col):
+                carry_text = self._consume_carry_at_col(self._next_free_col)
+                self._current_row.append(carry_text or "")
+                self._next_free_col += 1
+            # Place the cell, expanded by colspan, registering rowspan
+            # carries when the cell extends past this row.
+            for offset in range(colspan):
                 self._current_row.append(text)
+                if rowspan > 1:
+                    self._row_carries.append(
+                        {
+                            "col_idx": self._next_free_col + offset,
+                            "text": text,
+                            "lives_remaining": rowspan - 1,
+                        }
+                    )
+            self._next_free_col += colspan
             self._current_colspan = 1
+            self._current_rowspan = 1
             self.in_cell = False
         elif tag == "tr":
+            # Drain any trailing rowspan carries that extend into this
+            # row past its last HTML cell (e.g. a rowspan that started
+            # several rows ago and continues at a column position
+            # beyond the current row's HTML content).
+            max_col = self._max_live_carry_col()
+            while self._next_free_col <= max_col:
+                if self._has_live_carry_at_col(self._next_free_col):
+                    carry_text = self._consume_carry_at_col(self._next_free_col)
+                    self._current_row.append(carry_text or "")
+                else:
+                    # Gap before the next carry — pad with empty
+                    # string so column alignment with the header row
+                    # stays intact.
+                    self._current_row.append("")
+                self._next_free_col += 1
+                max_col = self._max_live_carry_col()
             if self._current_row:
                 self.rows.append(self._current_row)
+            # Drop carries whose lives are exhausted.
+            self._row_carries = [c for c in self._row_carries if c["lives_remaining"] > 0]
             self.in_row = False
         elif tag == "table":
             # Only capture the first table.
