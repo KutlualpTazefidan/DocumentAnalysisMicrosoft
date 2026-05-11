@@ -1457,6 +1457,10 @@ def _collect_applied_capabilities_in_chain(prior_eval_id: str, nodes: list[Node]
     return out
 
 
+_TABLE_PARSER_SCHEMA_VERSION = 2  # bumped when colspan/rowspan support landed
+_TABLE_CONSISTENCY_SCHEMA_VERSION = 2  # bumped when row-sum axis landed
+
+
 def _ensure_table_consistency_annotation(
     sd: Path,
     session_id: str,
@@ -1465,12 +1469,16 @@ def _ensure_table_consistency_annotation(
     edges: list[Edge],
 ) -> None:
     """If a parsed-table annotation exists for *sr* but no consistency-
-    check annotation, run TableConsistencyChecker on the parsed table
-    and persist the report as a second tool_annotation.
+    check annotation at the current schema version, run
+    TableConsistencyChecker on the parsed table and persist the report
+    as a second tool_annotation.
 
     Runs AFTER ``_ensure_table_annotation`` so the parsed structure is
-    available. Reads the parsed table directly off the existing
-    tool_annotation Node (no re-parsing).
+    available. Reads the parsed table directly off the latest
+    parser annotation. Legacy consistency annotations (schema_version
+    < current) are treated as missing so improvements to the checker
+    (e.g. row-sum axis) automatically re-fire on resumed sessions
+    without manual cache invalidation.
     """
     from local_pdf.provenienz.table_consistency import (
         check_consistency,
@@ -1485,7 +1493,7 @@ def _ensure_table_consistency_annotation(
         e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
     }
     parsed_ann: Node | None = None
-    has_consistency = False
+    has_current_consistency = False
     for n in nodes:
         if n.kind != "tool_annotation" or n.node_id not in existing_ann_ids:
             continue
@@ -1495,8 +1503,10 @@ def _ensure_table_consistency_annotation(
         if tc.get("tool") == "table_parser":
             parsed_ann = n
         elif tc.get("tool") == "table_consistency_checker":
-            has_consistency = True
-    if parsed_ann is None or has_consistency:
+            schema = int(tc.get("schema_version", 1))
+            if schema >= _TABLE_CONSISTENCY_SCHEMA_VERSION:
+                has_current_consistency = True
+    if parsed_ann is None or has_current_consistency:
         return
     # Reconstruct StructuredTable from the persisted parsed-table dict.
     parsed_dict = (parsed_ann.payload.get("tool_call") or {}).get("output", {})
@@ -1515,6 +1525,7 @@ def _ensure_table_consistency_annotation(
     tool_call = {
         "tool": "table_consistency_checker",
         "operation": "check",
+        "schema_version": _TABLE_CONSISTENCY_SCHEMA_VERSION,
         "input": {
             "n_rows": len(rows),
             "n_columns": len(headers),
@@ -1582,14 +1593,21 @@ def _ensure_table_annotation(
     existing_ann_ids = {
         e.from_node for e in edges if e.to_node == sr.node_id and e.kind == "enriches"
     }
-    has_table_ann = any(
-        n.kind == "tool_annotation"
-        and n.node_id in existing_ann_ids
-        and isinstance(n.payload.get("tool_call"), dict)
-        and (n.payload.get("tool_call") or {}).get("tool") == "table_parser"
-        for n in nodes
-    )
-    if has_table_ann:
+    # Treat parser annotations with an older schema as missing so the
+    # next evaluate re-parses with the current parser (colspan/rowspan
+    # support, etc.) without manual cache invalidation.
+    has_current_table_ann = False
+    for n in nodes:
+        if n.kind != "tool_annotation" or n.node_id not in existing_ann_ids:
+            continue
+        tc = n.payload.get("tool_call")
+        if not isinstance(tc, dict) or tc.get("tool") != "table_parser":
+            continue
+        schema = int(tc.get("schema_version", 1))
+        if schema >= _TABLE_PARSER_SCHEMA_VERSION:
+            has_current_table_ann = True
+            break
+    if has_current_table_ann:
         return
     box_id = str(sr.payload.get("box_id", ""))
     doc_slug = str(sr.payload.get("doc_slug", ""))
@@ -1613,6 +1631,7 @@ def _ensure_table_annotation(
     tool_call = {
         "tool": "table_parser",
         "operation": "parse",
+        "schema_version": _TABLE_PARSER_SCHEMA_VERSION,
         "input": {
             "box_id": box_id,
             "had_caption_in_html": bool(parsed.caption and not fallback_caption),

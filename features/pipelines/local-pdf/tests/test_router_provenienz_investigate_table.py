@@ -428,6 +428,136 @@ def test_investigate_table_rejects_non_table_search_result(client):
     assert "box_kind=table" in r.json()["detail"]
 
 
+def test_legacy_table_annotations_re_fire_on_schema_bump(client):
+    """A session with pre-existing tool_annotations from an older
+    schema (no schema_version field) must NOT keep using them on the
+    next evaluate. The _ensure_*_annotation helpers re-fire so the
+    user benefits from parser/consistency improvements (rowspan,
+    row-sum check, etc.) without manual cache invalidation.
+    """
+    sid, sr_id = _setup_session_with_table_sr(
+        client,
+        caption_text="Tabelle 3.7: Reaktor-Hauptdaten",
+    )
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    # Plant a legacy v1 parser annotation + a legacy v1 consistency
+    # annotation on the SR. These have NO schema_version field, so
+    # the new helpers must treat them as missing and re-fire.
+    legacy_parser_id = new_id()
+    append_node(
+        sd,
+        Node(
+            node_id=legacy_parser_id,
+            session_id=sid,
+            kind="tool_annotation",
+            payload={
+                "tool_call": {
+                    "tool": "table_parser",
+                    "operation": "parse",
+                    "input": {},
+                    "output": {
+                        "headers": ["LEGACY"],
+                        "rows": [],
+                        "n_rows": 0,
+                        "n_cols": 1,
+                        "reasoning": "legacy stub",
+                    },
+                },
+                "text": "legacy stub",
+                "annotation_kind": "table_parsed",
+                "attaches_to_node_id": sr_id,
+            },
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=sid,
+            from_node=legacy_parser_id,
+            to_node=sr_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+    legacy_consistency_id = new_id()
+    append_node(
+        sd,
+        Node(
+            node_id=legacy_consistency_id,
+            session_id=sid,
+            kind="tool_annotation",
+            payload={
+                "tool_call": {
+                    "tool": "table_consistency_checker",
+                    "operation": "check",
+                    "input": {},
+                    "output": {
+                        "has_total_row": False,
+                        "issues": [],
+                        "reasoning": "Keine Probleme erkannt (legacy text).",
+                    },
+                },
+                "text": "Keine Probleme erkannt (legacy text).",
+                "annotation_kind": "table_consistency",
+                "attaches_to_node_id": sr_id,
+            },
+            actor="system",
+        ),
+    )
+    append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=sid,
+            from_node=legacy_consistency_id,
+            to_node=sr_id,
+            kind="enriches",
+            reason=None,
+            actor="system",
+        ),
+    )
+
+    # Trigger an evaluate via the investigate-table choreography. The
+    # Semantik-Rueckpruefung path runs _ensure_table_annotation +
+    # _ensure_table_consistency_annotation; both must see the legacy
+    # v1 annotations as missing and persist new v2 annotations.
+    client.post(
+        f"/api/admin/provenienz/sessions/{sid}/investigate-table",
+        headers={"X-Auth-Token": "tok"},
+        json={"search_result_node_id": sr_id},
+    )
+    nodes_after, _ = router_mod.read_session(sd)
+    parser_anns = [
+        n
+        for n in nodes_after
+        if n.kind == "tool_annotation"
+        and (n.payload.get("tool_call") or {}).get("tool") == "table_parser"
+    ]
+    consistency_anns = [
+        n
+        for n in nodes_after
+        if n.kind == "tool_annotation"
+        and (n.payload.get("tool_call") or {}).get("tool") == "table_consistency_checker"
+    ]
+    # Legacy + freshly re-fired annotations both present.
+    assert len(parser_anns) >= 2
+    assert len(consistency_anns) >= 2
+    # At least one parser annotation has schema_version >= 2 -> the
+    # new helper actually re-fired despite the legacy cache.
+    assert any(
+        (n.payload.get("tool_call") or {}).get("schema_version", 1) >= 2 for n in parser_anns
+    )
+    assert any(
+        (n.payload.get("tool_call") or {}).get("schema_version", 1) >= 2 for n in consistency_anns
+    )
+
+
 def test_investigate_table_text_reference_finds_mention(client):
     """Axis-2 pre-runs a search for the table identifier; the mineru
     fixture has 'p3-mention' that contains 'Tabelle 3.7'. The proposal's
