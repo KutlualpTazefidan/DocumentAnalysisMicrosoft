@@ -2846,11 +2846,35 @@ _SEMANTIK_EXTRA_SYSTEM = (
     "Falls Zeilen- oder Spalten-Label nicht eindeutig aus der "
     "Aussage hervorgehen: das ist selbst schon eine Bindungs-Luecke "
     "(partial-support, in der reasoning festhalten welche Achse "
-    "unklar bleibt)."
+    "unklar bleibt).\n\n"
+    "WENN ein Werkzeug-Ergebnis 'Konsistenz-Pruefung' am Treffer "
+    "angeheftet ist (siehe oben im Prompt): lies es. Wenn dort "
+    "'Keine Probleme erkannt' steht, ist die Spalten-Summe gegen "
+    "die Total-Zeile bereits verifiziert — du musst die Summe NICHT "
+    "im Kopf nachrechnen, sondern darfst dich auf den Tool-Befund "
+    "stuetzen. Wenn dort '[ERROR] Spalte X: Summe der Datenzeilen "
+    "... stimmt nicht mit Total-Zeile ueberein' steht, ist die "
+    "Tabelle intern inkonsistent — die behauptete Gesamtsumme ist "
+    "NICHT durch die Komponenten-Werte gedeckt: verdict = "
+    "contradicts oder partial-support, NIE likely-source nur auf "
+    "Basis der Total-Zeile. Wenn KEIN Konsistenz-Werkzeug-Ergebnis "
+    "vorliegt UND die Aussage eine Summe behauptet: die "
+    "Komponenten-Summe ist UNGEPRUEFT — vergib hoechstens "
+    "partial-support und nenne in reasoning explizit dass die "
+    "Summen-Verifikation fehlt."
 )
 
 
-def _backfill_evaluate_args(args: dict, anchor_sr_id: str, nodes: list[Node]) -> dict:
+def _backfill_evaluate_args(
+    args: dict,
+    anchor_sr_id: str,
+    nodes: list[Node],
+    *,
+    sd: Path | None = None,
+    session_id: str = "",
+    edges: list[Edge] | None = None,
+    data_root: Path | None = None,
+) -> dict:
     """Run :func:`_llm_evaluate` to populate verdict/confidence/
     reasoning/against_claim_id on an evaluate proposal whose args were
     left without a pre-baked verdict.
@@ -2863,6 +2887,12 @@ def _backfill_evaluate_args(args: dict, anchor_sr_id: str, nodes: list[Node]) ->
     The choreography flag ``investigation_axis == "Semantik-Rueckpruefung"``
     selects the Semantik extra_system so the back-filled verdict
     reflects the proposal's intent.
+
+    When ``sd``/``session_id``/``edges``/``data_root`` are supplied,
+    auto-fires the deterministic tool annotations on the SR and pulls
+    the persisted ``calc_hint`` into the LLM prompt. Without this the
+    Semantik LLM sees no TableConsistency report and would trust the
+    table's stated total blindly.
     """
     sr = next((n for n in nodes if n.node_id == anchor_sr_id), None)
     if sr is None or sr.kind != "search_result":
@@ -2905,13 +2935,21 @@ def _backfill_evaluate_args(args: dict, anchor_sr_id: str, nodes: list[Node]) ->
     extra_system = (
         _SEMANTIK_EXTRA_SYSTEM if args.get("investigation_axis") == "Semantik-Rueckpruefung" else ""
     )
+    calc_hint = ""
+    if sd is not None and edges is not None and data_root is not None:
+        _ensure_table_annotation(sd, session_id, sr, nodes, edges, data_root)
+        refreshed_nodes, refreshed_edges = read_session(sd)
+        _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
+        _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
+        final_nodes, final_edges = read_session(sd)
+        calc_hint, _ = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
     try:
         out = _llm_evaluate(
             claim_text,
             candidate_text,
             "vllm",
             extra_system=extra_system,
-            calc_hint="",
+            calc_hint=calc_hint,
         )
     except Exception as exc:
         _log.warning("Auto-heal evaluate LLM call failed: %s", exc)
@@ -2939,16 +2977,22 @@ def _spawn_semantik_rueckpruefung_proposal(
     session_id: str,
     sr: Node,
     nodes: list[Node],
+    edges: list[Edge],
+    data_root: Path,
     triggered_from_node_id: str | None,
 ) -> dict | None:
     """Pre-bake a Semantik-Rueckpruefung evaluate action_proposal for a
     table search_result.
 
-    Resolves claim via sr → task → focus_claim_id, runs ``_llm_evaluate``
-    with the Semantik extra_system, and persists an action_proposal with
-    the same args shape as a regular evaluate proposal. Returns the
-    landed Node dict or ``None`` if the claim could not be resolved or
-    the LLM call failed (caller reports the axis as skipped).
+    Resolves claim via sr → task → focus_claim_id, auto-fires the
+    deterministic tool annotations (TableParser + TableConsistency +
+    Calculator) so the LLM sees structural ground truth — in particular
+    the column-sum-mismatch report that prevents blindly trusting a
+    table's stated total. Then runs ``_llm_evaluate`` with the Semantik
+    extra_system and persists an action_proposal with the same args
+    shape as a regular evaluate proposal. Returns the landed Node dict
+    or ``None`` if the claim could not be resolved or the LLM call
+    failed (caller reports the axis as skipped).
     """
     task_id = sr.payload.get("task_node_id")
     task = next((n for n in nodes if n.node_id == task_id), None) if task_id else None
@@ -2967,13 +3011,25 @@ def _spawn_semantik_rueckpruefung_proposal(
     if cap:
         candidate_text = f"Caption: {cap}\n\n{candidate_text}"
 
+    # Auto-fire deterministic tools and pull the persisted hint so the
+    # LLM sees the TableConsistency report (column-sum mismatch,
+    # unit drift) and the Calculator results. Without this the Semantik
+    # eval trusts the table's stated total blindly even though the
+    # tool has already verified or refuted it.
+    _ensure_table_annotation(sd, session_id, sr, nodes, edges, data_root)
+    refreshed_nodes, refreshed_edges = read_session(sd)
+    _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
+    _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
+    final_nodes, final_edges = read_session(sd)
+    calc_hint, _ = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
+
     try:
         verdict_payload = _llm_evaluate(
             claim_text,
             candidate_text,
             "vllm",
             extra_system=_SEMANTIK_EXTRA_SYSTEM,
-            calc_hint="",
+            calc_hint=calc_hint,
         )
     except Exception as exc:
         _log.warning("Semantik-Rueckpruefung LLM call failed: %s", exc)
@@ -3152,6 +3208,8 @@ def _spawn_investigate_table_axes(
         session_id=session_id,
         sr=sr,
         nodes=nodes,
+        edges=edges,
+        data_root=cfg.data_root,
         triggered_from_node_id=triggered_from_node_id,
     )
     if semantik_axis_proposal is not None:
@@ -5969,7 +6027,7 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
 
-    nodes, _ = read_session(sd)
+    nodes, edges = read_session(sd)
     proposal = next((n for n in nodes if n.node_id == body.proposal_node_id), None)
     if proposal is None:
         raise HTTPException(
@@ -6579,9 +6637,20 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         # spawned before pre-baking landed). Fire the LLM inline so the
         # rest of this branch sees a fully-populated args dict instead
         # of crashing on args["verdict"]. The investigation_axis flag,
-        # when present, picks the right extra_system.
+        # when present, picks the right extra_system; the
+        # session-handle bundle (sd/session_id/edges/data_root) lets
+        # the helper auto-fire deterministic tools and feed the
+        # TableConsistency report into the LLM prompt.
         if "verdict" not in args:
-            args = _backfill_evaluate_args(args, anchor_sr_id, nodes)
+            args = _backfill_evaluate_args(
+                args,
+                anchor_sr_id,
+                nodes,
+                sd=sd,
+                session_id=session_id,
+                edges=edges,
+                data_root=cfg.data_root,
+            )
         eval_actor = "human" if body.accepted == "override" else proposal.actor
         # Run the reactive-capability scan FIRST so the per-approach
         # summary (matched + considered-but-not-matched) lands on the
