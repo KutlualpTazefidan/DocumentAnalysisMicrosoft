@@ -3011,6 +3011,9 @@ def _backfill_evaluate_args(
         # the Werkzeug-Ergebnisse block (TableConsistency, Calculator,
         # TableParser annotations that fired during auto-heal).
         "tool_calls": tool_calls,
+        # Full LLM-input audit -- forward into evaluation Node payload.
+        "system_prompt_used": str(out.get("system_prompt_used", "")),
+        "user_prompt_used": str(out.get("user_prompt_used", "")),
     }
 
 
@@ -3103,6 +3106,10 @@ def _spawn_semantik_rueckpruefung_proposal(
                 # the panel even though tools fired -- they're just
                 # invisible.
                 "tool_calls": tool_calls,
+                # Full LLM-input audit. Lets the user see exactly what
+                # the LLM was shown when judging the Semantik-axis.
+                "system_prompt_used": verdict_payload.get("system_prompt_used", ""),
+                "user_prompt_used": verdict_payload.get("user_prompt_used", ""),
             },
         ),
         alternatives=[],
@@ -3781,6 +3788,11 @@ def _llm_evaluate(
         )
     parts.append("JSON:")
     user = "\n".join(parts)
+    # Persist the exact prompts that were sent so the audit panel can
+    # render the full LLM input. Stored on the return dict; callers
+    # forward them through the action_proposal -> /decide -> evaluation
+    # chain.
+    prompts_used = {"system_prompt_used": system, "user_prompt_used": user}
     client = get_llm_client()
     completion = client.complete(
         messages=[Message(role="system", content=system), Message(role="user", content=user)],
@@ -3844,6 +3856,7 @@ def _llm_evaluate(
         "confidence": float(confidence),
         "reasoning": reasoning,
         "sentences": sentences,
+        **prompts_used,
     }
 
 
@@ -4092,6 +4105,12 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                 # capability_scan persists; lets the UI render "tools
                 # that fired during this evaluation".
                 "tool_calls": tool_calls,
+                # Full LLM-input audit: system prompt (with all active
+                # skill extensions) + the user prompt (claim + candidate
+                # + tool hints). Forwarded to the evaluation Node so the
+                # 'was hat das LLM gesehen?' panel renders both verbatim.
+                "system_prompt_used": verdict_payload.get("system_prompt_used", full_system),
+                "user_prompt_used": verdict_payload.get("user_prompt_used", ""),
             },
         ),
         alternatives=[
@@ -4103,6 +4122,8 @@ async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Req
                     "reasoning": "manuell verworfen",
                     "against_claim_id": body.against_claim_id,
                     "tool_calls": [],
+                    "system_prompt_used": full_system,
+                    "user_prompt_used": "",
                 },
             ),
         ],
@@ -4363,6 +4384,8 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
                 "capability_gate_node_id": body.capability_gate_node_id,
                 "prior_evaluation_node_id": gate.payload.get("evaluation_node_id"),
                 "tool_calls": tool_calls,
+                "system_prompt_used": verdict_payload.get("system_prompt_used", ""),
+                "user_prompt_used": verdict_payload.get("user_prompt_used", ""),
             },
         ),
         alternatives=[
@@ -4374,6 +4397,8 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
                     "reasoning": "Re-Evaluate verworfen — alte Bewertung bleibt.",
                     "against_claim_id": claim.node_id,
                     "tool_calls": [],
+                    "system_prompt_used": "",
+                    "user_prompt_used": "",
                 },
             ),
         ],
@@ -6840,6 +6865,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
                         # tools, not skills. Empty list when no tool
                         # produced output.
                         "tool_calls": args.get("tool_calls", []),
+                        # Full LLM-input audit: the exact system +
+                        # user prompts that were sent. Empty string
+                        # for legacy proposals spawned before this
+                        # field was persisted; the EvaluationPanel
+                        # treats absence as 'no transcript available'.
+                        "system_prompt_used": args.get("system_prompt_used", ""),
+                        "user_prompt_used": args.get("user_prompt_used", ""),
                         # Capabilities that were injected into THIS
                         # evaluate's prompt — used by future
                         # capability_scans on descendant evals (via

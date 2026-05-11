@@ -58,6 +58,11 @@ export function EvaluationPanel({
       input?: Record<string, unknown>;
       output?: Record<string, unknown>;
     }[];
+    /** Full LLM-input transcript persisted at evaluate-time. Empty
+     *  strings for legacy evaluations created before this field
+     *  landed -- the panel shows a hint then. */
+    system_prompt_used?: string;
+    user_prompt_used?: string;
     search_result_node_id?: string;
   };
   const verdict = String(p.verdict ?? "unknown");
@@ -68,6 +73,9 @@ export function EvaluationPanel({
   const capScan = Array.isArray(p.capability_scan) ? p.capability_scan : [];
   const capMatched = capScan.filter((c) => c.matched).length;
   const toolCalls = Array.isArray(p.tool_calls) ? p.tool_calls : [];
+  const systemPromptUsed = String(p.system_prompt_used ?? "");
+  const userPromptUsed = String(p.user_prompt_used ?? "");
+  const hasPromptAudit = systemPromptUsed.length > 0 || userPromptUsed.length > 0;
   // The parent search_result is the right anchor for "Was als nächstes?"
   // because decompose_hit / promote_search_result / re-evaluate are all
   // registered for search_result nodes, not for evaluation nodes. The
@@ -344,6 +352,42 @@ export function EvaluationPanel({
               })}
             </ul>
           </div>
+        )}
+        {hasPromptAudit ? (
+          <details className="rounded border border-purple-700/40 bg-purple-950/10">
+            <summary
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-purple-300 flex items-center gap-2`}
+            >
+              👁 Was hat das LLM gesehen? · System + User-Prompt
+            </summary>
+            <div className="px-3 pb-3 pt-1 space-y-2">
+              {userPromptUsed && (
+                <div>
+                  <p className={`${T.tinyBold} text-purple-200/90`}>
+                    User-Prompt (Aussage + Kandidat + Werkzeug-Ergebnisse)
+                  </p>
+                  <pre className="mt-1 text-[11px] text-purple-100/90 whitespace-pre-wrap break-words font-mono bg-purple-900/30 rounded p-2 max-h-96 overflow-y-auto">
+                    {userPromptUsed}
+                  </pre>
+                </div>
+              )}
+              {systemPromptUsed && (
+                <div>
+                  <p className={`${T.tinyBold} text-purple-200/90`}>
+                    System-Prompt (mit aktiven Skills + Domain-Block)
+                  </p>
+                  <pre className="mt-1 text-[11px] text-purple-100/90 whitespace-pre-wrap break-words font-mono bg-purple-900/30 rounded p-2 max-h-96 overflow-y-auto">
+                    {systemPromptUsed}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </details>
+        ) : (
+          <p className={`${T.tiny} text-slate-500 italic`}>
+            Diese Bewertung wurde vor dem Prompt-Audit erzeugt — re-eval, um
+            das vollständige LLM-Transkript zu sehen.
+          </p>
         )}
       </div>
       <footer className="p-3 border-t border-navy-700 space-y-2">
