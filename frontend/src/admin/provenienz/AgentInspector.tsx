@@ -48,7 +48,73 @@ export function AgentInspector({ info, selectedId, onClose }: Props): JSX.Elemen
     const kind = selectedId.slice("data:".length);
     return <DataView kind={kind} info={info} onClose={onClose} />;
   }
+  if (selectedId.startsWith("rule:")) {
+    const name = selectedId.slice("rule:".length);
+    const rule = info.rules[name];
+    if (!rule) return <NotFound onClose={onClose} />;
+    return <RuleView name={name} rule={rule} info={info} onClose={onClose} />;
+  }
   return <NotFound onClose={onClose} />;
+}
+
+function RuleView({
+  name,
+  rule,
+  info,
+  onClose,
+}: {
+  name: string;
+  rule: AgentRuleInfo;
+  info: AgentInfo;
+  onClose: () => void;
+}): JSX.Element {
+  // Find the sub-agents that activate this rule so the reader sees
+  // "where does this skill plug in".
+  const usedBy = info.steps
+    .filter((s) => (s.rules ?? []).includes(name))
+    .map((s) => s.label || s.kind);
+  return (
+    <div className="flex flex-col h-full">
+      <Header title={name} subtitle="Skill / Regel" onClose={onClose} />
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <Section title="Zusammenfassung">
+          <p className={`text-slate-200 ${T.body}`}>{rule.summary}</p>
+        </Section>
+        <Section title="Wann sie greift">
+          <p className={`text-slate-200 ${T.body}`}>{rule.trigger}</p>
+        </Section>
+        <Section title="Wo sie liegt">
+          <p className={`text-slate-200 ${T.body}`}>{rule.storage}</p>
+        </Section>
+        <Section title="Wie sie verkabelt ist">
+          <p className={`text-slate-200 ${T.body}`}>{rule.injection}</p>
+        </Section>
+        {usedBy.length > 0 && (
+          <Section title={`Aktiv bei ${usedBy.length} Sub-Agent(en)`}>
+            <ul className={`text-slate-200 ${T.body} space-y-0.5`}>
+              {usedBy.map((label) => (
+                <li key={label}>· {label}</li>
+              ))}
+            </ul>
+          </Section>
+        )}
+        {rule.applies_to.length > 0 && (
+          <Section title="Gilt für Step-Kinds">
+            <div className="flex flex-wrap gap-1">
+              {rule.applies_to.map((k) => (
+                <code
+                  key={k}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-navy-900 border border-navy-600 text-blue-300"
+                >
+                  {k}
+                </code>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function StepView({

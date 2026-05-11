@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -10,12 +10,20 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-import type { AgentInfo } from "../hooks/useProvenienz";
-import { AgentDataNode, AgentStepNode, AgentToolNode } from "./nodes/agent";
+import type { AgentInfo, AgentToolInfo } from "../hooks/useProvenienz";
+import {
+  AgentDataNode,
+  AgentOrchestratorNode,
+  AgentStepNode,
+  AgentSubAgentNode,
+  AgentToolNode,
+} from "./nodes/agent";
 
 const nodeTypes = {
   data: AgentDataNode,
   step: AgentStepNode,
+  subagent: AgentSubAgentNode,
+  orchestrator: AgentOrchestratorNode,
   tool: AgentToolNode,
 };
 
@@ -26,22 +34,37 @@ interface Props {
 }
 
 /**
- * Static topology of the Provenienz agent. Renders the open-ended
- * "Was als nächstes?" router at top, branching into:
- *   - executable_step: the existing chain of registered steps
- *   - capability_request: currently disabled tools (stubs) the agent
- *     can flag as missing
- *   - manual_review: terminal escalation to a human
+ * Layout B: orchestrator-centric topology.
+ *
+ *   [ORCHESTRATOR — Was als naechstes?]
+ *           |
+ *      wählt aus
+ *     /    |    \
+ *  [exec] [cap_req] [manual_review]
+ *   |        |          |
+ *  the     stub      terminal
+ *  six     tools     (Mensch)
+ *  sub-
+ *  agents
+ *
+ * Each sub-agent card carries its Skill + Tool pills inline so the
+ * reader sees 'orchestrator -> chooses sub-agent -> uses these skills
+ * and tools' at one glance. Pipeline data-flow is rendered as
+ * desaturated dashed edges along the bottom — useful but secondary.
  */
 export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element {
-  const { nodes, edges } = useMemo(() => buildAgentGraph(info), [info]);
+  const onPillClick = useCallback(
+    (id: string) => onSelect(id),
+    [onSelect],
+  );
+  const { nodes, edges } = useMemo(
+    () => buildAgentGraph(info, onPillClick),
+    [info, onPillClick],
+  );
   return (
     <div className="w-full h-full bg-navy-900 relative">
       <ReactFlow
-        nodes={nodes.map((n) => ({
-          ...n,
-          selected: n.id === selectedId,
-        }))}
+        nodes={nodes.map((n) => ({ ...n, selected: n.id === selectedId }))}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodeClick={(_e, n) => onSelect(n.id)}
@@ -50,7 +73,7 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
         nodesConnectable={false}
         elementsSelectable
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: 0.18 }}
         proOptions={{ hideAttribution: true }}
       >
         <Background
@@ -66,48 +89,70 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
   );
 }
 
-function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } {
-  const COL_X = 320;
-  const ROW_DY = 140;
-  const ROUTER_Y = -240;
-  const BRANCH_Y = -80;
-
+function buildAgentGraph(
+  info: AgentInfo,
+  onPillClick: (id: string) => void,
+): { nodes: RfNode[]; edges: RfEdge[] } {
   const nodes: RfNode[] = [];
   const edges: RfEdge[] = [];
 
-  // ── Top: Was als nächstes? router ──────────────────────────────────────────
+  // Sub-agents to surface as primary tiles. Order matters: row 1 is the
+  // canonical research pipeline (linear data-flow), row 2 carries the
+  // branch-off / terminal steps.
+  const ROW1_KINDS = [
+    "extract_claims",
+    "formulate_task",
+    "search",
+    "evaluate",
+  ];
+  const ROW2_KINDS = [
+    "promote_search_result",
+    "investigate_table",
+    "propose_stop",
+  ];
+
+  const allRegisteredKinds = new Set(info.steps.map((s) => s.kind));
+  const presentRow1 = ROW1_KINDS.filter((k) => allRegisteredKinds.has(k));
+  const presentRow2 = ROW2_KINDS.filter((k) => allRegisteredKinds.has(k));
+
+  // Active skills across all sub-agents — surfaced on the orchestrator
+  // badge so the user sees the system-prompt extension scale at a
+  // glance without opening individual sub-agents.
+  const activeSkillsCount = new Set(
+    info.steps.flatMap((s) => s.rules ?? []),
+  ).size;
+
+  // ── 1) Orchestrator (top centre) ─────────────────────────────────────────
+  const ORCH_X = 0;
+  const ORCH_Y = -360;
   nodes.push({
     id: "step:next_step",
-    type: "step",
-    position: { x: COL_X, y: ROUTER_Y },
+    type: "orchestrator",
+    position: { x: ORCH_X, y: ORCH_Y },
     data: {
-      step: {
-        kind: "next_step",
-        label: info.next_step.label,
-        input_kind: info.next_step.input_kind,
-        output_kind: info.next_step.output_kind,
-        uses_llm: info.next_step.uses_llm,
-        uses_tool: info.next_step.uses_tool,
-        rules: info.next_step.rules,
-        system_prompt: info.next_step.system_prompt,
-        user_template: "",
-        expected_output: info.next_step.expected_output,
-      },
+      label: info.next_step.label,
+      subagent_count: presentRow1.length + presentRow2.length,
+      active_skills_count: activeSkillsCount,
     },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
   });
 
-  // ── Three branches: executable_step / capability_request / manual_review ──
-  const branchExecX = -40;
-  const branchCapX = COL_X;
-  const branchManX = COL_X + 360;
+  // ── 2) Three classification branches (executable / capability / manual) ──
+  const BRANCH_Y = ORCH_Y + 180;
+  const BRANCH_GAP = 360;
+  const branchExecX = ORCH_X;
+  const branchCapX = ORCH_X + BRANCH_GAP;
+  const branchManX = ORCH_X - BRANCH_GAP;
 
   nodes.push({
     id: "branch:executable_step",
     type: "data",
     position: { x: branchExecX, y: BRANCH_Y },
-    data: { label: "executable_step", sub: "Agent wählt einen Step" },
+    data: {
+      label: "executable_step",
+      sub: "wählt einen Sub-Agent aus der Liste",
+    },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
   });
@@ -115,7 +160,10 @@ function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } 
     id: "branch:capability_request",
     type: "data",
     position: { x: branchCapX, y: BRANCH_Y },
-    data: { label: "capability_request", sub: "Was fehlt? — TODO" },
+    data: {
+      label: "capability_request",
+      sub: "Tool fehlt im Registry",
+    },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
   });
@@ -123,165 +171,164 @@ function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } 
     id: "branch:manual_review",
     type: "data",
     position: { x: branchManX, y: BRANCH_Y },
-    data: { label: "manual_review", sub: "Eskalation an Mensch" },
+    data: {
+      label: "manual_review",
+      sub: "Mensch entscheidet",
+    },
     sourcePosition: Position.Bottom,
     targetPosition: Position.Top,
   });
 
   edges.push(
     {
-      id: "e:next->exec",
+      id: "e:orch->exec",
       source: "step:next_step",
       target: "branch:executable_step",
       type: "smoothstep",
-      style: { stroke: "#fbbf24" },
-      label: "passender Step",
+      style: { stroke: "#fbbf24", strokeWidth: 2 },
+      label: "passender Sub-Agent existiert",
       labelStyle: { fontSize: 10, fill: "#fde68a" },
       labelBgStyle: { fill: "#1e293b" },
     },
     {
-      id: "e:next->cap",
+      id: "e:orch->cap",
       source: "step:next_step",
       target: "branch:capability_request",
       type: "smoothstep",
-      style: { stroke: "#facc15" },
-      label: "kein Step + Tool ausreicht",
+      style: { stroke: "#facc15", strokeDasharray: "4 4" },
+      label: "kein Tool deckt das ab",
       labelStyle: { fontSize: 10, fill: "#fde68a" },
       labelBgStyle: { fill: "#1e293b" },
     },
     {
-      id: "e:next->man",
+      id: "e:orch->man",
       source: "step:next_step",
       target: "branch:manual_review",
       type: "smoothstep",
-      style: { stroke: "#f87171" },
+      style: { stroke: "#f87171", strokeDasharray: "4 4" },
       label: "nur Mensch löst das",
       labelStyle: { fontSize: 10, fill: "#fecaca" },
       labelBgStyle: { fill: "#1e293b" },
     },
   );
 
-  // ── Branch 1: existing executable trunk under branch:executable_step ─────
-  const trunkSpec: {
-    id: string;
-    type: "data" | "step";
-    label: string;
-    sub?: string;
-    kind?: string;
-  }[] = [
-    {
-      id: "data:chunk",
-      type: "data",
-      label: "Chunk",
-      sub: validStepsLabel(info, "chunk"),
-    },
-    ...info.steps
-      .filter((s) => s.kind === "extract_claims")
-      .map((s) => ({
-        id: `step:${s.kind}`,
-        type: "step" as const,
-        label: s.label,
-        kind: s.kind,
-      })),
-    {
-      id: "data:claim",
-      type: "data",
-      label: "Claim",
-      sub: validStepsLabel(info, "claim"),
-    },
-    ...info.steps
-      .filter((s) => s.kind === "formulate_task")
-      .map((s) => ({
-        id: `step:${s.kind}`,
-        type: "step" as const,
-        label: s.label,
-        kind: s.kind,
-      })),
-    {
-      id: "data:task",
-      type: "data",
-      label: "Task",
-      sub: validStepsLabel(info, "task"),
-    },
-    ...info.steps
-      .filter((s) => s.kind === "search")
-      .map((s) => ({
-        id: `step:${s.kind}`,
-        type: "step" as const,
-        label: s.label,
-        kind: s.kind,
-      })),
-    {
-      id: "data:search_result",
-      type: "data",
-      label: "Search Results",
-      sub: validStepsLabel(info, "search_result"),
-    },
-    ...info.steps
-      .filter((s) => s.kind === "evaluate")
-      .map((s) => ({
-        id: `step:${s.kind}`,
-        type: "step" as const,
-        label: s.label,
-        kind: s.kind,
-      })),
-    {
-      id: "data:evaluation",
-      type: "data",
-      label: "Evaluation",
-      sub: "Verdict + Confidence",
-    },
-  ];
+  // ── 3) Sub-agent rows below executable_step branch ───────────────────────
+  const SUBAGENT_GAP_X = 320;
+  const SUBAGENT_ROW1_Y = BRANCH_Y + 240;
+  const SUBAGENT_ROW2_Y = SUBAGENT_ROW1_Y + 360;
 
-  trunkSpec.forEach((t, idx) => {
-    const y = idx * ROW_DY;
-    if (t.type === "data") {
-      nodes.push({
-        id: t.id,
-        type: "data",
-        position: { x: branchExecX, y },
-        data: { label: t.label, sub: t.sub },
-        sourcePosition: Position.Bottom,
-        targetPosition: Position.Top,
-      });
-    } else if (t.kind) {
-      const step = info.steps.find((s) => s.kind === t.kind);
-      nodes.push({
-        id: t.id,
-        type: "step",
-        position: { x: branchExecX, y },
-        data: { step },
-        sourcePosition: Position.Bottom,
-        targetPosition: Position.Top,
-      });
-    }
-    if (idx === 0) {
-      edges.push({
-        id: `e:trunk:0`,
-        source: "branch:executable_step",
-        target: t.id,
-        type: "smoothstep",
-        style: { stroke: "#475569", strokeWidth: 1.5 },
-      });
-    } else {
-      edges.push({
-        id: `e:trunk:${idx}`,
-        source: trunkSpec[idx - 1]!.id,
-        target: t.id,
-        type: "smoothstep",
-        style: { stroke: "#475569", strokeWidth: 1.5 },
-      });
-    }
+  const placeSubAgent = (
+    kind: string,
+    x: number,
+    y: number,
+  ): RfNode | null => {
+    const step = info.steps.find((s) => s.kind === kind);
+    if (!step) return null;
+    const tools = info.tools.filter((t) => t.used_by.includes(kind));
+    const node: RfNode = {
+      id: `step:${kind}`,
+      type: "subagent",
+      position: { x, y },
+      data: { step, tools, onPillClick },
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+    };
+    nodes.push(node);
+    return node;
+  };
+
+  const row1XStart = branchExecX - ((presentRow1.length - 1) * SUBAGENT_GAP_X) / 2;
+  presentRow1.forEach((kind, idx) => {
+    const x = row1XStart + idx * SUBAGENT_GAP_X;
+    placeSubAgent(kind, x, SUBAGENT_ROW1_Y);
+    edges.push({
+      id: `e:exec->${kind}`,
+      source: "branch:executable_step",
+      target: `step:${kind}`,
+      type: "smoothstep",
+      style: { stroke: "#fbbf24", strokeWidth: 1.5 },
+    });
   });
 
-  // ── Branch 2: capability_request — list disabled tools as candidates ─────
+  const row2XStart = branchExecX - ((presentRow2.length - 1) * SUBAGENT_GAP_X) / 2;
+  presentRow2.forEach((kind, idx) => {
+    const x = row2XStart + idx * SUBAGENT_GAP_X;
+    placeSubAgent(kind, x, SUBAGENT_ROW2_Y);
+    edges.push({
+      id: `e:exec->${kind}`,
+      source: "branch:executable_step",
+      target: `step:${kind}`,
+      type: "smoothstep",
+      style: { stroke: "#fbbf24", strokeDasharray: "4 4", strokeWidth: 1.2 },
+    });
+  });
+
+  // ── 4) Pipeline data-flow below row 1 (desaturated, secondary) ───────────
+  // Renders Chunk -> Claim -> Task -> Search Results -> Evaluation as small
+  // grey labels with dashed arrows so the reader sees 'this is the data
+  // shape between sub-agents'. The orchestrator->sub-agent edges remain
+  // the primary visual.
+  const DATA_FLOW_Y = SUBAGENT_ROW1_Y + 280;
+  const dataLabels: Array<{ id: string; label: string; x: number }> = [
+    { id: "data:chunk", label: "Chunk", x: row1XStart - 160 },
+    {
+      id: "data:claim",
+      label: "Claim",
+      x: row1XStart - 160 + SUBAGENT_GAP_X,
+    },
+    {
+      id: "data:task",
+      label: "Task",
+      x: row1XStart - 160 + SUBAGENT_GAP_X * 2,
+    },
+    {
+      id: "data:search_result",
+      label: "Search Result",
+      x: row1XStart - 160 + SUBAGENT_GAP_X * 3,
+    },
+    {
+      id: "data:evaluation",
+      label: "Evaluation",
+      x: row1XStart - 160 + SUBAGENT_GAP_X * 4,
+    },
+  ];
+  dataLabels.forEach((d) => {
+    nodes.push({
+      id: d.id,
+      type: "data",
+      position: { x: d.x, y: DATA_FLOW_Y },
+      data: {
+        label: d.label,
+        sub: validStepsLabel(info, d.label.toLowerCase().replace(" ", "_")),
+      },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    });
+  });
+  // Linear data-flow arrows along the bottom row.
+  for (let i = 0; i < dataLabels.length - 1; i++) {
+    edges.push({
+      id: `e:flow:${i}`,
+      source: dataLabels[i]!.id,
+      target: dataLabels[i + 1]!.id,
+      type: "smoothstep",
+      style: { stroke: "#475569", strokeDasharray: "3 3", strokeWidth: 1 },
+      label: "→",
+      labelStyle: { fontSize: 10, fill: "#94a3b8" },
+      labelBgStyle: { fill: "#1e293b" },
+    });
+  }
+
+  // ── 5) capability_request: list disabled tools as candidate stubs ────────
   const disabledTools = info.tools.filter((t) => !t.enabled);
-  disabledTools.forEach((tool, idx) => {
+  const CAP_TOOL_Y = SUBAGENT_ROW1_Y;
+  const CAP_TOOL_GAP_Y = 130;
+  disabledTools.forEach((tool: AgentToolInfo, idx: number) => {
     const toolId = `tool:${tool.name}`;
     nodes.push({
       id: toolId,
       type: "tool",
-      position: { x: branchCapX, y: idx * 130 + 40 },
+      position: { x: branchCapX, y: CAP_TOOL_Y + idx * CAP_TOOL_GAP_Y },
       data: { tool },
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
@@ -291,44 +338,15 @@ function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } 
       source: "branch:capability_request",
       target: toolId,
       type: "smoothstep",
-      style: { stroke: "#facc15", strokeDasharray: "4 4" },
+      style: { stroke: "#facc15", strokeDasharray: "4 4", strokeWidth: 1.2 },
     });
   });
 
-  // Show the active tools too — they hang off the search step in the
-  // executable trunk.
-  const enabledTools = info.tools.filter((t) => t.enabled);
-  enabledTools.forEach((tool) => {
-    const consumerStep = tool.used_by[0];
-    const stepId = `step:${consumerStep}`;
-    const stepNode = nodes.find((n) => n.id === stepId);
-    if (!stepNode) return;
-    const toolId = `tool:${tool.name}`;
-    nodes.push({
-      id: toolId,
-      type: "tool",
-      position: { x: branchExecX - 320, y: stepNode.position.y },
-      data: { tool },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Right,
-    });
-    edges.push({
-      id: `e:tool:${tool.name}`,
-      source: stepId,
-      target: toolId,
-      type: "smoothstep",
-      style: { stroke: "#10b981" },
-      label: "ruft auf",
-      labelStyle: { fontSize: 10, fill: "#6ee7b7" },
-      labelBgStyle: { fill: "#1e293b" },
-    });
-  });
-
-  // ── Branch 3: manual_review — single terminal tile ────────────────────────
+  // ── 6) manual_review terminal ────────────────────────────────────────────
   nodes.push({
     id: "data:manual_review",
     type: "data",
-    position: { x: branchManX, y: 40 },
+    position: { x: branchManX, y: SUBAGENT_ROW1_Y },
     data: {
       label: "👤 Mensch erledigt",
       sub: "User markiert das Tile als erledigt — kein Auto-Step.",
@@ -344,80 +362,11 @@ function buildAgentGraph(info: AgentInfo): { nodes: RfNode[]; edges: RfEdge[] } 
     style: { stroke: "#f87171", strokeDasharray: "4 4" },
   });
 
-  // ── Promote loop (existing): search_result → promote → chunk ──────────────
-  const promoteStep = info.steps.find(
-    (s) => s.kind === "promote_search_result",
-  );
-  if (promoteStep) {
-    const sr = nodes.find((n) => n.id === "data:search_result");
-    if (sr) {
-      nodes.push({
-        id: "step:promote_search_result",
-        type: "step",
-        position: { x: branchExecX + 360, y: sr.position.y },
-        data: { step: promoteStep },
-        sourcePosition: Position.Top,
-        targetPosition: Position.Left,
-      });
-      edges.push({
-        id: "e:result->promote",
-        source: "data:search_result",
-        target: "step:promote_search_result",
-        type: "smoothstep",
-        style: { stroke: "#a855f7" },
-        label: "Weiter erforschen",
-        labelStyle: { fontSize: 10, fill: "#c4b5fd" },
-        labelBgStyle: { fill: "#1e293b" },
-      });
-      edges.push({
-        id: "e:promote->chunk",
-        source: "step:promote_search_result",
-        target: "data:chunk",
-        type: "smoothstep",
-        style: { stroke: "#a855f7", strokeDasharray: "6 4" },
-        label: "neuer Chunk + Kontext",
-        labelStyle: { fontSize: 10, fill: "#c4b5fd" },
-        labelBgStyle: { fill: "#1e293b" },
-      });
-    }
-  }
-
-  // ── Stop step (still hangs off claim, jederzeit) ──────────────────────────
-  const stopStep = info.steps.find((s) => s.kind === "propose_stop");
-  if (stopStep) {
-    const claim = nodes.find((n) => n.id === "data:claim");
-    if (claim) {
-      nodes.push({
-        id: "step:propose_stop",
-        type: "step",
-        position: { x: branchExecX - 320, y: claim.position.y + 80 },
-        data: { step: stopStep },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Right,
-      });
-      edges.push({
-        id: "e:claim->stop",
-        source: "data:claim",
-        target: "step:propose_stop",
-        type: "smoothstep",
-        style: { stroke: "#64748b", strokeDasharray: "4 4" },
-        label: "jederzeit",
-        labelStyle: { fontSize: 10, fill: "#94a3b8" },
-        labelBgStyle: { fill: "#1e293b" },
-      });
-    }
-  }
-
   return { nodes, edges };
 }
 
-/**
- * Format the registered next-step options for an anchor kind into a
- * one-line label that hangs under the data tile. Tells the user
- * exactly what the agent considers valid at this kind of node.
- */
 function validStepsLabel(info: AgentInfo, anchorKind: string): string {
   const steps = info.valid_steps_per_anchor?.[anchorKind] ?? [];
-  if (steps.length === 0) return "(kein Step registriert)";
+  if (steps.length === 0) return "";
   return `Optionen: ${steps.join(" · ")}`;
 }

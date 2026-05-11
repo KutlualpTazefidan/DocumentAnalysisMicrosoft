@@ -284,13 +284,15 @@ function AgentView({
             <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
           </div>
           <p className={`${T.tiny} text-slate-400`}>
-            Klick im Diagramm → Detail rechts. Reiter:{" "}
-            <span className="text-slate-300">Schritte</span> (was er tun kann),{" "}
-            <span className="text-slate-300">Werkzeuge</span> (welche Tools er
-            ruft), <span className="text-slate-300">Fähigkeiten</span> (wie er denkt
-            + Domain-Wissen, alles ohne Code editierbar),{" "}
-            <span className="text-slate-300">Wünsche</span> (was er sagt
-            fehlt).
+            <span className="text-indigo-300 font-semibold">Orchestrator</span>{" "}
+            oben wählt einen{" "}
+            <span className="text-amber-300 font-semibold">Sub-Agent</span>{" "}
+            aus. Jeder Sub-Agent trägt seine{" "}
+            <span className="text-amber-200">Skills</span> (orange Pills) und{" "}
+            <span className="text-cyan-300">Werkzeuge</span> (cyan Pills)
+            inline. Klick auf ein Pill → Detail rechts. Datenfluss
+            (Chunk → Claim → Task → …) als gedimmte Linie unten —
+            Sekundär-Info.
           </p>
         </header>
         <div className="flex-1 min-h-0">
