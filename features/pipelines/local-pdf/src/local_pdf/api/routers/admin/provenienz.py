@@ -2936,13 +2936,14 @@ def _backfill_evaluate_args(
         _SEMANTIK_EXTRA_SYSTEM if args.get("investigation_axis") == "Semantik-Rueckpruefung" else ""
     )
     calc_hint = ""
+    tool_calls: list[dict[str, Any]] = []
     if sd is not None and edges is not None and data_root is not None:
         _ensure_table_annotation(sd, session_id, sr, nodes, edges, data_root)
         refreshed_nodes, refreshed_edges = read_session(sd)
         _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
         _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
         final_nodes, final_edges = read_session(sd)
-        calc_hint, _ = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
+        calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
     try:
         out = _llm_evaluate(
             claim_text,
@@ -2960,6 +2961,7 @@ def _backfill_evaluate_args(
             "reasoning": f"LLM-Auto-Heal scheiterte: {exc}",
             "against_claim_id": str(claim.node_id),
             "sentences": [],
+            "tool_calls": tool_calls,
         }
     return {
         **args,
@@ -2968,6 +2970,10 @@ def _backfill_evaluate_args(
         "reasoning": str(out.get("reasoning", "")),
         "sentences": out.get("sentences", []),
         "against_claim_id": args.get("against_claim_id") or str(claim.node_id),
+        # Forward tool_calls so the evaluation Node's panel renders
+        # the Werkzeug-Ergebnisse block (TableConsistency, Calculator,
+        # TableParser annotations that fired during auto-heal).
+        "tool_calls": tool_calls,
     }
 
 
@@ -3021,7 +3027,7 @@ def _spawn_semantik_rueckpruefung_proposal(
     _ensure_table_consistency_annotation(sd, session_id, sr, refreshed_nodes, refreshed_edges)
     _ensure_calculator_annotation(sd, session_id, sr, claim, refreshed_nodes, refreshed_edges)
     final_nodes, final_edges = read_session(sd)
-    calc_hint, _ = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
+    calc_hint, tool_calls = _persisted_tool_calls_for_sr(sr.node_id, final_nodes, final_edges)
 
     try:
         verdict_payload = _llm_evaluate(
@@ -3053,6 +3059,13 @@ def _spawn_semantik_rueckpruefung_proposal(
                 "reasoning": reasoning,
                 "sentences": sentences,
                 "investigation_axis": "Semantik-Rueckpruefung",
+                # Tool-call audit: forward through args so /decide
+                # copies it onto the evaluation Node payload, where the
+                # EvaluationPanel renders the Werkzeug-Ergebnisse block.
+                # Without this, "no tool ran" is what the user sees in
+                # the panel even though tools fired -- they're just
+                # invisible.
+                "tool_calls": tool_calls,
             },
         ),
         alternatives=[],

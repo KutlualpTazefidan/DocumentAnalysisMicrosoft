@@ -282,6 +282,47 @@ def test_decide_auto_heals_legacy_semantik_proposal_without_verdict(client):
     assert eval_nodes[0]["payload"]["against_claim_id"]
 
 
+def test_semantik_proposal_carries_tool_calls_audit(client):
+    """After auto-firing TableParser + TableConsistency + Calculator,
+    the persisted tool_calls must land in args so /decide copies them
+    onto the evaluation Node payload and the EvaluationPanel renders
+    a 'Werkzeug-Ergebnisse' block instead of an empty audit area.
+    """
+    sid, sr_id = _setup_session_with_table_sr(
+        client,
+        caption_text="Tabelle 3.7: Reaktor-Hauptdaten",
+    )
+    spawn = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/investigate-table",
+        headers={"X-Auth-Token": "tok"},
+        json={"search_result_node_id": sr_id},
+    ).json()
+    semantik = next(
+        p
+        for p in spawn["proposals"]
+        if p["payload"]["recommended"]["args"].get("investigation_axis") == "Semantik-Rueckpruefung"
+    )
+    args = semantik["payload"]["recommended"]["args"]
+    # Tool-call audit must be present; TableParser at minimum fired
+    # because box_kind=table on the SR.
+    tool_calls = args.get("tool_calls")
+    assert isinstance(tool_calls, list)
+    assert any(tc.get("tool") == "table_parser" for tc in tool_calls)
+    # /decide then forwards args["tool_calls"] onto the evaluation Node.
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": semantik["node_id"],
+            "accepted": "recommended",
+        },
+    )
+    assert r.status_code == 201
+    eval_node = next(n for n in r.json()["spawned_nodes"] if n["kind"] == "evaluation")
+    eval_tool_calls = eval_node["payload"].get("tool_calls", [])
+    assert any(tc.get("tool") == "table_parser" for tc in eval_tool_calls)
+
+
 def test_investigate_table_decide_on_semantik_proposal_succeeds(client):
     """End-to-end: spawn the Semantik proposal via /investigate-table,
     accept it via /decide. The /decide call must NOT crash with the
