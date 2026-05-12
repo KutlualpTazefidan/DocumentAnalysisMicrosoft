@@ -210,6 +210,73 @@ def test_validate_phase_auto_promotes_misclassified_manual_review(client, monkey
     assert "Auto-promoted" in complete["node"]["payload"]["description"]
 
 
+def test_validate_phase_aliases_decompose_hit_to_extract_claims_on_chunk(client, monkeypatch):
+    """LLM picks 'decompose_hit' on a chunk anchor — should map to
+    'extract_claims' (the canonical 'split into atomic claims' step
+    on chunks) instead of demoting to manual_review.
+    """
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda *a, **k: {
+            "kind": "executable_step",
+            "name": "decompose_hit",
+            "description": "Chunk in Teil-Aussagen zerlegen",
+            "reasoning": "Mehrere messbare Aussagen im Chunk",
+            "considered_alternatives": [],
+            "confidence": 0.8,
+            "tool": None,
+            "approach_id": None,
+        },
+    )
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    events = _parse_sse(r.text)
+    validate_completed = next(
+        e[1]
+        for e in events
+        if e[0] == "phase" and e[1]["phase"] == "validate" and e[1]["status"] == "completed"
+    )
+    assert validate_completed["payload"]["aliased_from"] == "decompose_hit"
+    assert validate_completed["payload"]["demoted_from"] is None
+    assert validate_completed["payload"]["final_name"] == "extract_claims"
+
+    complete = next(e[1] for e in events if e[0] == "complete")
+    assert complete["node"]["payload"]["name"] == "extract_claims"
+
+
+def test_validate_phase_aliases_bare_verb_extract_to_extract_claims(client, monkeypatch):
+    """Bare-verb hallucination ('extract') on a chunk -> extract_claims."""
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda *a, **k: {
+            "kind": "executable_step",
+            "name": "extract",
+            "description": "",
+            "reasoning": "Aussagen rausziehen",
+            "considered_alternatives": [],
+            "confidence": 0.8,
+            "tool": None,
+            "approach_id": None,
+        },
+    )
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    events = _parse_sse(r.text)
+    complete = next(e[1] for e in events if e[0] == "complete")
+    assert complete["node"]["payload"]["name"] == "extract_claims"
+    assert "Auto-mapped from 'extract'" in complete["node"]["payload"]["description"]
+
+
 def test_validate_phase_aliases_decompose_hit_to_formulate_task_on_claim(client, monkeypatch):
     """LLM picks the deprecated 'decompose_hit' on a claim anchor.
     The alias remap maps it to 'formulate_task' (the canonical

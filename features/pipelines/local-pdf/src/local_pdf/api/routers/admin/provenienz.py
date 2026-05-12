@@ -2162,14 +2162,20 @@ NEXT_STEP_SYSTEM = (
     "Aufgaben deren name KEIN registrierter Step ist (z.B. "
     "'Juristische Bewertung', 'Vertrags-Konsultation').\n\n"
     "DEPRECATED — wähle NIE 'decompose_hit'. Der Step ist abgeschafft. "
-    "Der kanonische Ersatz auf einem search_result ist "
-    "'promote_search_result' (öffnet den Treffer als neuen Chunk, "
-    "auf dem extract_claims neue Claims erzeugt). Bei einem claim mit "
-    "mehreren Teil-Aussagen ist 'formulate_task' der nächste Schritt "
-    "(Suchanfrage formulieren) — die Zerlegung passiert dann implizit "
-    "über search → evaluate. Verwende NUR die Step-Namen aus der "
-    "Liste 'Verfügbare Steps' unten, niemals einen Namen der nicht "
-    "dort steht.\n\n"
+    "Mapping nach Anker-Typ (verwende den kanonischen Ersatz, NICHT "
+    "decompose_hit):\n"
+    "- Anker = chunk          → 'extract_claims' (zerlegt den Chunk-"
+    "Text in atomare Aussagen).\n"
+    "- Anker = claim          → 'formulate_task' (formuliert die "
+    "Suchanfrage; die feinere Zerlegung passiert implizit über "
+    "search → evaluate).\n"
+    "- Anker = search_result  → 'promote_search_result' (öffnet den "
+    "Treffer als neuen Chunk, auf dem extract_claims regulär laufen "
+    "kann).\n\n"
+    "Ebenfalls verboten: Kurz-Verben ohne Suffix ('extract', "
+    "'formulate', 'promote', 'investigate', 'stop'). Verwende immer "
+    "den vollen Step-Namen exakt wie er in 'Verfügbare Steps' unten "
+    "steht — niemals einen Namen der nicht dort steht.\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
@@ -4838,22 +4844,31 @@ _STEP_DESCRIPTIONS: dict[str, str] = {
 _STEP_ALIASES: dict[str, dict[str, str]] = {
     # decompose_hit is deprecated — the LLM keeps inventing it because
     # the verb 'zerlegen' feels like the natural follow-up to a
-    # multi-claim hit. Map to the canonical replacement per anchor kind.
+    # multi-claim node. Map to the canonical replacement per anchor:
+    #   chunk          -> extract_claims         (split into atomic claims)
+    #   claim          -> formulate_task         (zerlegung via search/evaluate)
+    #   search_result  -> promote_search_result  (open as new chunk)
     "decompose_hit": {
-        "search_result": "promote_search_result",
+        "chunk": "extract_claims",
         "claim": "formulate_task",
+        "search_result": "promote_search_result",
     },
-    # Common spelling mishaps land here too — keep additions tight so
-    # the alias map doesn't accidentally cover real planner mistakes.
+    # Bare-verb hallucinations: short forms the LLM emits when it
+    # forgets the underscore suffix. Mapped only when unambiguous for
+    # the anchor kind so the alias never hides a real planner mistake.
+    "extract": {"chunk": "extract_claims"},
+    "extract_claim": {"chunk": "extract_claims"},
+    "formulate": {"claim": "formulate_task"},
+    "formulate_query": {"claim": "formulate_task"},
     "promote": {"search_result": "promote_search_result"},
+    "investigate": {"search_result": "investigate_table"},
+    "investigate-table": {"search_result": "investigate_table"},
     "stop": {
         "chunk": "propose_stop",
         "claim": "propose_stop",
         "task": "propose_stop",
         "search_result": "propose_stop",
     },
-    "investigate-table": {"search_result": "investigate_table"},
-    "investigate": {"search_result": "investigate_table"},
 }
 
 
