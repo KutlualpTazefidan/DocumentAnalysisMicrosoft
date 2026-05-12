@@ -2161,6 +2161,15 @@ NEXT_STEP_SYSTEM = (
     "und der User klickt 'Akzeptieren'. manual_review ist NUR für "
     "Aufgaben deren name KEIN registrierter Step ist (z.B. "
     "'Juristische Bewertung', 'Vertrags-Konsultation').\n\n"
+    "DEPRECATED — wähle NIE 'decompose_hit'. Der Step ist abgeschafft. "
+    "Der kanonische Ersatz auf einem search_result ist "
+    "'promote_search_result' (öffnet den Treffer als neuen Chunk, "
+    "auf dem extract_claims neue Claims erzeugt). Bei einem claim mit "
+    "mehreren Teil-Aussagen ist 'formulate_task' der nächste Schritt "
+    "(Suchanfrage formulieren) — die Zerlegung passiert dann implizit "
+    "über search → evaluate. Verwende NUR die Step-Namen aus der "
+    "Liste 'Verfügbare Steps' unten, niemals einen Namen der nicht "
+    "dort steht.\n\n"
     "Antworte AUSSCHLIESSLICH als JSON-Objekt:\n"
     "{\n"
     '  "kind": "executable_step" | "capability_request" | "manual_review",\n'
@@ -4826,6 +4835,28 @@ _STEP_DESCRIPTIONS: dict[str, str] = {
 }
 
 
+_STEP_ALIASES: dict[str, dict[str, str]] = {
+    # decompose_hit is deprecated — the LLM keeps inventing it because
+    # the verb 'zerlegen' feels like the natural follow-up to a
+    # multi-claim hit. Map to the canonical replacement per anchor kind.
+    "decompose_hit": {
+        "search_result": "promote_search_result",
+        "claim": "formulate_task",
+    },
+    # Common spelling mishaps land here too — keep additions tight so
+    # the alias map doesn't accidentally cover real planner mistakes.
+    "promote": {"search_result": "promote_search_result"},
+    "stop": {
+        "chunk": "propose_stop",
+        "claim": "propose_stop",
+        "task": "propose_stop",
+        "search_result": "propose_stop",
+    },
+    "investigate-table": {"search_result": "investigate_table"},
+    "investigate": {"search_result": "investigate_table"},
+}
+
+
 def _format_step_with_desc(name: str) -> str:
     """Render one step as a markdown bullet with its description (or
     just the name if no description is registered). Used by the next-step
@@ -5871,6 +5902,31 @@ def _next_step_run(
     )
     invalid_step_picked: str | None = None
     promoted_from_kind: str | None = None
+    aliased_from: str | None = None
+    # Alias remap: when the LLM picks a deprecated or near-miss name
+    # (e.g. 'decompose_hit' instead of 'promote_search_result'), map
+    # it to the canonical step per anchor kind BEFORE the
+    # invalid-step demotion fires. The reasoning the LLM produced is
+    # still meaningful — only the name was wrong. Keeps the user out
+    # of the manual_review dead-end when the registry already covers
+    # the intent.
+    if (
+        plan["kind"] == "executable_step"
+        and plan.get("name") in _STEP_ALIASES
+        and plan["name"] not in available_steps
+    ):
+        kind_map = _STEP_ALIASES[plan["name"]]
+        canonical = kind_map.get(anchor.kind)
+        if canonical and canonical in available_steps:
+            aliased_from = plan["name"]
+            plan = {
+                **plan,
+                "name": canonical,
+                "description": (
+                    f"[Auto-mapped from '{aliased_from}' — der Agent meinte "
+                    f"vermutlich '{canonical}'] " + str(plan.get("description") or "")
+                ),
+            }
     if (
         plan["kind"] == "executable_step"
         and available_steps
@@ -5918,6 +5974,7 @@ def _next_step_run(
             "ok": invalid_step_picked is None,
             "demoted_from": invalid_step_picked,
             "promoted_from": promoted_from_kind,
+            "aliased_from": aliased_from,
             "final_kind": plan["kind"],
             "final_name": plan.get("name", ""),
         },

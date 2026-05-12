@@ -210,6 +210,67 @@ def test_validate_phase_auto_promotes_misclassified_manual_review(client, monkey
     assert "Auto-promoted" in complete["node"]["payload"]["description"]
 
 
+def test_validate_phase_aliases_decompose_hit_to_formulate_task_on_claim(client, monkeypatch):
+    """LLM picks the deprecated 'decompose_hit' on a claim anchor.
+    The alias remap maps it to 'formulate_task' (the canonical
+    successor for a claim) instead of demoting to manual_review.
+    """
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda *a, **k: {
+            "kind": "executable_step",
+            "name": "decompose_hit",  # DEPRECATED — should be aliased
+            "description": "Claim hat mehrere Teil-Aussagen",
+            "reasoning": "Zerlegung sinnvoll",
+            "considered_alternatives": [],
+            "confidence": 0.7,
+            "tool": None,
+            "approach_id": None,
+        },
+    )
+    sid, _chunk_node_id = _bootstrap_session(client)
+    # Plant a claim node directly so we don't touch _llm_extract_claims
+    # or the rest of the LLM-driven extract chain.
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+    claim_id = new_id()
+    append_node(
+        sd,
+        Node(
+            node_id=claim_id,
+            session_id=sid,
+            kind="claim",
+            payload={"text": "Test claim", "goal": ""},
+            actor="human",
+        ),
+    )
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": claim_id},
+    )
+    events = _parse_sse(r.text)
+    validate_completed = next(
+        e[1]
+        for e in events
+        if e[0] == "phase" and e[1]["phase"] == "validate" and e[1]["status"] == "completed"
+    )
+    # Alias fired; no demotion to manual_review.
+    assert validate_completed["payload"]["aliased_from"] == "decompose_hit"
+    assert validate_completed["payload"]["demoted_from"] is None
+    assert validate_completed["payload"]["final_kind"] == "executable_step"
+    assert validate_completed["payload"]["final_name"] == "formulate_task"
+
+    complete = next(e[1] for e in events if e[0] == "complete")
+    assert complete["node"]["kind"] == "plan_proposal"
+    assert complete["node"]["payload"]["name"] == "formulate_task"
+    assert "Auto-mapped from 'decompose_hit'" in complete["node"]["payload"]["description"]
+
+
 def test_validate_phase_keeps_genuine_manual_review_when_name_is_not_a_step(client, monkeypatch):
     """Auto-promote only fires when the LLM-picked name matches an
     available executable step. A legitimate manual_review (e.g.
