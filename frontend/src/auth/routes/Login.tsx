@@ -41,7 +41,12 @@ export function Login() {
       // Pass empty string into the legacy `login()` so existing
       // hooks that read `token` see "" (and skip the X-Auth-Token
       // header thanks to the adminClient guard).
-      login("", ident.role as "admin" | "curator", ident.pseudonym);
+      login(
+        "",
+        ident.role as "admin" | "curator",
+        ident.pseudonym,
+        ident.tenant_slug,
+      );
       localStorage.setItem(LAST_TENANT_KEY, tenantSlug.trim());
       navigate(ident.role === "admin" ? "/admin/inbox" : "/curate/", {
         replace: true,

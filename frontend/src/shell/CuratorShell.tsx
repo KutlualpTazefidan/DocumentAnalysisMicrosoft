@@ -5,10 +5,11 @@ import { CURATOR_THEME } from "./shared/ColorThemes";
 import { RoleBadge } from "./shared/RoleBadge";
 
 export function CuratorShell() {
-  const { token, role, name, logout } = useAuth();
+  const { role, name, tenantSlug, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  if (!token || role !== "curator") {
+  // Cookie-mode logins have token=='' — gate on role only.
+  if (role !== "curator") {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
   function handleLogout() { logout(); navigate("/login", { replace: true }); }
@@ -24,8 +25,22 @@ export function CuratorShell() {
           <Link to="/curate">My Docs</Link>
         </nav>
         <div className="flex items-center gap-3">
+          {tenantSlug && (
+            <span
+              className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
+              title="Aktiver Tenant"
+            >
+              {tenantSlug}
+            </span>
+          )}
           <RoleBadge theme={CURATOR_THEME} name={name ?? "curator"} />
-          <button onClick={handleLogout} className="text-sm underline">Logout</button>
+          <button
+            onClick={handleLogout}
+            className="text-sm underline"
+            title="Session beenden + Cookie verwerfen"
+          >
+            Logout
+          </button>
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">

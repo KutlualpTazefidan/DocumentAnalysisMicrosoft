@@ -7,10 +7,13 @@ import { RoleBadge } from "./shared/RoleBadge";
 import { Inbox, Users, Cpu, BarChart3, LogOut } from "../shared/icons";
 
 export function AdminShell() {
-  const { token, role, name, logout } = useAuth();
+  const { token, role, name, tenantSlug, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  if (!token || role !== "admin") {
+  // Cookie-mode logins land here with token=='' and role='admin' — we
+  // gate on role only so the cookie flow works. Legacy token-mode still
+  // sets both, so it's also fine.
+  if (role !== "admin") {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
   function handleLogout() { logout(); navigate("/login", { replace: true }); }
@@ -31,11 +34,26 @@ export function AdminShell() {
         {/* vLLM controls — centered in the available space between
             nav links and the user/logout cluster on the right. */}
         <div className="flex-1 flex justify-center">
-          <LlmTopBarControl token={token} />
+          <LlmTopBarControl token={token ?? ""} />
         </div>
         <div className="flex items-center gap-3">
+          {tenantSlug && (
+            <span
+              className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
+              title="Aktiver Tenant"
+            >
+              {tenantSlug}
+            </span>
+          )}
           <RoleBadge theme={ADMIN_THEME} name={name ?? "admin"} />
-          <button onClick={handleLogout} className="flex items-center gap-1 text-sm underline"><LogOut className="w-4 h-4" />Logout</button>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1 text-sm underline"
+            title="Session beenden + Cookie verwerfen"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">

@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from llm_clients.base import Message
 from pydantic import BaseModel
 
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.llm import get_default_model, get_llm_client
 from local_pdf.provenienz.approaches import (
     Approach,
@@ -283,6 +284,13 @@ def _meta_to_response(m: SessionMeta) -> SessionMetaResponse:
 )
 async def create_session(body: CreateSessionRequest, request: Request) -> SessionMetaResponse:
     cfg = request.app.state.config
+    # Tenant-aware write path: cookie-mode users in tenant != default
+    # get their sessions under data_root/tenants/{slug}/.... Legacy
+    # token-mode + default-tenant cookie-mode keep using cfg.data_root.
+    # Source documents (doc_dir / read_mineru) still live in the legacy
+    # root for now — full per-tenant document partitioning is a
+    # follow-up; see auth/tenant_root.py.
+    tenant_root = tenant_data_root(cfg.data_root, tenant_slug_from_request(request))
     if not doc_dir(cfg.data_root, body.slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {body.slug}")
     mineru = read_mineru(cfg.data_root, body.slug) or {"elements": []}
@@ -297,7 +305,7 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
         )
 
     sid = new_id()
-    sdir = session_dir(cfg.data_root, body.slug, sid)
+    sdir = session_dir(tenant_root, body.slug, sid)
     meta = SessionMeta(
         session_id=sid,
         slug=body.slug,
@@ -350,11 +358,16 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
 @router.get("/api/admin/provenienz/sessions")
 async def list_sessions(request: Request, slug: str | None = None) -> list[SessionMetaResponse]:
     cfg = request.app.state.config
+    tenant_root = tenant_data_root(cfg.data_root, tenant_slug_from_request(request))
     out: list[SessionMetaResponse] = []
     if slug is not None:
-        slug_dirs = [cfg.data_root / slug]
+        slug_dirs = [tenant_root / slug]
     else:
-        slug_dirs = [p for p in cfg.data_root.iterdir() if p.is_dir()]
+        # Skip the meta directory and the cross-tenant container so
+        # they're not mistaken for slug-keyed document roots.
+        slug_dirs = [
+            p for p in tenant_root.iterdir() if p.is_dir() and p.name not in {"_meta", "tenants"}
+        ]
     for slug_dir in slug_dirs:
         prov = slug_dir / "provenienz"
         if not prov.exists():
@@ -369,7 +382,8 @@ async def list_sessions(request: Request, slug: str | None = None) -> list[Sessi
 @router.get("/api/admin/provenienz/sessions/{session_id}")
 async def get_session(session_id: str, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    tenant_root = tenant_data_root(cfg.data_root, tenant_slug_from_request(request))
+    sd = _find_session_dir(tenant_root, session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)

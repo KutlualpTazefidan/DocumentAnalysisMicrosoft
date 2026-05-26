@@ -527,10 +527,16 @@ def _admin_actor(request: Request) -> HumanActor:
     authenticated /api/admin requests; falls back to a generic admin
     pseudonym so unit tests without auth still work. ``level`` is
     required by HumanActor — admin actors are ``expert``.
+
+    Prefers ``identity.pseudonym`` over ``identity.name`` so cookie-
+    mode logins land in the audit log under the user's pseudonym
+    rather than their real username. Legacy token-mode populates both
+    fields with the same value (``ident.name``) so the fallback chain
+    is a no-op there.
     """
     ident = getattr(request.state, "identity", None)
-    name = getattr(ident, "name", None) or "admin"
-    return HumanActor(pseudonym=name, level="expert")
+    pseudonym = getattr(ident, "pseudonym", None) or getattr(ident, "name", None) or "admin"
+    return HumanActor(pseudonym=pseudonym, level="expert")
 
 
 @router.patch("/api/admin/docs/{slug}/questions/{question_id}")

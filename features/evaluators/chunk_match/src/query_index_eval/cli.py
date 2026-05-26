@@ -302,6 +302,30 @@ def cmd_segment_auth_create_user(
     return 0
 
 
+def cmd_segment_auth_backup(*, dest: str) -> int:
+    """Snapshot the auth DB to a gzipped file.
+
+    Uses sqlite3 online-backup (no quiesce required). Prints the
+    resulting path + compressed size so the operator can verify.
+    """
+    from pathlib import Path
+
+    from local_pdf.auth.backup import backup_auth_db
+
+    data_root = _resolve_data_root()
+    dest_path = Path(dest).expanduser().resolve()
+    try:
+        info = backup_auth_db(data_root, dest_path)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 3
+    print(f"backed up: {info['source']}")
+    print(f"        -> {info['dest']}")
+    print(f"  size:    {info['bytes_written']} bytes (gzipped)")
+    print(f"  source:  {info['source_pages']} pages")
+    return 0
+
+
 def _prompt_password(label: str) -> str:
     """Read a password from stdin with no echo; called when --password
     flag is omitted to avoid leaving creds in shell history."""
@@ -364,6 +388,17 @@ def _add_segment_subparser(subparsers) -> None:
             pseudonym=args.pseudonym,
         )
     )
+
+    backup = auth_sub.add_parser(
+        "backup", help="snapshot the auth DB (sqlite online-backup + gzip)"
+    )
+    backup.add_argument(
+        "--to",
+        dest="dest",
+        required=True,
+        help="destination file path; .db.gz suffix recommended",
+    )
+    backup.set_defaults(func=lambda args: cmd_segment_auth_backup(dest=args.dest))
 
 
 def main(argv: list[str] | None = None) -> int:
