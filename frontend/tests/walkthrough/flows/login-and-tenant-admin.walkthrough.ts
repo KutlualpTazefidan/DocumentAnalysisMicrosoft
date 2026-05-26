@@ -78,9 +78,15 @@ export default async function (w: Walkthrough): Promise<void> {
   });
 
   // ── 5. Navigate to /admin/tenants ─────────────────────────────────
+  // App uses HashRouter, so cross-route navigation must go through the
+  // hash. Clicking the nav link is what a real user would do and keeps
+  // sessionStorage intact (full page reloads to a non-hashed path land
+  // on /login because HashRouter resets to "#/").
   await w.step("Open Tenants admin", async (s) => {
-    await s.goto("/admin/tenants");
-    await s.expectVisible("text=Tenants");
+    s.highlight('header a[href="#/admin/tenants"]', "Tenants link");
+    await s.click('header a[href="#/admin/tenants"]');
+    await s.waitForUrl(/#\/admin\/tenants/);
+    await s.expectVisible('h1:has-text("Tenants")');
     s.note("Left column lists tenants; right pane is empty until a tenant is selected.");
     await s.screenshot();
   });

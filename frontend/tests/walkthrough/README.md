@@ -126,3 +126,18 @@ opens directly in a browser.
   silently dropped (the screenshot still saves).
 - The runner does NOT clean up tenants or users it creates — the
   walkthrough should use timestamped slugs to avoid collisions.
+
+## HashRouter gotcha
+
+The app uses `HashRouter` (see `src/main.tsx`), so all routes live under
+`#/...`. This affects how flows must navigate between pages:
+
+- **DO** click nav-link elements — `await s.click('header a[href="#/admin/tenants"]')`
+- **DON'T** call `s.goto("/admin/tenants")` after a successful login.
+  A full-pathname navigation resets the hash to `#/`, which
+  `<Route path="/" element={<Navigate to="/login" />} />` then
+  redirects to login — looking like a session loss even though the
+  cookie + sessionStorage are intact.
+
+`s.goto("/login")` at the start of a flow is fine; the empty initial
+hash falls through to the login route anyway.
