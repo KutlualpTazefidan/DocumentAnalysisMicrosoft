@@ -123,6 +123,6 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
 export function Inbox() {
   const { token } = useAuth();
-  if (!token) return <div className="p-6 h-full overflow-auto">Not authorised.</div>;
+  if (token === null) return <div className="p-6 h-full overflow-auto">Not authorised.</div>;
   return <InboxRoute token={token} />;
 }
