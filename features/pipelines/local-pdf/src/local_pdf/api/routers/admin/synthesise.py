@@ -48,6 +48,7 @@ from goldens.storage.log import append_events, read_events
 from goldens.storage.projection import build_state
 from pydantic import BaseModel
 
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.storage.sidecar import doc_dir, read_answers, write_answers
 from local_pdf.synthetic import MineruElementsLoader
 
@@ -57,6 +58,16 @@ if TYPE_CHECKING:
     from llm_clients.base import LLMClient
 
 router = APIRouter()
+
+
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
+
+
 _logger = logging.getLogger(__name__)
 
 # Test hooks — inject fake LLM clients.
@@ -104,8 +115,14 @@ class GenerateBoxResponse(BaseModel):
     skipped_reason: str | None = None
 
 
-def _events_path(cfg: Any, slug: str) -> Path:
-    path: Path = cfg.data_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
+def _events_path(data_root: Path, slug: str) -> Path:
+    """Compute the goldens event-log path for a slug.
+
+    ``data_root`` is expected to be the tenant-aware root (resolved by
+    the route handler via ``_tr(request)``) so that two tenants curating
+    the same slug see separate event logs.
+    """
+    path: Path = data_root / slug / "datasets" / GOLDEN_EVENTS_V1_FILENAME
     return path
 
 
@@ -146,15 +163,18 @@ def _box_id_from_source_element(page: int, bare_id: str) -> str:
     return f"p{page}-{bare_id}"
 
 
-def _list_questions(cfg: Any, slug: str) -> list[GeneratedQuestion]:
+def _list_questions(data_root: Path, slug: str) -> list[GeneratedQuestion]:
     """Read all active retrieval entries for *slug* and project them into
     the SPA's box_id-keyed shape. Enriches with LLM-generated answers
     from the sidecar if available.
+
+    ``data_root`` is the tenant-aware root passed in by the route
+    handler (via ``_tr(request)``).
     """
-    path = _events_path(cfg, slug)
+    path = _events_path(data_root, slug)
     if not path.exists():
         return []
-    answers = read_answers(cfg.data_root, slug)
+    answers = read_answers(data_root, slug)
     out: list[GeneratedQuestion] = []
     for entry in iter_active_retrieval_entries(path):
         src = entry.source_element
@@ -185,8 +205,7 @@ async def synthesise_test(
 ) -> SynthesiseTestResponse:
     """Proof-of-life ping for the configured LLM. Kept for the existing
     placeholder UI / smoke test scripts."""
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
     client, _, model, _ = _resolve_clients()
 
@@ -219,15 +238,14 @@ async def synthesise(
       - ``box_id`` set → sync, returns ``GenerateBoxResponse``
       - ``page`` set or both unset → NDJSON stream with cancellation
     """
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
     client, embed_client, model, embedding_model = _resolve_clients()
-    events_path = _events_path(cfg, slug)
+    events_path = _events_path(_tr(request), slug)
     events_path.parent.mkdir(parents=True, exist_ok=True)
 
     loader = MineruElementsLoader(
-        data_root=cfg.data_root,
+        data_root=_tr(request),
         slug=slug,
         only_box_id=box_id,
         only_page=page,
@@ -260,7 +278,7 @@ async def synthesise(
             break  # only one element by construction
         new_questions = [
             q
-            for q in _list_questions(cfg, slug)
+            for q in _list_questions(_tr(request), slug)
             if q.box_id == box_id and q.entry_id not in before_ids
         ]
         return GenerateBoxResponse(
@@ -415,19 +433,20 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
     """
     from llm_clients.base import Message, ResponseFormat
 
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
 
     # Box content from the same loader the question generator uses, so
     # tables get row-preserving newlines etc.
-    loader = MineruElementsLoader(data_root=cfg.data_root, slug=slug, only_box_id=box_id)
+    loader = MineruElementsLoader(data_root=_tr(request), slug=slug, only_box_id=box_id)
     elements = loader.elements()
     if not elements:
         return AnswerBoxResponse(box_id=box_id, answered=0, skipped_reason="box_not_found")
     content = elements[0].content
 
-    questions = [(q.entry_id, q.text) for q in _list_questions(cfg, slug) if q.box_id == box_id]
+    questions = [
+        (q.entry_id, q.text) for q in _list_questions(_tr(request), slug) if q.box_id == box_id
+    ]
     if not questions:
         return AnswerBoxResponse(box_id=box_id, answered=0, skipped_reason="no_questions")
 
@@ -452,11 +471,11 @@ async def answer_box(slug: str, box_id: str, request: Request) -> AnswerBoxRespo
     if answers is None:
         raise HTTPException(status_code=502, detail="LLM returned malformed answer payload")
 
-    stored = read_answers(cfg.data_root, slug)
+    stored = read_answers(_tr(request), slug)
     for (entry_id, _q), a in zip(questions, answers, strict=True):
         if a.strip():
             stored[entry_id] = a.strip()
-    write_answers(cfg.data_root, slug, stored)
+    write_answers(_tr(request), slug, stored)
     answered = sum(1 for a in answers if a.strip())
     return AnswerBoxResponse(box_id=box_id, answered=answered, skipped_reason=None)
 
@@ -481,16 +500,15 @@ async def patch_answer(
     a wrong answer back to "no answer yet"). The /questions response
     will then surface ``answer: null`` again.
     """
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    stored = read_answers(cfg.data_root, slug)
+    stored = read_answers(_tr(request), slug)
     text = body.text.strip()
     if text:
         stored[entry_id] = text
     else:
         stored.pop(entry_id, None)
-    write_answers(cfg.data_root, slug, stored)
+    write_answers(_tr(request), slug, stored)
     return {"entry_id": entry_id, "answer": text}
 
 
@@ -499,10 +517,9 @@ async def patch_answer(
 
 @router.get("/api/admin/docs/{slug}/questions")
 async def list_questions(slug: str, request: Request) -> dict[str, list[dict]]:
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    questions = _list_questions(cfg, slug)
+    questions = _list_questions(_tr(request), slug)
     by_box: dict[str, list[dict]] = {}
     for q in questions:
         by_box.setdefault(q.box_id, []).append(q.model_dump(mode="json"))
@@ -511,10 +528,11 @@ async def list_questions(slug: str, request: Request) -> dict[str, list[dict]]:
 
 @router.get("/api/admin/docs/{slug}/questions/{box_id}")
 async def list_questions_for_box(slug: str, box_id: str, request: Request) -> list[dict]:
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    return [q.model_dump(mode="json") for q in _list_questions(cfg, slug) if q.box_id == box_id]
+    return [
+        q.model_dump(mode="json") for q in _list_questions(_tr(request), slug) if q.box_id == box_id
+    ]
 
 
 # ── Refine / Deprecate (admin-side editing) ──────────────────────────────────
@@ -553,8 +571,7 @@ async def refine_question(
     ``goldens.operations.refine`` doesn't carry source_element forward,
     which would orphan refined questions from their box.
     """
-    cfg = request.app.state.config
-    path = _events_path(cfg, slug)
+    path = _events_path(_tr(request), slug)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"no questions for {slug}")
     state = build_state(read_events(path))
@@ -613,8 +630,7 @@ async def deprecate_question(
     question_id: str,
     request: Request,
 ) -> dict[str, str]:
-    cfg = request.app.state.config
-    path = _events_path(cfg, slug)
+    path = _events_path(_tr(request), slug)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"no questions for {slug}")
     try:

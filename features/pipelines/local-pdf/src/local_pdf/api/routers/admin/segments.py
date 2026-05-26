@@ -27,6 +27,7 @@ from local_pdf.api.schemas import (
     UpdateElementRequest,
     WorkFailedEvent,
 )
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.storage.sidecar import (
     doc_dir,
     read_meta,
@@ -50,6 +51,15 @@ from local_pdf.workers.mineru import (
 from local_pdf.workers.yolo import YoloWorker
 
 router = APIRouter()
+
+
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
+
 
 # Test hook: assign a fake predict_fn here from tests.
 _YOLO_PREDICT_FN = None
@@ -97,11 +107,10 @@ async def run_segment(
     range are preserved; boxes inside the range are replaced with fresh output.
     Omitting both processes the full document (original behaviour).
     """
-    cfg = request.app.state.config
-    pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
+    pdf = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
-    _bump_meta(cfg.data_root, slug, DocStatus.segmenting)
+    _bump_meta(_tr(request), slug, DocStatus.segmenting)
 
     env_backend = os.environ.get("LOCAL_PDF_SEGMENT_BACKEND", "").strip().lower()
 
@@ -115,7 +124,7 @@ async def run_segment(
                     new_boxes = worker.boxes
 
                     # ── yolo.json: merge pristine output ──────────────────────
-                    existing_yolo = read_yolo(cfg.data_root, slug) or {"boxes": []}
+                    existing_yolo = read_yolo(_tr(request), slug) or {"boxes": []}
                     if start is not None or end is not None:
                         lo = start if start is not None else 1
                         hi = end if end is not None else float("inf")
@@ -127,10 +136,10 @@ async def run_segment(
                     else:
                         kept_yolo = []
                     merged_yolo_boxes = kept_yolo + [b.model_dump(mode="json") for b in new_boxes]
-                    write_yolo(cfg.data_root, slug, {"boxes": merged_yolo_boxes})
+                    write_yolo(_tr(request), slug, {"boxes": merged_yolo_boxes})
 
                     # ── segments.json: same merge logic ───────────────────────
-                    existing_seg = read_segments(cfg.data_root, slug)
+                    existing_seg = read_segments(_tr(request), slug)
                     if existing_seg is not None and (start is not None or end is not None):
                         lo = start if start is not None else 1
                         hi = end if end is not None else float("inf")
@@ -139,12 +148,12 @@ async def run_segment(
                         kept_seg = []
                     all_boxes = kept_seg + new_boxes
                     all_boxes.sort(key=lambda b: (b.page, b.reading_order))
-                    write_segments(cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes))
+                    write_segments(_tr(request), slug, SegmentsFile(slug=slug, boxes=all_boxes))
 
-                    meta = read_meta(cfg.data_root, slug)
+                    meta = read_meta(_tr(request), slug)
                     if meta is not None:
                         write_meta(
-                            cfg.data_root,
+                            _tr(request),
                             slug,
                             meta.model_copy(
                                 update={
@@ -182,7 +191,7 @@ async def run_segment(
                 # as the page_subset.  We rely on vlm_segment_doc emitting only
                 # those pages.  Build a conservative range: we read the existing
                 # segments to infer max page if end is None.
-                existing_seg = read_segments(cfg.data_root, slug)
+                existing_seg = read_segments(_tr(request), slug)
                 lo = start if start is not None else 1
                 if end is not None:
                     hi = end
@@ -197,7 +206,7 @@ async def run_segment(
             new_boxes: list[SegmentBox] = []
             new_elements: list[dict] = []
 
-            images_dir = doc_dir(cfg.data_root, slug) / "mineru-images"
+            images_dir = doc_dir(_tr(request), slug) / "mineru-images"
             for ev in vlm_segment_doc(
                 pdf_bytes,
                 raster_dpi=288,
@@ -225,14 +234,14 @@ async def run_segment(
                 lo = start if start is not None else 1
                 hi = end if end is not None else float("inf")
 
-                existing_seg = read_segments(cfg.data_root, slug)
+                existing_seg = read_segments(_tr(request), slug)
                 kept_boxes = (
                     [b for b in existing_seg.boxes if not (lo <= b.page <= hi)]
                     if existing_seg is not None
                     else []
                 )
 
-                existing_mineru = read_mineru(cfg.data_root, slug)
+                existing_mineru = read_mineru(_tr(request), slug)
                 existing_elements = existing_mineru["elements"] if existing_mineru else []
 
                 def _page_from_bid(bid: str) -> int | None:
@@ -255,15 +264,15 @@ async def run_segment(
             all_elements = kept_elements + new_elements
 
             write_segments(
-                cfg.data_root, slug, SegmentsFile(slug=slug, boxes=all_boxes, raster_dpi=288)
+                _tr(request), slug, SegmentsFile(slug=slug, boxes=all_boxes, raster_dpi=288)
             )
-            write_mineru(cfg.data_root, slug, {"elements": all_elements, "diagnostics": []})
-            write_html(cfg.data_root, slug, _render_active_html(all_elements, all_boxes))
+            write_mineru(_tr(request), slug, {"elements": all_elements, "diagnostics": []})
+            write_html(_tr(request), slug, _render_active_html(all_elements, all_boxes))
 
-            meta = read_meta(cfg.data_root, slug)
+            meta = read_meta(_tr(request), slug)
             if meta is not None:
                 write_meta(
-                    cfg.data_root,
+                    _tr(request),
                     slug,
                     meta.model_copy(
                         update={
@@ -291,8 +300,7 @@ async def run_segment(
 
 @router.get("/api/admin/docs/{slug}/segments")
 async def get_segments(slug: str, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     if seg is None:
         raise HTTPException(status_code=404, detail=f"no segments yet for {slug}")
     return dict(seg.model_dump(mode="json"))
@@ -400,24 +408,25 @@ def _render_active_html(
     return _wrap_html(filtered)
 
 
-def _refresh_active_html(cfg, slug: str) -> None:
+def _refresh_active_html(data_root, slug: str) -> None:
     """Regenerate html.html from current mineru.json + segments.json.
 
     Used after a kind change to discard, where no VLM re-extract is needed
     — we just need to filter out the deactivated box from the rendered
-    HTML.
+    HTML. ``data_root`` is expected to be the tenant-aware root (resolved
+    by the route handler via ``_tr(request)``).
     """
-    m = read_mineru(cfg.data_root, slug)
+    m = read_mineru(data_root, slug)
     if m is None:
         return
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(data_root, slug)
     boxes = list(seg.boxes) if seg is not None else []
     elements = list(m.get("elements", []))
-    write_html(cfg.data_root, slug, _render_active_html(elements, boxes))
+    write_html(data_root, slug, _render_active_html(elements, boxes))
 
 
 def _re_extract_box(
-    cfg,
+    data_root,
     slug: str,
     box: SegmentBox,
     raster_dpi: int,
@@ -434,15 +443,18 @@ def _re_extract_box(
 
     When *old_kind* is provided (kind-change path), appends a ``kind_change``
     diagnostic entry and enables the visual hint for the VLM crop.
+
+    ``data_root`` is the tenant-aware root (resolved by the route handler
+    via ``_tr(request)``).
     """
     import logging
 
-    existing_mineru = read_mineru(cfg.data_root, slug)
+    existing_mineru = read_mineru(data_root, slug)
     if existing_mineru is None:
         # VLM not run yet — nothing to update.
         return
 
-    pdf_path = doc_dir(cfg.data_root, slug) / "source.pdf"
+    pdf_path = doc_dir(data_root, slug) / "source.pdf"
     if not pdf_path.exists():
         return
 
@@ -557,10 +569,10 @@ def _re_extract_box(
     # reactivated box (kind=discard → not-discard) still needs to reappear
     # via its cached snippet, and a kind change with VLM down should at
     # least update the active-filter state.
-    write_mineru(cfg.data_root, slug, {"elements": elements, "diagnostics": diagnostics})
-    seg_now = read_segments(cfg.data_root, slug)
+    write_mineru(data_root, slug, {"elements": elements, "diagnostics": diagnostics})
+    seg_now = read_segments(data_root, slug)
     boxes_now = list(seg_now.boxes) if seg_now is not None else []
-    write_html(cfg.data_root, slug, _render_active_html(elements, boxes_now))
+    write_html(data_root, slug, _render_active_html(elements, boxes_now))
 
 
 @router.put("/api/admin/docs/{slug}/segments/{box_id}")
@@ -571,9 +583,8 @@ async def update_box(
     request: Request,
     reextract: bool = True,
 ) -> dict[str, Any]:
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
-    seg = read_segments(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
+    seg = read_segments(_tr(request), slug)
     raster_dpi = seg.raster_dpi if seg is not None else 288
     for i, b in enumerate(boxes):
         if b.box_id == box_id:
@@ -590,16 +601,16 @@ async def update_box(
             if body.manually_activated is not None:
                 updates["manually_activated"] = body.manually_activated
             boxes[i] = b.model_copy(update=updates)
-            _replace_segments(cfg.data_root, slug, boxes)
+            _replace_segments(_tr(request), slug, boxes)
             if reextract and (bbox_changed or kind_changed):
                 if boxes[i].kind == BoxKind.discard:
                     # Going to discard: skip VLM, just refresh html with the
                     # box filtered out. Snippet stays in mineru.json so a later
                     # reactivate doesn't need a re-extract.
-                    _refresh_active_html(cfg, slug)
+                    _refresh_active_html(_tr(request), slug)
                 else:
                     _re_extract_box(
-                        cfg,
+                        _tr(request),
                         slug,
                         boxes[i],
                         raster_dpi,
@@ -611,13 +622,12 @@ async def update_box(
 
 @router.delete("/api/admin/docs/{slug}/segments/{box_id}")
 async def delete_box(slug: str, box_id: str, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     for i, b in enumerate(boxes):
         if b.box_id == box_id:
             boxes[i] = b.model_copy(update={"kind": BoxKind.discard})
-            _replace_segments(cfg.data_root, slug, boxes)
-            _refresh_active_html(cfg, slug)
+            _replace_segments(_tr(request), slug, boxes)
+            _refresh_active_html(_tr(request), slug)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
@@ -637,8 +647,7 @@ async def update_element(
     raw input is preserved in ``html_snippet_raw`` so the Quelltext panel
     reflects exactly what they typed.
     """
-    cfg = request.app.state.config
-    m = read_mineru(cfg.data_root, slug)
+    m = read_mineru(_tr(request), slug)
     if m is None:
         raise HTTPException(status_code=404, detail=f"no mineru output for {slug}")
     elements = list(m.get("elements", []))
@@ -650,16 +659,15 @@ async def update_element(
                 "html_snippet": new_rendered,
                 "html_snippet_raw": body.html_snippet,
             }
-            write_mineru(cfg.data_root, slug, {**m, "elements": elements})
-            _refresh_active_html(cfg, slug)
+            write_mineru(_tr(request), slug, {**m, "elements": elements})
+            _refresh_active_html(_tr(request), slug)
             return dict(elements[i])
     raise HTTPException(status_code=404, detail=f"element not found: {box_id}")
 
 
 @router.post("/api/admin/docs/{slug}/segments/merge")
 async def merge_boxes(slug: str, body: MergeBoxesRequest, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     by_id = {b.box_id: b for b in boxes}
     targets = []
     for bid in body.box_ids:
@@ -685,14 +693,13 @@ async def merge_boxes(slug: str, body: MergeBoxesRequest, request: Request) -> d
     keep = [b for b in boxes if b.box_id not in body.box_ids]
     keep.append(merged)
     keep.sort(key=lambda b: (b.page, b.reading_order))
-    _replace_segments(cfg.data_root, slug, keep)
+    _replace_segments(_tr(request), slug, keep)
     return dict(merged.model_dump(mode="json"))
 
 
 @router.post("/api/admin/docs/{slug}/segments/split")
 async def split_box(slug: str, body: SplitBoxRequest, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     for i, b in enumerate(boxes):
         if b.box_id == body.box_id:
             x0, y0, x1, y1 = b.bbox
@@ -713,7 +720,7 @@ async def split_box(slug: str, body: SplitBoxRequest, request: Request) -> dict[
                 }
             )
             new_boxes = [*boxes[:i], top, bot, *boxes[i + 1 :]]
-            _replace_segments(cfg.data_root, slug, new_boxes)
+            _replace_segments(_tr(request), slug, new_boxes)
             return {
                 "top": top.model_dump(mode="json"),
                 "bottom": bot.model_dump(mode="json"),
@@ -728,8 +735,7 @@ async def create_box(
     request: Request,
     reextract: bool = True,
 ) -> dict[str, Any]:
-    cfg = request.app.state.config
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     if seg is None:
         raise HTTPException(status_code=404, detail=f"no segments for {slug}")
     raster_dpi = seg.raster_dpi
@@ -743,9 +749,9 @@ async def create_box(
         reading_order=max((b.reading_order for b in boxes if b.page == body.page), default=-1) + 1,
     )
     boxes.append(new)
-    _replace_segments(cfg.data_root, slug, boxes)
+    _replace_segments(_tr(request), slug, boxes)
     if reextract:
-        _re_extract_box(cfg, slug, new, raster_dpi)
+        _re_extract_box(_tr(request), slug, new, raster_dpi)
     return dict(new.model_dump(mode="json"))
 
 
@@ -763,15 +769,14 @@ def _yolo_boxes_for_page(yolo: dict, page: int) -> list[SegmentBox]:
 @router.post("/api/admin/docs/{slug}/segments/reset")
 async def reset_page(slug: str, page: int, request: Request) -> dict[str, Any]:
     """Replace all boxes on page N with the original YOLO-detected boxes."""
-    cfg = request.app.state.config
-    yolo = _load_yolo_or_404(cfg.data_root, slug)
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    yolo = _load_yolo_or_404(_tr(request), slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     yolo_page_boxes = _yolo_boxes_for_page(yolo, page)
     # Keep boxes for other pages, replace this page with yolo originals
     other_pages = [b for b in boxes if b.page != page]
     new_boxes = other_pages + yolo_page_boxes
     new_boxes.sort(key=lambda b: (b.page, b.reading_order))
-    _replace_segments(cfg.data_root, slug, new_boxes)
+    _replace_segments(_tr(request), slug, new_boxes)
     seg = SegmentsFile(slug=slug, boxes=new_boxes)
     return dict(seg.model_dump(mode="json"))
 
@@ -789,10 +794,9 @@ async def detect_registers_endpoint(slug: str, request: Request) -> dict[str, An
     """
     from local_pdf.provenienz.registers import detect_and_persist_registers
 
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    changed = detect_and_persist_registers(cfg.data_root, slug)
+    changed = detect_and_persist_registers(_tr(request), slug)
     return {"slug": slug, "boxes_reclassified": changed}
 
 
@@ -809,8 +813,7 @@ async def list_registers(slug: str, request: Request) -> dict[str, Any]:
     from local_pdf.api.schemas import BoxKind
     from local_pdf.provenienz.registers import read_register
 
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
     register_kinds = (
         BoxKind.toc,
@@ -820,7 +823,7 @@ async def list_registers(slug: str, request: Request) -> dict[str, Any]:
     )
     registers: list[dict[str, Any]] = []
     for kind in register_kinds:
-        out = read_register(cfg.data_root, slug, kind)
+        out = read_register(_tr(request), slug, kind)
         if out is not None:
             registers.append(out)
     return {"slug": slug, "registers": registers}
@@ -834,17 +837,16 @@ async def reset_box(
     reextract: bool = True,
 ) -> dict[str, Any]:
     """Restore a single box's bbox + kind + confidence from yolo.json."""
-    cfg = request.app.state.config
-    yolo = _load_yolo_or_404(cfg.data_root, slug)
+    yolo = _load_yolo_or_404(_tr(request), slug)
     yolo_by_id = {b["box_id"]: b for b in yolo.get("boxes", [])}
     if box_id not in yolo_by_id:
         raise HTTPException(
             status_code=409,
             detail="no original to reset to (this box wasn't YOLO-detected)",
         )
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     raster_dpi = seg.raster_dpi if seg is not None else 288
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     for i, b in enumerate(boxes):
         if b.box_id == box_id:
             orig = yolo_by_id[box_id]
@@ -858,9 +860,9 @@ async def reset_box(
                     "continues_to": None,
                 }
             )
-            _replace_segments(cfg.data_root, slug, boxes)
+            _replace_segments(_tr(request), slug, boxes)
             if reextract:
-                _re_extract_box(cfg, slug, boxes[i], raster_dpi)
+                _re_extract_box(_tr(request), slug, boxes[i], raster_dpi)
             return dict(boxes[i].model_dump(mode="json"))
     raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
 
@@ -868,8 +870,7 @@ async def reset_box(
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/merge-down")
 async def merge_down(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     """Link source box to the topmost non-discard box on the next page."""
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
     if box_id not in by_id:
         raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
@@ -885,16 +886,15 @@ async def merge_down(slug: str, box_id: str, request: Request) -> dict[str, Any]
     tgt_idx, _ = by_id[target.box_id]
     boxes[src_idx] = src.model_copy(update={"continues_to": target.box_id})
     boxes[tgt_idx] = target.model_copy(update={"continues_from": box_id})
-    _replace_segments(cfg.data_root, slug, boxes)
-    seg = read_segments(cfg.data_root, slug)
+    _replace_segments(_tr(request), slug, boxes)
+    seg = read_segments(_tr(request), slug)
     return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
 
 
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/merge-up")
 async def merge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     """Link source box to the bottommost non-discard box on the previous page."""
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
     if box_id not in by_id:
         raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
@@ -910,16 +910,15 @@ async def merge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     tgt_idx, _ = by_id[target.box_id]
     boxes[src_idx] = src.model_copy(update={"continues_from": target.box_id})
     boxes[tgt_idx] = target.model_copy(update={"continues_to": box_id})
-    _replace_segments(cfg.data_root, slug, boxes)
-    seg = read_segments(cfg.data_root, slug)
+    _replace_segments(_tr(request), slug, boxes)
+    seg = read_segments(_tr(request), slug)
     return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
 
 
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/unmerge-down")
 async def unmerge_down(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     """Clear continues_to on source and continues_from on the linked target."""
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
     if box_id not in by_id:
         raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
@@ -931,16 +930,15 @@ async def unmerge_down(slug: str, box_id: str, request: Request) -> dict[str, An
     if target_id in by_id:
         tgt_idx, tgt = by_id[target_id]
         boxes[tgt_idx] = tgt.model_copy(update={"continues_from": None})
-    _replace_segments(cfg.data_root, slug, boxes)
-    seg = read_segments(cfg.data_root, slug)
+    _replace_segments(_tr(request), slug, boxes)
+    seg = read_segments(_tr(request), slug)
     return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]
 
 
 @router.post("/api/admin/docs/{slug}/segments/{box_id}/unmerge-up")
 async def unmerge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]:
     """Clear continues_from on source and continues_to on the linked target."""
-    cfg = request.app.state.config
-    boxes = _load_boxes_or_404(cfg.data_root, slug)
+    boxes = _load_boxes_or_404(_tr(request), slug)
     by_id = {b.box_id: (i, b) for i, b in enumerate(boxes)}
     if box_id not in by_id:
         raise HTTPException(status_code=404, detail=f"box not found: {box_id}")
@@ -952,6 +950,6 @@ async def unmerge_up(slug: str, box_id: str, request: Request) -> dict[str, Any]
     if target_id in by_id:
         tgt_idx, tgt = by_id[target_id]
         boxes[tgt_idx] = tgt.model_copy(update={"continues_to": None})
-    _replace_segments(cfg.data_root, slug, boxes)
-    seg = read_segments(cfg.data_root, slug)
+    _replace_segments(_tr(request), slug, boxes)
+    seg = read_segments(_tr(request), slug)
     return dict(seg.model_dump(mode="json"))  # type: ignore[union-attr]

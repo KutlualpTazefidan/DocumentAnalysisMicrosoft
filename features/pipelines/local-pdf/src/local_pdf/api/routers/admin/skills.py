@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.provenienz.skills import (
     Skill,
     SkillKind,
@@ -30,6 +31,14 @@ from local_pdf.provenienz.skills import (
 )
 
 router = APIRouter()
+
+
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
 
 
 class SkillCreate(BaseModel):
@@ -63,15 +72,13 @@ def _dump(s: Skill) -> dict[str, Any]:
 @router.get("/api/admin/provenienz/skills")
 async def list_skills(request: Request) -> list[dict[str, Any]]:
     """List all skills (including disabled) for the admin UI."""
-    cfg = request.app.state.config
-    return [_dump(s) for s in read_skills(cfg.data_root, enabled_only=False)]
+    return [_dump(s) for s in read_skills(_tr(request), enabled_only=False)]
 
 
 @router.post("/api/admin/provenienz/skills", status_code=201)
 async def create_skill(body: SkillCreate, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
     s = upsert_skill(
-        cfg.data_root,
+        _tr(request),
         name=body.name,
         skill_kind=body.skill_kind,
         fires_on=body.fires_on,
@@ -87,8 +94,7 @@ async def create_skill(body: SkillCreate, request: Request) -> dict[str, Any]:
 
 @router.get("/api/admin/provenienz/skills/{skill_id}")
 async def get_one_skill(skill_id: str, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    s = get_skill(cfg.data_root, skill_id)
+    s = get_skill(_tr(request), skill_id)
     if s is None:
         raise HTTPException(status_code=404, detail=f"skill not found: {skill_id}")
     return _dump(s)
@@ -96,13 +102,12 @@ async def get_one_skill(skill_id: str, request: Request) -> dict[str, Any]:
 
 @router.patch("/api/admin/provenienz/skills/{skill_id}")
 async def patch_skill(skill_id: str, body: SkillPatch, request: Request) -> dict[str, Any]:
-    cfg = request.app.state.config
-    current = get_skill(cfg.data_root, skill_id)
+    current = get_skill(_tr(request), skill_id)
     if current is None:
         raise HTTPException(status_code=404, detail=f"skill not found: {skill_id}")
     merged = current.model_copy(update=dict(body.model_dump(exclude_none=True)))
     new_skill = upsert_skill(
-        cfg.data_root,
+        _tr(request),
         name=current.name,
         skill_kind=merged.skill_kind,
         fires_on=merged.fires_on,
@@ -118,11 +123,10 @@ async def patch_skill(skill_id: str, body: SkillPatch, request: Request) -> dict
 
 @router.delete("/api/admin/provenienz/skills/{skill_id}", status_code=204)
 async def delete_skill(skill_id: str, request: Request) -> None:
-    cfg = request.app.state.config
-    current = get_skill(cfg.data_root, skill_id)
+    current = get_skill(_tr(request), skill_id)
     if current is None:
         raise HTTPException(status_code=404, detail=f"skill not found: {skill_id}")
-    tombstone_skill(cfg.data_root, skill_id)
+    tombstone_skill(_tr(request), skill_id)
 
 
 @router.get("/api/admin/provenienz/skills/{skill_id}/runs")
@@ -132,7 +136,6 @@ async def list_skill_runs(skill_id: str, request: Request) -> list[dict[str, Any
     Sources ``{data_root}/skills/skill_runs.jsonl``. Non-enrichment skills
     typically have no runs — the endpoint returns ``[]`` then.
     """
-    cfg = request.app.state.config
     from local_pdf.provenienz.skill_dispatcher import read_skill_runs
 
-    return read_skill_runs(cfg.data_root, skill_id=skill_id, last_n=50)
+    return read_skill_runs(_tr(request), skill_id=skill_id, last_n=50)

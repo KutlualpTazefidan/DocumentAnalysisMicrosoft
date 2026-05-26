@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from local_pdf.api.routers.admin.synthesise import _list_questions
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.comparison import score_pair, similar_questions
 from local_pdf.storage.sidecar import doc_dir
 from local_pdf.synthetic import MineruElementsLoader
@@ -31,6 +32,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 router = APIRouter()
+
+
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
 
 
 # ── Embedder factory ─────────────────────────────────────────────────────────
@@ -85,11 +94,10 @@ class SimilarResponse(BaseModel):
     response_model=SimilarResponse,
 )
 async def similar(slug: str, entry_id: str, request: Request, k: int = 5) -> SimilarResponse:
-    cfg = request.app.state.config
-    if not doc_dir(cfg.data_root, slug).exists():
+    if not doc_dir(_tr(request), slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
 
-    questions = _list_questions(cfg, slug)
+    questions = _list_questions(_tr(request), slug)
     target = next((q for q in questions if q.entry_id == entry_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"entry_id not found: {entry_id}")
@@ -100,7 +108,7 @@ async def similar(slug: str, entry_id: str, request: Request, k: int = 5) -> Sim
     # MineruElementsLoader already strips HTML and applies the table-
     # row newline rendering — so we get the same content the question
     # generator saw.
-    loader = MineruElementsLoader(data_root=cfg.data_root, slug=slug)
+    loader = MineruElementsLoader(data_root=_tr(request), slug=slug)
     chunks = {el.element_id: el.content for el in loader.elements()}
 
     embedder = _build_embedder()

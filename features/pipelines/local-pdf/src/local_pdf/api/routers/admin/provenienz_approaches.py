@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.provenienz.skills import (
     Skill,
     SkillKind,
@@ -34,6 +35,14 @@ from local_pdf.provenienz.skills import (
 )
 
 router = APIRouter()
+
+
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
 
 
 class CreateApproachRequest(BaseModel):
@@ -156,8 +165,7 @@ async def list_approaches(
     step_kind: str | None = None,
     enabled_only: bool = True,
 ) -> dict:
-    cfg = request.app.state.config
-    items = read_skills(cfg.data_root, fires_on=step_kind, enabled_only=enabled_only)
+    items = read_skills(_tr(request), fires_on=step_kind, enabled_only=enabled_only)
     # Legacy callers see only the kinds that originated as approaches:
     # NOTE (former reasons) and ENRICHMENT (seeded factory defaults like
     # claim_background) must stay invisible to the legacy library.
@@ -167,7 +175,6 @@ async def list_approaches(
 
 @router.post("/api/admin/provenienz/approaches", status_code=201)
 async def create_approach(body: CreateApproachRequest, request: Request) -> dict:
-    cfg = request.app.state.config
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -177,7 +184,7 @@ async def create_approach(body: CreateApproachRequest, request: Request) -> dict
     selection_criteria = dict(body.selection_criteria or {})
     mode = body.mode or "passive"
     s = upsert_skill(
-        cfg.data_root,
+        _tr(request),
         name=name,
         skill_kind=_legacy_to_skill_kind(mode, triggers),
         fires_on=list(body.step_kinds),
@@ -198,8 +205,7 @@ async def create_approach(body: CreateApproachRequest, request: Request) -> dict
 
 @router.patch("/api/admin/provenienz/approaches/{approach_id}")
 async def patch_approach(approach_id: str, body: PatchApproachRequest, request: Request) -> dict:
-    cfg = request.app.state.config
-    current = get_skill(cfg.data_root, approach_id)
+    current = get_skill(_tr(request), approach_id)
     if current is None or current.skill_kind == SkillKind.NOTE:
         raise HTTPException(status_code=404, detail=f"approach not found: {approach_id}")
 
@@ -244,7 +250,7 @@ async def patch_approach(approach_id: str, body: PatchApproachRequest, request: 
     )
 
     s = upsert_skill(
-        cfg.data_root,
+        _tr(request),
         name=current.name,
         skill_kind=_legacy_to_skill_kind(new_mode, new_triggers),
         fires_on=new_kinds,
@@ -267,9 +273,8 @@ async def patch_approach(approach_id: str, body: PatchApproachRequest, request: 
 
 @router.delete("/api/admin/provenienz/approaches/{approach_id}")
 async def remove_approach(approach_id: str, request: Request) -> dict:
-    cfg = request.app.state.config
-    current = get_skill(cfg.data_root, approach_id)
+    current = get_skill(_tr(request), approach_id)
     if current is None or current.skill_kind == SkillKind.NOTE:
         raise HTTPException(status_code=404, detail=f"approach not found: {approach_id}")
-    tombstone_skill(cfg.data_root, approach_id)
+    tombstone_skill(_tr(request), approach_id)
     return {"ok": True}

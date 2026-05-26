@@ -12,6 +12,7 @@ import { Curators } from "./admin/routes/Curators";
 import { CuratorActivity } from "./admin/routes/CuratorActivity";
 import { Pipelines } from "./admin/routes/Pipelines";
 import { Dashboard } from "./admin/routes/Dashboard";
+import { TenantsAdmin } from "./admin/routes/TenantsAdmin";
 import { CuratorDocs } from "./curator/routes/Docs";
 import { CuratorDocPage } from "./curator/routes/DocPage";
 
@@ -36,6 +37,7 @@ export function App() {
           <Route path="curators/:id/activity" element={<CuratorActivity />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="tenants" element={<TenantsAdmin />} />
         </Route>
         <Route path="/curate" element={<CuratorShell />}>
           <Route index element={<CuratorDocs />} />

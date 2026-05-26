@@ -1884,7 +1884,10 @@ def test_vlm_segment_kind_change_to_discard_hides_box_from_html(
     import local_pdf.api.routers.admin.segments as seg_mod
 
     cfg = client_vlm_segment.app.state.config
-    seg_mod._refresh_active_html(cfg, "doc")
+    # _refresh_active_html now takes the tenant-aware data_root; the
+    # test invokes the legacy single-tenant path so we pass
+    # cfg.data_root directly.
+    seg_mod._refresh_active_html(cfg.data_root, "doc")
 
     html_after = client_vlm_segment.get(
         "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}

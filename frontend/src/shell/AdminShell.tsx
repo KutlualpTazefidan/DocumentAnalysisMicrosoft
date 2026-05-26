@@ -4,7 +4,7 @@ import { LlmTopBarControl } from "../admin/components/LlmTopBarControl";
 import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
 import { RoleBadge } from "./shared/RoleBadge";
-import { Inbox, Users, Cpu, BarChart3, LogOut } from "../shared/icons";
+import { Inbox, Users, Cpu, BarChart3, LogOut, Building2 } from "../shared/icons";
 
 export function AdminShell() {
   const { token, role, name, tenantSlug, logout } = useAuth();
@@ -28,6 +28,7 @@ export function AdminShell() {
           <Link to="/admin/inbox" className="font-semibold">Goldens</Link>
           <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Inbox</Link>
           <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Curators</Link>
+          <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Tenants</Link>
           <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
           <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Dashboard</Link>
         </nav>

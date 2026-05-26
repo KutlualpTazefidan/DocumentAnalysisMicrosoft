@@ -248,13 +248,34 @@ def _chunk_text_hash(text: str) -> str:
 
 
 def _find_session_dir(data_root: Path, session_id: str) -> Path | None:
+    # ``tenants`` and ``_meta`` are sibling directories used by the
+    # auth layer and never carry a provenienz/<session_id> subtree, so
+    # skipping them is a small optimisation that also means a stray
+    # session_id collision can't accidentally resolve into the auth DB
+    # directory.
     for slug_dir in data_root.iterdir():
-        if not slug_dir.is_dir():
+        if not slug_dir.is_dir() or slug_dir.name in {"tenants", "_meta"}:
             continue
         sd = slug_dir / "provenienz" / session_id
         if sd.exists():
             return sd
     return None
+
+
+def _request_tenant_root(request: Request) -> Path:
+    """Tenant-aware ``data_root`` for the active request.
+
+    Cookie-mode users in tenant != default get
+    ``data_root/tenants/{slug}/``; legacy token-mode + default-tenant
+    cookie users get the bare ``data_root``. Used at every callsite
+    that touches slug-keyed provenienz paths (session events, goals,
+    register lookups, ...) so each tenant's sessions stay isolated.
+    Document-keyed paths (mineru.json, segments.json, page metadata)
+    still resolve against the bare ``cfg.data_root`` because the
+    document-partitioning step is its own follow-up task.
+    """
+    cfg = request.app.state.config
+    return tenant_data_root(cfg.data_root, tenant_slug_from_request(request))
 
 
 class CreateSessionRequest(BaseModel):
@@ -643,8 +664,7 @@ async def get_agent_info() -> dict:
 
 @router.delete("/api/admin/provenienz/sessions/{session_id}", status_code=204)
 async def delete_session(session_id: str, request: Request) -> None:
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     shutil.rmtree(sd)
@@ -728,8 +748,7 @@ async def set_goal(session_id: str, body: SetGoalRequest, request: Request) -> d
     """Manual override for the session goal. Used when the auto-extracted
     goal is wrong or when the user wants to set it before any claim has
     been accepted."""
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -756,8 +775,7 @@ async def set_claim_goal(
     tombstone on the previous one — keeps the audit trail honest while
     letting the canvas show the latest version.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, _ = read_session(sd)
@@ -796,8 +814,7 @@ async def delete_node(session_id: str, node_id: str, request: Request) -> None:
     promoted from those results (and *their* whole subtree), plus any
     proposals/decisions/stop_proposals anchored to the deleted set.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, edges = read_session(sd)
@@ -927,7 +944,7 @@ async def promote_search_result(
     arbitrary claims about the result text.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, edges = read_session(sd)
@@ -1089,7 +1106,7 @@ async def refresh_chunk(
     chunks stand independently for audit.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, _ = read_session(sd)
@@ -1126,7 +1143,7 @@ async def refresh_all_chunks(session_id: str, request: Request) -> RefreshAllChu
     so the frontend can summarise.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, _ = read_session(sd)
@@ -1828,8 +1845,7 @@ class PinApproachRequest(BaseModel):
 
 @router.post("/api/admin/provenienz/sessions/{session_id}/pin-approach")
 async def pin_approach(session_id: str, body: PinApproachRequest, request: Request) -> dict:
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -1847,8 +1863,7 @@ async def pin_approach(session_id: str, body: PinApproachRequest, request: Reque
 
 @router.post("/api/admin/provenienz/sessions/{session_id}/unpin-approach")
 async def unpin_approach(session_id: str, body: PinApproachRequest, request: Request) -> dict:
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -2493,7 +2508,7 @@ class ExtractClaimsRequest(BaseModel):
 )
 async def extract_claims(session_id: str, body: ExtractClaimsRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -2612,7 +2627,7 @@ class FormulateTaskRequest(BaseModel):
 )
 async def formulate_task(session_id: str, body: FormulateTaskRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -2721,8 +2736,7 @@ async def calculator_on_result(
     consumes ALL of them, so the user sees their full tool-call
     history per search_result.
     """
-    cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     nodes, _ = read_session(sd)
@@ -3338,7 +3352,7 @@ async def investigate_table(
     identical regardless of how the choreography was triggered.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -3494,7 +3508,7 @@ async def register_lookup_step(
     )
 
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -3628,7 +3642,7 @@ async def cross_doc_search_step(
     at non-existent docs.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -3692,7 +3706,7 @@ async def cross_doc_search_step(
 )
 async def search_step(session_id: str, body: SearchStepRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -3986,7 +4000,7 @@ class EvaluateStepRequest(BaseModel):
 )
 async def evaluate_step(session_id: str, body: EvaluateStepRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -4193,7 +4207,7 @@ async def reflect_step(session_id: str, body: ReflectRequest, request: Request) 
     the canvas can chain it visually under the action_proposal.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -4304,7 +4318,7 @@ async def re_evaluate_step(session_id: str, body: ReEvaluateRequest, request: Re
     ``capabilities_used`` for traceability.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -4528,7 +4542,7 @@ async def decompose_hit_step(session_id: str, body: DecomposeHitRequest, request
     ``sub_statement`` Node anchored to the search_result.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -5472,7 +5486,7 @@ class ProposeStopRequest(BaseModel):
 )
 async def propose_stop(session_id: str, body: ProposeStopRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -5613,7 +5627,7 @@ async def plan(session_id: str, body: PlanRequest, request: Request) -> dict:
     empfohlenen Step automatisch auslöst.
     """
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -6079,7 +6093,7 @@ def _next_step_run(
 
 
 def _resolve_next_step_inputs(
-    cfg: Any, session_id: str, body: NextStepRequest
+    cfg: Any, session_id: str, body: NextStepRequest, request: Request
 ) -> tuple[Path, SessionMeta, Node, Node | None]:
     """Pre-flight resolution shared by both /next-step variants.
 
@@ -6089,8 +6103,12 @@ def _resolve_next_step_inputs(
     click-trail is purely informational); only the anchor must exist.
 
     Raises HTTPException 404 if session/meta/anchor are missing.
+
+    ``request`` is needed to resolve the active tenant — sessions
+    live under per-tenant subtrees, so the lookup must scope to the
+    caller's tenant rather than the bare ``cfg.data_root``.
     """
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
@@ -6119,7 +6137,9 @@ async def next_step(session_id: str, body: NextStepRequest, request: Request) ->
     /next-step/stream for the live-run UI variant.
     """
     cfg = request.app.state.config
-    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(
+        cfg, session_id, body, request
+    )
     final: dict | None = None
     for ev in _next_step_run(
         cfg=cfg,
@@ -6149,7 +6169,9 @@ async def next_step_stream(
       - ``error``    : unexpected exception during run
     """
     cfg = request.app.state.config
-    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(cfg, session_id, body)
+    sd, meta, anchor, triggered_from_node = _resolve_next_step_inputs(
+        cfg, session_id, body, request
+    )
 
     def event_stream() -> Iterator[str]:
         try:
@@ -6184,7 +6206,7 @@ async def next_step_stream(
 )
 async def decide(session_id: str, body: DecideRequest, request: Request) -> dict:
     cfg = request.app.state.config
-    sd = _find_session_dir(cfg.data_root, session_id)
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
     if sd is None:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
 

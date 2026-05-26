@@ -302,6 +302,39 @@ def cmd_segment_auth_create_user(
     return 0
 
 
+def cmd_segment_tenant_migrate(*, tenant_slug: str, mode: str, dry_run: bool) -> int:
+    """Migrate legacy slug-keyed data into ``tenants/{slug}/``.
+
+    Default mode is ``copy`` so originals stay around as a backup;
+    pass ``--mode=move`` once the new layout has been verified.
+    """
+    from local_pdf.auth.migration import migrate_legacy_data
+
+    data_root = _resolve_data_root()
+    report = migrate_legacy_data(data_root, target_tenant=tenant_slug, mode=mode, dry_run=dry_run)
+    print(f"data_root: {data_root}")
+    print(f"target:    {report.target_root}")
+    print(f"mode:      {report.mode}" + (" [DRY-RUN]" if report.dry_run else ""))
+    print()
+    print(
+        f"would move {report.moved_count} entries"
+        if report.dry_run
+        else f"migrated {report.moved_count} entries"
+    )
+    for p in report.moved_paths:
+        marker = "WOULD" if report.dry_run else "OK   "
+        print(f"  {marker} {p.name}")
+    if report.skipped_paths:
+        print()
+        print(f"skipped {len(report.skipped_paths)} entries:")
+        for path, reason in report.skipped_paths:
+            print(f"  -- {path.name}: {reason}")
+    if report.bytes_total:
+        mb = report.bytes_total / (1024 * 1024)
+        print(f"\nsize affected: ~{mb:.1f} MiB")
+    return 0
+
+
 def cmd_segment_auth_backup(*, dest: str) -> int:
     """Snapshot the auth DB to a gzipped file.
 
@@ -399,6 +432,42 @@ def _add_segment_subparser(subparsers) -> None:
         help="destination file path; .db.gz suffix recommended",
     )
     backup.set_defaults(func=lambda args: cmd_segment_auth_backup(dest=args.dest))
+
+    migrate = seg_sub.add_parser(
+        "tenant",
+        help="multi-tenant data lifecycle (migrate legacy data into tenants/)",
+    )
+    migrate_sub = migrate.add_subparsers(dest="tenant_cmd", required=True)
+    mig = migrate_sub.add_parser(
+        "migrate",
+        help="copy/move legacy slug-keyed data into tenants/{slug}/",
+    )
+    mig.add_argument(
+        "--tenant-slug",
+        default="default",
+        help="target tenant for the legacy data (default: 'default')",
+    )
+    mig.add_argument(
+        "--mode",
+        choices=["copy", "move"],
+        default="copy",
+        help=(
+            "copy: leave originals as backup (default). move: replace "
+            "originals with the migrated tree."
+        ),
+    )
+    mig.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="walk + plan without touching the filesystem",
+    )
+    mig.set_defaults(
+        func=lambda args: cmd_segment_tenant_migrate(
+            tenant_slug=args.tenant_slug,
+            mode=args.mode,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
