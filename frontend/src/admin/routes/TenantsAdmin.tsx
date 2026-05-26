@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiBase, apiFetch } from "../api/adminClient";
+import { StatusBadge } from "../components/StatusBadge";
+import { CheckCircle2, XCircle } from "../../shared/icons";
 
 interface Tenant {
   tenant_id: string;
@@ -280,9 +282,9 @@ function UserTable({
             <td className="px-3 py-2">{u.role}</td>
             <td className="px-3 py-2">
               {u.active ? (
-                <span className="text-emerald-700">aktiv</span>
+                <StatusBadge tone="success" label="aktiv" icon={CheckCircle2} />
               ) : (
-                <span className="text-slate-500">deaktiviert</span>
+                <StatusBadge tone="muted" label="deaktiviert" icon={XCircle} />
               )}
             </td>
             <td className="px-3 py-2 text-slate-500 text-xs">
@@ -301,7 +303,7 @@ function UserTable({
                       m.mutate(u.user_id);
                     }
                   }}
-                  className="text-rose-600 hover:underline text-xs"
+                  className="btn-danger text-xs px-2 py-0.5"
                 >
                   Deaktivieren
                 </button>

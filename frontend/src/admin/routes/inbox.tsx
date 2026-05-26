@@ -6,7 +6,7 @@ import { useToast } from "../../shared/components/useToast";
 import { Plus, Trash2 } from "../../shared/icons";
 
 import { useDeleteDoc, useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
-import { StatusBadge } from "../components/StatusBadge";
+import { DocStatusBadge } from "../components/StatusBadge";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { T } from "../styles/typography";
 
@@ -76,7 +76,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
               <td className="p-2">{d.filename}</td>
               <td className="p-2">{d.pages}</td>
               <td className="p-2">
-                <StatusBadge status={d.status} />
+                <DocStatusBadge status={d.status} />
               </td>
               <td className="p-2">{d.box_count}</td>
               <td className={`p-2 ${T.body} text-gray-500`}>{d.last_touched_utc}</td>
