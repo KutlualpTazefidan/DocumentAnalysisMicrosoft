@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 
+import { logoutSession } from "./api";
+
 const TOKEN_KEY = "goldens.api_token";
 const ROLE_KEY = "goldens.role";
 const NAME_KEY = "goldens.name";
@@ -25,6 +27,9 @@ export function useAuth() {
   }, []);
 
   const logout = useCallback(() => {
+    // Best-effort revoke of the server-side session cookie. Fire-and-
+    // forget so logout UX never blocks on a network round-trip.
+    void logoutSession().catch(() => {});
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(ROLE_KEY);
     sessionStorage.removeItem(NAME_KEY);

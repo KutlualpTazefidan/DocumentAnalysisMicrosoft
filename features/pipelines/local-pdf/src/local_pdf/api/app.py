@@ -92,6 +92,7 @@ def create_app() -> FastAPI:
         return HealthResponse(data_root=str(cfg.data_root))
 
     from local_pdf.api.routers._gone import router as gone_router
+    from local_pdf.api.routers.admin.auth_mgmt import router as admin_auth_mgmt_router
     from local_pdf.api.routers.admin.comparison import router as comparison_router
     from local_pdf.api.routers.admin.curators import router as admin_curators_router
     from local_pdf.api.routers.admin.docs import router as admin_docs_router
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(skills_router)
     app.include_router(llm_server_router)
     app.include_router(admin_curators_router)
+    app.include_router(admin_auth_mgmt_router)
     app.include_router(curate_docs_router)
     app.include_router(curate_elements_router)
     app.include_router(curate_questions_router)

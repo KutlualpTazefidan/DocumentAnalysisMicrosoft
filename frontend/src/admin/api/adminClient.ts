@@ -19,8 +19,12 @@ export function authHeaders(token: string): HeadersInit {
 
 export async function apiFetch(path: string, token: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers ?? {});
-  headers.set("X-Auth-Token", token);
-  const resp = await fetch(`${BASE}${path}`, { ...init, headers });
+  if (token) headers.set("X-Auth-Token", token);
+  // credentials:'include' so the lpdf_session cookie flows on cookie-
+  // mode logins. The legacy X-Auth-Token header still works (backend
+  // tries cookie first, falls back to header) — sending both is
+  // harmless.
+  const resp = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
   if (resp.status === 401) {
     window.dispatchEvent(new CustomEvent("local-pdf:401"));
     throw new ApiError(401, "unauthorized");

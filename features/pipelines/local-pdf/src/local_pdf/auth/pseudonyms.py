@@ -73,13 +73,52 @@ _ANIMALS = (
     "Wisent",
 )
 
-# Email-shaped strings, full-name templates ("Hans Müller"), and a
-# small allowlist of words that are uncontroversial as standalone
-# pseudonyms (e.g., 'Anonym'). Rejection is intentionally
-# conservative — we'd rather reject a borderline case than leak a real
-# name into the audit log.
+# Email-shaped strings are always rejected — they're an unambiguous
+# de-anonymisation pattern. We deliberately do NOT regex-reject
+# generic "Firstname Lastname" shapes because the auto-generator
+# emits exactly that ("Wachsamer Hirsch"); a single regex can't tell
+# a fantasy pair from a real name without a name-list, which would
+# also reject "Anna Otter" (legitimate). Admin review at user-create
+# time is the second line of defence.
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_REALNAME_RE = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+\s+[A-ZÄÖÜ][a-zäöüß]+$")
+# Common German given names that would obviously leak identity even
+# when paired with anything else. Conservative list; expand on need.
+_REALNAME_FIRSTS = frozenset(
+    {
+        "hans",
+        "peter",
+        "klaus",
+        "wolfgang",
+        "michael",
+        "thomas",
+        "andreas",
+        "stefan",
+        "martin",
+        "frank",
+        "jürgen",
+        "juergen",
+        "uwe",
+        "rainer",
+        "dieter",
+        "günther",
+        "guenther",
+        "hartmut",
+        "anna",
+        "maria",
+        "monika",
+        "helga",
+        "ingrid",
+        "petra",
+        "sabine",
+        "barbara",
+        "claudia",
+        "andrea",
+        "ute",
+        "renate",
+        "gabi",
+        "karin",
+    }
+)
 _PSEUDONYM_MIN_LEN = 3
 _PSEUDONYM_MAX_LEN = 64
 
@@ -124,9 +163,10 @@ def validate_user_pseudonym(value: str) -> str:
         raise ValueError(f"Pseudonym darf hoechstens {_PSEUDONYM_MAX_LEN} Zeichen lang sein.")
     if _EMAIL_RE.search(stripped):
         raise ValueError("Pseudonym darf keine E-Mail-Adresse enthalten.")
-    if _REALNAME_RE.match(stripped):
+    first_token = stripped.split()[0].lower() if stripped.split() else ""
+    if first_token in _REALNAME_FIRSTS:
         raise ValueError(
-            "Pseudonym sieht aus wie 'Vorname Nachname'. Bitte einen Phantasie-"
-            "Namen wählen — z.B. mit dem Auto-Vorschlag-Button."
+            "Pseudonym sieht aus wie ein realer Vorname. Bitte einen "
+            "Phantasie-Namen waehlen — z.B. mit dem Auto-Vorschlag-Button."
         )
     return stripped

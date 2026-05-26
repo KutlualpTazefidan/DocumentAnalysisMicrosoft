@@ -113,10 +113,12 @@ async function fetchOk(
   init: RequestInit,
   token: string,
 ): Promise<Response> {
-  const r = await fetch(url, {
-    ...init,
-    headers: { ...(init.headers ?? {}), "X-Auth-Token": token },
-  });
+  // credentials:'include' lets the lpdf_session cookie flow when the
+  // user is in cookie-mode (no token). The X-Auth-Token header stays
+  // for legacy token-mode; backend tries cookie first then header.
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> ?? {}) };
+  if (token) headers["X-Auth-Token"] = token;
+  const r = await fetch(url, { ...init, headers, credentials: "include" });
   if (!r.ok) {
     let detail = `${r.status} ${r.statusText}`;
     try {
