@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiBase, apiFetch } from "../api/adminClient";
@@ -91,6 +91,17 @@ function TenantList({
       return r.json();
     },
   });
+  const tenants = q.data?.tenants ?? [];
+
+  // Auto-select when there's exactly one tenant and the user hasn't
+  // picked anything yet — fixes the audit's "empty TenantsAdmin sends
+  // the user nowhere" finding for the common single-tenant case.
+  useEffect(() => {
+    if (selectedSlug === null && tenants.length === 1) {
+      onSelect(tenants[0]!.slug);
+    }
+  }, [selectedSlug, tenants, onSelect]);
+
   if (q.isLoading) return <p className="text-sm text-slate-500">Lade…</p>;
   if (q.error)
     return (
@@ -98,7 +109,6 @@ function TenantList({
         Fehler: {(q.error as Error).message}
       </p>
     );
-  const tenants = q.data?.tenants ?? [];
   if (tenants.length === 0) {
     return (
       <p className="text-sm text-slate-500 italic">
@@ -170,14 +180,17 @@ function CreateTenantForm({
         type="text"
         value={slug}
         onChange={(e) => setSlug(e.target.value)}
-        placeholder="slug (a-z 0-9 -)"
+        placeholder="z.B. neue-firma"
         className="input text-sm w-full"
       />
+      <p className="text-xs text-slate-500 -mt-1">
+        Kurz-ID — Kleinbuchstaben, Zahlen, Bindestriche.
+      </p>
       <input
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Name"
+        placeholder="Anzeigename"
         className="input text-sm w-full"
       />
       {error && <div className="text-xs text-red-600">{error}</div>}
@@ -186,7 +199,7 @@ function CreateTenantForm({
         disabled={m.isPending || !slug.trim() || !name.trim()}
         className="btn-primary w-full text-sm"
       >
-        {m.isPending ? "Lege an…" : "Anlegen"}
+        {m.isPending ? "Lege an…" : "Mandant anlegen"}
       </button>
     </form>
   );
@@ -417,7 +430,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
         </label>
         <label className="block">
           <span className="text-xs text-slate-600">
-            Pseudonym (leer = auto)
+            Pseudonym (leer = wird beim Anlegen automatisch erzeugt)
           </span>
           <div className="flex gap-1 mt-0.5">
             <input
@@ -432,9 +445,9 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
               onClick={() => suggest.mutate()}
               disabled={suggest.isPending}
               className="text-xs px-2 py-1 border border-slate-300 rounded hover:bg-slate-100"
-              title="Pseudonym vom Server vorschlagen lassen"
+              title="Server schlägt ein freies Pseudonym vor (Adjektiv + Tier)"
             >
-              ↻
+              {suggest.isPending ? "…" : "Vorschlagen"}
             </button>
           </div>
         </label>

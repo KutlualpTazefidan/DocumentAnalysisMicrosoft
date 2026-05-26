@@ -12,6 +12,10 @@ export function Login() {
   const { login } = useAuth();
   const [params] = useSearchParams();
   const reason = params.get("reason");
+  // Legacy API-token login is hidden by default — surface via ?legacy=1
+  // so first-time users see only the credential flow. Knowledgeable
+  // users / docs can still hit it with the query param.
+  const legacyVisible = params.get("legacy") === "1";
   const [mode, setMode] = useState<Mode>("credentials");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -98,41 +102,43 @@ export function Login() {
             Sitzung abgelaufen. Bitte erneut anmelden.
           </p>
         )}
-        <div className="flex gap-2 border-b border-slate-200">
-          <button
-            type="button"
-            onClick={() => {
-              setMode("credentials");
-              setError(null);
-            }}
-            className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              mode === "credentials"
-                ? "border-blue-500 text-blue-700"
-                : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            Benutzer
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("token");
-              setError(null);
-            }}
-            className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              mode === "token"
-                ? "border-blue-500 text-blue-700"
-                : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            API-Token (alt)
-          </button>
-        </div>
+        {legacyVisible && (
+          <div className="flex gap-2 border-b border-slate-200">
+            <button
+              type="button"
+              onClick={() => {
+                setMode("credentials");
+                setError(null);
+              }}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                mode === "credentials"
+                  ? "border-brand-500 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Benutzer
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("token");
+                setError(null);
+              }}
+              className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                mode === "token"
+                  ? "border-brand-500 text-brand-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              API-Token (alt)
+            </button>
+          </div>
+        )}
 
         {mode === "credentials" ? (
           <form onSubmit={handleCredentialsSubmit} className="space-y-3">
             <label className="block">
-              <span className="text-sm text-slate-700">Tenant-Slug</span>
+              <span className="text-sm text-slate-700">Mandant</span>
               <input
                 className="input mt-1"
                 type="text"
@@ -140,8 +146,11 @@ export function Login() {
                 onChange={(e) => setTenantSlug(e.target.value)}
                 placeholder="z.B. default"
                 autoComplete="organization"
-                aria-label="Tenant-Slug"
+                aria-label="Mandant"
               />
+              <span className="text-xs text-slate-500 mt-1 block">
+                Leer lassen oder „default", falls dir niemand etwas anderes gesagt hat.
+              </span>
             </label>
             <label className="block">
               <span className="text-sm text-slate-700">Benutzername</span>
@@ -170,6 +179,9 @@ export function Login() {
                 {error}
               </div>
             )}
+            <p className="text-xs text-slate-500">
+              Im Audit-Log erscheint dein Pseudonym, nie dein Benutzername.
+            </p>
             <button
               type="submit"
               className="btn-primary w-full"
@@ -182,9 +194,6 @@ export function Login() {
             >
               {submitting ? "Prüfe…" : "Einloggen"}
             </button>
-            <p className="text-xs text-slate-500">
-              Im Audit-Log erscheint dein Pseudonym, nie dein Benutzername.
-            </p>
           </form>
         ) : (
           <form onSubmit={handleTokenSubmit} className="space-y-3">
