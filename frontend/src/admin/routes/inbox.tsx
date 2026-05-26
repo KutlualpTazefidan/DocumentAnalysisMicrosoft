@@ -54,7 +54,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <button className={`flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded ${T.body}`} onClick={handlePickFile}>
+        <button className="btn-primary flex items-center gap-1" onClick={handlePickFile}>
           <Plus className="w-4 h-4" /> Add PDF
         </button>
         <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile} />

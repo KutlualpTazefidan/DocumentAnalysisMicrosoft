@@ -1,5 +1,5 @@
 export const ADMIN_THEME = {
-  chrome: "#1e3a8a",
+  chrome: "#031E31",
   chromeFg: "#ffffff",
   accent: "#fbbf24",
   label: "ADMIN",
