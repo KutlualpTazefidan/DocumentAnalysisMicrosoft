@@ -21,14 +21,14 @@ export function CuratorShell() {
         style={{ background: CURATOR_THEME.chrome, color: CURATOR_THEME.chromeFg }}
       >
         <nav className="flex items-center gap-4 text-sm">
-          <Link to="/curate" className="font-semibold">Goldens — Curator</Link>
-          <Link to="/curate">My Docs</Link>
+          <Link to="/curate" className="font-semibold">Goldens — Kurator</Link>
+          <Link to="/curate">Meine Dokumente</Link>
         </nav>
         <div className="flex items-center gap-3">
           {tenantSlug && (
             <span
               className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
-              title="Aktiver Tenant"
+              title="Aktiver Mandant"
             >
               {tenantSlug}
             </span>
@@ -39,7 +39,7 @@ export function CuratorShell() {
             className="text-sm underline"
             title="Session beenden + Cookie verwerfen"
           >
-            Logout
+            Abmelden
           </button>
         </div>
       </header>

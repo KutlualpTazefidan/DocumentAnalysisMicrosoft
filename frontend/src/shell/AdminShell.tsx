@@ -26,11 +26,11 @@ export function AdminShell() {
       >
         <nav className="flex items-center gap-4 text-sm">
           <Link to="/admin/inbox" className="font-semibold">Goldens</Link>
-          <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Inbox</Link>
-          <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Curators</Link>
-          <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Tenants</Link>
+          <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Posteingang</Link>
+          <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Kuratoren</Link>
+          <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Mandanten</Link>
           <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
-          <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Dashboard</Link>
+          <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Übersicht</Link>
         </nav>
         {/* vLLM controls — centered in the available space between
             nav links and the user/logout cluster on the right. */}
@@ -41,7 +41,7 @@ export function AdminShell() {
           {tenantSlug && (
             <span
               className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
-              title="Aktiver Tenant"
+              title="Aktiver Mandant"
             >
               {tenantSlug}
             </span>
@@ -53,7 +53,7 @@ export function AdminShell() {
             title="Session beenden + Cookie verwerfen"
           >
             <LogOut className="w-4 h-4" />
-            Logout
+            Abmelden
           </button>
         </div>
       </header>

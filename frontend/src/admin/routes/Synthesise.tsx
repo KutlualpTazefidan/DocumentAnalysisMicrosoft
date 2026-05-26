@@ -651,6 +651,6 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 export function Synthesise(): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const { token } = useAuth();
-  if (token === null) return <div className="p-6">Not authorised.</div>;
+  if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <SynthesiseInner slug={slug!} token={token} />;
 }

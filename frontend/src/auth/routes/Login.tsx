@@ -56,7 +56,7 @@ export function Login() {
       const lockedUntil = (err as { lockedUntil?: string }).lockedUntil;
       if (status === 429 && lockedUntil) {
         setError(
-          `Zu viele Fehlversuche. Erneut moeglich ab ${new Date(lockedUntil).toLocaleTimeString()}.`,
+          `Zu viele Fehlversuche. Erneut möglich ab ${new Date(lockedUntil).toLocaleTimeString()}.`,
         );
       } else if (status === 401) {
         setError("Login fehlgeschlagen — Tenant, Username oder Passwort falsch.");
@@ -125,7 +125,7 @@ export function Login() {
                 : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
-            API-Token (legacy)
+            API-Token (alt)
           </button>
         </div>
 
@@ -144,14 +144,14 @@ export function Login() {
               />
             </label>
             <label className="block">
-              <span className="text-sm text-slate-700">Username</span>
+              <span className="text-sm text-slate-700">Benutzername</span>
               <input
                 className="input mt-1"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
-                aria-label="Username"
+                aria-label="Benutzername"
               />
             </label>
             <label className="block">
@@ -183,7 +183,7 @@ export function Login() {
               {submitting ? "Prüfe…" : "Einloggen"}
             </button>
             <p className="text-xs text-slate-500">
-              Im Audit-Log erscheint dein Pseudonym, nie dein Username.
+              Im Audit-Log erscheint dein Pseudonym, nie dein Benutzername.
             </p>
           </form>
         ) : (

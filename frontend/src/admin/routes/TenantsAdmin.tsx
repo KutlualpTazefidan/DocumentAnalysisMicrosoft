@@ -49,7 +49,7 @@ export function TenantsAdmin(): JSX.Element {
   return (
     <div className="flex h-full">
       <aside className="w-80 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-4 overflow-y-auto">
-        <h1 className="text-lg font-semibold">Tenants</h1>
+        <h1 className="text-lg font-semibold">Mandanten</h1>
         <TenantList
           selectedSlug={selectedSlug}
           onSelect={setSelectedSlug}
@@ -63,7 +63,7 @@ export function TenantsAdmin(): JSX.Element {
           <TenantDetail slug={selectedSlug} />
         ) : (
           <p className="text-slate-500 italic">
-            Tenant aus der Liste links wählen, um Benutzer zu sehen oder neue
+            Mandant aus der Liste links wählen, um Benutzer zu sehen oder neue
             anzulegen.
           </p>
         )}
@@ -100,7 +100,7 @@ function TenantList({
   if (tenants.length === 0) {
     return (
       <p className="text-sm text-slate-500 italic">
-        Noch kein Tenant. Erst einen anlegen.
+        Noch kein Mandant. Erst einen anlegen.
       </p>
     );
   }
@@ -163,7 +163,7 @@ function CreateTenantForm({
       onSubmit={handle}
       className="border-t border-slate-200 pt-4 space-y-2"
     >
-      <h2 className="text-sm font-semibold">Neuer Tenant</h2>
+      <h2 className="text-sm font-semibold">Neuer Mandant</h2>
       <input
         type="text"
         value={slug}
@@ -207,7 +207,7 @@ function TenantDetail({ slug }: { slug: string }): JSX.Element {
     <div className="space-y-6 max-w-3xl">
       <header>
         <h2 className="text-xl font-semibold">
-          Tenant{" "}
+          Mandant{" "}
           <code className="text-base px-2 py-0.5 bg-slate-100 rounded">
             {slug}
           </code>
@@ -256,7 +256,7 @@ function UserTable({
   if (users.length === 0) {
     return (
       <p className="text-sm text-slate-500 italic">
-        Noch keine Benutzer in diesem Tenant.
+        Noch keine Benutzer in diesem Mandanten.
       </p>
     );
   }
@@ -264,11 +264,11 @@ function UserTable({
     <table className="w-full text-sm border border-slate-200">
       <thead className="bg-slate-50 text-slate-600">
         <tr>
-          <th className="text-left px-3 py-2">Username</th>
+          <th className="text-left px-3 py-2">Benutzername</th>
           <th className="text-left px-3 py-2">Pseudonym</th>
           <th className="text-left px-3 py-2">Rolle</th>
           <th className="text-left px-3 py-2">Aktiv</th>
-          <th className="text-left px-3 py-2">Letzter Login</th>
+          <th className="text-left px-3 py-2">Letzte Anmeldung</th>
           <th />
         </tr>
       </thead>
@@ -378,7 +378,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
       <h3 className="text-base font-semibold">Neuer Benutzer</h3>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
-          <span className="text-xs text-slate-600">Username</span>
+          <span className="text-xs text-slate-600">Benutzername</span>
           <input
             type="text"
             value={username}

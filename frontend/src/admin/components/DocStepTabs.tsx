@@ -8,9 +8,9 @@ interface Props {
 }
 
 const TABS = [
-  { key: "files", label: "Files", icon: Folder, href: (_slug: string) => "/admin/inbox" },
-  { key: "extract", label: "Extract", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
-  { key: "synthesise", label: "Synthesise", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
+  { key: "files", label: "Dateien", icon: Folder, href: (_slug: string) => "/admin/inbox" },
+  { key: "extract", label: "Extrahieren", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
+  { key: "synthesise", label: "Synthese", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
   { key: "compare", label: "Vergleich", icon: GitCompare, href: (slug: string) => `/admin/doc/${slug}/compare` },
   { key: "provenienz", label: "Provenienz", icon: GitMerge, href: (slug: string) => `/admin/doc/${slug}/provenienz` },
 ] as const;

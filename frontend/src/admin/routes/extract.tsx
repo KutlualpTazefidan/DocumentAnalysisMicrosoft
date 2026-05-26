@@ -773,6 +773,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
 export function Extract() {
   const { token } = useAuth();
-  if (token === null) return <div className="p-6">Not authorised.</div>;
+  if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <ExtractRoute token={token} />;
 }
