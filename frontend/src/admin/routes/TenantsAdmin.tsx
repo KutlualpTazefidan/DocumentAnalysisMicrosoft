@@ -51,7 +51,7 @@ export function TenantsAdmin(): JSX.Element {
   return (
     <div className="flex h-full">
       <aside className="w-80 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-4 overflow-y-auto">
-        <h1 className="text-lg font-semibold">Mandanten</h1>
+        <h1 className="text-xl font-semibold">Mandanten</h1>
         <TenantList
           selectedSlug={selectedSlug}
           onSelect={setSelectedSlug}
@@ -271,7 +271,9 @@ function UserTable({
           <th className="text-left px-3 py-2">Rolle</th>
           <th className="text-left px-3 py-2">Aktiv</th>
           <th className="text-left px-3 py-2">Letzte Anmeldung</th>
-          <th />
+          <th>
+            <span className="sr-only">Aktionen</span>
+          </th>
         </tr>
       </thead>
       <tbody>

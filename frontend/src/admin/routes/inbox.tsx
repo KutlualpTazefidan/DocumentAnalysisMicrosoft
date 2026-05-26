@@ -41,7 +41,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
+      <div className="px-4 bg-navy-800 text-white flex-shrink-0">
         <DocStepTabs />
       </div>
       <div className="p-6 flex-1 overflow-auto">
@@ -49,7 +49,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
         <h1 className={T.cardTitle}>Local-PDF Posteingang</h1>
         <input
           type="text"
-          className={`ml-auto border rounded px-2 py-1 ${T.body}`}
+          className="input ml-auto max-w-xs"
           placeholder="suchen…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
