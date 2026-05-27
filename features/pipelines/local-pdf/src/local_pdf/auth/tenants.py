@@ -43,7 +43,7 @@ def validate_slug(slug: str) -> str:
     """Return the slug or raise ``ValueError`` with a UI-friendly hint."""
     if not _SLUG_RE.match(slug):
         raise ValueError(
-            f"Ungueltiger Tenant-Slug: {slug!r}. Erlaubt: 1-64 Zeichen, nur "
+            f"Ungültige Fachbereich-Slug: {slug!r}. Erlaubt: 1-64 Zeichen, nur "
             "Kleinbuchstaben/Ziffern/Bindestrich, weder am Anfang noch am Ende "
             "ein Bindestrich."
         )
@@ -56,7 +56,7 @@ def create_tenant(conn: sqlite3.Connection, *, slug: str, name: str) -> Tenant:
     """
     slug = validate_slug(slug)
     if not name.strip():
-        raise ValueError("Tenant-Name darf nicht leer sein.")
+        raise ValueError("Fachbereich-Name darf nicht leer sein.")
     tenant_id = _new_tenant_id()
     created_at = _now()
     try:
@@ -65,7 +65,7 @@ def create_tenant(conn: sqlite3.Connection, *, slug: str, name: str) -> Tenant:
             (tenant_id, slug, name.strip(), created_at),
         )
     except sqlite3.IntegrityError as exc:
-        raise ValueError(f"Tenant-Slug bereits vergeben: {slug!r}") from exc
+        raise ValueError(f"Fachbereich-Slug bereits vergeben: {slug!r}") from exc
     return Tenant(tenant_id=tenant_id, slug=slug, name=name.strip(), created_at=created_at)
 
 
@@ -104,13 +104,13 @@ def update_tenant_name(conn: sqlite3.Connection, *, slug: str, name: str) -> Ten
     ``data_root/tenants/{slug}/`` and is referenced by every user row.
     """
     if not name.strip():
-        raise ValueError("Tenant-Name darf nicht leer sein.")
+        raise ValueError("Fachbereich-Name darf nicht leer sein.")
     cur = conn.execute(
         "UPDATE tenants SET name = ? WHERE slug = ?",
         (name.strip(), slug),
     )
     if cur.rowcount == 0:
-        raise ValueError(f"Tenant nicht gefunden: {slug!r}")
+        raise ValueError(f"Fachbereich nicht gefunden: {slug!r}")
     out = get_tenant_by_slug(conn, slug)
     assert out is not None  # just-updated row must exist
     return out
@@ -123,7 +123,7 @@ def delete_tenant(conn: sqlite3.Connection, *, slug: str) -> None:
     """
     cur = conn.execute("DELETE FROM tenants WHERE slug = ?", (slug,))
     if cur.rowcount == 0:
-        raise ValueError(f"Tenant nicht gefunden: {slug!r}")
+        raise ValueError(f"Fachbereich nicht gefunden: {slug!r}")
 
 
 def list_tenants(conn: sqlite3.Connection) -> list[Tenant]:

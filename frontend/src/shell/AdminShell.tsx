@@ -28,7 +28,7 @@ export function AdminShell() {
           <Link to="/admin/inbox" className="font-semibold">Goldens</Link>
           <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Posteingang</Link>
           <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Kuratoren</Link>
-          <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Mandanten</Link>
+          <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Fachbereiche</Link>
           <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
           <Link to="/admin/dashboard" className="flex items-center gap-1"><BarChart3 className="w-4 h-4" />Übersicht</Link>
         </nav>
@@ -41,7 +41,7 @@ export function AdminShell() {
           {tenantSlug && (
             <span
               className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
-              title="Aktiver Mandant"
+              title="Aktiver Fachbereich"
             >
               {tenantSlug}
             </span>

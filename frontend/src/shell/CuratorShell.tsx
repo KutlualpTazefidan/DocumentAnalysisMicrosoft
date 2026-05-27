@@ -28,7 +28,7 @@ export function CuratorShell() {
           {tenantSlug && (
             <span
               className="px-2 py-0.5 rounded text-xs font-mono border border-white/30"
-              title="Aktiver Mandant"
+              title="Aktiver Fachbereich"
             >
               {tenantSlug}
             </span>

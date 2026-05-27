@@ -138,7 +138,7 @@ export function Login() {
         {mode === "credentials" ? (
           <form onSubmit={handleCredentialsSubmit} className="space-y-3">
             <label className="block">
-              <span className="text-sm text-slate-700">Mandant</span>
+              <span className="text-sm text-slate-700">Fachbereich</span>
               <input
                 className="input mt-1"
                 type="text"
@@ -146,7 +146,7 @@ export function Login() {
                 onChange={(e) => setTenantSlug(e.target.value)}
                 placeholder="z.B. default"
                 autoComplete="organization"
-                aria-label="Mandant"
+                aria-label="Fachbereich"
               />
               <span className="text-xs text-slate-500 mt-1 block">
                 Leer lassen oder „default", falls dir niemand etwas anderes gesagt hat.

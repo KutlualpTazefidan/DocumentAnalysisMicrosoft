@@ -75,14 +75,14 @@ export function TenantsAdmin(): JSX.Element {
     onSuccess: (_, t) => {
       qc.invalidateQueries({ queryKey: ["tenants"] });
       if (selectedSlug === t.slug) setSelectedSlug(null);
-      success(`Mandant „${t.slug}" gelöscht`);
+      success(`Fachbereich „${t.slug}" gelöscht`);
     },
     onError: (err) => error(`Löschen fehlgeschlagen: ${err.message}`),
   });
 
   function handleDelete(t: Tenant): void {
     const ok = window.confirm(
-      `Mandant „${t.slug}" wirklich löschen? Alle Benutzer und Sessions werden mitgelöscht — Dateien unter data_root/tenants/${t.slug}/ bleiben auf der Platte.`,
+      `Fachbereich „${t.slug}" wirklich löschen? Alle Benutzer und Sessions werden mitgelöscht — Dateien unter data_root/tenants/${t.slug}/ bleiben auf der Platte.`,
     );
     if (!ok) return;
     del.mutate(t);
@@ -92,13 +92,13 @@ export function TenantsAdmin(): JSX.Element {
     <div className="flex h-full">
       <aside className="w-80 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-4 overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Mandanten</h1>
+          <h1 className="text-xl font-semibold">Fachbereiche</h1>
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
             className="p-1.5 rounded hover:bg-slate-200 text-slate-700"
-            title="Neuen Mandanten anlegen"
-            aria-label="Neuen Mandanten anlegen"
+            title="Neuen Fachbereich anlegen"
+            aria-label="Neuen Fachbereich anlegen"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -115,7 +115,7 @@ export function TenantsAdmin(): JSX.Element {
           <TenantDetail slug={selectedSlug} />
         ) : (
           <p className="text-slate-500 italic">
-            Mandant aus der Liste links wählen, um Benutzer zu sehen oder neue
+            Fachbereich aus der Liste links wählen, um Benutzer zu sehen oder neue
             anzulegen.
           </p>
         )}
@@ -178,7 +178,7 @@ function TenantList({
   if (tenants.length === 0) {
     return (
       <p className="text-sm text-slate-500 italic">
-        Noch kein Mandant. Erst einen anlegen.
+        Noch kein Fachbereich. Erst einen anlegen.
       </p>
     );
   }
@@ -213,8 +213,8 @@ function TenantList({
                   onEdit(t);
                 }}
                 className="p-1 rounded hover:bg-slate-300 text-slate-600"
-                title={`Mandant „${t.slug}" bearbeiten`}
-                aria-label={`Mandant ${t.slug} bearbeiten`}
+                title={`Fachbereich „${t.slug}" bearbeiten`}
+                aria-label={`Fachbereich ${t.slug} bearbeiten`}
               >
                 <Edit3 className="w-3.5 h-3.5" />
               </button>
@@ -225,8 +225,8 @@ function TenantList({
                   onDelete(t);
                 }}
                 className="p-1 rounded hover:bg-rose-100 text-slate-600 hover:text-rose-700"
-                title={`Mandant „${t.slug}" löschen`}
-                aria-label={`Mandant ${t.slug} löschen`}
+                title={`Fachbereich „${t.slug}" löschen`}
+                aria-label={`Fachbereich ${t.slug} löschen`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -291,7 +291,7 @@ function CreateTenantModal({
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
           <div className="flex items-center justify-between mb-4">
             <Dialog.Title className="text-lg font-semibold">
-              Neuer Mandant
+              Neuer Fachbereich
             </Dialog.Title>
             <Dialog.Close
               className="text-slate-500 hover:text-slate-700"
@@ -301,8 +301,8 @@ function CreateTenantModal({
             </Dialog.Close>
           </div>
           <Dialog.Description className="sr-only">
-            Lege einen neuen Mandanten an. Slug ist eine Kurz-ID; der
-            Anzeigename erscheint in der Mandanten-Liste.
+            Lege einen neuen Fachbereich an. Slug ist eine Kurz-ID; der
+            Anzeigename erscheint in der Fachbereich-Liste.
           </Dialog.Description>
           <form onSubmit={handle} className="space-y-3">
             <label className="block">
@@ -345,7 +345,7 @@ function CreateTenantModal({
                 disabled={m.isPending || !slug.trim() || !name.trim()}
                 className="btn-primary text-sm"
               >
-                {m.isPending ? "Lege an…" : "Mandant anlegen"}
+                {m.isPending ? "Lege an…" : "Fachbereich anlegen"}
               </button>
             </div>
           </form>
@@ -413,7 +413,7 @@ function EditTenantModal({
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
           <div className="flex items-center justify-between mb-4">
             <Dialog.Title className="text-lg font-semibold">
-              Mandant bearbeiten
+              Fachbereich bearbeiten
             </Dialog.Title>
             <Dialog.Close
               className="text-slate-500 hover:text-slate-700"
@@ -492,7 +492,7 @@ function TenantDetail({ slug }: { slug: string }): JSX.Element {
     <div className="space-y-6 max-w-3xl">
       <header>
         <h2 className="text-xl font-semibold">
-          Mandant{" "}
+          Fachbereich{" "}
           <code className="text-base px-2 py-0.5 bg-slate-100 rounded">
             {slug}
           </code>
@@ -541,7 +541,7 @@ function UserTable({
   if (users.length === 0) {
     return (
       <p className="text-sm text-slate-500 italic">
-        Noch keine Benutzer in diesem Mandanten.
+        Noch keine Benutzer in diesem Fachbereich.
       </p>
     );
   }

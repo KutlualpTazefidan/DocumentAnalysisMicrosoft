@@ -169,7 +169,7 @@ async def admin_delete_tenant(tenant_slug: str, request: Request) -> None:
     if ident is not None and getattr(ident, "tenant_slug", None) == tenant_slug:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Eigenen Mandanten kannst du nicht löschen.",
+            detail="Eigenen Fachbereich kannst du nicht löschen.",
         )
     cfg = request.app.state.config
     try:
