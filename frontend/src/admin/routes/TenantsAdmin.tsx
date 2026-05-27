@@ -58,7 +58,35 @@ interface CreateUserBody {
 export function TenantsAdmin(): JSX.Element {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const { info } = useToast();
+  const [editing, setEditing] = useState<Tenant | null>(null);
+  const { success, error } = useToast();
+  const qc = useQueryClient();
+
+  const del = useMutation<void, Error, Tenant>({
+    mutationFn: async (t) => {
+      const r = await apiFetch(`/api/admin/tenants/${encodeURIComponent(t.slug)}`, "", {
+        method: "DELETE",
+      });
+      if (!r.ok && r.status !== 204) {
+        const body = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(body.detail ?? `HTTP ${r.status}`);
+      }
+    },
+    onSuccess: (_, t) => {
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+      if (selectedSlug === t.slug) setSelectedSlug(null);
+      success(`Mandant „${t.slug}" gelöscht`);
+    },
+    onError: (err) => error(`Löschen fehlgeschlagen: ${err.message}`),
+  });
+
+  function handleDelete(t: Tenant): void {
+    const ok = window.confirm(
+      `Mandant „${t.slug}" wirklich löschen? Alle Benutzer und Sessions werden mitgelöscht — Dateien unter data_root/tenants/${t.slug}/ bleiben auf der Platte.`,
+    );
+    if (!ok) return;
+    del.mutate(t);
+  }
 
   return (
     <div className="flex h-full">
@@ -78,8 +106,8 @@ export function TenantsAdmin(): JSX.Element {
         <TenantList
           selectedSlug={selectedSlug}
           onSelect={setSelectedSlug}
-          onEdit={() => info("Mandant-Bearbeitung folgt in Kürze.")}
-          onDelete={() => info("Mandant-Löschung folgt in Kürze.")}
+          onEdit={setEditing}
+          onDelete={handleDelete}
         />
       </aside>
       <main className="flex-1 min-w-0 overflow-y-auto p-6">
@@ -99,6 +127,10 @@ export function TenantsAdmin(): JSX.Element {
           setSelectedSlug(t.slug);
           setCreateOpen(false);
         }}
+      />
+      <EditTenantModal
+        tenant={editing}
+        onClose={() => setEditing(null)}
       />
     </div>
   );
@@ -317,6 +349,126 @@ function CreateTenantModal({
               </button>
             </div>
           </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function EditTenantModal({
+  tenant,
+  onClose,
+}: {
+  tenant: Tenant | null;
+  onClose: () => void;
+}): JSX.Element {
+  const [name, setName] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  // Reset name from the passed tenant whenever the modal opens for a
+  // different tenant (the parent passes null to close, an object to open).
+  useEffect(() => {
+    if (tenant) {
+      setName(tenant.name);
+      setErr(null);
+    }
+  }, [tenant]);
+
+  const m = useMutation<Tenant, Error, { slug: string; name: string }>({
+    mutationFn: async ({ slug, name }) => {
+      const r = await apiFetch(`/api/admin/tenants/${encodeURIComponent(slug)}`, "", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(body.detail ?? `HTTP ${r.status}`);
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+      onClose();
+    },
+    onError: (e) => setErr(e.message),
+  });
+
+  function handle(e: FormEvent): void {
+    e.preventDefault();
+    if (!tenant || !name.trim()) return;
+    m.mutate({ slug: tenant.slug, name: name.trim() });
+  }
+
+  return (
+    <Dialog.Root
+      open={tenant !== null}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
+          <div className="flex items-center justify-between mb-4">
+            <Dialog.Title className="text-lg font-semibold">
+              Mandant bearbeiten
+            </Dialog.Title>
+            <Dialog.Close
+              className="text-slate-500 hover:text-slate-700"
+              aria-label="Schließen"
+            >
+              <X className="w-4 h-4" />
+            </Dialog.Close>
+          </div>
+          <Dialog.Description className="sr-only">
+            Anzeigename ändern. Die Slug-ID ist unveränderlich.
+          </Dialog.Description>
+          {tenant && (
+            <form onSubmit={handle} className="space-y-3">
+              <div>
+                <span className="text-sm text-slate-700 block">Slug</span>
+                <code className="block mt-1 px-3 py-1.5 bg-slate-100 rounded text-sm">
+                  {tenant.slug}
+                </code>
+                <span className="text-xs text-slate-500 mt-1 block">
+                  Unveränderlich — Slug partitioniert die Daten unter
+                  data_root.
+                </span>
+              </div>
+              <label className="block">
+                <span className="text-sm text-slate-700">Anzeigename</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="input mt-1"
+                  autoFocus
+                  aria-label="Anzeigename"
+                />
+              </label>
+              {err && (
+                <div role="alert" className="text-sm text-red-600">
+                  {err}
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <Dialog.Close className="btn-secondary text-sm">
+                  Abbrechen
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  disabled={
+                    m.isPending || !name.trim() || name.trim() === tenant.name
+                  }
+                  className="btn-primary text-sm"
+                >
+                  {m.isPending ? "Speichere…" : "Speichern"}
+                </button>
+              </div>
+            </form>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

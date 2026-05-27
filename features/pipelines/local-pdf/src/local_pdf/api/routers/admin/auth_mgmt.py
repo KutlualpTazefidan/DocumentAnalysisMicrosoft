@@ -31,8 +31,10 @@ from local_pdf.auth.pseudonyms import generate_pseudonym
 from local_pdf.auth.sessions import revoke_all_sessions_for_user
 from local_pdf.auth.tenants import (
     create_tenant,
+    delete_tenant,
     get_tenant_by_slug,
     list_tenants,
+    update_tenant_name,
 )
 from local_pdf.auth.users import (
     create_user,
@@ -62,6 +64,11 @@ class TenantsResponse(BaseModel):
 class CreateTenantRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     slug: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+
+
+class UpdateTenantRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
     name: str = Field(min_length=1, max_length=128)
 
 
@@ -131,6 +138,46 @@ async def admin_create_tenant(body: CreateTenantRequest, request: Request) -> Te
         # Slug clash or invalid input — surface as 409.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return TenantOut(tenant_id=t.tenant_id, slug=t.slug, name=t.name, created_at=t.created_at)
+
+
+@router.patch("/api/admin/tenants/{tenant_slug}", response_model=TenantOut)
+async def admin_update_tenant(
+    tenant_slug: str, body: UpdateTenantRequest, request: Request
+) -> TenantOut:
+    """Rename a tenant. Only ``name`` is mutable — the slug is the
+    partition key for ``data_root/tenants/{slug}/`` and is immutable."""
+    cfg = request.app.state.config
+    try:
+        with open_auth_db(cfg.data_root) as conn:
+            ensure_schema(conn)
+            t = update_tenant_name(conn, slug=tenant_slug, name=body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return TenantOut(tenant_id=t.tenant_id, slug=t.slug, name=t.name, created_at=t.created_at)
+
+
+@router.delete(
+    "/api/admin/tenants/{tenant_slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def admin_delete_tenant(tenant_slug: str, request: Request) -> None:
+    """Hard-delete a tenant. Users + sessions cascade via FK; data
+    under ``data_root/tenants/{slug}/`` stays on disk for manual
+    cleanup. Refuses to delete the caller's own tenant — would
+    lock the admin out of the system on the next request."""
+    ident = getattr(request.state, "identity", None)
+    if ident is not None and getattr(ident, "tenant_slug", None) == tenant_slug:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Eigenen Mandanten kannst du nicht löschen.",
+        )
+    cfg = request.app.state.config
+    try:
+        with open_auth_db(cfg.data_root) as conn:
+            ensure_schema(conn)
+            delete_tenant(conn, slug=tenant_slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 # ── Users (scoped to tenant slug) ───────────────────────────────────────

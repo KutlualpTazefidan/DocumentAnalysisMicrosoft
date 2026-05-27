@@ -99,6 +99,33 @@ def get_tenant_by_id(conn: sqlite3.Connection, tenant_id: str) -> Tenant | None:
     )
 
 
+def update_tenant_name(conn: sqlite3.Connection, *, slug: str, name: str) -> Tenant:
+    """Update the display name. The slug is immutable — it partitions
+    ``data_root/tenants/{slug}/`` and is referenced by every user row.
+    """
+    if not name.strip():
+        raise ValueError("Tenant-Name darf nicht leer sein.")
+    cur = conn.execute(
+        "UPDATE tenants SET name = ? WHERE slug = ?",
+        (name.strip(), slug),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"Tenant nicht gefunden: {slug!r}")
+    out = get_tenant_by_slug(conn, slug)
+    assert out is not None  # just-updated row must exist
+    return out
+
+
+def delete_tenant(conn: sqlite3.Connection, *, slug: str) -> None:
+    """Hard-delete a tenant. Users + sessions cascade via FK
+    ``ON DELETE CASCADE``. Files under ``data_root/tenants/{slug}/``
+    are NOT touched — the caller can wipe them manually if desired.
+    """
+    cur = conn.execute("DELETE FROM tenants WHERE slug = ?", (slug,))
+    if cur.rowcount == 0:
+        raise ValueError(f"Tenant nicht gefunden: {slug!r}")
+
+
 def list_tenants(conn: sqlite3.Connection) -> list[Tenant]:
     rows = conn.execute(
         "SELECT tenant_id, slug, name, created_at FROM tenants ORDER BY created_at"
