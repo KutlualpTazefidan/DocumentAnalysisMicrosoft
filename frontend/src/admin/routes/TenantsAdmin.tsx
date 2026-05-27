@@ -1,9 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
 
 import { apiBase, apiFetch } from "../api/adminClient";
 import { StatusBadge } from "../components/StatusBadge";
-import { CheckCircle2, XCircle } from "../../shared/icons";
+import {
+  CheckCircle2,
+  Edit3,
+  Plus,
+  Trash2,
+  X,
+  XCircle,
+} from "../../shared/icons";
+import { useToast } from "../../shared/components/useToast";
 
 interface Tenant {
   tenant_id: string;
@@ -38,26 +47,39 @@ interface CreateUserBody {
 /**
  * Tenants + users admin page.
  *
- * Left column: list of tenants + create-tenant form.
- * Right column: when a tenant is selected — list of its users + a
- * create-user form (with pseudonym auto-suggest), deactivate button.
+ * Sidebar: tenant list — + button in the header opens a modal for
+ * creating a new mandant; each row has edit/delete affordances.
+ * Right column: when a tenant is selected — its users + a create-user
+ * form (with pseudonym auto-suggest), deactivate button per user.
  *
  * Cookie-mode session-aware: every API call uses adminClient.apiFetch
  * which already sends credentials:'include'.
  */
 export function TenantsAdmin(): JSX.Element {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const { info } = useToast();
 
   return (
     <div className="flex h-full">
       <aside className="w-80 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-4 overflow-y-auto">
-        <h1 className="text-xl font-semibold">Mandanten</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">Mandanten</h1>
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="p-1.5 rounded hover:bg-slate-200 text-slate-700"
+            title="Neuen Mandanten anlegen"
+            aria-label="Neuen Mandanten anlegen"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
         <TenantList
           selectedSlug={selectedSlug}
           onSelect={setSelectedSlug}
-        />
-        <CreateTenantForm
-          onCreated={(t) => setSelectedSlug(t.slug)}
+          onEdit={() => info("Mandant-Bearbeitung folgt in Kürze.")}
+          onDelete={() => info("Mandant-Löschung folgt in Kürze.")}
         />
       </aside>
       <main className="flex-1 min-w-0 overflow-y-auto p-6">
@@ -70,6 +92,14 @@ export function TenantsAdmin(): JSX.Element {
           </p>
         )}
       </main>
+      <CreateTenantModal
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(t) => {
+          setSelectedSlug(t.slug);
+          setCreateOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -79,9 +109,13 @@ export function TenantsAdmin(): JSX.Element {
 function TenantList({
   selectedSlug,
   onSelect,
+  onEdit,
+  onDelete,
 }: {
   selectedSlug: string | null;
   onSelect: (slug: string) => void;
+  onEdit: (t: Tenant) => void;
+  onDelete: (t: Tenant) => void;
 }): JSX.Element {
   const q = useQuery<{ tenants: Tenant[] }>({
     queryKey: ["tenants"],
@@ -118,35 +152,84 @@ function TenantList({
   }
   return (
     <ul className="space-y-1">
-      {tenants.map((t) => (
-        <li key={t.tenant_id}>
-          <button
-            type="button"
-            onClick={() => onSelect(t.slug)}
-            className={`w-full text-left px-3 py-2 rounded text-sm ${
-              t.slug === selectedSlug
-                ? "bg-blue-100 text-blue-900 font-semibold"
-                : "hover:bg-slate-200"
+      {tenants.map((t) => {
+        const active = t.slug === selectedSlug;
+        return (
+          <li
+            key={t.tenant_id}
+            className={`group relative rounded ${
+              active ? "bg-blue-100" : "hover:bg-slate-200"
             }`}
           >
-            <div className="font-mono text-xs text-slate-600">{t.slug}</div>
-            <div>{t.name}</div>
-          </button>
-        </li>
-      ))}
+            <button
+              type="button"
+              onClick={() => onSelect(t.slug)}
+              className={`w-full text-left px-3 py-2 pr-16 rounded text-sm ${
+                active ? "text-blue-900 font-semibold" : ""
+              }`}
+            >
+              <div className="font-mono text-xs text-slate-600">{t.slug}</div>
+              <div>{t.name}</div>
+            </button>
+            <div
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(t);
+                }}
+                className="p-1 rounded hover:bg-slate-300 text-slate-600"
+                title={`Mandant „${t.slug}" bearbeiten`}
+                aria-label={`Mandant ${t.slug} bearbeiten`}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(t);
+                }}
+                className="p-1 rounded hover:bg-rose-100 text-slate-600 hover:text-rose-700"
+                title={`Mandant „${t.slug}" löschen`}
+                aria-label={`Mandant ${t.slug} löschen`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-function CreateTenantForm({
+function CreateTenantModal({
+  open,
+  onOpenChange,
   onCreated,
 }: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
   onCreated: (t: Tenant) => void;
 }): JSX.Element {
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const qc = useQueryClient();
+
+  // Reset form state every time the modal opens — gives a clean slate
+  // after a previous create or cancel.
+  useEffect(() => {
+    if (open) {
+      setSlug("");
+      setName("");
+      setError(null);
+    }
+  }, [open]);
+
   const m = useMutation<Tenant, Error, CreateTenantBody>({
     mutationFn: async (body) => {
       const r = await apiFetch(`/api/admin/tenants`, "", {
@@ -158,50 +241,85 @@ function CreateTenantForm({
     },
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ["tenants"] });
-      setSlug("");
-      setName("");
-      setError(null);
       onCreated(t);
     },
     onError: (err) => setError(err.message),
   });
+
   function handle(e: FormEvent): void {
     e.preventDefault();
     if (!slug.trim() || !name.trim()) return;
     m.mutate({ slug: slug.trim(), name: name.trim() });
   }
+
   return (
-    <form
-      onSubmit={handle}
-      className="border-t border-slate-200 pt-4 space-y-2"
-    >
-      <h2 className="text-sm font-semibold">Neuer Mandant</h2>
-      <input
-        type="text"
-        value={slug}
-        onChange={(e) => setSlug(e.target.value)}
-        placeholder="z.B. neue-firma"
-        className="input text-sm w-full"
-      />
-      <p className="text-xs text-slate-500 -mt-1">
-        Kurz-ID — Kleinbuchstaben, Zahlen, Bindestriche.
-      </p>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Anzeigename"
-        className="input text-sm w-full"
-      />
-      {error && <div className="text-xs text-red-600">{error}</div>}
-      <button
-        type="submit"
-        disabled={m.isPending || !slug.trim() || !name.trim()}
-        className="btn-primary w-full text-sm"
-      >
-        {m.isPending ? "Lege an…" : "Mandant anlegen"}
-      </button>
-    </form>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
+          <div className="flex items-center justify-between mb-4">
+            <Dialog.Title className="text-lg font-semibold">
+              Neuer Mandant
+            </Dialog.Title>
+            <Dialog.Close
+              className="text-slate-500 hover:text-slate-700"
+              aria-label="Schließen"
+            >
+              <X className="w-4 h-4" />
+            </Dialog.Close>
+          </div>
+          <Dialog.Description className="sr-only">
+            Lege einen neuen Mandanten an. Slug ist eine Kurz-ID; der
+            Anzeigename erscheint in der Mandanten-Liste.
+          </Dialog.Description>
+          <form onSubmit={handle} className="space-y-3">
+            <label className="block">
+              <span className="text-sm text-slate-700">Slug</span>
+              <input
+                type="text"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                placeholder="z.B. neue-firma"
+                className="input mt-1"
+                autoFocus
+                aria-label="Slug"
+              />
+              <span className="text-xs text-slate-500 mt-1 block">
+                Kurz-ID — Kleinbuchstaben, Zahlen, Bindestriche.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-sm text-slate-700">Anzeigename</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="z.B. Neue Firma GmbH"
+                className="input mt-1"
+                aria-label="Anzeigename"
+              />
+            </label>
+            {error && (
+              <div role="alert" className="text-sm text-red-600">
+                {error}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Dialog.Close className="btn-secondary text-sm">
+                Abbrechen
+              </Dialog.Close>
+              <button
+                type="submit"
+                disabled={m.isPending || !slug.trim() || !name.trim()}
+                className="btn-primary text-sm"
+              >
+                {m.isPending ? "Lege an…" : "Mandant anlegen"}
+              </button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
