@@ -204,7 +204,9 @@ function TenantList({
               <div>{t.name}</div>
             </button>
             <div
-              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+              className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 focus-within:opacity-100 ${
+                active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              }`}
             >
               <button
                 type="button"
