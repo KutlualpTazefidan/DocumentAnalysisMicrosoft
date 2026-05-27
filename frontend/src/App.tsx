@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Landing } from "./landing/Landing";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
@@ -20,8 +21,8 @@ export function App() {
   return (
     <div className="min-h-screen">
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/admin" element={<AdminShell />}>
           <Route index element={<Navigate to="inbox" replace />} />
           <Route path="inbox" element={<Inbox />} />

@@ -6,7 +6,7 @@ import { useToast } from "../../shared/components/useToast";
 import { Plus, Trash2 } from "../../shared/icons";
 
 import { useDeleteDoc, useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
-import { StatusBadge } from "../components/StatusBadge";
+import { DocStatusBadge } from "../components/StatusBadge";
 import { DocStepTabs } from "../components/DocStepTabs";
 import { T } from "../styles/typography";
 
@@ -31,8 +31,8 @@ export function InboxRoute({ token }: Props): JSX.Element {
     const f = e.target.files?.[0];
     if (!f) return;
     upload.mutate(f, {
-      onSuccess: (m) => success(`uploaded ${m.slug}`),
-      onError: (err) => error(`upload failed: ${(err as Error).message}`),
+      onSuccess: (m) => success(`${m.slug} hochgeladen`),
+      onError: (err) => error(`Upload fehlgeschlagen: ${(err as Error).message}`),
     });
     e.target.value = "";
   }
@@ -41,33 +41,33 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
+      <div className="px-4 bg-navy-800 text-white flex-shrink-0">
         <DocStepTabs />
       </div>
       <div className="p-6 flex-1 overflow-auto">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className={T.cardTitle}>Local-PDF Inbox</h1>
+        <h1 className={T.cardTitle}>Local-PDF Posteingang</h1>
         <input
           type="text"
-          className={`ml-auto border rounded px-2 py-1 ${T.body}`}
-          placeholder="search…"
+          className="input ml-auto max-w-xs"
+          placeholder="suchen…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
-        <button className={`flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded ${T.body}`} onClick={handlePickFile}>
-          <Plus className="w-4 h-4" /> Add PDF
+        <button className="btn-primary flex items-center gap-1" onClick={handlePickFile}>
+          <Plus className="w-4 h-4" /> PDF hinzufügen
         </button>
         <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile} />
       </div>
       <table className={`w-full ${T.body}`}>
         <thead>
           <tr className="text-left border-b">
-            <th className="p-2">filename</th>
-            <th className="p-2">pages</th>
-            <th className="p-2">status</th>
-            <th className="p-2">boxes</th>
-            <th className="p-2">last touched</th>
-            <th className="p-2">action</th>
+            <th className="p-2">Dateiname</th>
+            <th className="p-2">Seiten</th>
+            <th className="p-2">Status</th>
+            <th className="p-2">Elemente</th>
+            <th className="p-2">Zuletzt geändert</th>
+            <th className="p-2">Aktion</th>
           </tr>
         </thead>
         <tbody>
@@ -76,35 +76,35 @@ export function InboxRoute({ token }: Props): JSX.Element {
               <td className="p-2">{d.filename}</td>
               <td className="p-2">{d.pages}</td>
               <td className="p-2">
-                <StatusBadge status={d.status} />
+                <DocStatusBadge status={d.status} />
               </td>
               <td className="p-2">{d.box_count}</td>
               <td className={`p-2 ${T.body} text-gray-500`}>{d.last_touched_utc}</td>
               <td className="p-2 flex items-center gap-2">
                 <Link className="text-blue-600 underline" to={`/admin/doc/${d.slug}/extract`}>
-                  {d.status === "raw" ? "start" : d.status === "done" ? "view" : "resume"}
+                  {d.status === "raw" ? "starten" : d.status === "done" ? "ansehen" : "fortsetzen"}
                 </Link>
                 {(d.status === "extracted" || d.status === "synthesised") && (
                   <button
                     className={`${T.body} bg-green-600 text-white px-2 py-0.5 rounded`}
                     onClick={() => publish.mutate(d.slug, {
-                      onSuccess: () => success(`published ${d.slug}`),
-                      onError: (err) => error(`publish failed: ${(err as Error).message}`),
+                      onSuccess: () => success(`${d.slug} veröffentlicht`),
+                      onError: (err) => error(`Veröffentlichen fehlgeschlagen: ${(err as Error).message}`),
                     })}
                   >
-                    Publish
+                    Veröffentlichen
                   </button>
                 )}
                 <button
-                  aria-label={`Delete ${d.slug}`}
-                  title="Delete this doc and all its files"
+                  aria-label={`${d.slug} löschen`}
+                  title="Dokument und alle erzeugten Dateien löschen"
                   className={`${T.body} ml-auto p-1 text-slate-400 hover:text-red-600 disabled:opacity-40`}
                   disabled={del.isPending}
                   onClick={() => {
                     if (!window.confirm(`Wirklich „${d.filename}" und alle erzeugten Dateien löschen? Das kann nicht rückgängig gemacht werden.`)) return;
                     del.mutate(d.slug, {
                       onSuccess: () => success(`gelöscht: ${d.slug}`),
-                      onError: (err) => error(`delete failed: ${(err as Error).message}`),
+                      onError: (err) => error(`Löschen fehlgeschlagen: ${(err as Error).message}`),
                     });
                   }}
                 >
@@ -115,7 +115,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
           ))}
         </tbody>
       </table>
-      <p className={`${T.body} text-gray-400 mt-4`}>Drop PDFs into <code>data/raw-pdfs/</code> or use Add PDF.</p>
+      <p className={`${T.body} text-gray-400 mt-4`}>PDFs auf dem Server unter <code>data/raw-pdfs/</code> ablegen oder „PDF hinzufügen" oben rechts nutzen.</p>
     </div>
     </div>
   );
@@ -123,6 +123,6 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
 export function Inbox() {
   const { token } = useAuth();
-  if (token === null) return <div className="p-6 h-full overflow-auto">Not authorised.</div>;
+  if (token === null) return <div className="p-6 h-full overflow-auto">Nicht angemeldet.</div>;
   return <InboxRoute token={token} />;
 }

@@ -1232,6 +1232,6 @@ function SimilarCard({
 export function Comparison(): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const { token } = useAuth();
-  if (token === null) return <div className="p-6">Not authorised.</div>;
+  if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <ComparisonInner slug={slug!} token={token} />;
 }

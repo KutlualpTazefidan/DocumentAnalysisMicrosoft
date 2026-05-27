@@ -1,22 +1,87 @@
 import type { DocStatus } from "../types/domain";
-import { Circle, Clock, RefreshCcw, CheckCircle2, AlertTriangle } from "../../shared/icons";
+import {
+  Circle,
+  Clock,
+  RefreshCcw,
+  CheckCircle2,
+  AlertTriangle,
+} from "../../shared/icons";
 import type { ComponentType } from "react";
 import { T } from "../styles/typography";
 
-const COLORS: Record<DocStatus, string> = {
-  raw: "bg-gray-200 text-gray-800",
-  segmenting: "bg-amber-200 text-amber-900",
-  extracting: "bg-blue-200 text-blue-900",
-  extracted: "bg-blue-300 text-blue-900",
-  synthesising: "bg-purple-200 text-purple-900",
-  synthesised: "bg-purple-300 text-purple-900",
-  "open-for-curation": "bg-green-200 text-green-900",
-  archived: "bg-gray-400 text-gray-900",
-  done: "bg-green-200 text-green-900",
-  needs_ocr: "bg-red-200 text-red-900",
+export type StatusTone =
+  | "neutral" // raw / unstarted
+  | "info" // intermediate / non-final
+  | "progress" // actively running
+  | "success" // completed / active
+  | "warning" // needs attention but not error
+  | "danger" // error / inactive
+  | "muted"; // archived / disabled
+
+const TONE_CLASS: Record<StatusTone, string> = {
+  neutral: "bg-slate-200 text-slate-800",
+  info: "bg-sky-100 text-sky-900",
+  progress: "bg-amber-100 text-amber-900",
+  success: "bg-emerald-100 text-emerald-900",
+  warning: "bg-yellow-100 text-yellow-900",
+  danger: "bg-rose-100 text-rose-900",
+  muted: "bg-slate-100 text-slate-500",
 };
 
-const ICONS: Record<DocStatus, ComponentType<{ className?: string }>> = {
+interface Props {
+  tone: StatusTone;
+  label: string;
+  icon?: ComponentType<{ className?: string }>;
+}
+
+/**
+ * One badge for every discrete state in the UI — doc status, user
+ * active flag, future role indicators, etc. Pass a translated label
+ * and a semantic tone; supply an icon when one makes the state more
+ * scannable. The audit's "five visual languages for status" finding
+ * is resolved by routing every state through this primitive.
+ *
+ * For the doc-status enum specifically, prefer `<DocStatusBadge>` —
+ * it owns the German label + tone + icon mapping.
+ */
+export function StatusBadge({ tone, label, icon: Icon }: Props): JSX.Element {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 ${T.body} rounded ${TONE_CLASS[tone]}`}
+    >
+      {Icon && <Icon className="w-3 h-3" aria-hidden />}
+      {label}
+    </span>
+  );
+}
+
+const DOC_STATUS_TONE: Record<DocStatus, StatusTone> = {
+  raw: "neutral",
+  segmenting: "progress",
+  extracting: "progress",
+  extracted: "info",
+  synthesising: "progress",
+  synthesised: "info",
+  "open-for-curation": "success",
+  archived: "muted",
+  done: "success",
+  needs_ocr: "danger",
+};
+
+const DOC_STATUS_LABEL: Record<DocStatus, string> = {
+  raw: "Roh",
+  segmenting: "Segmentierung läuft",
+  extracting: "Extraktion läuft",
+  extracted: "Extrahiert",
+  synthesising: "Synthese läuft",
+  synthesised: "Synthetisiert",
+  "open-for-curation": "Zur Kuration",
+  archived: "Archiviert",
+  done: "Fertig",
+  needs_ocr: "OCR nötig",
+};
+
+const DOC_STATUS_ICON: Record<DocStatus, ComponentType<{ className?: string }>> = {
   raw: Circle,
   segmenting: Clock,
   extracting: RefreshCcw,
@@ -29,12 +94,12 @@ const ICONS: Record<DocStatus, ComponentType<{ className?: string }>> = {
   needs_ocr: AlertTriangle,
 };
 
-export function StatusBadge({ status }: { status: DocStatus }): JSX.Element {
-  const Icon = ICONS[status];
+export function DocStatusBadge({ status }: { status: DocStatus }): JSX.Element {
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 ${T.body} rounded ${COLORS[status]}`}>
-      <Icon className="w-3 h-3" />
-      {status}
-    </span>
+    <StatusBadge
+      tone={DOC_STATUS_TONE[status]}
+      label={DOC_STATUS_LABEL[status]}
+      icon={DOC_STATUS_ICON[status]}
+    />
   );
 }

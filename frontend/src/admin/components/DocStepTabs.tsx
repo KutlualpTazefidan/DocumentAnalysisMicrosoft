@@ -8,9 +8,9 @@ interface Props {
 }
 
 const TABS = [
-  { key: "files", label: "Files", icon: Folder, href: (_slug: string) => "/admin/inbox" },
-  { key: "extract", label: "Extract", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
-  { key: "synthesise", label: "Synthesise", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
+  { key: "files", label: "Dateien", icon: Folder, href: (_slug: string) => "/admin/inbox" },
+  { key: "extract", label: "Extrahieren", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
+  { key: "synthesise", label: "Synthese", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
   { key: "compare", label: "Vergleich", icon: GitCompare, href: (slug: string) => `/admin/doc/${slug}/compare` },
   { key: "provenienz", label: "Provenienz", icon: GitMerge, href: (slug: string) => `/admin/doc/${slug}/provenienz` },
 ] as const;
@@ -27,9 +27,9 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
     return false;
   }
 
-  const activeTabClass = "text-white border-b-2 border-blue-400";
+  const activeTabClass = "text-white border-b-2 border-brand-500";
   const inactiveTabClass = "text-navy-200 hover:text-white hover:bg-navy-700/40";
-  const disabledTabClass = "text-navy-500 opacity-50 cursor-not-allowed";
+  const disabledTabClass = "text-navy-300 cursor-not-allowed";
   const baseTabClass = `flex items-center gap-2 px-4 py-2 ${T.body} font-medium transition-colors`;
 
   return (
