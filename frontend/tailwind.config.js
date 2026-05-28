@@ -21,6 +21,10 @@ export default {
           800: "#031E31", // ADMIN_THEME.chrome — primary chrome bg
           900: "#021727", // deepest chrome variant
         },
+        // Secondary chrome — the doc-step-tab bar that sits under the
+        // primary navy header. Distinct slate-blue so the two bars read
+        // as separate zones.
+        chrome2: "#576977",
         // Brand action palette — the single blue for primary CTAs, links,
         // and the focus ring. Use these (not raw `blue-*`) when the surface
         // is white/light; navy-600 for the same hue on the chrome.

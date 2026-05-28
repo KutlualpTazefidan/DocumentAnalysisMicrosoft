@@ -3,13 +3,15 @@ import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-d
 import { LlmTopBarControl } from "../admin/components/LlmTopBarControl";
 import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
-import { RoleBadge } from "./shared/RoleBadge";
-import { Inbox, Users, Cpu, BarChart3, LogOut, Building2 } from "../shared/icons";
+import { RoleMenu } from "./shared/RoleMenu";
+import { useToast } from "../shared/components/useToast";
+import { Inbox, Users, Cpu, BarChart3, Building2 } from "../shared/icons";
 
 export function AdminShell() {
   const { token, role, name, tenantSlug, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { info } = useToast();
   // Cookie-mode logins land here with token=='' and role='admin' — we
   // gate on role only so the cookie flow works. Legacy token-mode still
   // sets both, so it's also fine.
@@ -46,15 +48,12 @@ export function AdminShell() {
               {tenantSlug}
             </span>
           )}
-          <RoleBadge theme={ADMIN_THEME} name={name ?? "admin"} />
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1 text-sm underline"
-            title="Session beenden + Cookie verwerfen"
-          >
-            <LogOut className="w-4 h-4" />
-            Abmelden
-          </button>
+          <RoleMenu
+            theme={ADMIN_THEME}
+            name={name ?? "admin"}
+            onSettings={() => info("Einstellungen folgen in Kürze.")}
+            onLogout={handleLogout}
+          />
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">

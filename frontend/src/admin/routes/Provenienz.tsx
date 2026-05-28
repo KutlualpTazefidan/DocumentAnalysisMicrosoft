@@ -75,7 +75,7 @@ export function Provenienz(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full bg-navy-900">
-      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700">
+      <div className="flex items-center justify-between px-4 py-2 bg-chrome2 text-white border-b border-navy-700">
         <DocStepTabs slug={slug} />
         <ViewToggle view={view} onChange={setView} />
       </div>
