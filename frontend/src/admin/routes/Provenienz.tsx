@@ -53,7 +53,7 @@ export function Provenienz(): JSX.Element {
   const del = useDeleteSession(tokenStr, slug);
   const detail = useSession(selectedId, tokenStr);
 
-  if (!token) {
+  if (token === null) {
     return <div className="p-6 text-slate-300">Bitte zuerst anmelden.</div>;
   }
 
