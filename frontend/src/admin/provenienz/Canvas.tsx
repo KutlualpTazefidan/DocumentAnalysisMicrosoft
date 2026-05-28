@@ -191,7 +191,7 @@ export function Canvas({
   }, [laid.viewNodes, onViewIndex]);
 
   return (
-    <div className="w-full h-full bg-navy-900 relative">
+    <div className="w-full h-full bg-chrome2-900 relative">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -272,7 +272,7 @@ function Toolbar({
 }): JSX.Element {
   const rf = useReactFlow();
   return (
-    <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 bg-navy-800/95 border border-navy-600 rounded shadow-md p-1">
+    <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 bg-chrome2-800/95 border border-chrome2-500 rounded shadow-md p-1">
       <ToolbarButton
         title="Layout neu berechnen (alle Positionen verwerfen)"
         onClick={() => {
@@ -356,7 +356,7 @@ function ToolbarButton({
       className={`p-1.5 rounded transition-colors ${
         active
           ? "bg-blue-600 text-white"
-          : "text-slate-300 hover:bg-navy-700 hover:text-white"
+          : "text-slate-300 hover:bg-chrome2-700 hover:text-white"
       }`}
     >
       {children}

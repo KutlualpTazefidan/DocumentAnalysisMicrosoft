@@ -114,7 +114,7 @@ export function PanelHeader({
   onClose: () => void;
 }): JSX.Element {
   return (
-    <header className="px-4 py-3 border-b border-navy-700 flex items-start justify-between gap-2">
+    <header className="px-4 py-3 border-b border-chrome2-500 flex items-start justify-between gap-2">
       <div className="min-w-0">
         <p className={T.tinyBold}>{title}</p>
         {subtitle && (

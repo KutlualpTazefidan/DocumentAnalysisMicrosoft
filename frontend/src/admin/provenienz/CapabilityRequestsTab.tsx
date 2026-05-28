@@ -67,7 +67,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                   {req.examples.map((ex) => (
                     <li
                       key={ex.node_id}
-                      className="rounded bg-navy-900/60 p-2 border border-navy-700"
+                      className="rounded bg-chrome2-900/60 p-2 border border-chrome2-500"
                     >
                       <p className={`${T.tiny} text-slate-400 font-mono`}>
                         {ex.slug} · {ex.session_id.slice(0, 12)}… · {ex.created_at}

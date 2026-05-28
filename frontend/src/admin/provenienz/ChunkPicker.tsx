@@ -36,8 +36,8 @@ export function ChunkPicker({
   }, [elements, query]);
 
   return (
-    <div className="flex flex-col h-full bg-navy-900">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+    <div className="flex flex-col h-full bg-chrome2-900">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
         <div>
           <h2 className={`${T.heading} text-white`}>Wurzel-Chunk wählen</h2>
           <p className={`${T.body} text-slate-400`}>
@@ -54,7 +54,7 @@ export function ChunkPicker({
         </button>
       </header>
 
-      <div className="px-4 py-3 border-b border-navy-700">
+      <div className="px-4 py-3 border-b border-chrome2-500">
         <div className="relative">
           <Search
             className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
@@ -65,7 +65,7 @@ export function ChunkPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Suche nach box_id (z.B. p16) oder Text…"
-            className={`w-full pl-8 pr-3 py-2 rounded bg-navy-800 border border-navy-600 text-white ${T.body} focus:outline-none focus:border-blue-500`}
+            className={`w-full pl-8 pr-3 py-2 rounded bg-chrome2-800 border border-chrome2-500 text-white ${T.body} focus:outline-none focus:border-blue-500`}
             autoFocus
             disabled={pending}
           />
@@ -97,7 +97,7 @@ export function ChunkPicker({
             Keine Treffer für „{query}".
           </p>
         )}
-        <ul className="divide-y divide-navy-800">
+        <ul className="divide-y divide-chrome2-500">
           {filtered.map((el) => (
             <ChunkRow
               key={el.box_id}
@@ -127,10 +127,10 @@ function ChunkRow({
         type="button"
         onClick={onPick}
         disabled={disabled}
-        className="w-full text-left px-4 py-3 hover:bg-navy-800/60 disabled:opacity-50 disabled:cursor-wait flex items-start gap-3"
+        className="w-full text-left px-4 py-3 hover:bg-chrome2-800/60 disabled:opacity-50 disabled:cursor-wait flex items-start gap-3"
       >
         <span
-          className={`${T.tiny} font-mono text-blue-300 bg-navy-800 px-1.5 py-0.5 rounded shrink-0`}
+          className={`${T.tiny} font-mono text-blue-300 bg-chrome2-800 px-1.5 py-0.5 rounded shrink-0`}
         >
           S.{el.page}
         </span>

@@ -30,7 +30,7 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
   if (!audit) return null;
   const inp = audit.input_summary ?? {};
   return (
-    <section className="rounded border border-slate-700 bg-navy-950/60 p-3 space-y-2">
+    <section className="rounded border border-slate-700 bg-chrome2-900/60 p-3 space-y-2">
       <header className="flex items-center gap-1.5">
         <Bot className="w-3.5 h-3.5 text-slate-300" aria-hidden />
         <p className={`${T.tinyBold} text-slate-300`}>Quelle (Agent-Reasoning)</p>
@@ -70,7 +70,7 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
         </div>
       )}
       {inp.tools_summary && (
-        <details className="rounded bg-navy-900 border border-navy-700">
+        <details className="rounded bg-chrome2-900 border border-chrome2-500">
           <summary className={`${T.tinyBold} cursor-pointer px-2 py-1`}>
             Tool-Liste die der Agent gesehen hat
           </summary>
@@ -101,7 +101,7 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
         </div>
       )}
       {audit.system_prompt_used && (
-        <details className="rounded bg-navy-900 border border-navy-700">
+        <details className="rounded bg-chrome2-900 border border-chrome2-500">
           <summary className={`${T.tinyBold} cursor-pointer px-2 py-1`}>
             System-Prompt (mit Heuristik-Overlays)
           </summary>

@@ -62,7 +62,7 @@ export function ManualReviewPanel({
           markiere sie unten als erledigt.
         </p>
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleDismiss()}

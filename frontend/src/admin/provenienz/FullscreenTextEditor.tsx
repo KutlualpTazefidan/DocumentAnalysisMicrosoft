@@ -69,10 +69,10 @@ export function FullscreenTextEditor({
       <div
         role="dialog"
         aria-modal="true"
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>{title}</h2>
             {subtitle && (
@@ -93,11 +93,11 @@ export function FullscreenTextEditor({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={placeholder}
-            className="w-full h-full p-4 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 text-[14px] leading-relaxed font-mono resize-none"
+            className="w-full h-full p-4 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 text-[14px] leading-relaxed font-mono resize-none"
             autoFocus
           />
         </div>
-        <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between">
+        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
           <span className={`${T.tiny} text-slate-500`}>
             {text.length} Zeichen · Cmd/Ctrl-Enter zum Speichern · Esc zum
             Abbrechen
@@ -106,7 +106,7 @@ export function FullscreenTextEditor({
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-navy-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
             >
               Abbrechen
             </button>

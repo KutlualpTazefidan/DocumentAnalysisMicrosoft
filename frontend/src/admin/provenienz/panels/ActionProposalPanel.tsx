@@ -108,7 +108,7 @@ export function ActionProposalPanel({
         )}
         {typeof payload.system_prompt_used === "string" &&
           payload.system_prompt_used && (
-            <details className="rounded bg-navy-950 border border-navy-700">
+            <details className="rounded bg-chrome2-900 border border-chrome2-500">
               <summary className={`${T.tinyBold} cursor-pointer px-2 py-1.5`}>
                 Skill · System-Prompt (mit aktiven Erweiterungen)
               </summary>
@@ -154,7 +154,7 @@ export function ActionProposalPanel({
         )}
 
         {decided && (
-          <p className={`${T.body} text-amber-300 italic pt-2 border-t border-navy-700`}>
+          <p className={`${T.body} text-amber-300 italic pt-2 border-t border-chrome2-500`}>
             Dieser Vorschlag wurde bereits entschieden — Folge-Knoten zeigen
             das Ergebnis.
           </p>
@@ -162,7 +162,7 @@ export function ActionProposalPanel({
 
         {!decided && (
         <>
-        <div className="space-y-2 pt-2 border-t border-navy-700">
+        <div className="space-y-2 pt-2 border-t border-chrome2-500">
           <label className="flex items-start gap-2">
             <input
               type="radio"
@@ -202,7 +202,7 @@ export function ActionProposalPanel({
                 <select
                   value={altIndex}
                   onChange={(e) => setAltIndex(Number(e.target.value))}
-                  className={`mt-1 w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+                  className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
                 >
                   {alternatives.map((a, idx) => (
                     <option key={idx} value={idx}>
@@ -242,7 +242,7 @@ export function ActionProposalPanel({
                   onChange={(e) => setOverrideText(e.target.value)}
                   rows={4}
                   placeholder={overridePlaceholder(stepKind)}
-                  className={`mt-1 w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+                  className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
                 />
               )}
             </div>
@@ -258,7 +258,7 @@ export function ActionProposalPanel({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className={`w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+            className={`w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
           />
           <p className={`text-slate-500 ${T.tiny} mt-1`}>
             Begründung hilft dem System, beim nächsten Mal besser zu empfehlen.
@@ -267,7 +267,7 @@ export function ActionProposalPanel({
         </>
         )}
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         {!decided && (
           <>
             <button

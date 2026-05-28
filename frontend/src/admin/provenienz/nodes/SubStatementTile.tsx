@@ -14,7 +14,7 @@ export function SubStatementTile({
   const p = data.sub_statement.payload as { text?: string };
   const text = String(p.text ?? "");
   return (
-    <div className="rounded-lg border-2 border-fuchsia-500/70 bg-navy-800 px-3 py-2 text-white shadow-md w-72">
+    <div className="rounded-lg border-2 border-fuchsia-500/70 bg-chrome2-800 px-3 py-2 text-white shadow-md w-72">
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-fuchsia-200">
         <Sigma className="w-3 h-3" aria-hidden /> Sub-Aussage

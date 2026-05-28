@@ -58,7 +58,7 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
     [info, onPillClick],
   );
   return (
-    <div className="w-full h-full bg-navy-900 relative">
+    <div className="w-full h-full bg-chrome2-900 relative">
       <ReactFlow
         nodes={nodes.map((n) => ({ ...n, selected: n.id === selectedId }))}
         edges={edges}

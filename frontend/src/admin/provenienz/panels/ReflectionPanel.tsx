@@ -112,7 +112,7 @@ export function ReflectionPanel({
         )}
         <AgentAuditSection audit={p.audit} />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <p className={`${T.tiny} text-slate-500 italic`}>
           Re-Evaluate-Aktion mit injiziertem Fokus folgt im nächsten
           Build-Schritt — derzeit dient die Reflektion als Audit-Eintrag

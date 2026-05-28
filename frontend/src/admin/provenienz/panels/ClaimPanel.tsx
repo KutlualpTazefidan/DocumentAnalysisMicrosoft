@@ -154,7 +154,7 @@ export function ClaimPanel({
         ))}
         {showSourceChunk && (
           <details
-            className="rounded border border-navy-700 bg-navy-900/40"
+            className="rounded border border-chrome2-500 bg-chrome2-900/40"
           >
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-300`}
@@ -174,13 +174,13 @@ export function ClaimPanel({
             <button
               type="button"
               onClick={() => onSelectView(`view:${sourceNodeId}`)}
-              className={`mx-3 mb-3 px-2 py-1 rounded bg-navy-800 hover:bg-navy-700 text-slate-300 ${T.tiny}`}
+              className={`mx-3 mb-3 px-2 py-1 rounded bg-chrome2-800 hover:bg-chrome2-700 text-slate-300 ${T.tiny}`}
             >
               Chunk-Tile öffnen →
             </button>
           </details>
         )}
-        <div className="pt-2 border-t border-navy-700">
+        <div className="pt-2 border-t border-chrome2-500">
           <p className={`${T.tinyBold} text-pink-300`}>
             Recherche-Frage zu dieser Aussage
           </p>
@@ -190,7 +190,7 @@ export function ClaimPanel({
                 value={goalDraft}
                 onChange={(e) => setGoalDraft(e.target.value)}
                 rows={3}
-                className={`w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+                className={`w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
                 placeholder="z.B. Wo steht im Korpus, dass die Wärmeleistung 5.6 kW beträgt?"
                 autoFocus
               />
@@ -209,7 +209,7 @@ export function ClaimPanel({
                     setGoalDraft(initialGoal);
                     setEditingGoal(false);
                   }}
-                  className={`px-2 py-1 rounded text-slate-300 hover:bg-navy-700 ${T.tiny}`}
+                  className={`px-2 py-1 rounded text-slate-300 hover:bg-chrome2-700 ${T.tiny}`}
                 >
                   Abbrechen
                 </button>
@@ -241,7 +241,7 @@ export function ClaimPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
@@ -251,7 +251,7 @@ export function ClaimPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-navy-700 bg-navy-900/40">
+        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
             Manuell wählen
           </summary>

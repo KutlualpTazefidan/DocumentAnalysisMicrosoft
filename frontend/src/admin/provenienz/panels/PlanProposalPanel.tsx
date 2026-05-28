@@ -227,7 +227,7 @@ export function PlanProposalPanel({
               {p.considered_alternatives.map((a, i) => (
                 <li
                   key={i}
-                  className="rounded border border-navy-700 bg-navy-900/50 px-2 py-1.5"
+                  className="rounded border border-chrome2-500 bg-chrome2-900/50 px-2 py-1.5"
                 >
                   <p className={`${T.body} text-slate-200`}>
                     <span className="font-mono text-amber-300">{a.name}</span>{" "}
@@ -244,7 +244,7 @@ export function PlanProposalPanel({
           </div>
         )}
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleAccept()}

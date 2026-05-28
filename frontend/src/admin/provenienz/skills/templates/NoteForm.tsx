@@ -138,10 +138,10 @@ export function NoteForm({
         role="dialog"
         aria-modal="true"
         aria-label="Lehr-Notiz"
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(720px,95vw)] h-[min(640px,90vh)] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(720px,95vw)] h-[min(640px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>📌 Lehr-Notiz</h2>
             <p className={`${T.tiny} text-slate-400`}>
@@ -170,7 +170,7 @@ export function NoteForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. einheiten-immer-prüfen"
-              className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               autoFocus
             />
           </div>
@@ -184,7 +184,7 @@ export function NoteForm({
               {STEP_OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-navy-800/40 ${T.body}`}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-chrome2-800/40 ${T.body}`}
                 >
                   <input
                     type="radio"
@@ -220,7 +220,7 @@ export function NoteForm({
                 "z.B. Always check unit conversion before declaring " +
                 "two values equivalent. Beware MW vs MWth vs MWel."
               }
-              className={`w-full p-3 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
+              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
               Die Notiz wird als zusätzlicher Hinweis in den jeweiligen
@@ -229,7 +229,7 @@ export function NoteForm({
           </div>
 
           {/* Raw-data accordion */}
-          <details className="rounded border border-navy-700 bg-navy-900/30">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
             >
@@ -249,7 +249,7 @@ export function NoteForm({
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between">
+        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
           <span className={`${T.tiny} text-slate-500`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
@@ -257,7 +257,7 @@ export function NoteForm({
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-navy-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
             >
               Abbrechen
             </button>

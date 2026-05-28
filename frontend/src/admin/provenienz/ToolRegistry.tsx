@@ -15,7 +15,7 @@ interface Props {
  */
 export function ToolRegistry({ tools, onSelect }: Props): JSX.Element {
   return (
-    <div className="border border-navy-700 rounded-lg bg-navy-800/40 p-4 mb-4">
+    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-4 mb-4">
       <header className="mb-2">
         <h3 className={`${T.heading} text-white flex items-center gap-2`}>
           <Wrench className="w-4 h-4" aria-hidden /> Verfügbare Werkzeuge

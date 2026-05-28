@@ -382,10 +382,10 @@ export function CustomForm({
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>
               {isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
@@ -422,7 +422,7 @@ export function CustomForm({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="z.B. mein-skill"
-                className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
                 autoFocus
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
@@ -444,7 +444,7 @@ export function CustomForm({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Einzeiler — wofür ist diese Fähigkeit da?"
-                className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
             </div>
 
@@ -474,7 +474,7 @@ export function CustomForm({
                 id="custom-skill-kind"
                 value={skillKind}
                 onChange={(e) => setSkillKind(e.target.value as SkillKind)}
-                className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 ${T.body} font-mono`}
+                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 ${T.body} font-mono`}
               >
                 {SKILL_KIND_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -504,7 +504,7 @@ export function CustomForm({
                       className={`px-3 py-1.5 rounded cursor-pointer ${T.body} font-mono ${
                         checked
                           ? "bg-blue-700 text-white"
-                          : "bg-navy-800 text-slate-300 border border-navy-600"
+                          : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
                       }`}
                     >
                       <input
@@ -556,7 +556,7 @@ export function CustomForm({
                   "2. Mit Sitzungs-Ziel abgleichen.\n" +
                   "..."
                 }
-                className={`w-full p-3 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
               />
             </div>
 
@@ -580,7 +580,7 @@ export function CustomForm({
                   "Welche Werte-Klasse ist anwendbar?\n" +
                   "Standort / Anlage?"
                 }
-                className={`w-full p-3 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
                 {questions.length} Frage(n) erkannt.
@@ -608,13 +608,13 @@ export function CustomForm({
                   "- Aufrundung der angegebenen Zahl ist OFT KONSERVATIV\n" +
                   "- Beispiel: angegeben 5,6 kW, tatsächlich 5,597 kW → STÜTZT"
                 }
-                className={`w-full p-3 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
               />
             </div>
           </Section>
 
           {/* ----- Bedingungen (TriggerConditions) -------------------- */}
-          <details className="rounded border border-navy-700 bg-navy-900/40">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
             >
@@ -639,7 +639,7 @@ export function CustomForm({
                         className={`px-2.5 py-1 rounded cursor-pointer ${T.tiny} font-mono ${
                           checked
                             ? "bg-orange-700 text-white"
-                            : "bg-navy-800 text-slate-300 border border-navy-600"
+                            : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
                         }`}
                       >
                         <input
@@ -674,7 +674,7 @@ export function CustomForm({
                   onChange={(e) => setSentenceRegexText(e.target.value)}
                   rows={2}
                   placeholder={String.raw`\d+[,.]\d+\s*(kW|MW|MPa)`}
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
                 />
               </div>
 
@@ -695,7 +695,7 @@ export function CustomForm({
                   onChange={(e) => setClaimRegexText(e.target.value)}
                   rows={2}
                   placeholder={"Wärmeleistung\nNachzerfall"}
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
                 />
               </div>
 
@@ -713,7 +713,7 @@ export function CustomForm({
                   value={topicKeywords}
                   onChange={(e) => setTopicKeywords(e.target.value)}
                   placeholder="z.B. Nachzerfallsleistung, Wärmeleistung, thermisch"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
                 />
               </div>
 
@@ -731,7 +731,7 @@ export function CustomForm({
                         className={`px-2.5 py-1 rounded cursor-pointer ${T.tiny} font-mono ${
                           checked
                             ? "bg-amber-700 text-white"
-                            : "bg-navy-800 text-slate-300 border border-navy-600"
+                            : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
                         }`}
                       >
                         <input
@@ -763,7 +763,7 @@ export function CustomForm({
                   value={goalContains}
                   onChange={(e) => setGoalContains(e.target.value)}
                   placeholder="z.B. Beleg, prüfen, verifizieren"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
                 />
               </div>
 
@@ -781,14 +781,14 @@ export function CustomForm({
                   value={textContains}
                   onChange={(e) => setTextContains(e.target.value)}
                   placeholder="z.B. kW, MW, °C"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
                 />
               </div>
             </div>
           </details>
 
           {/* ----- Output (Annotation) -------------------------------- */}
-          <details className="rounded border border-navy-700 bg-navy-900/40">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-300`}
             >
@@ -811,7 +811,7 @@ export function CustomForm({
                   value={annotationKind}
                   onChange={(e) => setAnnotationKind(e.target.value)}
                   placeholder="z.B. claim_background"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
                 />
               </div>
 
@@ -828,7 +828,7 @@ export function CustomForm({
                   value={attachesTo}
                   onChange={(e) => setAttachesTo(e.target.value)}
                   placeholder="z.B. claim"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
                 />
               </div>
 
@@ -845,7 +845,7 @@ export function CustomForm({
                   value={consumedBy}
                   onChange={(e) => setConsumedBy(e.target.value)}
                   placeholder="z.B. formulate_task, evaluate"
-                  className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
                 />
               </div>
             </div>
@@ -866,7 +866,7 @@ export function CustomForm({
                 value={parentSkill}
                 onChange={(e) => setParentSkill(e.target.value)}
                 placeholder="z.B. compare-numbers"
-                className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
                 Sub-Fähigkeit: wird nur geladen wenn der genannte Parent feuert UND
@@ -876,7 +876,7 @@ export function CustomForm({
           </Section>
 
           {/* ----- Roh-Daten ----------------------------------------- */}
-          <details className="rounded border border-navy-700 bg-navy-900/30">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
             >
@@ -901,7 +901,7 @@ export function CustomForm({
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between">
+        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
           <span className={`${T.tiny} text-slate-500`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
@@ -909,7 +909,7 @@ export function CustomForm({
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-navy-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
             >
               Abbrechen
             </button>
@@ -947,7 +947,7 @@ function Section({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <fieldset className="rounded border border-navy-700 bg-navy-900/30 px-3 pt-2 pb-3 space-y-3">
+    <fieldset className="rounded border border-chrome2-500 bg-chrome2-900/30 px-3 pt-2 pb-3 space-y-3">
       <legend className={`${T.tinyBold} text-slate-200 px-1`}>{title}</legend>
       {children}
     </fieldset>

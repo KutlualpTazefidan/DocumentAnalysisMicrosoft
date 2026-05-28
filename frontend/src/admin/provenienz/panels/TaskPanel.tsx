@@ -145,7 +145,7 @@ export function TaskPanel({
           />
         )}
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         {!view.hasResults && (
           <button
             type="button"
@@ -158,7 +158,7 @@ export function TaskPanel({
           </button>
         )}
         {!view.hasResults && (
-          <details className="rounded border border-navy-700 bg-navy-900/40">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
             <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
               Manuell suchen
             </summary>
@@ -173,7 +173,7 @@ export function TaskPanel({
                   onChange={(e) =>
                     setTopK(Math.max(1, Math.min(20, Number(e.target.value))))
                   }
-                  className={`w-16 px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.tiny}`}
+                  className={`w-16 px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.tiny}`}
                 />
               </div>
               <button

@@ -101,10 +101,10 @@ export function TemplatePicker({
         role="dialog"
         aria-modal="true"
         aria-label="Fähigkeits-Template wählen"
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <h2 className={`${T.heading} text-white`}>Was soll deine Fähigkeit tun?</h2>
           <button
             type="button"
@@ -123,7 +123,7 @@ export function TemplatePicker({
                 key={tpl.kind}
                 type="button"
                 onClick={() => onSelect(tpl.kind)}
-                className="group text-left border border-navy-600 hover:border-blue-400 hover:bg-navy-800/60 rounded-lg p-4 transition-colors flex flex-col gap-1"
+                className="group text-left border border-chrome2-500 hover:border-blue-400 hover:bg-chrome2-800/60 rounded-lg p-4 transition-colors flex flex-col gap-1"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-2xl leading-none">{tpl.emoji}</span>
