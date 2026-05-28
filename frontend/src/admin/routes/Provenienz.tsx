@@ -211,7 +211,7 @@ function ViewToggle({
         onClick={() => onChange(key)}
         className={`px-3 py-1 rounded flex items-center gap-1.5 ${T.body} transition-colors ${
           active
-            ? "bg-blue-600 text-white"
+            ? "bg-brand-500 text-white"
             : "text-slate-300 hover:bg-chrome2-700"
         }`}
       >

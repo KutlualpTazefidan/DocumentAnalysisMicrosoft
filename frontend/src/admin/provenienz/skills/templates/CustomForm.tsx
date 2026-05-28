@@ -503,7 +503,7 @@ export function CustomForm({
                       key={s}
                       className={`px-3 py-1.5 rounded cursor-pointer ${T.body} font-mono ${
                         checked
-                          ? "bg-blue-700 text-white"
+                          ? "bg-brand-500 text-white"
                           : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
                       }`}
                     >
@@ -917,7 +917,7 @@ export function CustomForm({
               type="button"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit || submitPending}
-              className={`px-4 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} font-semibold disabled:opacity-50`}
+              className={`px-4 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} font-semibold disabled:opacity-50`}
             >
               {submitPending
                 ? isEdit

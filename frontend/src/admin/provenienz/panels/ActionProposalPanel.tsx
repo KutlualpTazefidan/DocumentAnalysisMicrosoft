@@ -274,7 +274,7 @@ export function ActionProposalPanel({
               type="button"
               onClick={() => void handleDecide()}
               disabled={disabled}
-              className={`w-full px-3 py-2 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} disabled:opacity-50`}
+              className={`w-full px-3 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} disabled:opacity-50`}
             >
               {decide.isPending ? "Entscheide…" : "Entscheiden"}
             </button>

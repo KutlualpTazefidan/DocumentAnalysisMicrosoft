@@ -114,7 +114,7 @@ export function FullscreenTextEditor({
               type="button"
               onClick={() => onSave(text)}
               disabled={!text.trim()}
-              className={`px-4 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} font-semibold disabled:opacity-50`}
+              className={`px-4 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} font-semibold disabled:opacity-50`}
             >
               {saveLabel}
             </button>

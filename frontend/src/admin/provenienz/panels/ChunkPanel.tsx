@@ -156,7 +156,7 @@ export function ChunkPanel({
               type="button"
               onClick={() => void handleExtract()}
               disabled={extract.isPending}
-              className={`w-full px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny} disabled:opacity-50`}
+              className={`w-full px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.tiny} disabled:opacity-50`}
             >
               {extract.isPending ? "…" : "Aussagen extrahieren"}
             </button>

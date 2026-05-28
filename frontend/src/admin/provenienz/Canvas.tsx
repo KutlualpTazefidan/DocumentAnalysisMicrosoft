@@ -355,7 +355,7 @@ function ToolbarButton({
       aria-label={title}
       className={`p-1.5 rounded transition-colors ${
         active
-          ? "bg-blue-600 text-white"
+          ? "bg-brand-500 text-white"
           : "text-slate-300 hover:bg-chrome2-700 hover:text-white"
       }`}
     >
