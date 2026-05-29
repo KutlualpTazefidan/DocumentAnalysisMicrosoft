@@ -127,10 +127,10 @@ describe("ExtractRoute", () => {
     render(wrap());
     await waitForEditor();
     // The Extract tab must be present and marked active (aria-current=page)
-    const extractTab = screen.getByRole("tab", { name: /extract/i });
+    const extractTab = screen.getByRole("tab", { name: /extrahieren/i });
     expect(extractTab).toHaveAttribute("aria-current", "page");
     // Other tabs present but not active
-    expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("tab", { name: /synthese/i })).not.toHaveAttribute("aria-current");
   });
 
   it("Re-extract this box is disabled when no box is highlighted, enabled after clicking one", async () => {
@@ -158,7 +158,7 @@ describe("ExtractRoute", () => {
     render(wrapNoHtml());
 
     // Full chrome renders: DocStepTabs in the top bar
-    await waitFor(() => expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /extrahieren/i })).toBeInTheDocument());
     // Top-bar action button "Re-extract all" remains the entry point
     expect(screen.getByLabelText("Re-extract all")).toBeInTheDocument();
     // Hint card overlay is visible
@@ -222,7 +222,7 @@ describe("ExtractRoute", () => {
     await waitForEditor();
     await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
 
-    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    const lockBtn = screen.getByRole("button", { name: /seite abschließen/i });
     fireEvent.click(lockBtn);
 
     fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
@@ -234,15 +234,15 @@ describe("ExtractRoute", () => {
     expect(stored).toContain(1);
   });
 
-  it("lock button label toggles to 'Diese Seite entsperren' after locking", async () => {
+  it("lock button label toggles to 'Seite wieder öffnen' after locking", async () => {
     render(wrap());
     await waitForEditor();
 
-    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    const lockBtn = screen.getByRole("button", { name: /seite abschließen/i });
     fireEvent.click(lockBtn);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /diese seite entsperren/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /seite wieder öffnen/i })).toBeInTheDocument(),
     );
   });
 

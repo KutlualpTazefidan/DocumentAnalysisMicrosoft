@@ -8,6 +8,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { getDoc } from "../api/docs";
 import { T } from "../styles/typography";
+import { Crop, Download, FolderTree, Lock, Play, Plus, RefreshCw, Trash2, Unlock } from "lucide-react";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { ExtractDiagnose } from "../components/ExtractDiagnose";
@@ -263,13 +264,18 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const confState = useMemo(() => loadConf(slug ?? ""), [slug]);
   const confThresholdForPage = effectiveThreshold(confState, page);
 
-  const boxesOnPage = useMemo(() => {
-    const allOnPage = (segments.data?.boxes ?? []).filter((b) => b.page === page);
-    // Apply the same confidence filter as segment route (display only — extraction is not filtered).
-    return allOnPage.filter(
-      (b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confThresholdForPage),
-    );
-  }, [segments.data, page, confThresholdForPage]);
+  // All non-discarded boxes on the page (pre confidence-filter) — used to
+  // show how many got hidden by the confidence filter.
+  const allBoxesOnPage = useMemo(
+    () => (segments.data?.boxes ?? []).filter((b) => b.page === page && b.kind !== "discard"),
+    [segments.data, page],
+  );
+  const boxesOnPage = useMemo(
+    // Same confidence filter as segment route (display only — extraction is not filtered).
+    () => allBoxesOnPage.filter((b) => b.manually_activated || b.confidence >= confThresholdForPage),
+    [allBoxesOnPage, confThresholdForPage],
+  );
+  const hiddenCount = allBoxesOnPage.length - boxesOnPage.length;
 
   // The currently-selected box (highlighted via click) — sourced from segments
   // so the BoxPropertiesPanel reflects the latest state after edits.
@@ -317,7 +323,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       <button
         aria-label="Verzeichnisse erkennen und anzeigen"
         title="Erkennt Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis im ganzen Dokument und öffnet die strukturierte Tabellenansicht. Manuell gesetzte Boxen bleiben unverändert — Re-Klick ist sicher."
-        className={`${T.body} px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`${T.body} px-3 py-1 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
         onClick={() =>
           detectRegistersMut.mutate(undefined, {
             onError: (e) =>
@@ -343,22 +349,26 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         }
         disabled={detectRegistersMut.isPending}
       >
-        {detectRegistersMut.isPending ? "Scanne…" : "📑 Verzeichnisse extrahieren"}
+        <FolderTree className="w-3.5 h-3.5" aria-hidden />
+        {detectRegistersMut.isPending ? "Scanne…" : "Verzeichnisse erkennen"}
       </button>
+      <span aria-hidden className="self-stretch w-px bg-white/25 mx-1" />
       <button
         aria-label="Re-extract all"
-        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+        className={`${T.body} px-3 py-1 btn-primary gap-1.5`}
         onClick={runExtract}
         disabled={running}
       >
+        <Play className="w-3.5 h-3.5" aria-hidden />
         Alle Seiten extrahieren
       </button>
       <button
         aria-label="Export sourceelements.json"
-        className={`${T.body} px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`${T.body} px-3 py-1 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
         onClick={handleExport}
         disabled={exportSrc.isPending}
       >
+        <Download className="w-3.5 h-3.5" aria-hidden />
         Export
       </button>
       {/* Save-state indicator (HTML editor). Extraction progress lives in the
@@ -487,7 +497,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
-                Gesperrt
+                Abgeschlossen
               </span>
             </div>
 
@@ -575,15 +585,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           {/* Per-page extract */}
           <button
             aria-label="Re-extract this page"
-            title={
-              approvedPages.has(page)
-                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
-                : undefined
-            }
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={approvedPages.has(page) ? "Seite ist abgeschlossen." : undefined}
+            className={`w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`}
             onClick={runExtractThisPage}
             disabled={running || approvedPages.has(page)}
           >
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden />
             {running ? "Läuft…" : "Diese Seite extrahieren"}
           </button>
 
@@ -592,41 +599,50 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             aria-label="Re-extract this box"
             title={
               approvedPages.has(page)
-                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
+                ? "Seite ist abgeschlossen."
                 : !highlight
                 ? "Klicke zuerst eine Box im PDF an"
                 : undefined
             }
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={`w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
             onClick={handleReExtractBox}
             disabled={!highlight || running || approvedPages.has(page)}
           >
+            <Crop className="w-3.5 h-3.5" aria-hidden />
             Diese Box extrahieren
           </button>
 
           {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
           <button
-            aria-label={approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"}
+            aria-label={approvedPages.has(page) ? "Seite wieder öffnen" : "Seite abschließen"}
             className={
               approvedPages.has(page)
-                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
-                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
+                ? `w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`
+                : `w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5`
             }
             onClick={handleToggleApprove}
           >
-            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+            {approvedPages.has(page) ? (
+              <><Lock className="w-3.5 h-3.5" aria-hidden />Seite wieder öffnen</>
+            ) : (
+              <><Unlock className="w-3.5 h-3.5" aria-hidden />Seite abschließen</>
+            )}
           </button>
+          <p className={`${T.tiny} text-slate-500 text-center -mt-1`}>
+            Abgeschlossene Seiten können nicht neu extrahiert werden.
+          </p>
 
           {/* Conf filter status indicator */}
           <p
             className={`${T.bodyMuted} text-center`}
             data-testid="conf-filter-status"
+            title="Boxen mit niedriger Konfidenz werden ausgeblendet (Anzeige-Filter; die Extraktion ist nicht betroffen)."
           >
-            Filter aktiv: Conf ≥ {confThresholdForPage.toFixed(2)}
+            {hiddenCount} Boxen unter Schwelle {confThresholdForPage.toFixed(2)} ausgeblendet
           </p>
 
           <p className={`${T.body} text-slate-400 text-center`}>
-            {boxesOnPage.length} boxes on page {page}
+            {boxesOnPage.length} Boxen auf Seite {page}
           </p>
 
           {/* New / Delete box — POST /segments (creates a kind=paragraph
@@ -638,7 +654,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             <button
               aria-label="New box"
               disabled={createBoxMut.isPending}
-              className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
               onClick={() =>
                 createBoxMut.mutate(
                   { page, bbox: [50, 50, 200, 200], kind: "paragraph" },
@@ -650,13 +666,14 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                 )
               }
             >
-              {createBoxMut.isPending ? "…" : "New box"}
+              <Plus className="w-3.5 h-3.5" aria-hidden />
+              {createBoxMut.isPending ? "…" : "Neue Box"}
             </button>
             <button
               aria-label="Delete box"
               disabled={!focusedBox || deleteBoxMut.isPending}
               title={!focusedBox ? "Wähle zuerst eine Box aus" : `Box ${focusedBox.box_id} löschen`}
-              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`${T.body} px-3 py-1.5 btn-danger gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
               onClick={() => {
                 if (!focusedBox) return;
                 if (!window.confirm(`Box ${focusedBox.box_id} löschen?`)) return;
@@ -670,7 +687,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                 });
               }}
             >
-              {deleteBoxMut.isPending ? "…" : "Delete box"}
+              <Trash2 className="w-3.5 h-3.5" aria-hidden />
+              {deleteBoxMut.isPending ? "…" : "Box löschen"}
             </button>
           </div>
 
