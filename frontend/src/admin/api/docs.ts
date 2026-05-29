@@ -199,6 +199,30 @@ export async function extractRegion(slug: string, boxId: string, token: string):
   return r.json();
 }
 
+// ── Per-page extraction status (server-backed) ─────────────────────────────
+
+export async function getPageStatus(
+  slug: string,
+  token: string,
+): Promise<{ slug: string; done_pages: number[] }> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/pages/status`, token);
+  return r.json();
+}
+
+export async function setPageStatus(
+  slug: string,
+  page: number,
+  status: "done" | "not_started" | "in_progress",
+  token: string,
+): Promise<{ page: number; status: string }> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/pages/${page}/status`,
+    token,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) },
+  );
+  return r.json();
+}
+
 export async function publishDoc(slug: string, token: string): Promise<DocMeta> {
   const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/publish`, token, { method: "POST" });
   return r.json();

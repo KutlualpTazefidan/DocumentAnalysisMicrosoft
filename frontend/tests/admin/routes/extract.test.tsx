@@ -53,6 +53,15 @@ const server = setupServer(
   http.get("*/api/admin/docs/rep/mineru", () =>
     HttpResponse.json(MINERU_DATA),
   ),
+  // Server-backed per-page status — default: no pages done. Individual
+  // tests override this handler to simulate a page being marked done.
+  http.get("*/api/admin/docs/rep/pages/status", () =>
+    HttpResponse.json({ slug: "rep", done_pages: [] }),
+  ),
+  http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+    const body = (await request.json()) as { status: string };
+    return HttpResponse.json({ page: Number(params.page), status: body.status });
+  }),
 );
 
 beforeAll(() => server.listen());
@@ -217,7 +226,24 @@ describe("ExtractRoute", () => {
     expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("lock button toggles page to blue (locked) state and persists to localStorage", async () => {
+  it("lock button PATCHes the page to done and flips the page button to blue", async () => {
+    // Server starts with page 1 not done; after the PATCH it reports it done
+    // so the post-mutation refetch keeps the button blue.
+    let done: number[] = [];
+    const patchSpy = vi.fn();
+    server.use(
+      http.get("*/api/admin/docs/rep/pages/status", () =>
+        HttpResponse.json({ slug: "rep", done_pages: done }),
+      ),
+      http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+        const body = (await request.json()) as { status: string };
+        patchSpy({ page: Number(params.page), status: body.status });
+        if (body.status === "done") done = [Number(params.page)];
+        else done = done.filter((p) => p !== Number(params.page));
+        return HttpResponse.json({ page: Number(params.page), status: body.status });
+      }),
+    );
+
     render(wrap());
     await waitForEditor();
     await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
@@ -225,16 +251,32 @@ describe("ExtractRoute", () => {
     const lockBtn = screen.getByRole("button", { name: /seite abschließen/i });
     fireEvent.click(lockBtn);
 
+    // PATCH fired with the "done" status for page 1.
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith({ page: 1, status: "done" }),
+    );
+
+    // Page-grid button for page 1 flips to blue (done) state.
     fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("page-btn-1").className).toContain("blue"),
     );
-
-    const stored = JSON.parse(localStorage.getItem("extract.approved.rep") ?? "[]") as number[];
-    expect(stored).toContain(1);
   });
 
-  it("lock button label toggles to 'Seite wieder öffnen' after locking", async () => {
+  it("lock button label toggles to 'Seite wieder öffnen' after marking done", async () => {
+    let done: number[] = [];
+    server.use(
+      http.get("*/api/admin/docs/rep/pages/status", () =>
+        HttpResponse.json({ slug: "rep", done_pages: done }),
+      ),
+      http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+        const body = (await request.json()) as { status: string };
+        if (body.status === "done") done = [Number(params.page)];
+        else done = done.filter((p) => p !== Number(params.page));
+        return HttpResponse.json({ page: Number(params.page), status: body.status });
+      }),
+    );
+
     render(wrap());
     await waitForEditor();
 

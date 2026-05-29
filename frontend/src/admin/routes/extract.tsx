@@ -43,6 +43,7 @@ import {
   useMineru,
   useUpdateElement,
 } from "../hooks/useExtract";
+import { usePageStatus, useSetPageStatus } from "../hooks/usePageStatus";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import { loadConf, effectiveThreshold } from "../lib/confThreshold";
 import type { WorkerEvent } from "../types/domain";
@@ -55,50 +56,33 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
   return applyEvent(state, ev);
 }
 
-// ── Approval helpers (v1: localStorage) ───────────────────────────────────────
-
-function approvedPagesKey(slug: string): string {
-  return `extract.approved.${slug}`;
-}
-
-function loadApprovedPages(slug: string): Set<number> {
-  try {
-    const raw = localStorage.getItem(approvedPagesKey(slug));
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw) as number[];
-    return new Set(arr);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveApprovedPages(slug: string, pages: Set<number>): void {
-  localStorage.setItem(approvedPagesKey(slug), JSON.stringify([...pages]));
-}
-
 // ── Page-state helpers ─────────────────────────────────────────────────────────
 
-type PageState = "no-extraction" | "extracted" | "approved";
+// Three states map onto the 3-colour legend:
+//   not_started  (red)   — no mineru extraction, not marked done
+//   in_progress  (green) — has mineru extraction (derived from extractedPages)
+//   done         (blue)  — server marked the page abgeschlossen
+type PageState = "not_started" | "in_progress" | "done";
 
 function pageStateFor(
   pageNum: number,
   extractedPages: Set<number>,
-  approvedPages: Set<number>,
+  serverDone: Set<number>,
 ): PageState {
-  if (approvedPages.has(pageNum)) return "approved";
-  if (extractedPages.has(pageNum)) return "extracted";
-  return "no-extraction";
+  if (serverDone.has(pageNum)) return "done";
+  if (extractedPages.has(pageNum)) return "in_progress";
+  return "not_started";
 }
 
 function pageButtonClasses(state: PageState, isActive: boolean): string {
   const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center transition-colors`;
   const ring = isActive ? " ring-2 ring-blue-500" : "";
   switch (state) {
-    case "approved":
+    case "done":
       return `${base} bg-blue-100 hover:bg-blue-200 text-blue-800${ring}`;
-    case "extracted":
+    case "in_progress":
       return `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`;
-    case "no-extraction":
+    case "not_started":
     default:
       return `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
   }
@@ -137,9 +121,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const [gridOpen, setGridOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
-  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
-    loadApprovedPages(slug ?? ""),
+  // Server-backed per-page "done" status (replaces the old localStorage
+  // approval flag). Only "done" comes from the server; in_progress /
+  // not_started are derived from extractedPages below.
+  const pageStatus = usePageStatus(slug ?? "", token);
+  const setStatus = useSetPageStatus(slug ?? "", token);
+  const serverDone = useMemo(
+    () => new Set(pageStatus.data?.done_pages ?? []),
+    [pageStatus.data],
   );
+  // "Abgeschlossene Seiten schützen" — when on, a full-doc run passes
+  // protect_done=true so the backend skips pages already marked done.
+  // Default OFF.
+  const [protectDone, setProtectDone] = useState(false);
   // Zoom persisted under admin.extract.scale, mirroring segment's pattern.
   const [scale, setScale] = useState<number>(() => {
     const stored = parseFloat(localStorage.getItem("admin.extract.scale") ?? "");
@@ -177,7 +171,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   async function runExtract() {
     setRunning(true);
     try {
-      for await (const ev of streamSegment(slug!, token)) {
+      for await (const ev of streamSegment(slug!, token, undefined, undefined, protectDone)) {
         dispatch(ev);
         if (ev.type === "work-complete") success(`extracted ${ev.items_processed} blocks`);
         if (ev.type === "work-failed") error(ev.reason);
@@ -185,6 +179,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       await segments.refetch();
       await html.refetch();
       await mineru.refetch();
+      // A full run clears done bits on the backend (unless protected) →
+      // refetch so the page-grid colours reflect the new server state.
+      await pageStatus.refetch();
     } catch (e) {
       error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
@@ -203,6 +200,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       await segments.refetch();
       await html.refetch();
       await mineru.refetch();
+      await pageStatus.refetch();
     } catch (e) {
       error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
@@ -230,17 +228,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       onSuccess: (r) => success(`re-extracted ${r.box_id}`),
       onError: (err) => error((err as Error).message),
     });
-  }
-
-  function handleToggleApprove() {
-    const next = new Set(approvedPages);
-    if (next.has(page)) {
-      next.delete(page);
-    } else {
-      next.add(page);
-    }
-    setApprovedPages(next);
-    saveApprovedPages(slug ?? "", next);
   }
 
   const rasterDpi = segments.data?.raster_dpi ?? 144;
@@ -362,6 +349,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         <Play className="w-3.5 h-3.5" aria-hidden />
         Alle Seiten extrahieren
       </button>
+      <label
+        className={`${T.body} flex items-center gap-1.5 text-navy-100 cursor-pointer select-none`}
+        title="Bereits abgeschlossene Seiten bei „Alle Seiten extrahieren“ überspringen."
+      >
+        <input
+          type="checkbox"
+          aria-label="Abgeschlossene Seiten schützen"
+          checked={protectDone}
+          onChange={(e) => setProtectDone(e.target.checked)}
+          className="accent-blue-600"
+        />
+        Abgeschlossene Seiten schützen
+      </label>
       <button
         aria-label="Export sourceelements.json"
         className={`${T.body} px-3 py-1 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
@@ -443,7 +443,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                     selected={highlight === b.box_id}
                     // Editable via drag/resize; commits once on mouse-up.
                     // Finished ("abgeschlossen") pages are select-only.
-                    readOnly={approvedPages.has(page)}
+                    readOnly={serverDone.has(page)}
                     onSelect={(id) => setHighlight((prev) => (prev === id ? null : id))}
                     onCommit={(id, bbox) => updateBoxMut.mutate({ boxId: id, patch: { bbox } })}
                     scale={boxScale}
@@ -487,6 +487,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               page-toggle button, and the expanding grid disappears below
               the visible area. */}
           <div className="sticky top-0 z-10 bg-white -mx-4 px-4 pb-2 -mt-4 pt-4 border-b border-slate-100 flex flex-col gap-3">
+            {/* Progress — how many pages are marked abgeschlossen */}
+            <p
+              className={`${T.tiny} text-slate-500 text-center`}
+              data-testid="pages-done-progress"
+            >
+              {serverDone.size} / {totalPages} abgeschlossen
+            </p>
             {/* Legend strip — single line, always visible */}
             <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
               <span className="flex items-center gap-1">
@@ -518,7 +525,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
               aria-expanded={gridOpen}
               onClick={() => setGridOpen((p) => !p)}
-              className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
+              className={`${pageButtonClasses(pageStateFor(page, extractedPages, serverDone), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
               data-testid="extract-page-grid-toggle"
             >
               <span>Seite {page} / {totalPages}</span>
@@ -558,7 +565,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                   aria-label="Page navigation"
                 >
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                    const state = pageStateFor(p, extractedPages, approvedPages);
+                    const state = pageStateFor(p, extractedPages, serverDone);
                     return (
                       <button
                         key={p}
@@ -587,10 +594,10 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           {/* Per-page extract */}
           <button
             aria-label="Re-extract this page"
-            title={approvedPages.has(page) ? "Seite ist abgeschlossen." : undefined}
+            title={serverDone.has(page) ? "Seite ist abgeschlossen." : undefined}
             className={`w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`}
             onClick={runExtractThisPage}
-            disabled={running || approvedPages.has(page)}
+            disabled={running || serverDone.has(page)}
           >
             <RefreshCw className="w-3.5 h-3.5" aria-hidden />
             {running ? "Läuft…" : "Diese Seite extrahieren"}
@@ -600,7 +607,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <button
             aria-label="Re-extract this box"
             title={
-              approvedPages.has(page)
+              serverDone.has(page)
                 ? "Seite ist abgeschlossen."
                 : !highlight
                 ? "Klicke zuerst eine Box im PDF an"
@@ -608,7 +615,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             }
             className={`w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
             onClick={handleReExtractBox}
-            disabled={!highlight || running || approvedPages.has(page)}
+            disabled={!highlight || running || serverDone.has(page)}
           >
             <Crop className="w-3.5 h-3.5" aria-hidden />
             Diese Box extrahieren
@@ -616,15 +623,17 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
           {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
           <button
-            aria-label={approvedPages.has(page) ? "Seite wieder öffnen" : "Seite abschließen"}
+            aria-label={serverDone.has(page) ? "Seite wieder öffnen" : "Seite abschließen"}
             className={
-              approvedPages.has(page)
+              serverDone.has(page)
                 ? `w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`
                 : `w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5`
             }
-            onClick={handleToggleApprove}
+            onClick={() =>
+              setStatus.mutate({ page, status: serverDone.has(page) ? "not_started" : "done" })
+            }
           >
-            {approvedPages.has(page) ? (
+            {serverDone.has(page) ? (
               <><Lock className="w-3.5 h-3.5" aria-hidden />Seite wieder öffnen</>
             ) : (
               <><Unlock className="w-3.5 h-3.5" aria-hidden />Seite abschließen</>
