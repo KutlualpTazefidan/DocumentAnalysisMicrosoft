@@ -119,7 +119,7 @@ describe("Synthesise", () => {
       expect(screen.getByTestId("synth-html-preview")).toBeInTheDocument(),
     );
     expect(
-      screen.getByRole("tab", { name: /synthesise/i }),
+      screen.getByRole("tab", { name: /synthese/i }),
     ).toHaveAttribute("aria-current", "page");
   });
 

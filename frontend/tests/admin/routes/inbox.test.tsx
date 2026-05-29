@@ -46,34 +46,35 @@ describe("InboxRoute", () => {
     render(wrapped());
     await waitFor(() => expect(screen.getByText("Rep.pdf")).toBeInTheDocument());
     expect(screen.getByText("Spec.pdf")).toBeInTheDocument();
-    expect(screen.getByText("raw")).toBeInTheDocument();
-    expect(screen.getByText("done")).toBeInTheDocument();
+    // DocStatusBadge renders German labels: raw → "Roh", done → "Fertig".
+    expect(screen.getByText("Roh")).toBeInTheDocument();
+    expect(screen.getByText("Fertig")).toBeInTheDocument();
   });
 
   it("filters by search input", async () => {
     render(wrapped());
     await waitFor(() => expect(screen.getByText("Rep.pdf")).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "spec" } });
+    fireEvent.change(screen.getByPlaceholderText(/suchen/i), { target: { value: "spec" } });
     expect(screen.queryByText("Rep.pdf")).not.toBeInTheDocument();
     expect(screen.getByText("Spec.pdf")).toBeInTheDocument();
   });
 
   it("renders Add PDF button", async () => {
     render(wrapped());
-    expect(screen.getByRole("button", { name: /add pdf/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /PDF hinzufügen/i })).toBeInTheDocument();
   });
 
   it("shows Publish button for extracted docs", async () => {
     render(wrapped());
     await waitFor(() => expect(screen.getByText("Ext.pdf")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /publish/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /veröffentlichen/i })).toBeInTheDocument();
   });
 
   it("does not show Publish button for raw docs", async () => {
     render(wrapped());
     await waitFor(() => expect(screen.getByText("Rep.pdf")).toBeInTheDocument());
     // only one Publish button (for ext, not rep or spec)
-    expect(screen.getAllByRole("button", { name: /publish/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /veröffentlichen/i })).toHaveLength(1);
   });
 
   it("renders DocStepTabs in the top bar with Files tab active and doc tabs disabled", async () => {
@@ -81,11 +82,11 @@ describe("InboxRoute", () => {
     // TabList must be present
     expect(screen.getByRole("tablist")).toBeInTheDocument();
     // Files tab is a link and active
-    const filesTab = screen.getByRole("tab", { name: /files/i });
+    const filesTab = screen.getByRole("tab", { name: /dateien/i });
     expect(filesTab.tagName).toBe("A");
     expect(filesTab).toHaveAttribute("aria-current", "page");
     // Extract/Synthesise are disabled spans (no slug yet)
-    expect(screen.getByRole("tab", { name: /extract/i })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("tab", { name: /synthesise/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("tab", { name: /extrahieren/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("tab", { name: /synthese/i })).toHaveAttribute("aria-disabled", "true");
   });
 });
