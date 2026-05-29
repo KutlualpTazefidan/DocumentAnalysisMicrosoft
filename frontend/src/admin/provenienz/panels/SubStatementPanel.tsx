@@ -22,13 +22,13 @@ export function SubStatementPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "sub_statement") return <></>;
-  const sub = view.sub_statement;
-  const text = String((sub.payload as { text?: string }).text ?? "");
   const evaluate = useEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "sub_statement") return <></>;
+  const sub = view.sub_statement;
+  const text = String((sub.payload as { text?: string }).text ?? "");
 
   async function handleEvaluate(): Promise<void> {
     try {

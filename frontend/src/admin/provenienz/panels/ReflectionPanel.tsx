@@ -29,6 +29,8 @@ export function ReflectionPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "reflection") return <></>;
   const node = view.reflection;
   const p = node.payload as {
@@ -40,8 +42,6 @@ export function ReflectionPanel({
     step_kind_reviewed?: string;
     audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
-  const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
 
   const assessment = String(p.self_assessment ?? "vollständig");
   const recommendation = String(p.recommendation ?? "accept");

@@ -21,6 +21,11 @@ export function ChunkPanel({
   nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const extract = useExtractClaims(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
+  const refresh = useRefreshChunk(token, sessionId);
+  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
   if (view.kind !== "chunk") return <></>;
   const chunk = view.chunk;
   const text = String(chunk.payload.text ?? "");
@@ -32,12 +37,6 @@ export function ChunkPanel({
     typeof chunk.payload.caption_box_id === "string"
       ? chunk.payload.caption_box_id
       : null;
-
-  const extract = useExtractClaims(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const del = useDeleteNode(token, sessionId);
-  const refresh = useRefreshChunk(token, sessionId);
-  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
 
   async function handleNextStep(): Promise<void> {
     await stream.start(chunk.node_id);

@@ -36,6 +36,9 @@ export function EvaluationPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "evaluation") return <></>;
   const node = view.evaluation;
   const p = node.payload as {
@@ -84,9 +87,6 @@ export function EvaluationPanel({
   const parentSearchResultId = String(
     p.search_result_node_id ?? "",
   );
-  const del = useDeleteNode(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const { error: toastError } = useToast();
 
   async function handleNextStep(): Promise<void> {
     if (!parentSearchResultId) {

@@ -16,6 +16,8 @@ export function CapabilityRequestPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "capability_request") return <></>;
   const node = view.request;
   const p = node.payload as {
@@ -26,8 +28,6 @@ export function CapabilityRequestPanel({
     confidence?: number;
     audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
-  const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
   const conf =
     typeof p.confidence === "number" ? Math.round(p.confidence * 100) : null;
   const alts = Array.isArray(p.considered_alternatives)

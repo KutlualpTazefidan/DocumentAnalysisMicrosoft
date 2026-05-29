@@ -45,6 +45,13 @@ export function SearchResultPanel({
   edges,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const evaluate = useEvaluate(token, sessionId);
+  const promote = usePromoteSearchResult(token, sessionId);
+  const crossDocSearch = useCrossDocSearchStep(token, sessionId);
+  const calculatorOnResult = useCalculatorOnResult(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "search_result") return <></>;
   const result = view.result;
   const evalNode = view.evaluation;
@@ -81,14 +88,6 @@ export function SearchResultPanel({
   const confidence = evalNode
     ? Number((evalNode.payload as { confidence?: number }).confidence ?? 0)
     : null;
-
-  const evaluate = useEvaluate(token, sessionId);
-  const promote = usePromoteSearchResult(token, sessionId);
-  const crossDocSearch = useCrossDocSearchStep(token, sessionId);
-  const calculatorOnResult = useCalculatorOnResult(token, sessionId);
-  const del = useDeleteNode(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const { error: toastError } = useToast();
 
   // Existing tool_annotation Nodes attached to this result via
   // "enriches" edges — show them in-panel so the user sees what

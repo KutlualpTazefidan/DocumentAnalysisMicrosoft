@@ -31,10 +31,23 @@ export function ClaimPanel({
   edges,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const initialGoal =
+    view.kind === "claim" ? String(view.claim.payload.goal ?? "") : "";
+  const session = useSession(sessionId, token);
+  const formulate = useFormulateTask(token, sessionId);
+  const stop = useProposeStop(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
+  const setClaimGoal = useSetClaimGoal(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const { error: toastError } = useToast();
+  const [goalDraft, setGoalDraft] = useState(initialGoal);
+  const [editingGoal, setEditingGoal] = useState(false);
+  useEffect(() => {
+    if (!editingGoal) setGoalDraft(initialGoal);
+  }, [initialGoal, editingGoal]);
   if (view.kind !== "claim") return <></>;
   const claim = view.claim;
   const closed = !!view.closedByStop;
-  const session = useSession(sessionId, token);
   const sessionGoal = String(session.data?.meta.goal ?? "").trim();
   const sourceNodeId = String(claim.payload.source_node_id ?? "");
   const sourceChunk = sourceNodeId
@@ -62,23 +75,9 @@ export function ClaimPanel({
     claim.node_id,
   );
 
-  const formulate = useFormulateTask(token, sessionId);
-  const stop = useProposeStop(token, sessionId);
-  const del = useDeleteNode(token, sessionId);
-  const setClaimGoal = useSetClaimGoal(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const { error: toastError } = useToast();
-
   async function handleNextStep(): Promise<void> {
     await stream.start(claim.node_id);
   }
-
-  const initialGoal = String(claim.payload.goal ?? "");
-  const [goalDraft, setGoalDraft] = useState(initialGoal);
-  const [editingGoal, setEditingGoal] = useState(false);
-  useEffect(() => {
-    if (!editingGoal) setGoalDraft(initialGoal);
-  }, [initialGoal, editingGoal]);
 
   async function handleFormulate(): Promise<void> {
     try {

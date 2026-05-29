@@ -30,9 +30,6 @@ export function SearchResultsBagPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "search_results_bag") return <></>;
-  const bagView = view;
-  const claimId = String(bagView.task.payload.focus_claim_id ?? "");
   const evaluate = useEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const promote = usePromoteSearchResult(token, sessionId);
@@ -40,6 +37,9 @@ export function SearchResultsBagPanel({
   // agent-run at a time. Per-row buttons set the anchor when fired.
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "search_results_bag") return <></>;
+  const bagView = view;
+  const claimId = String(bagView.task.payload.focus_claim_id ?? "");
 
   async function handleEvaluate(resultId: string): Promise<void> {
     if (!claimId) {

@@ -28,17 +28,17 @@ export function CapabilityGatePanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "capability_gate") return <></>;
-  const node = view.gate;
-  const p = node.payload as {
-    evaluation_node_id?: string;
-    detected?: DetectedEntry[];
-    capability_ids?: string[];
-    loaded_rules_preview?: string;
-    status?: string;
-    re_evaluate_proposal_id?: string;
-  };
-  const detected = Array.isArray(p.detected) ? p.detected : [];
+  const p =
+    view.kind === "capability_gate"
+      ? (view.gate.payload as {
+          evaluation_node_id?: string;
+          detected?: DetectedEntry[];
+          capability_ids?: string[];
+          loaded_rules_preview?: string;
+          status?: string;
+          re_evaluate_proposal_id?: string;
+        })
+      : {};
   const initialSelection = new Set(
     Array.isArray(p.capability_ids) ? p.capability_ids : [],
   );
@@ -46,6 +46,9 @@ export function CapabilityGatePanel({
   const reEval = useReEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "capability_gate") return <></>;
+  const node = view.gate;
+  const detected = Array.isArray(p.detected) ? p.detected : [];
   const status = String(p.status ?? "pending");
   const isPending = status === "pending";
 

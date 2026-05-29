@@ -46,14 +46,14 @@ export function TaskPanel({
   nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "task") return <></>;
-  const task = view.task;
   const search = useSearchStep(token, sessionId);
   const registerLookup = useRegisterLookupStep(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
   const [topK, setTopK] = useState(5);
+  if (view.kind !== "task") return <></>;
+  const task = view.task;
   const queryText = String(task.payload.query ?? "");
   const registerHint = detectRegisterHint(queryText);
   // Surface the parent claim's research goal alongside the BM25

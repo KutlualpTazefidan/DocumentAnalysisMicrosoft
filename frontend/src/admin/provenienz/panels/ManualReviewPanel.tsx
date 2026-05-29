@@ -10,6 +10,8 @@ export function ManualReviewPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "manual_review") return <></>;
   const node = view.review;
   const p = node.payload as {
@@ -19,8 +21,6 @@ export function ManualReviewPanel({
     confidence?: number;
     audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
-  const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
 
   async function handleDismiss(): Promise<void> {
     if (!window.confirm("Mensch-Aufgabe als erledigt verwerfen?")) return;

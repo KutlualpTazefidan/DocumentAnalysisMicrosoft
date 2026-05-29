@@ -19,12 +19,8 @@ export function ActionProposalPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "action_proposal") return <></>;
-  const decided = !!view.decision;
-  const node = view.proposal;
-  const payload = node.payload;
-  const stepKind = String(payload.step_kind ?? "");
-  const reasoning = payload.reasoning ? String(payload.reasoning) : "";
+  const payload: Record<string, unknown> =
+    view.kind === "action_proposal" ? view.proposal.payload : {};
   const recommended = useMemo<ActionProposalAlternative | null>(() => {
     const r = payload.recommended;
     if (r && typeof r === "object" && "label" in r) {
@@ -43,8 +39,6 @@ export function ActionProposalPanel({
       : [];
   }, [payload.guidance_consulted]);
 
-  const overrideAllowed = stepKind !== "search";
-
   const [choice, setChoice] = useState<Choice>("recommended");
   const [altIndex, setAltIndex] = useState<number>(0);
   const [overrideText, setOverrideText] = useState<string>("");
@@ -54,6 +48,13 @@ export function ActionProposalPanel({
   const del = useDeleteNode(token, sessionId);
   const reflect = useReflect(token, sessionId);
   const { error: toastError } = useToast();
+
+  if (view.kind !== "action_proposal") return <></>;
+  const decided = !!view.decision;
+  const node = view.proposal;
+  const stepKind = String(payload.step_kind ?? "");
+  const reasoning = payload.reasoning ? String(payload.reasoning) : "";
+  const overrideAllowed = stepKind !== "search";
 
   const overrideEmpty = choice === "override" && !overrideText.trim();
   const altMissing =
