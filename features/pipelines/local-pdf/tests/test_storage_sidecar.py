@@ -95,6 +95,71 @@ def test_doc_dir_path_layout(data_root: Path) -> None:
     assert doc_dir(data_root, "alpha") == data_root / "alpha"
 
 
+def test_page_status_round_trips(data_root: Path) -> None:
+    """write_page_status then read_page_status returns the same done_pages."""
+    from local_pdf.api.schemas import PageStatusFile
+    from local_pdf.storage.sidecar import doc_dir, read_page_status, write_page_status
+
+    slug = "rep"
+    doc_dir(data_root, slug).mkdir()
+    write_page_status(data_root, slug, PageStatusFile(slug=slug, done_pages=[3, 1, 2]))
+    loaded = read_page_status(data_root, slug)
+    assert loaded is not None
+    assert loaded.slug == slug
+    # Stored deduped + sorted.
+    assert loaded.done_pages == [1, 2, 3]
+
+
+def test_write_page_status_dedupes_and_sorts(data_root: Path) -> None:
+    """Duplicate / unsorted done_pages are normalised on write."""
+    from local_pdf.api.schemas import PageStatusFile
+    from local_pdf.storage.sidecar import doc_dir, read_page_status, write_page_status
+
+    slug = "rep"
+    doc_dir(data_root, slug).mkdir()
+    write_page_status(data_root, slug, PageStatusFile(slug=slug, done_pages=[5, 5, 2, 2, 9, 2]))
+    loaded = read_page_status(data_root, slug)
+    assert loaded is not None
+    assert loaded.done_pages == [2, 5, 9]
+
+
+def test_read_page_status_returns_none_when_missing(data_root: Path) -> None:
+    """A doc with no page_status.json sidecar reads back as None."""
+    from local_pdf.storage.sidecar import read_page_status
+
+    assert read_page_status(data_root, "nope") is None
+
+
+def test_update_page_status_add_then_remove_idempotent(data_root: Path) -> None:
+    """update_page_status adds a page when done, removes it when not done.
+
+    Re-adding an already-done page and re-removing a not-done page are no-ops;
+    the stored set stays deduped + sorted throughout.
+    """
+    from local_pdf.storage.sidecar import doc_dir, read_page_status, update_page_status
+
+    slug = "rep"
+    doc_dir(data_root, slug).mkdir()
+
+    # Add page 4.
+    out = update_page_status(data_root, slug, 4, done=True)
+    assert out.done_pages == [4]
+    # Add page 2 — stays sorted.
+    out = update_page_status(data_root, slug, 2, done=True)
+    assert out.done_pages == [2, 4]
+    # Adding page 4 again is idempotent (no duplicate).
+    out = update_page_status(data_root, slug, 4, done=True)
+    assert out.done_pages == [2, 4]
+    # Remove page 2.
+    out = update_page_status(data_root, slug, 2, done=False)
+    assert out.done_pages == [4]
+    # Removing a page that isn't done is a no-op.
+    out = update_page_status(data_root, slug, 99, done=False)
+    assert out.done_pages == [4]
+    # Persisted state matches the returned value.
+    assert read_page_status(data_root, slug).done_pages == [4]
+
+
 def test_read_segments_migrates_legacy_abandon_to_auxiliary(data_root: Path) -> None:
     """Legacy segments.json with kind='abandon' is transparently rewritten to 'auxiliary'."""
     from local_pdf.api.schemas import BoxKind

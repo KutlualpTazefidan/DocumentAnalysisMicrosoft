@@ -14,6 +14,7 @@ from local_pdf.api.schemas import (
     DocStatus,
     ExtractRegionRequest,
     HtmlPayload,
+    PageStatusFile,
     WorkFailedEvent,
 )
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
@@ -24,10 +25,13 @@ from local_pdf.storage.sidecar import (
     read_html,
     read_meta,
     read_mineru,
+    read_page_status,
     read_segments,
+    update_page_status,
     write_html,
     write_meta,
     write_mineru,
+    write_page_status,
     write_source_elements,
 )
 from local_pdf.workers.base import now_ms
@@ -336,7 +340,9 @@ def _merge_elements(existing: list[dict], new_elements: list[dict]) -> list[dict
 
 
 @router.post("/api/admin/docs/{slug}/extract")
-async def run_extract(slug: str, request: Request, page: int | None = None) -> StreamingResponse:
+async def run_extract(
+    slug: str, request: Request, page: int | None = None, protect_done: bool = False
+) -> StreamingResponse:
     pdf = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
@@ -358,13 +364,29 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
         targets = [b for b in targets if b.page == page]
 
     def stream():
+        # Snapshot the done-page set once at run start. Used both to skip
+        # re-extraction of done pages (target filter) and to preserve their
+        # already-extracted elements on a protected full run (merge below).
+        done = set(
+            (
+                read_page_status(_tr(request), slug) or PageStatusFile(slug=slug, done_pages=[])
+            ).done_pages
+        )
+        # Don't re-extract pages the user marked done on a protected full run.
+        # Use a fresh name — rebinding the enclosing `targets` inside the
+        # generator would make it a local and raise UnboundLocalError.
+        active_targets = (
+            [b for b in targets if b.page not in done]
+            if (page is None and protect_done)
+            else targets
+        )
         try:
             with MineruWorker(
                 extract_fn=_MINERU_EXTRACT_FN,
                 raster_dpi=seg.raster_dpi,
                 image_writer_dir=doc_dir(_tr(request), slug) / "mineru-images",
             ) as worker:
-                for ev in worker.run(pdf, targets):
+                for ev in worker.run(pdf, active_targets):
                     # Persist after each yielded WorkProgressEvent's box result.
                     yield ev.model_dump_json() + "\n"
                 # Build elements list from worker.results.
@@ -392,6 +414,23 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     existing_diags = existing_data.get("diagnostics", []) if existing_data else []
                     kept_diags = [d for d in existing_diags if d.get("page") != page]
                     merged_diagnostics = kept_diags + new_diagnostics
+                elif protect_done:
+                    # Protected full run: done pages were filtered OUT of
+                    # active_targets, so the worker produced nothing for them.
+                    # PRESERVE their already-extracted elements + diagnostics
+                    # rather than wiping them, then append the freshly-extracted
+                    # (non-done) elements.
+                    existing_data = read_mineru(_tr(request), slug)
+                    existing_elements = existing_data["elements"] if existing_data else []
+                    kept = [
+                        e
+                        for e in existing_elements
+                        if _page_from_box_id(e.get("box_id", "")) in done
+                    ]
+                    merged = kept + new_elements
+                    existing_diags = existing_data.get("diagnostics", []) if existing_data else []
+                    kept_diags = [d for d in existing_diags if d.get("page") in done]
+                    merged_diagnostics = kept_diags + new_diagnostics
                 else:
                     merged = new_elements
                     merged_diagnostics = new_diagnostics
@@ -401,6 +440,15 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     {"elements": merged, "diagnostics": merged_diagnostics},
                 )
                 write_html(_tr(request), slug, _wrap_html(merged))
+                # Reconcile done-bits on the SUCCESS path (post-write = atomic
+                # end-of-run). Per-page status is orthogonal to DocStatus.
+                if page is not None:
+                    # Re-extracted a single page → that page is no longer "done".
+                    update_page_status(_tr(request), slug, page, False)
+                elif not protect_done:
+                    # Full default run replaced EVERYTHING → clear all done-bits.
+                    write_page_status(_tr(request), slug, PageStatusFile(slug=slug, done_pages=[]))
+                # protect_done full run: done pages were preserved → keep bits.
                 # Verzeichnis-detection: full-doc extraction is the only
                 # state where we have heading-text for every box, so this
                 # only runs when ``page is None``. Manual per-page reruns

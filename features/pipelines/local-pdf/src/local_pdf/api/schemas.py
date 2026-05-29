@@ -35,8 +35,11 @@ __all__ = [
     "ModelLoadingEvent",
     "ModelUnloadedEvent",
     "ModelUnloadingEvent",
+    "PageStatus",
+    "PageStatusFile",
     "SegmentBox",
     "SegmentsFile",
+    "SetPageStatusRequest",
     "SplitBoxRequest",
     "UpdateBoxRequest",
     "WorkCompleteEvent",
@@ -80,6 +83,15 @@ class DocStatus(StrEnum):
     archived = "archived"
     done = "done"  # legacy from A.0; keep for back-compat
     needs_ocr = "needs_ocr"
+
+
+class PageStatus(StrEnum):
+    # Per-page curation status, ORTHOGONAL to DocStatus. Only "done" is
+    # server-persisted (see PageStatusFile); "not_started"/"in_progress" are
+    # derived client-side and never stored.
+    not_started = "not_started"
+    in_progress = "in_progress"
+    done = "done"
 
 
 class SegmentBox(BaseModel):
@@ -137,6 +149,19 @@ class UpdateBoxRequest(BaseModel):
     bbox: tuple[float, float, float, float] | None = None
     reading_order: int | None = None
     manually_activated: bool | None = None
+
+
+class SetPageStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    status: PageStatus
+
+
+class PageStatusFile(BaseModel):
+    # Per-doc sidecar. Stores ONLY the set of "done" pages; everything else is
+    # derived. done_pages is kept deduped + sorted by the storage layer.
+    model_config = ConfigDict(frozen=True)
+    slug: str
+    done_pages: list[int] = Field(default_factory=list)
 
 
 class MergeBoxesRequest(BaseModel):

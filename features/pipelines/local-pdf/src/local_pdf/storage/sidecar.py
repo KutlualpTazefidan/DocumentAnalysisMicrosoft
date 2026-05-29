@@ -20,7 +20,13 @@ import json
 import os
 from pathlib import Path  # noqa: TC003
 
-from local_pdf.api.schemas import CuratorQuestion, CuratorQuestionsFile, DocMeta, SegmentsFile
+from local_pdf.api.schemas import (
+    CuratorQuestion,
+    CuratorQuestionsFile,
+    DocMeta,
+    PageStatusFile,
+    SegmentsFile,
+)
 
 
 def doc_dir(data_root: Path, slug: str) -> Path:
@@ -169,6 +175,48 @@ def read_curator_questions(data_root: Path, slug: str) -> CuratorQuestionsFile |
     if raw is None:
         return None
     return CuratorQuestionsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+
+
+def _page_status_path(data_root: Path, slug: str) -> Path:
+    return doc_dir(data_root, slug) / "page_status.json"
+
+
+def read_page_status(data_root: Path, slug: str) -> PageStatusFile | None:
+    raw = _read_text_or_none(_page_status_path(data_root, slug))
+    if raw is None:
+        return None
+    return PageStatusFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+
+
+def write_page_status(data_root: Path, slug: str, payload: PageStatusFile) -> None:
+    """Persist the per-doc page-status sidecar (LOCK_EX, atomic).
+
+    ``done_pages`` is deduped + sorted before writing so the on-disk file is
+    deterministic regardless of insertion order.
+    """
+    normalised = payload.model_copy(update={"done_pages": sorted(set(payload.done_pages))})
+    _write_locked_text(
+        _page_status_path(data_root, slug),
+        json.dumps(normalised.model_dump(mode="json"), ensure_ascii=False, indent=2),
+    )
+
+
+def update_page_status(data_root: Path, slug: str, page: int, done: bool) -> PageStatusFile:
+    """Atomically toggle a single page's done-bit (read-modify-write).
+
+    Adds *page* to ``done_pages`` when *done* is True, removes it otherwise.
+    Returns the updated PageStatusFile. Idempotent: adding an already-done page
+    or removing a not-done page is a no-op on the stored set.
+    """
+    existing = read_page_status(data_root, slug) or PageStatusFile(slug=slug, done_pages=[])
+    current = set(existing.done_pages)
+    if done:
+        current.add(page)
+    else:
+        current.discard(page)
+    new_file: PageStatusFile = existing.model_copy(update={"done_pages": sorted(current)})
+    write_page_status(data_root, slug, new_file)
+    return new_file
 
 
 def _answers_path(data_root: Path, slug: str) -> Path:
