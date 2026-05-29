@@ -441,9 +441,11 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                     key={b.box_id}
                     box={b}
                     selected={highlight === b.box_id}
-                    // Boxes are read-only in extract view — click to highlight only
+                    // Editable via drag/resize; commits once on mouse-up.
+                    // Finished ("abgeschlossen") pages are select-only.
+                    readOnly={approvedPages.has(page)}
                     onSelect={(id) => setHighlight((prev) => (prev === id ? null : id))}
-                    onChange={() => {}}
+                    onCommit={(id, bbox) => updateBoxMut.mutate({ boxId: id, patch: { bbox } })}
                     scale={boxScale}
                   />
                 ))}
