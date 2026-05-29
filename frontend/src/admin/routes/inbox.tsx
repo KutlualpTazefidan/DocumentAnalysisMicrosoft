@@ -46,7 +46,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
       </div>
       <div className="p-6 flex-1 overflow-auto">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className={T.cardTitle}>Local-PDF Posteingang</h1>
+        <h1 className={T.cardTitle}>Dokumente</h1>
         <input
           type="text"
           className="input ml-auto max-w-xs"
