@@ -118,3 +118,21 @@ def test_partial_segment_replaces_pages_in_range_cleanly(client_partial) -> None
     _run_segment(client_partial, "doc", start=2, end=3)
     boxes_after_second = _get_boxes(client_partial, "doc")
     assert len([b for b in boxes_after_second if b["page"] in (2, 3)]) == 2
+
+
+def test_segment_flips_status_to_extracted_when_done(client_partial) -> None:
+    """End of /segment must bump DocStatus from segmenting → extracted; otherwise
+    the inbox badge sticks on „Segmentierung läuft" forever after a successful run."""
+    r = client_partial.get(
+        "/api/admin/docs/doc",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.json()["status"] == "raw"
+
+    _run_segment(client_partial, "doc")
+
+    r = client_partial.get(
+        "/api/admin/docs/doc",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.json()["status"] == "extracted"
