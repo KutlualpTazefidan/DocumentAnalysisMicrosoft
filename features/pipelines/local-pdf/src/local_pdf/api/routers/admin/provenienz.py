@@ -6369,10 +6369,76 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         raise HTTPException(
             status_code=404, detail=f"proposal node not found: {body.proposal_node_id}"
         )
-    if proposal.kind != "action_proposal":
+    if proposal.kind not in {"action_proposal", "plan_proposal"}:
         raise HTTPException(
             status_code=400,
-            detail=f"node is not an action_proposal (kind={proposal.kind})",
+            detail=f"unsupported proposal kind: {proposal.kind}",
+        )
+
+    # ── plan_proposal branch (expert override capture) ─────────────────
+    # Distinct shape from action_proposal: no recommended/alt/override
+    # menu, just a typed ExpertCorrection block with intended_step +
+    # reason. The body's `accepted` field is meaningless here. See spec
+    # docs/superpowers/specs/2026-05-31-expert-override-capture-design.md.
+    if proposal.kind == "plan_proposal":
+        if body.expert_correction is None:
+            raise HTTPException(
+                status_code=400,
+                detail="plan_proposal /decide requires expert_correction",
+            )
+        if body.accepted is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="accepted is forbidden for plan_proposal — use expert_correction",
+            )
+        decision = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="decision",
+                payload={
+                    # Synthetic verb for symmetry with the action_proposal
+                    # branch's `accepted` field; lets audit queries filter
+                    # "decisions where the expert overrode the planner".
+                    "accepted": "plan_override",
+                    "intended_step": body.expert_correction.intended_step,
+                    "reason": body.expert_correction.reason,
+                },
+                actor="human",
+            ),
+        )
+        e_decided = append_edge(
+            sd,
+            Edge(
+                edge_id=new_id(),
+                session_id=session_id,
+                from_node=decision.node_id,
+                to_node=proposal.node_id,
+                kind="decided-by",
+                reason=None,
+                actor="human",
+            ),
+        )
+        captured = _record_plan_expert_correction(cfg, sd, body, proposal, session_id)
+        spawned: list[dict] = [captured["expert_correction"]]
+        if captured["capability_request"] is not None:
+            spawned.append(captured["capability_request"])
+        # Same response-shape as the action_proposal branch so frontend
+        # callers can read decision_node/spawned_nodes/spawned_edges
+        # uniformly. The expert_correction Node always lands first in
+        # spawned_nodes; capability_request (if present) follows.
+        return {
+            "decision_node": decision.__dict__,
+            "spawned_nodes": spawned,
+            "spawned_edges": [e_decided.__dict__, *captured["edges"]],
+        }
+
+    # ── action_proposal branch (unchanged) ─────────────────────────────
+    if body.accepted is None:
+        raise HTTPException(
+            status_code=400,
+            detail="action_proposal /decide requires accepted",
         )
 
     # 1. Append the decision node + decided-by edge.
