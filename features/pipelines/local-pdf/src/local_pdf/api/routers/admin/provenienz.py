@@ -454,6 +454,14 @@ async def list_capability_requests(request: Request) -> dict:
                         "description": str(n.payload.get("description", "")),
                         "reasoning": str(n.payload.get("reasoning", "")),
                         "created_at": n.created_at,
+                        # Top-level Node.actor surfaces whether the agent
+                        # itself flagged the missing capability
+                        # ("agent") or whether an admin captured it via
+                        # the expert-override path on /decide ("human").
+                        # Lets the UI badge them differently and lets
+                        # downstream consumers prioritise expert-prescribed
+                        # gaps without re-querying the source node.
+                        "actor": n.actor,
                     }
                 )
     pairs: list[tuple[int, str, list[dict]]] = [
