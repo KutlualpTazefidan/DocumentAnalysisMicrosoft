@@ -4815,6 +4815,16 @@ _VALID_STEPS_FOR_KIND: dict[str, list[str]] = {
 }
 
 
+# Flat set of every registered step name across all anchor kinds. Single
+# backend-side source-of-truth for "is this step implemented?" — used by
+# the expert-override path on /decide to decide whether an intended_step
+# is known (just record it as a Reason) or unimplemented (additionally
+# spawn a capability_request Node).
+_KNOWN_STEPS: frozenset[str] = frozenset(
+    step for steps in _VALID_STEPS_FOR_KIND.values() for step in steps
+)
+
+
 # Human-readable descriptions of each registered step. The planner sees
 # these in the user prompt so it can pick the right step from semantics
 # instead of guessing from the bare name. Keep concise — these are read
