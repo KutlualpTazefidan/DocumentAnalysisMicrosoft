@@ -98,12 +98,29 @@ export interface DecideResponse {
   spawned_edges: ProvEdge[];
 }
 
+/** Typed expert override of a plan_proposal — captured via the kind-
+ *  widened POST /sessions/{id}/decide. `intended_step` may or may not be
+ *  in the registered step set; when not, the route also spawns a
+ *  capability_request Node tagged actor="human" so the unimplemented
+ *  method gets tracked alongside agent-emitted requests. Mirror of the
+ *  backend ExpertCorrection Pydantic model in
+ *  features/pipelines/local-pdf/src/local_pdf/api/schemas.py. */
+export interface ExpertCorrection {
+  intended_step: string;
+  intended_args?: Record<string, unknown>;
+  reason: string;
+}
+
 export interface DecideRequest {
   proposal_node_id: string;
-  accepted: "recommended" | "alt" | "override";
+  /** Required for the action_proposal branch; omitted for plan_proposal
+   *  (where `expert_correction` carries the typed override instead). */
+  accepted?: "recommended" | "alt" | "override";
   alt_index?: number;
   reason?: string;
   override?: string;
+  /** plan_proposal branch only — the typed expert override. */
+  expert_correction?: ExpertCorrection;
 }
 
 // ---- fetchOk (shared util — duplicated from useComparison rather than refactored) ----
