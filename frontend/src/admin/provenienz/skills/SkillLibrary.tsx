@@ -42,7 +42,7 @@ export function SkillLibrary({ token }: Props): JSX.Element {
   }
 
   return (
-    <div className="border border-navy-700 rounded-lg bg-navy-800/40 p-4">
+    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-4">
       <header className="flex items-center justify-between mb-2">
         <div>
           <h3 className={`${T.heading} text-white`}>Fähigkeiten-Bibliothek</h3>
@@ -55,7 +55,7 @@ export function SkillLibrary({ token }: Props): JSX.Element {
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className={`px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} flex items-center gap-1 shrink-0`}
+          className={`px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} flex items-center gap-1 shrink-0`}
         >
           <Plus className="w-4 h-4" /> Neu
         </button>
@@ -200,11 +200,11 @@ function SkillKindGroup({
   const enabledCount = skills.filter((s) => s.enabled).length;
   const label = SKILL_KIND_LABEL[kind] ?? kind;
   return (
-    <section className="rounded border border-navy-700 bg-navy-900/30">
+    <section className="rounded border border-chrome2-500 bg-chrome2-900/30">
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-navy-800/40"
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-chrome2-800/40"
       >
         <div className="flex items-center gap-2 text-left">
           <span className={`${T.tinyBold} text-slate-200`}>
@@ -278,8 +278,8 @@ function SkillRow({
     <li
       className={`rounded border p-3 ${
         skill.enabled
-          ? "border-navy-600 bg-navy-900/40"
-          : "border-navy-700 bg-navy-900/20 opacity-60"
+          ? "border-chrome2-500 bg-chrome2-900/40"
+          : "border-chrome2-500 bg-chrome2-900/20 opacity-60"
       }`}
     >
       <div className="flex items-start justify-between gap-2">

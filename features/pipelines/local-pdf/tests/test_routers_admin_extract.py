@@ -447,6 +447,145 @@ def test_reextract_drops_stale_elements_for_deactivated_boxes(
 
 
 # ---------------------------------------------------------------------------
+# Per-page status x extraction interaction
+# ---------------------------------------------------------------------------
+
+
+def test_per_page_extract_clears_that_pages_done_bit(
+    client_with_multipage_segments, monkeypatch
+) -> None:
+    """Re-extracting a single page resets that page's done-bit (it's stale now)."""
+    import local_pdf.api.routers.admin.extract as ext_mod
+    from local_pdf.api.schemas import PageStatusFile
+    from local_pdf.storage.sidecar import read_page_status, write_page_status
+
+    root = client_with_multipage_segments.app.state.config.data_root
+
+    def fake_fn(pdf_path, box):
+        return type("R", (), {"box_id": box.box_id, "html": f"<p>{box.box_id}</p>"})()
+
+    ext_mod._MINERU_EXTRACT_FN = fake_fn
+
+    # Mark pages 1 and 2 done up front.
+    write_page_status(root, "spec", PageStatusFile(slug="spec", done_pages=[1, 2]))
+
+    # Re-extract page 1 only.
+    r = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract?page=1",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    list(r.iter_lines())
+
+    after = read_page_status(root, "spec")
+    assert after is not None
+    # Page 1 got re-extracted → its done-bit cleared. Page 2 untouched.
+    assert after.done_pages == [2]
+
+
+def test_full_run_default_clears_all_done_bits_and_worker_sees_done_pages(
+    client_with_multipage_segments, monkeypatch
+) -> None:
+    """A full default run (protect_done=false) re-extracts every page:
+    the worker SEES the done pages, and ALL done-bits are cleared afterwards."""
+    import local_pdf.api.routers.admin.extract as ext_mod
+    from local_pdf.api.schemas import PageStatusFile
+    from local_pdf.storage.sidecar import read_page_status, write_page_status
+
+    root = client_with_multipage_segments.app.state.config.data_root
+
+    pages_seen: list[int] = []
+
+    def fake_fn(pdf_path, box):
+        pages_seen.append(box.page)
+        return type("R", (), {"box_id": box.box_id, "html": f"<p>{box.box_id}</p>"})()
+
+    ext_mod._MINERU_EXTRACT_FN = fake_fn
+
+    # Page 1 marked done before the full run.
+    write_page_status(root, "spec", PageStatusFile(slug="spec", done_pages=[1]))
+
+    r = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    list(r.iter_lines())
+
+    # The worker processed the previously-done page (no protection requested).
+    assert 1 in pages_seen
+    assert sorted(pages_seen) == [1, 2, 2]
+    # All done-bits cleared by the full replace.
+    after = read_page_status(root, "spec")
+    assert after is not None
+    assert after.done_pages == []
+
+
+def test_full_run_protect_done_skips_done_pages_and_preserves_them(
+    client_with_multipage_segments, monkeypatch
+) -> None:
+    """A protected full run (protect_done=true) skips done pages:
+    the worker does NOT see them, their mineru elements survive, and their
+    done-bits are kept."""
+    import local_pdf.api.routers.admin.extract as ext_mod
+    from local_pdf.api.schemas import PageStatusFile
+    from local_pdf.storage.sidecar import (
+        read_mineru,
+        read_page_status,
+        write_mineru,
+        write_page_status,
+    )
+
+    root = client_with_multipage_segments.app.state.config.data_root
+
+    pages_seen: list[int] = []
+
+    def fake_fn(pdf_path, box):
+        pages_seen.append(box.page)
+        return type("R", (), {"box_id": box.box_id, "html": f"<p>NEW-{box.box_id}</p>"})()
+
+    ext_mod._MINERU_EXTRACT_FN = fake_fn
+
+    # Seed a page-1 element from a prior extraction + mark page 1 done.
+    write_mineru(
+        root,
+        "spec",
+        {
+            "elements": [{"box_id": "p1-aa", "html_snippet": "<p>OLD-P1</p>"}],
+            "diagnostics": [{"page": 1, "note": "old"}],
+        },
+    )
+    write_page_status(root, "spec", PageStatusFile(slug="spec", done_pages=[1]))
+
+    r = client_with_multipage_segments.post(
+        "/api/admin/docs/spec/extract?protect_done=true",
+        headers={"X-Auth-Token": "tok"},
+    )
+    assert r.status_code == 200
+    list(r.iter_lines())
+
+    # Worker did NOT see the protected page-1 box; only page-2 boxes ran.
+    assert 1 not in pages_seen
+    assert sorted(pages_seen) == [2, 2]
+
+    data = read_mineru(root, "spec")
+    assert data is not None
+    by_id = {e["box_id"]: e for e in data["elements"]}
+    # Page-1 element PRESERVED verbatim (not re-extracted, not wiped).
+    assert by_id["p1-aa"]["html_snippet"] == "<p>OLD-P1</p>"
+    # Page-2 elements freshly extracted.
+    assert "NEW-p2-bb" in by_id["p2-bb"]["html_snippet"]
+    assert "p2-cc" in by_id
+    # Page-1 diagnostics preserved.
+    assert any(d.get("page") == 1 for d in data.get("diagnostics", []))
+
+    # Done-bit for page 1 survives a protected run.
+    after = read_page_status(root, "spec")
+    assert after is not None
+    assert after.done_pages == [1]
+
+
+# ---------------------------------------------------------------------------
 # _group_list_items unit tests
 # ---------------------------------------------------------------------------
 

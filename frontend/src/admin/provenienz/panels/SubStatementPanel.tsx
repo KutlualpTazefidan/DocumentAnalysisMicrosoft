@@ -22,13 +22,13 @@ export function SubStatementPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "sub_statement") return <></>;
-  const sub = view.sub_statement;
-  const text = String((sub.payload as { text?: string }).text ?? "");
   const evaluate = useEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "sub_statement") return <></>;
+  const sub = view.sub_statement;
+  const text = String((sub.payload as { text?: string }).text ?? "");
 
   async function handleEvaluate(): Promise<void> {
     try {
@@ -64,7 +64,7 @@ export function SubStatementPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void stream.start(sub.node_id)}
@@ -74,7 +74,7 @@ export function SubStatementPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-navy-700 bg-navy-900/40">
+        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
             Manuell wählen
           </summary>

@@ -29,6 +29,8 @@ export function ReflectionPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "reflection") return <></>;
   const node = view.reflection;
   const p = node.payload as {
@@ -40,8 +42,6 @@ export function ReflectionPanel({
     step_kind_reviewed?: string;
     audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
-  const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
 
   const assessment = String(p.self_assessment ?? "vollständig");
   const recommendation = String(p.recommendation ?? "accept");
@@ -112,7 +112,7 @@ export function ReflectionPanel({
         )}
         <AgentAuditSection audit={p.audit} />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <p className={`${T.tiny} text-slate-500 italic`}>
           Re-Evaluate-Aktion mit injiziertem Fokus folgt im nächsten
           Build-Schritt — derzeit dient die Reflektion als Audit-Eintrag

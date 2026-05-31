@@ -30,23 +30,33 @@ function renderLogin(initial = "/login") {
   );
 }
 
+// The legacy API-Token flow now lives behind ``?legacy=1`` and is the
+// non-default tab; reveal it by visiting the flag URL and selecting the
+// "API-Token (alt)" tab before typing into the token field.
+async function showTokenTab() {
+  await userEvent.click(screen.getByRole("button", { name: /API-Token \(alt\)/i }));
+}
+
 describe("Login role detection", () => {
   it("admin token → /admin/inbox", async () => {
-    renderLogin();
+    renderLogin("/login?legacy=1");
+    await showTokenTab();
     await userEvent.type(screen.getByLabelText(/API-Token/i), "ADMIN-T");
     await userEvent.click(screen.getByRole("button", { name: /Einloggen/i }));
     await waitFor(() => expect(screen.getByText("admin landing")).toBeInTheDocument());
   });
 
   it("curator token → /curate/", async () => {
-    renderLogin();
+    renderLogin("/login?legacy=1");
+    await showTokenTab();
     await userEvent.type(screen.getByLabelText(/API-Token/i), "CUR-T");
     await userEvent.click(screen.getByRole("button", { name: /Einloggen/i }));
     await waitFor(() => expect(screen.getByText("curator landing")).toBeInTheDocument());
   });
 
   it("invalid token shows error", async () => {
-    renderLogin();
+    renderLogin("/login?legacy=1");
+    await showTokenTab();
     await userEvent.type(screen.getByLabelText(/API-Token/i), "WRONG");
     await userEvent.click(screen.getByRole("button", { name: /Einloggen/i }));
     await waitFor(() => expect(screen.getByText(/abgelehnt/i)).toBeInTheDocument());

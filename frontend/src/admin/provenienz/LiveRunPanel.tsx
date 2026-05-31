@@ -47,7 +47,7 @@ export function LiveRunPanel({ run, anchorPreview, goal, onClose }: Props): JSX.
       : tickMs;
 
   return (
-    <div className="border border-navy-700 rounded-lg bg-navy-800/40 p-3 space-y-2.5">
+    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-3 space-y-2.5">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className={`${T.heading} text-white flex items-center gap-2`}>
@@ -179,7 +179,7 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
         ? "border-amber-700/60 bg-amber-950/20"
         : finalKind === "manual_review"
           ? "border-rose-700/60 bg-rose-950/20"
-          : "border-navy-700 bg-navy-900/40";
+          : "border-chrome2-500 bg-chrome2-900/40";
 
   const reasoningHasPollution = hasPlaceholderPollution(finalReasoning);
   const goalHasPollution = hasPlaceholderPollution(finalGoalAlignment);
@@ -213,7 +213,7 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
         </div>
       )}
       {finalDescription && (
-        <div className="rounded bg-navy-950/60 px-2 py-1.5 mt-1">
+        <div className="rounded bg-chrome2-900/60 px-2 py-1.5 mt-1">
           <p className={`${T.tiny} text-slate-500 uppercase tracking-wide`}>
             Detail
           </p>
@@ -274,7 +274,7 @@ function PhaseCard({
           ? "border-emerald-700/60 bg-emerald-950/20"
           : isLayer3
             ? "border-purple-700/60 bg-purple-950/20"
-            : "border-navy-700 bg-navy-900/40";
+            : "border-chrome2-500 bg-chrome2-900/40";
 
   // Indent L2 cards under their L1 trunk visually.
   const indentClass = isLayer2 ? "ml-3" : "";
@@ -370,7 +370,7 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
                   return (
                     <li
                       key={`${g.kind}:${g.id}`}
-                      className="rounded bg-navy-950/60 px-2 py-1"
+                      className="rounded bg-chrome2-900/60 px-2 py-1"
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         {isApproach ? (
@@ -485,7 +485,7 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
               <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
                 System-Prompt-Vorschau
               </summary>
-              <pre className="mt-1 p-1.5 rounded bg-navy-950 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+              <pre className="mt-1 p-1.5 rounded bg-chrome2-900 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
                 {sysPreview}
               </pre>
             </details>
@@ -612,7 +612,7 @@ function SkillCallPayload({
         <span className="font-mono text-emerald-300">{approachName}</span>
       </p>
       {reasoning ? (
-        <div className="rounded bg-navy-950/60 p-1.5 space-y-1">
+        <div className="rounded bg-chrome2-900/60 p-1.5 space-y-1">
           <p className="italic text-slate-200">{reasoning}</p>
           {suggested && (
             <p>
@@ -632,7 +632,7 @@ function SkillCallPayload({
           <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
             Spezialwissen-Vorschau
           </summary>
-          <pre className="mt-1 p-1.5 rounded bg-navy-950 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+          <pre className="mt-1 p-1.5 rounded bg-chrome2-900 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
             {preview}
           </pre>
         </details>

@@ -21,6 +21,17 @@ export default {
           800: "#031E31", // ADMIN_THEME.chrome — primary chrome bg
           900: "#021727", // deepest chrome variant
         },
+        // Secondary chrome — the doc-step-tab bar (DEFAULT) plus a slate
+        // scale used to re-skin the Provenienz workspace so it reads as
+        // the same family as the second bar instead of clashing navy.
+        chrome2: {
+          DEFAULT: "#576977", // the second top bar (bg-chrome2)
+          500: "#6d7f8d", // borders / muted on the dark workspace
+          600: "#576977", // = second bar / rail accent
+          700: "#455563", // rails
+          800: "#3a4753", // panels
+          900: "#2b3640", // workspace body
+        },
         // Brand action palette — the single blue for primary CTAs, links,
         // and the focus ring. Use these (not raw `blue-*`) when the surface
         // is white/light; navy-600 for the same hue on the chrome.

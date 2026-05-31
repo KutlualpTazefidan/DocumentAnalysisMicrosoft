@@ -16,6 +16,8 @@ export function CapabilityRequestPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "capability_request") return <></>;
   const node = view.request;
   const p = node.payload as {
@@ -26,8 +28,6 @@ export function CapabilityRequestPanel({
     confidence?: number;
     audit?: Parameters<typeof AgentAuditSection>[0]["audit"];
   };
-  const del = useDeleteNode(token, sessionId);
-  const { error: toastError } = useToast();
   const conf =
     typeof p.confidence === "number" ? Math.round(p.confidence * 100) : null;
   const alts = Array.isArray(p.considered_alternatives)
@@ -81,7 +81,7 @@ export function CapabilityRequestPanel({
               {alts.map((a, i) => (
                 <li
                   key={i}
-                  className="rounded border border-navy-700 bg-navy-900/50 px-2 py-1.5"
+                  className="rounded border border-chrome2-500 bg-chrome2-900/50 px-2 py-1.5"
                 >
                   <p className={`${T.body} text-slate-200`}>
                     <span className="font-mono text-yellow-300">{a.name}</span>{" "}
@@ -104,7 +104,7 @@ export function CapabilityRequestPanel({
           Canvas (bleibt im Audit-Log).
         </p>
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleDismiss()}

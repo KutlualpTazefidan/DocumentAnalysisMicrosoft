@@ -2,12 +2,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { CURATOR_THEME } from "./shared/ColorThemes";
-import { RoleBadge } from "./shared/RoleBadge";
+import { RoleMenu } from "./shared/RoleMenu";
+import { useToast } from "../shared/components/useToast";
 
 export function CuratorShell() {
   const { role, name, tenantSlug, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { info } = useToast();
   // Cookie-mode logins have token=='' — gate on role only.
   if (role !== "curator") {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
@@ -33,14 +35,12 @@ export function CuratorShell() {
               {tenantSlug}
             </span>
           )}
-          <RoleBadge theme={CURATOR_THEME} name={name ?? "curator"} />
-          <button
-            onClick={handleLogout}
-            className="text-sm underline"
-            title="Session beenden + Cookie verwerfen"
-          >
-            Abmelden
-          </button>
+          <RoleMenu
+            theme={CURATOR_THEME}
+            name={name ?? "curator"}
+            onSettings={() => info("Einstellungen folgen in Kürze.")}
+            onLogout={handleLogout}
+          />
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">

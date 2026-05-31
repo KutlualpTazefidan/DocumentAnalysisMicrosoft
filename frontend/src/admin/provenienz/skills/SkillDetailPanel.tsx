@@ -108,10 +108,10 @@ export function SkillDetailPanel({
         role="dialog"
         aria-modal="true"
         aria-label={`Fähigkeit ${skill.name}`}
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(900px,95vw)] h-[min(800px,90vh)] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(900px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate flex items-center gap-2`}>
               {skill.name}
@@ -173,7 +173,7 @@ export function SkillDetailPanel({
               {prompt.free_text && (
                 <Field label="free_text">
                   <pre
-                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-navy-950/50 rounded px-2 py-1.5`}
+                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-chrome2-900/50 rounded px-2 py-1.5`}
                   >
                     {prompt.free_text}
                   </pre>
@@ -191,7 +191,7 @@ export function SkillDetailPanel({
               {prompt.domain_rules && (
                 <Field label="domain_rules">
                   <pre
-                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-navy-950/50 rounded px-2 py-1.5`}
+                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-chrome2-900/50 rounded px-2 py-1.5`}
                   >
                     {prompt.domain_rules}
                   </pre>
@@ -247,7 +247,7 @@ export function SkillDetailPanel({
               {output.annotation_kind && (
                 <Field label="annotation_kind">
                   <code
-                    className={`${T.tiny} font-mono text-cyan-200 bg-navy-950/50 rounded px-1.5 py-0.5`}
+                    className={`${T.tiny} font-mono text-cyan-200 bg-chrome2-900/50 rounded px-1.5 py-0.5`}
                   >
                     {output.annotation_kind}
                   </code>
@@ -256,7 +256,7 @@ export function SkillDetailPanel({
               {output.attaches_to && (
                 <Field label="attaches_to">
                   <code
-                    className={`${T.tiny} font-mono text-cyan-200 bg-navy-950/50 rounded px-1.5 py-0.5`}
+                    className={`${T.tiny} font-mono text-cyan-200 bg-chrome2-900/50 rounded px-1.5 py-0.5`}
                   >
                     {output.attaches_to}
                   </code>
@@ -322,7 +322,7 @@ export function SkillDetailPanel({
             )}
           </DetailSection>
 
-          <details className="rounded border border-navy-700 bg-navy-900/30">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
             >
@@ -342,7 +342,7 @@ export function SkillDetailPanel({
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between gap-2">
+        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => void handleDelete()}
@@ -372,7 +372,7 @@ export function SkillDetailPanel({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className={`px-4 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} font-semibold flex items-center gap-1`}
+              className={`px-4 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} font-semibold flex items-center gap-1`}
             >
               <Pencil className="w-4 h-4" /> Bearbeiten
             </button>
@@ -407,7 +407,7 @@ function DetailSection({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <fieldset className="rounded border border-navy-700 bg-navy-900/30 px-3 pt-2 pb-3 space-y-2">
+    <fieldset className="rounded border border-chrome2-500 bg-chrome2-900/30 px-3 pt-2 pb-3 space-y-2">
       <legend className={`${T.tinyBold} text-slate-200 px-1`}>{title}</legend>
       {children}
     </fieldset>
@@ -430,7 +430,7 @@ function Field({
 }
 
 const CHIP_TONES: Record<string, string> = {
-  slate: "bg-navy-800 text-slate-200 border border-navy-600",
+  slate: "bg-chrome2-800 text-slate-200 border border-chrome2-500",
   amber: "bg-amber-900/40 text-amber-200",
   orange: "bg-orange-900/40 text-orange-200",
   cyan: "bg-cyan-900/40 text-cyan-200",

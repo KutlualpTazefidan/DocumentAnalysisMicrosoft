@@ -101,7 +101,7 @@ async function fetchOk(url: string, init: RequestInit, token: string): Promise<R
 export function useSkills(token: string) {
   return useQuery<Skill[]>({
     queryKey: ["provenienz", "skills"],
-    enabled: !!token,
+    enabled: true,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/skills`,
@@ -116,7 +116,7 @@ export function useSkills(token: string) {
 export function useSkill(token: string, skillId: string | null) {
   return useQuery<Skill>({
     queryKey: ["provenienz", "skills", skillId],
-    enabled: !!token && !!skillId,
+    enabled: !!skillId,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/skills/${skillId}`,
@@ -191,7 +191,7 @@ export interface SkillRun {
 export function useSkillRuns(skillId: string | null, token: string) {
   return useQuery<SkillRun[]>({
     queryKey: ["provenienz", "skills", skillId, "runs"],
-    enabled: !!skillId && !!token,
+    enabled: !!skillId,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/skills/${skillId}/runs`,

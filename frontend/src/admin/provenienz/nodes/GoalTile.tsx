@@ -15,7 +15,7 @@ export function GoalTile({ data, selected }: NodeProps<GoalView>): JSX.Element {
     <div
       className={`rounded-lg border-2 px-4 py-2 text-white shadow-md w-96 ${
         empty
-          ? "border-pink-700/60 bg-navy-800/60"
+          ? "border-pink-700/60 bg-chrome2-800/60"
           : "border-pink-500 bg-pink-900/40"
       } ${selected ? "ring-2 ring-pink-300/60" : ""}`}
     >

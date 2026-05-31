@@ -1,0 +1,172 @@
+{
+  "name": "provenienz-stage-tour",
+  "startedAt": "2026-05-31T18:42:03.356Z",
+  "endedAt": "2026-05-31T18:42:09.403Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Provenienz-Tab — Drei-Spalten-Layout (Rail · Canvas · Inspector)",
+      "startedAtMs": 1780252926435,
+      "endedAtMs": 1780252926607,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/provenienz"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "View-Toggle (Sitzungen aktiv)",
+              "selector": "nav button:has-text(\"Sitzungen\")",
+              "box": {
+                "x": 1295,
+                "y": 61,
+                "width": 102,
+                "height": 26
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Provenienz ist die forensische Sicht auf das LLM-Reasoning: jede Sitzung sammelt einen Graphen aus Chunks, Claims, Tasks, Search-Results, Evaluations.",
+        "Layout: linkes Rail listet alle Sitzungen für das Dokument; mittlere Spalte zeigt den DAG der aktiven Sitzung; rechtes Panel ist der Knoten-Inspector.",
+        "Oben in der Sub-Topbar: ViewToggle „Sitzungen“ (Sitzungs-Modus, gerade aktiv) vs. „Agent“ (Registries-Modus — Steps/Werkzeuge/Fähigkeiten/Wünsche)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Linkes Rail: Sitzungs-Liste für das Dokument",
+      "startedAtMs": 1780252927109,
+      "endedAtMs": 1780252927169,
+      "actions": [
+        "observe left rail"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Sitzungs-Rail — pro Eintrag Klick selektiert"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Pro Sitzung ein Eintrag mit Wurzel-Chunk-ID, Status (open/closed) + Zeitstempel.",
+        "Klick auf einen Eintrag selektiert die Sitzung → Canvas und Inspector aktualisieren sich.",
+        "„Neu“-Button öffnet den ChunkPicker für eine frische Sitzung (siehe Slot 2 „Sitzung anlegen/löschen“).",
+        "Aktuelle Demo-Sitzung mit Wurzel-Chunk p2-b0."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Canvas — DAG der Sitzung (hier: nur der Wurzel-Chunk)",
+      "startedAtMs": 1780252927169,
+      "endedAtMs": 1780252927226,
+      "actions": [
+        "observe central canvas"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Canvas zeigt den Wurzel-Chunk als einzigen Knoten"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Cytoscape-Layout: Knoten = Reasoning-Schritte (chunk/claim/task/search_result/plan_proposal/…), Kanten = Eltern-Kind-Beziehung.",
+        "Frisch angelegte Sitzung hat genau 1 Knoten — den Wurzel-Chunk. Spätere Iterationen (siehe Slot 3 „AI-Vorschlag → Anwenden“) hängen weitere Knoten daran.",
+        "Klick auf einen Knoten öffnet das passende Panel im rechten Inspector (ChunkPanel/ClaimPanel/TaskPanel/…).",
+        "Doppelklick + Drag erlaubt manuelles Re-Layout; Scroll zoomt."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Wechsel auf Agent-View — Orchestrator-Topologie + Tab-Bar",
+      "startedAtMs": 1780252928421,
+      "endedAtMs": 1780252928497,
+      "actions": [
+        "click nav button \"Agent\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Agent-Modus aktiv",
+              "selector": "nav button:has-text(\"Agent\")",
+              "box": {
+                "x": 1401,
+                "y": 61,
+                "width": 80,
+                "height": 26
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Agent-View ist die Live-Sicht auf den Reasoning-Apparat: Orchestrator oben, gerade aktiver Sub-Agent mit seinen Skills (orange) und Werkzeugen (cyan).",
+        "Rechts: Tab-Bar mit 5 Tabs — Auswahl (Detail des selektierten Pills/Knotens), Schritte (Step-Registry), Werkzeuge (Tool-Registry), Fähigkeiten (Skill-Library), Wünsche (Capability-Requests).",
+        "Header zeigt Modell-Backend + Modell-Name + Architektur-Erklärung (Orchestrator wählt Sub-Agent, Sub-Agent trägt Skills + Werkzeuge inline).",
+        "Datenfluss-Linie unten (Chunk → Claim → Task → …) ist gedimmt — sekundär zur Agent-Topologie."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Zurück zur Sitzungs-View — beide Views sind komplementär",
+      "startedAtMs": 1780252929337,
+      "endedAtMs": 1780252929394,
+      "actions": [
+        "click nav button \"Sitzungen\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Sitzungen-Modus wieder aktiv",
+              "selector": "nav button:has-text(\"Sitzungen\")",
+              "box": {
+                "x": 1295,
+                "y": 61,
+                "width": 102,
+                "height": 26
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Sitzungen-View = was wurde gedacht? (forensische Sicht auf das Reasoning-DAG eines konkreten Dokuments).",
+        "Agent-View = wie wird gedacht? (Registries + Orchestrator-Topologie, doc-agnostisch).",
+        "Im Alltag startet man in der Sitzungen-View an einem Chunk, lässt sich vom Agent eine Aktion vorschlagen und durchläuft die Iteration — siehe Slot 3 „AI-Vorschlag → Anwenden“."
+      ],
+      "status": "ok"
+    }
+  ]
+}

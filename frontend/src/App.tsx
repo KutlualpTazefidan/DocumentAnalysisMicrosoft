@@ -14,6 +14,7 @@ import { CuratorActivity } from "./admin/routes/CuratorActivity";
 import { Pipelines } from "./admin/routes/Pipelines";
 import { Dashboard } from "./admin/routes/Dashboard";
 import { TenantsAdmin } from "./admin/routes/TenantsAdmin";
+import { Settings } from "./admin/routes/Settings";
 import { CuratorDocs } from "./curator/routes/Docs";
 import { CuratorDocPage } from "./curator/routes/DocPage";
 
@@ -39,6 +40,7 @@ export function App() {
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="tenants" element={<TenantsAdmin />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="/curate" element={<CuratorShell />}>
           <Route index element={<CuratorDocs />} />

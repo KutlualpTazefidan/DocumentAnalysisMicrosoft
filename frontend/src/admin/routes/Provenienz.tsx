@@ -53,7 +53,7 @@ export function Provenienz(): JSX.Element {
   const del = useDeleteSession(tokenStr, slug);
   const detail = useSession(selectedId, tokenStr);
 
-  if (!token) {
+  if (token === null) {
     return <div className="p-6 text-slate-300">Bitte zuerst anmelden.</div>;
   }
 
@@ -74,8 +74,8 @@ export function Provenienz(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-full bg-navy-900">
-      <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700">
+    <div className="flex flex-col h-full bg-chrome2-900">
+      <div className="flex items-center justify-between px-4 py-2 bg-chrome2 text-white border-b border-chrome2-500">
         <DocStepTabs slug={slug} />
         <ViewToggle view={view} onChange={setView} />
       </div>
@@ -92,8 +92,8 @@ export function Provenienz(): JSX.Element {
       ) : (
       <div className="flex flex-1 min-h-0">
         {/* Left rail */}
-        <aside className="w-72 shrink-0 border-r border-navy-700 bg-navy-800/50 overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-navy-700">
+        <aside className="w-72 shrink-0 border-r border-chrome2-500 bg-chrome2-800/50 overflow-y-auto">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-chrome2-500">
             <h2 className={`${T.heading} text-white flex items-center gap-2`}>
               <GitMerge className="w-4 h-4" aria-hidden /> Sitzungen
             </h2>
@@ -117,12 +117,12 @@ export function Provenienz(): JSX.Element {
               Keine Sitzungen für dieses Dokument.
             </p>
           )}
-          <ul className="divide-y divide-navy-700">
+          <ul className="divide-y divide-chrome2-500">
             {sessions?.map((s) => (
               <li
                 key={s.session_id}
-                className={`px-3 py-2 cursor-pointer hover:bg-navy-700/40 ${
-                  selectedId === s.session_id ? "bg-navy-700/60" : ""
+                className={`px-3 py-2 cursor-pointer hover:bg-chrome2-700/40 ${
+                  selectedId === s.session_id ? "bg-chrome2-700/60" : ""
                 }`}
                 onClick={() => {
                   setSelectedId(s.session_id);
@@ -175,7 +175,7 @@ export function Provenienz(): JSX.Element {
                     />
                   </ReactFlowProvider>
                 </div>
-                <aside className="w-80 shrink-0 border-l border-navy-700 bg-navy-800/40 overflow-y-auto">
+                <aside className="w-80 shrink-0 border-l border-chrome2-500 bg-chrome2-800/40 overflow-y-auto">
                   <SidePanel
                     sessionId={detail.data.meta.session_id}
                     token={tokenStr}
@@ -211,8 +211,8 @@ function ViewToggle({
         onClick={() => onChange(key)}
         className={`px-3 py-1 rounded flex items-center gap-1.5 ${T.body} transition-colors ${
           active
-            ? "bg-blue-600 text-white"
-            : "text-slate-300 hover:bg-navy-700"
+            ? "bg-brand-500 text-white"
+            : "text-slate-300 hover:bg-chrome2-700"
         }`}
       >
         <Icon className="w-4 h-4" aria-hidden />
@@ -221,7 +221,7 @@ function ViewToggle({
     );
   };
   return (
-    <nav className="flex items-center gap-1 bg-navy-900/60 border border-navy-600 rounded p-0.5">
+    <nav className="flex items-center gap-1 bg-chrome2-900/60 border border-chrome2-500 rounded p-0.5">
       {item("sessions", "Sitzungen", FolderTree)}
       {item("agent", "Agent", Bot)}
     </nav>
@@ -277,7 +277,7 @@ function AgentView({
     <div className="flex flex-1 min-h-0">
       {/* Left pane: model header + canvas */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="px-4 py-3 border-b border-navy-700 space-y-1">
+        <header className="px-4 py-3 border-b border-chrome2-500 space-y-1">
           <div className="flex items-baseline gap-3">
             <span className={T.tinyBold}>Modell aktiv:</span>
             <code className="text-amber-300">{agentInfo.llm.backend}</code>
@@ -307,7 +307,7 @@ function AgentView({
       </div>
 
       {/* Right pane: tab-bar + active tab content */}
-      <aside className="w-[420px] shrink-0 border-l border-navy-700 bg-navy-800/40 flex flex-col">
+      <aside className="w-[420px] shrink-0 border-l border-chrome2-500 bg-chrome2-800/40 flex flex-col">
         <AgentTabBar tab={tab} onChange={setTab} />
         <div className="flex-1 overflow-y-auto">
           {tab === "auswahl" && (
@@ -364,7 +364,7 @@ function AgentTabBar({
     );
   };
   return (
-    <nav className="flex items-center border-b border-navy-700 px-2 bg-navy-900/40">
+    <nav className="flex items-center border-b border-chrome2-500 px-2 bg-chrome2-900/40">
       {item("auswahl", "Auswahl")}
       {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
@@ -406,7 +406,7 @@ function SessionHeader({
   }
 
   return (
-    <header className="border-b border-navy-700 px-4 py-2 flex items-start justify-between gap-3">
+    <header className="border-b border-chrome2-500 px-4 py-2 flex items-start justify-between gap-3">
       <div className="min-w-0">
         <h2 className={`${T.cardTitle} text-white`}>
           Sitzung {detail.meta.session_id}

@@ -303,7 +303,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar: DocStepTabs left, page/file Generate actions right ── */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
+      <div className="flex items-center gap-2 px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
         <DocStepTabs slug={slug} />
         <div className="ml-auto flex items-center gap-2">
           {docDuplicateIds.length > 0 && (

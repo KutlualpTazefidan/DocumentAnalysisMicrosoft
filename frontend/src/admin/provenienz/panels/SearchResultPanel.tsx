@@ -45,6 +45,13 @@ export function SearchResultPanel({
   edges,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const evaluate = useEvaluate(token, sessionId);
+  const promote = usePromoteSearchResult(token, sessionId);
+  const crossDocSearch = useCrossDocSearchStep(token, sessionId);
+  const calculatorOnResult = useCalculatorOnResult(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "search_result") return <></>;
   const result = view.result;
   const evalNode = view.evaluation;
@@ -81,14 +88,6 @@ export function SearchResultPanel({
   const confidence = evalNode
     ? Number((evalNode.payload as { confidence?: number }).confidence ?? 0)
     : null;
-
-  const evaluate = useEvaluate(token, sessionId);
-  const promote = usePromoteSearchResult(token, sessionId);
-  const crossDocSearch = useCrossDocSearchStep(token, sessionId);
-  const calculatorOnResult = useCalculatorOnResult(token, sessionId);
-  const del = useDeleteNode(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const { error: toastError } = useToast();
 
   // Existing tool_annotation Nodes attached to this result via
   // "enriches" edges — show them in-panel so the user sees what
@@ -199,7 +198,7 @@ export function SearchResultPanel({
                               ? "bg-amber-800/50 text-amber-100 border border-amber-700/50"
                               : p.box_kind === "bibliography"
                                 ? "bg-emerald-800/50 text-emerald-100 border border-emerald-700/50"
-                                : "bg-navy-700 text-slate-300 border border-navy-600"
+                                : "bg-chrome2-700 text-slate-300 border border-chrome2-500"
               }`}
               title={`Box-Typ: ${p.box_kind}`}
             >
@@ -284,7 +283,7 @@ export function SearchResultPanel({
         </button>
         <LiveRunPanel run={stream} onClose={() => stream.reset()} />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void stream.start(result.node_id)}
@@ -294,7 +293,7 @@ export function SearchResultPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-navy-700 bg-navy-900/40">
+        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
             Manuell wählen
           </summary>

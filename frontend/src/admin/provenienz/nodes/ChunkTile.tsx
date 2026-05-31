@@ -59,7 +59,7 @@ export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
           )}
         </span>
         {boxId && (
-          <span className="font-mono text-blue-300 bg-navy-900/60 px-1 rounded">
+          <span className="font-mono text-blue-300 bg-chrome2-900/60 px-1 rounded">
             {boxId}
           </span>
         )}

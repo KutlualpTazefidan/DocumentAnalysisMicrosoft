@@ -144,7 +144,7 @@ export interface DocElement {
 export function useDocElements(slug: string, token: string) {
   return useQuery<DocElement[]>({
     queryKey: ["provenienz", "doc-elements", slug],
-    enabled: !!slug && !!token,
+    enabled: !!slug,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/mineru`,
@@ -176,7 +176,7 @@ export function useDocElements(slug: string, token: string) {
 export function useSessions(slug: string, token: string) {
   return useQuery<SessionMeta[]>({
     queryKey: ["provenienz", "sessions", slug],
-    enabled: !!slug && !!token,
+    enabled: !!slug,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions?slug=${encodeURIComponent(slug)}`,
@@ -191,7 +191,7 @@ export function useSessions(slug: string, token: string) {
 export function useSession(sessionId: string | null, token: string) {
   return useQuery<SessionDetail>({
     queryKey: ["provenienz", "session", sessionId],
-    enabled: !!sessionId && !!token,
+    enabled: !!sessionId,
     queryFn: async () => {
       const r = await fetchOk(
         `${apiBase()}/api/admin/provenienz/sessions/${sessionId}`,
@@ -394,7 +394,7 @@ export function useApproaches(
   const enabledOnly = opts?.enabledOnly ?? false;
   return useQuery<Approach[]>({
     queryKey: ["provenienz", "approaches", stepKind ?? "all", enabledOnly],
-    enabled: !!token,
+    enabled: true,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (stepKind) params.set("step_kind", stepKind);
@@ -550,7 +550,7 @@ export interface CapabilityRequestAggregation {
 export function useCapabilityRequests(token: string) {
   return useQuery<CapabilityRequestAggregation[]>({
     queryKey: ["provenienz", "capability-requests"],
-    enabled: !!token,
+    enabled: true,
     staleTime: 30_000,
     queryFn: async () => {
       const r = await fetchOk(
@@ -569,7 +569,7 @@ export function useCapabilityRequests(token: string) {
 export function useTools(token: string) {
   return useQuery<AgentToolInfo[]>({
     queryKey: ["provenienz", "tools"],
-    enabled: !!token,
+    enabled: true,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const r = await fetchOk(
@@ -615,7 +615,7 @@ export interface AgentInfo {
 export function useAgentInfo(token: string) {
   return useQuery<AgentInfo>({
     queryKey: ["provenienz", "agent-info"],
-    enabled: !!token,
+    enabled: true,
     staleTime: 5 * 60 * 1000, // info is static between deploys
     queryFn: async () => {
       const r = await fetchOk(

@@ -137,10 +137,12 @@ export async function* streamSegment(
   token: string,
   start?: number,
   end?: number,
+  protectDone?: boolean,
 ): AsyncGenerator<WorkerEvent> {
   const params = new URLSearchParams();
   if (start !== undefined) params.set("start", String(start));
   if (end !== undefined) params.set("end", String(end));
+  if (protectDone) params.set("protect_done", "true");
   const qs = params.toString() ? `?${params.toString()}` : "";
   const r = await fetch(
     `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/segment${qs}`,

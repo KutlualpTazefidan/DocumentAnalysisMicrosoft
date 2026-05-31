@@ -36,6 +36,9 @@ export function EvaluationPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const del = useDeleteNode(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const { error: toastError } = useToast();
   if (view.kind !== "evaluation") return <></>;
   const node = view.evaluation;
   const p = node.payload as {
@@ -84,9 +87,6 @@ export function EvaluationPanel({
   const parentSearchResultId = String(
     p.search_result_node_id ?? "",
   );
-  const del = useDeleteNode(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const { error: toastError } = useToast();
 
   async function handleNextStep(): Promise<void> {
     if (!parentSearchResultId) {
@@ -285,7 +285,7 @@ export function EvaluationPanel({
                   className={`rounded px-2 py-1.5 ${
                     c.matched
                       ? "bg-emerald-900/30 border border-emerald-700/50"
-                      : "bg-navy-900/50 border border-navy-700"
+                      : "bg-chrome2-900/50 border border-chrome2-500"
                   }`}
                 >
                   <div className="flex items-baseline gap-2 flex-wrap">
@@ -390,7 +390,7 @@ export function EvaluationPanel({
           </p>
         )}
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <LiveRunPanel
           run={stream}
           anchorPreview={reasoning.slice(0, 120)}

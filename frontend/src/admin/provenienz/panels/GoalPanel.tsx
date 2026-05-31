@@ -49,7 +49,7 @@ export function GoalPanel({
             onChange={(e) => setDraft(e.target.value)}
             rows={5}
             placeholder="z.B. Welche Quelle belegt die Wärmeleistung von 5.6 kW?"
-            className={`mt-1 w-full px-2 py-1 rounded bg-navy-900 border border-navy-600 text-white ${T.body}`}
+            className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
             autoFocus={empty}
           />
           <p className={`${T.tiny} text-slate-500 mt-1`}>
@@ -58,7 +58,7 @@ export function GoalPanel({
           </p>
         </div>
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleSave()}

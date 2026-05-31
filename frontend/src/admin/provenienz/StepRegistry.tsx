@@ -67,7 +67,7 @@ function StepRow({
       <button
         type="button"
         onClick={() => onSelect(`step:${step.kind}`)}
-        className="w-full text-left rounded border border-navy-700 bg-navy-900/40 hover:bg-navy-800/60 p-2.5 transition-colors"
+        className="w-full text-left rounded border border-chrome2-500 bg-chrome2-900/40 hover:bg-chrome2-800/60 p-2.5 transition-colors"
       >
         <div className="flex items-center gap-2 flex-wrap">
           <ModeBadge usesLlm={step.uses_llm} usesTool={step.uses_tool} />
@@ -99,7 +99,7 @@ function StepRow({
             >
               System-Prompt-Vorschau
             </summary>
-            <pre className="mt-1 p-1.5 rounded bg-navy-950 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+            <pre className="mt-1 p-1.5 rounded bg-chrome2-900 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
               {step.system_prompt}
             </pre>
           </details>

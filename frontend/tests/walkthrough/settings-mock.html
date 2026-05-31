@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><style>
+  :root{
+    --navy:#031E31; --navy2:#0a2e47; --brand:#1E7EB2; --brand7:#154f72;
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --card:#ffffff; --bg:#eef2f6;
+    --pill:#e6b84a; --danger:#AE1B25; --slate2:#576977;
+  }
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+  body{margin:0;background:var(--bg);color:var(--ink)}
+  /* ---- top navy bar (faithful to the app) ---- */
+  header{background:var(--navy);color:#e8edf1;display:flex;align-items:center;gap:18px;padding:0 22px;height:56px;font-size:14px}
+  header .wm{font-weight:700;font-size:16px;letter-spacing:.02em}
+  header nav{display:flex;gap:16px;align-items:center;color:#cfe0ec}
+  header nav a{display:flex;gap:6px;align-items:center;color:#cfe0ec;text-decoration:none}
+  header .ic{width:15px;height:15px;opacity:.85}
+  header .spacer{flex:1}
+  .vllm{display:flex;align-items:center;gap:8px;background:#0a2335;border:1px solid #1d3a4f;border-radius:8px;padding:4px 10px;font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#34d399}
+  .model{display:flex;align-items:center;gap:8px;background:#0a2335;border:1px solid #1d3a4f;border-radius:8px;padding:4px 10px;font-size:12px;color:#cfe0ec}
+  .stop{display:flex;align-items:center;gap:6px;background:#b91c1c;color:#fff;border-radius:8px;padding:4px 10px;font-size:12px}
+  .chip{border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:3px 9px;font-size:12px;font-family:ui-monospace,monospace}
+  .pill{display:flex;align-items:center;gap:8px;background:var(--pill);color:#1f2937;border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:700}
+  /* ---- settings body ---- */
+  .wrap{max-width:760px;margin:0 auto;padding:30px 24px 60px}
+  .crumb{font-size:12px;color:var(--muted);margin-bottom:6px}
+  h1{font-size:24px;margin:0 0 22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:18px;overflow:hidden}
+  .card h2{font-size:14px;margin:0;padding:14px 18px;border-bottom:1px solid var(--line);background:#f8fafc;color:#334155;text-transform:uppercase;letter-spacing:.05em}
+  .row{display:flex;align-items:center;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .lab{width:170px;flex:0 0 170px;font-size:13.5px;color:#475569}
+  .row .lab small{display:block;color:#94a3b8;font-size:11.5px;margin-top:2px;font-weight:400}
+  .row .ctl{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .val{font-size:14px}
+  .mono{font-family:ui-monospace,monospace}
+  input[type=text],input[type=password],select{border:1px solid #cbd5e1;border-radius:7px;padding:7px 10px;font-size:13.5px;min-width:220px;background:#fff;color:var(--ink)}
+  .badge{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px}
+  .badge.role{background:#fdf0c8;color:#7a5a00}
+  .badge.tenant{background:#e2eef6;color:#1d567c;font-family:ui-monospace,monospace}
+  .btn{border:none;border-radius:7px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn.brand{background:var(--brand);color:#fff}
+  .btn.ghost{background:#fff;border:1px solid #cbd5e1;color:#334155}
+  .btn.danger{background:#fff;border:1px solid #e8b4b4;color:var(--danger)}
+  .hint{font-size:12px;color:#94a3b8}
+  .save{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+  .svg{width:15px;height:15px;vertical-align:-2px}
+</style></head>
+<body>
+  <header>
+    <span class="wm">Goldens</span>
+    <nav>
+      <a><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20"/></svg>Dokumente</a>
+      <a><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><path d="M2 21v-2a5 5 0 0 1 10 0v2"/></svg>Kuratoren</a>
+      <a><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V7l9-4 9 4v14"/><path d="M9 21v-6h6v6"/></svg>Fachbereiche</a>
+      <a><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Pipelines</a>
+      <a><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Übersicht</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="vllm"><span class="dot"></span>vLLM läuft</span>
+    <span class="model">1. Qwen3 8B Instruct ⭐ ne… ▾</span>
+    <span class="stop">▢ Stop</span>
+    <span class="chip">default</span>
+    <span class="pill">ADMIN · Sorgsamer Bär ▾</span>
+  </header>
+
+  <div class="wrap">
+    <div class="crumb">Sorgsamer Bär › Menü › Einstellungen</div>
+    <h1>Einstellungen</h1>
+
+    <div class="card">
+      <h2>Konto</h2>
+      <div class="row"><div class="lab">Benutzername</div><div class="ctl"><span class="val mono">admin</span></div></div>
+      <div class="row">
+        <div class="lab">Pseudonym<small>wird Kuratoren angezeigt</small></div>
+        <div class="ctl"><input type="text" value="Sorgsamer Bär"><button class="btn ghost">Neu vorschlagen</button></div>
+      </div>
+      <div class="row"><div class="lab">Rolle</div><div class="ctl"><span class="badge role">Admin</span></div></div>
+      <div class="row"><div class="lab">Fachbereich</div><div class="ctl"><span class="badge tenant">default</span></div></div>
+      <div class="row"><div class="lab"></div><div class="ctl"><div class="save" style="margin:0"><button class="btn brand">Speichern</button></div></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Darstellung &amp; Sprache</h2>
+      <div class="row">
+        <div class="lab">Sprache</div>
+        <div class="ctl"><select><option>Deutsch</option><option>English</option></select></div>
+      </div>
+      <div class="row">
+        <div class="lab">Standard-Modell<small>vorausgewählt für neue Läufe</small></div>
+        <div class="ctl"><select><option>Qwen3 8B Instruct</option><option>Qwen3 14B</option><option>zuletzt verwendetes</option></select></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sicherheit</h2>
+      <div class="row">
+        <div class="lab">Passwort ändern</div>
+        <div class="ctl"><input type="password" placeholder="Neues Passwort"><button class="btn brand">Ändern</button></div>
+      </div>
+      <div class="row">
+        <div class="lab">Sitzungen<small>auf allen Geräten</small></div>
+        <div class="ctl"><button class="btn danger">↪ Überall abmelden</button></div>
+      </div>
+    </div>
+  </div>
+</body></html>

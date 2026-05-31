@@ -7,9 +7,21 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from local_pdf.api.schemas import DocMeta, DocStatus
+from local_pdf.api.schemas import (
+    DocMeta,
+    DocStatus,
+    PageStatus,
+    PageStatusFile,
+    SetPageStatusRequest,
+)
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
-from local_pdf.storage.sidecar import doc_dir, read_meta, write_meta
+from local_pdf.storage.sidecar import (
+    doc_dir,
+    read_meta,
+    read_page_status,
+    update_page_status,
+    write_meta,
+)
 from local_pdf.storage.slug import unique_slug
 
 router = APIRouter()
@@ -25,6 +37,18 @@ def _tr(request: Request):
 
 def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _touch_meta(data_root, slug: str) -> None:
+    """Bump ONLY ``last_touched_utc`` on a doc's meta (no-op if meta missing).
+
+    Mirrors the put_html pattern in extract.py — deliberately does NOT touch
+    DocStatus. Per-page status is orthogonal to DocStatus, so toggling a page's
+    done-bit must never advance/regress the document lifecycle.
+    """
+    meta = read_meta(data_root, slug)
+    if meta is not None:
+        write_meta(data_root, slug, meta.model_copy(update={"last_touched_utc": _now_iso()}))
 
 
 def _count_pages(pdf_path) -> int:
@@ -121,6 +145,41 @@ async def archive_doc(slug: str, request: Request) -> dict[str, object]:
     )
     write_meta(_tr(request), slug, new)
     return new.model_dump(mode="json")  # type: ignore[no-any-return]
+
+
+@router.get("/api/admin/docs/{slug}/pages/status")
+async def get_page_status(slug: str, request: Request) -> dict[str, object]:
+    """Return the per-doc page-status sidecar (the set of done pages).
+
+    404 when the doc is unknown. When no sidecar exists yet, returns an empty
+    ``done_pages`` list. Per-page status is orthogonal to DocStatus.
+    """
+    meta = read_meta(_tr(request), slug)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    payload = read_page_status(_tr(request), slug) or PageStatusFile(slug=slug, done_pages=[])
+    return payload.model_dump(mode="json")  # type: ignore[no-any-return]
+
+
+@router.patch("/api/admin/docs/{slug}/pages/{page}/status")
+async def set_page_status(
+    slug: str, page: int, body: SetPageStatusRequest, request: Request
+) -> dict[str, object]:
+    """Toggle a single page's done-bit.
+
+    ``status == done`` persists the page in the sidecar; any other status
+    removes it (in_progress/not_started are derived client-side, never stored).
+    Bumps ``last_touched_utc`` but never changes DocStatus. 404 unknown doc;
+    400 when *page* is out of range.
+    """
+    meta = read_meta(_tr(request), slug)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    if page < 1 or page > meta.pages:
+        raise HTTPException(status_code=400, detail=f"page {page} out of range (1-{meta.pages})")
+    update_page_status(_tr(request), slug, page, body.status == PageStatus.done)
+    _touch_meta(_tr(request), slug)
+    return {"page": page, "status": body.status.value}
 
 
 @router.delete("/api/admin/docs/{slug}", status_code=204)

@@ -21,6 +21,11 @@ export function ChunkPanel({
   nodes,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
+  const extract = useExtractClaims(token, sessionId);
+  const stream = useNextStepStream(token, sessionId);
+  const del = useDeleteNode(token, sessionId);
+  const refresh = useRefreshChunk(token, sessionId);
+  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
   if (view.kind !== "chunk") return <></>;
   const chunk = view.chunk;
   const text = String(chunk.payload.text ?? "");
@@ -32,12 +37,6 @@ export function ChunkPanel({
     typeof chunk.payload.caption_box_id === "string"
       ? chunk.payload.caption_box_id
       : null;
-
-  const extract = useExtractClaims(token, sessionId);
-  const stream = useNextStepStream(token, sessionId);
-  const del = useDeleteNode(token, sessionId);
-  const refresh = useRefreshChunk(token, sessionId);
-  const { error: toastError, info: toastInfo, success: toastSuccess } = useToast();
 
   async function handleNextStep(): Promise<void> {
     await stream.start(chunk.node_id);
@@ -137,7 +136,7 @@ export function ChunkPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
@@ -147,7 +146,7 @@ export function ChunkPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-navy-700 bg-navy-900/40">
+        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
           <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
             Manuell wählen
           </summary>
@@ -156,7 +155,7 @@ export function ChunkPanel({
               type="button"
               onClick={() => void handleExtract()}
               disabled={extract.isPending}
-              className={`w-full px-3 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.tiny} disabled:opacity-50`}
+              className={`w-full px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.tiny} disabled:opacity-50`}
             >
               {extract.isPending ? "…" : "Aussagen extrahieren"}
             </button>

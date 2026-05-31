@@ -127,10 +127,10 @@ export function PromptOverlayForm({
         role="dialog"
         aria-modal="true"
         aria-label="Such-Anfrage verbessern"
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(800px,95vw)] h-[min(720px,90vh)] flex flex-col"
+        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(800px,95vw)] h-[min(720px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
           <div className="min-w-0">
             <h2 className={`${T.heading} text-white truncate`}>
               🔍 Such-Anfrage verbessern
@@ -161,7 +161,7 @@ export function PromptOverlayForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. nachzerfallsleistung-suche"
-              className={`w-full px-3 py-2 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               autoFocus
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
@@ -189,7 +189,7 @@ export function PromptOverlayForm({
                 "Vermeide den Begriff 'Restwärme' — verwende " +
                 "stattdessen 'Nachzerfallswärme'."
               }
-              className={`w-full p-3 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
+              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
             />
             <p className={`${T.tiny} text-slate-500 mt-1`}>
               Wird als zusätzlicher System-Prompt-Block in den formulate_task-Schritt
@@ -199,7 +199,7 @@ export function PromptOverlayForm({
 
           {/* Optional: goal_contains */}
           <details
-            className="rounded border border-navy-700 bg-navy-900/40"
+            className="rounded border border-chrome2-500 bg-chrome2-900/40"
             open={goalContains.trim().length > 0}
           >
             <summary
@@ -220,7 +220,7 @@ export function PromptOverlayForm({
                 value={goalContains}
                 onChange={(e) => setGoalContains(e.target.value)}
                 placeholder="z.B. Nachzerfallsleistung, Restwärme, Abklingen"
-                className={`w-full px-3 py-1.5 rounded bg-navy-900 border border-navy-600 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
               />
               <p className={`${T.tiny} text-slate-500 mt-1`}>
                 Leer = die Fähigkeit feuert bei jeder formulate_task-Aktion.
@@ -229,7 +229,7 @@ export function PromptOverlayForm({
           </details>
 
           {/* Raw-data accordion */}
-          <details className="rounded border border-navy-700 bg-navy-900/30">
+          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
             <summary
               className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
             >
@@ -249,7 +249,7 @@ export function PromptOverlayForm({
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between">
+        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
           <span className={`${T.tiny} text-slate-500`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
@@ -257,7 +257,7 @@ export function PromptOverlayForm({
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-navy-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
             >
               Abbrechen
             </button>
@@ -265,7 +265,7 @@ export function PromptOverlayForm({
               type="button"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit || createMutation.isPending}
-              className={`px-4 py-1.5 rounded bg-blue-500 hover:bg-blue-400 text-white ${T.body} font-semibold disabled:opacity-50`}
+              className={`px-4 py-1.5 rounded bg-brand-500 hover:bg-brand-600 text-white ${T.body} font-semibold disabled:opacity-50`}
             >
               {createMutation.isPending ? "Erstelle…" : "Erstellen"}
             </button>

@@ -30,9 +30,6 @@ export function SearchResultsBagPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "search_results_bag") return <></>;
-  const bagView = view;
-  const claimId = String(bagView.task.payload.focus_claim_id ?? "");
   const evaluate = useEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const promote = usePromoteSearchResult(token, sessionId);
@@ -40,6 +37,9 @@ export function SearchResultsBagPanel({
   // agent-run at a time. Per-row buttons set the anchor when fired.
   const stream = useNextStepStream(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "search_results_bag") return <></>;
+  const bagView = view;
+  const claimId = String(bagView.task.payload.focus_claim_id ?? "");
 
   async function handleEvaluate(resultId: string): Promise<void> {
     if (!claimId) {
@@ -152,7 +152,7 @@ export function SearchResultsBagPanel({
           return (
             <div
               key={result.node_id}
-              className="rounded border border-navy-600 bg-navy-800/60 p-2"
+              className="rounded border border-chrome2-500 bg-chrome2-800/60 p-2"
             >
               <div className={`flex items-center gap-2 ${T.tiny}`}>
                 <span className="font-mono text-blue-300">{boxId}</span>
@@ -191,7 +191,7 @@ export function SearchResultsBagPanel({
                   <Sparkles className="w-3 h-3" aria-hidden />
                   {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
                 </button>
-                <details className="rounded border border-navy-700 bg-navy-900/40">
+                <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
                   <summary
                     className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}
                   >

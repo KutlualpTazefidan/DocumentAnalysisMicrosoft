@@ -3,8 +3,8 @@ import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-d
 import { LlmTopBarControl } from "../admin/components/LlmTopBarControl";
 import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
-import { RoleBadge } from "./shared/RoleBadge";
-import { Inbox, Users, Cpu, BarChart3, LogOut, Building2 } from "../shared/icons";
+import { RoleMenu } from "./shared/RoleMenu";
+import { Inbox, Users, Cpu, BarChart3, Building2 } from "../shared/icons";
 
 export function AdminShell() {
   const { token, role, name, tenantSlug, logout } = useAuth();
@@ -26,7 +26,7 @@ export function AdminShell() {
       >
         <nav className="flex items-center gap-4 text-sm">
           <Link to="/admin/inbox" className="font-semibold">Goldens</Link>
-          <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Posteingang</Link>
+          <Link to="/admin/inbox" className="flex items-center gap-1"><Inbox className="w-4 h-4" />Dokumente</Link>
           <Link to="/admin/curators" className="flex items-center gap-1"><Users className="w-4 h-4" />Kuratoren</Link>
           <Link to="/admin/tenants" className="flex items-center gap-1"><Building2 className="w-4 h-4" />Fachbereiche</Link>
           <Link to="/admin/pipelines" className="flex items-center gap-1"><Cpu className="w-4 h-4" />Pipelines</Link>
@@ -46,15 +46,12 @@ export function AdminShell() {
               {tenantSlug}
             </span>
           )}
-          <RoleBadge theme={ADMIN_THEME} name={name ?? "admin"} />
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1 text-sm underline"
-            title="Session beenden + Cookie verwerfen"
-          >
-            <LogOut className="w-4 h-4" />
-            Abmelden
-          </button>
+          <RoleMenu
+            theme={ADMIN_THEME}
+            name={name ?? "admin"}
+            onSettings={() => navigate("/admin/settings")}
+            onLogout={handleLogout}
+          />
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">

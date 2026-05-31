@@ -157,6 +157,7 @@ async def run_segment(
                             slug,
                             meta.model_copy(
                                 update={
+                                    "status": DocStatus.extracted,
                                     "box_count": len(
                                         [b for b in all_boxes if b.kind != BoxKind.discard]
                                     ),
@@ -276,6 +277,7 @@ async def run_segment(
                     slug,
                     meta.model_copy(
                         update={
+                            "status": DocStatus.extracted,
                             "box_count": len([b for b in all_boxes if b.kind != BoxKind.discard]),
                             "last_touched_utc": _now_iso(),
                         }

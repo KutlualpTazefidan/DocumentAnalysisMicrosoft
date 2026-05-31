@@ -28,17 +28,17 @@ export function CapabilityGatePanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "capability_gate") return <></>;
-  const node = view.gate;
-  const p = node.payload as {
-    evaluation_node_id?: string;
-    detected?: DetectedEntry[];
-    capability_ids?: string[];
-    loaded_rules_preview?: string;
-    status?: string;
-    re_evaluate_proposal_id?: string;
-  };
-  const detected = Array.isArray(p.detected) ? p.detected : [];
+  const p =
+    view.kind === "capability_gate"
+      ? (view.gate.payload as {
+          evaluation_node_id?: string;
+          detected?: DetectedEntry[];
+          capability_ids?: string[];
+          loaded_rules_preview?: string;
+          status?: string;
+          re_evaluate_proposal_id?: string;
+        })
+      : {};
   const initialSelection = new Set(
     Array.isArray(p.capability_ids) ? p.capability_ids : [],
   );
@@ -46,6 +46,9 @@ export function CapabilityGatePanel({
   const reEval = useReEvaluate(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const { error: toastError } = useToast();
+  if (view.kind !== "capability_gate") return <></>;
+  const node = view.gate;
+  const detected = Array.isArray(p.detected) ? p.detected : [];
   const status = String(p.status ?? "pending");
   const isPending = status === "pending";
 
@@ -116,7 +119,7 @@ export function CapabilityGatePanel({
                   className={`rounded border px-2 py-1.5 ${
                     isSelected
                       ? "border-orange-500 bg-orange-950/40"
-                      : "border-navy-600 bg-navy-900/40 opacity-70"
+                      : "border-chrome2-500 bg-chrome2-900/40 opacity-70"
                   } ${isSub ? "ml-4" : ""}`}
                 >
                   <label className="flex items-start gap-2 cursor-pointer">
@@ -163,7 +166,7 @@ export function CapabilityGatePanel({
             <summary className={`${T.tiny} cursor-pointer text-slate-400`}>
               Domain-Rules-Vorschau ({p.loaded_rules_preview.length} Zeichen)
             </summary>
-            <pre className="mt-1 p-2 rounded bg-navy-950 text-[11px] text-slate-300 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+            <pre className="mt-1 p-2 rounded bg-chrome2-900 text-[11px] text-slate-300 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
               {p.loaded_rules_preview}
             </pre>
           </details>
@@ -172,7 +175,7 @@ export function CapabilityGatePanel({
           <p className={`${T.body} text-red-400`}>{reEval.error.message}</p>
         )}
       </div>
-      <footer className="p-3 border-t border-navy-700 space-y-2">
+      <footer className="p-3 border-t border-chrome2-500 space-y-2">
         {isPending && (
           <>
             <button

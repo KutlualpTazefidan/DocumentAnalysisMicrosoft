@@ -104,7 +104,7 @@ function RuleView({
               {rule.applies_to.map((k) => (
                 <code
                   key={k}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-navy-900 border border-navy-600 text-blue-300"
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-chrome2-900 border border-chrome2-500 text-blue-300"
                 >
                   {k}
                 </code>
@@ -166,7 +166,7 @@ function StepView({
 
         {step.system_prompt && (
           <Section title="System-Prompt">
-            <pre className="bg-navy-950 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+            <pre className="bg-chrome2-900 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
               {step.system_prompt}
             </pre>
           </Section>
@@ -174,7 +174,7 @@ function StepView({
 
         {step.user_template && (
           <Section title="User-Template">
-            <pre className="bg-navy-950 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+            <pre className="bg-chrome2-900 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
               {step.user_template}
             </pre>
           </Section>
@@ -317,7 +317,7 @@ function DataView({
 
 function RulePill({ name, rule }: { name: string; rule: AgentRuleInfo }): JSX.Element {
   return (
-    <li className="rounded border border-navy-600 bg-navy-800/50 p-2">
+    <li className="rounded border border-chrome2-500 bg-chrome2-800/50 p-2">
       <p className={`${T.tinyBold} text-blue-300`}>{name}</p>
       <p className={`${T.body} text-slate-200 mt-0.5`}>{rule.summary}</p>
       <p className={`${T.tiny} text-slate-400 mt-1`}>
@@ -359,7 +359,7 @@ function Header({
   onClose: () => void;
 }): JSX.Element {
   return (
-    <header className="px-4 py-3 border-b border-navy-700 flex items-start justify-between gap-2">
+    <header className="px-4 py-3 border-b border-chrome2-500 flex items-start justify-between gap-2">
       <div className="min-w-0">
         <p className={T.tinyBold}>{subtitle}</p>
         <p className="text-white text-sm font-semibold truncate">{title}</p>

@@ -1,0 +1,269 @@
+{
+  "name": "extract-stage-tour",
+  "startedAt": "2026-05-28T07:08:39.459Z",
+  "endedAt": "2026-05-28T07:09:12.403Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Anmelden als Admin",
+      "startedAtMs": 1779952119466,
+      "endedAtMs": 1779952121379,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = admin",
+        "click button[type=\"submit\"]",
+        "waitForUrl /#\\/admin\\//"
+      ],
+      "screenshots": [],
+      "notes": [],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Dokument aus dem Posteingang öffnen",
+      "startedAtMs": 1779952121379,
+      "endedAtMs": 1779952151850,
+      "actions": [
+        "expectVisible h1:has-text(\"Local-PDF Posteingang\")",
+        "click tr:has-text(\"148_2001\") a",
+        "waitForUrl /#\\/admin\\/doc\\/.*\\/extract/"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "tr:has-text(\"148_2001\") a",
+              "text": "Doc öffnen"
+            },
+            {
+              "kind": "note",
+              "text": "Extract-Stage geladen — PDF links, Box-Editor rechts."
+            }
+          ],
+          "note": "Extract-Stage"
+        }
+      ],
+      "notes": [
+        "Extract-Stage geladen — PDF links, Box-Editor rechts."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Doc-Level-Aktionen in der Topbar",
+      "startedAtMs": 1779952151850,
+      "endedAtMs": 1779952151949,
+      "actions": [],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "button[aria-label=\"Verzeichnisse erkennen und anzeigen\"]",
+              "text": "Verzeichnis-Erkennung",
+              "box": {
+                "x": 985.515625,
+                "y": 61,
+                "width": 179.546875,
+                "height": 26
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Topbar trägt die Doc-Level-Aktionen: Verzeichnisse erkennen, Alle Seiten extrahieren, Export. Alle-Seiten stößt MinerU an — hier nicht geklickt."
+            }
+          ],
+          "note": "Doc-Aktionen (read-only)"
+        }
+      ],
+      "notes": [
+        "Topbar trägt die Doc-Level-Aktionen: Verzeichnisse erkennen, Alle Seiten extrahieren, Export. Alle-Seiten stößt MinerU an — hier nicht geklickt."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Zoom-Steuerung",
+      "startedAtMs": 1779952151949,
+      "endedAtMs": 1779952152297,
+      "actions": [
+        "click button[aria-label=\"Zoom in\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "button[aria-label=\"Zoom in\"]",
+              "text": "Zoom",
+              "box": {
+                "x": 622.40625,
+                "y": 122,
+                "width": 24,
+                "height": 24
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Zoom 0.25–4×, pro Doc persistiert (localStorage admin.extract.scale)."
+            }
+          ],
+          "note": "Nach Zoom-In"
+        }
+      ],
+      "notes": [
+        "Zoom 0.25–4×, pro Doc persistiert (localStorage admin.extract.scale)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Workflow-Tabs sind jetzt alle aktiv",
+      "startedAtMs": 1779952152297,
+      "endedAtMs": 1779952152403,
+      "actions": [],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "nav[role=\"tablist\"]",
+              "text": "DocStepTabs",
+              "box": {
+                "x": 16,
+                "y": 56,
+                "width": 550.546875,
+                "height": 37
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Sobald ein Dokument offen ist, sind Extrahieren/Synthese/Vergleich/Provenienz klickbar (vorher ausgegraut)."
+            }
+          ],
+          "note": "Aktive Workflow-Tabs"
+        }
+      ],
+      "notes": [
+        "Sobald ein Dokument offen ist, sind Extrahieren/Synthese/Vergleich/Provenienz klickbar (vorher ausgegraut)."
+      ],
+      "status": "ok"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    }
+  ],
+  "pageErrors": []
+}

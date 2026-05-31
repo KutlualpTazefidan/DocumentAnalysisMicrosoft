@@ -33,7 +33,7 @@ export function SearchResultTile({
   const score = Number(p.score ?? 0);
   const text = String(p.text ?? "");
   return (
-    <div className="rounded-lg border-2 border-cyan-500/70 bg-navy-800 px-3 py-2 text-white shadow-md w-72">
+    <div className="rounded-lg border-2 border-cyan-500/70 bg-chrome2-800 px-3 py-2 text-white shadow-md w-72">
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-cyan-200">
         <CornerDownRight className="w-3 h-3" aria-hidden />
