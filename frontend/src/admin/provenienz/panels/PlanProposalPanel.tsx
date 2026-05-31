@@ -1,5 +1,9 @@
+import { useEffect, useMemo, useState } from "react";
+
 import { useToast } from "../../../shared/components/useToast";
 import {
+  useAgentInfo,
+  useDecide,
   useDecomposeHit,
   useDeleteNode,
   useEvaluate,
@@ -48,7 +52,37 @@ export function PlanProposalPanel({
   const decompose = useDecomposeHit(token, sessionId);
   const investigate = useInvestigateTable(token, sessionId);
   const del = useDeleteNode(token, sessionId);
+  const decide = useDecide(token, sessionId);
+  const agentInfo = useAgentInfo(token);
+  const [verwerfenMode, setVerwerfenMode] = useState<"idle" | "form">("idle");
+  const [intendedStep, setIntendedStep] = useState("");
+  const [reason, setReason] = useState("");
   const { error: toastError, success: toastSuccess } = useToast();
+  // Flat list of every registered step name across all anchor kinds —
+  // populates the "Stattdessen…" combobox typeahead. Computed pre-guard
+  // so the hooks order stays stable across renders (rules-of-hooks).
+  const knownSteps = useMemo(() => {
+    if (!agentInfo.data) return [] as string[];
+    return [
+      ...new Set(Object.values(agentInfo.data.valid_steps_per_anchor).flat()),
+    ].sort();
+  }, [agentInfo.data]);
+  // Esc collapses the inline-form back to the Verwerfen button without
+  // submitting anything — the cheap escape hatch for "actually I was just
+  // browsing, not overriding". Pre-guard so the effect-call order stays
+  // stable; the inner body short-circuits when the form isn't open.
+  useEffect(() => {
+    if (verwerfenMode !== "form") return;
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") {
+        setVerwerfenMode("idle");
+        setIntendedStep("");
+        setReason("");
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [verwerfenMode]);
   if (view.kind !== "plan_proposal") return <></>;
   const node = view.plan;
   const p = node.payload as {
@@ -87,7 +121,19 @@ export function PlanProposalPanel({
     promote.isPending ||
     decompose.isPending ||
     investigate.isPending ||
-    del.isPending;
+    del.isPending ||
+    decide.isPending;
+
+  const trimmedStep = intendedStep.trim();
+  const trimmedReason = reason.trim();
+  const isUnknownStep = trimmedStep !== "" && !knownSteps.includes(trimmedStep);
+  const canSubmitCorrection = trimmedStep !== "" && trimmedReason !== "";
+
+  function resetVerwerfenForm(): void {
+    setVerwerfenMode("idle");
+    setIntendedStep("");
+    setReason("");
+  }
 
   async function handleAccept(): Promise<void> {
     // Forward the click-trail from the plan_proposal onto every step
@@ -180,6 +226,29 @@ export function PlanProposalPanel({
     }
   }
 
+  async function handleSubmitCorrection(): Promise<void> {
+    if (!canSubmitCorrection) return;
+    try {
+      await decide.mutateAsync({
+        proposal_node_id: node.node_id,
+        expert_correction: {
+          intended_step: trimmedStep,
+          intended_args: {},
+          reason: trimmedReason,
+        },
+      });
+      toastSuccess(
+        isUnknownStep
+          ? "Korrektur erfasst + Capability-Wunsch hinterlegt"
+          : "Korrektur erfasst",
+      );
+      resetVerwerfenForm();
+      onSelectView(null);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : "Fehler");
+    }
+  }
+
   const conf = Math.round(p.confidence * 100);
   return (
     <div className="flex flex-col h-full">
@@ -248,19 +317,89 @@ export function PlanProposalPanel({
         <button
           type="button"
           onClick={() => void handleAccept()}
-          disabled={isPending}
+          disabled={isPending || verwerfenMode === "form"}
           className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} disabled:opacity-50`}
         >
           {isPending ? "…" : "Akzeptieren"}
         </button>
-        <button
-          type="button"
-          onClick={() => void handleDismiss()}
-          disabled={isPending}
-          className={`w-full px-3 py-2 rounded border border-amber-700 text-amber-300 hover:bg-amber-900/30 ${T.body} disabled:opacity-50`}
-        >
-          Verwerfen
-        </button>
+        {verwerfenMode === "idle" ? (
+          <button
+            type="button"
+            onClick={() => setVerwerfenMode("form")}
+            disabled={isPending}
+            className={`w-full px-3 py-2 rounded border border-amber-700 text-amber-300 hover:bg-amber-900/30 ${T.body} disabled:opacity-50`}
+          >
+            Verwerfen
+          </button>
+        ) : (
+          // Inline "Lieber so"-form. Captures (a) what the expert would
+          // do instead — combobox-typeahead over known steps + raw-string
+          // fallback for unimplemented methods — and (b) the reason. POST
+          // /decide with the typed expert_correction block.
+          <div className="space-y-2 rounded border border-amber-700/60 bg-amber-900/20 p-2">
+            <label className={`${T.tinyBold} block`}>
+              Stattdessen…
+              <input
+                type="text"
+                list="plan-override-step-options"
+                value={intendedStep}
+                onChange={(e) => setIntendedStep(e.target.value)}
+                placeholder="extract_claims, formulate_task, … oder neue Methode"
+                autoFocus
+                className="mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-amber-200 font-mono text-sm"
+              />
+              <datalist id="plan-override-step-options">
+                {knownSteps.map((s) => (
+                  <option key={s} value={s}>
+                    {STEP_LABEL[s] ?? s}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            {isUnknownStep && (
+              <p className={`${T.tiny} text-amber-300`}>
+                Neuer Skill — wird auch als Capability-Wunsch erfasst
+              </p>
+            )}
+            <label className={`${T.tinyBold} block`}>
+              Warum?
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={2}
+                placeholder="Was hat der Agent übersehen?"
+                required
+                className="mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-200 text-sm resize-none"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void handleSubmitCorrection()}
+              disabled={isPending || !canSubmitCorrection}
+              className={`w-full px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} disabled:opacity-50`}
+            >
+              Korrektur erfassen
+            </button>
+            <div className="flex justify-between items-center">
+              <button
+                type="button"
+                onClick={resetVerwerfenForm}
+                disabled={isPending}
+                className={`${T.tiny} text-slate-400 hover:text-slate-200 underline disabled:opacity-50`}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDismiss()}
+                disabled={isPending}
+                className={`${T.tiny} text-rose-400 hover:text-rose-300 underline disabled:opacity-50`}
+              >
+                Doch löschen
+              </button>
+            </div>
+          </div>
+        )}
       </footer>
     </div>
   );
