@@ -1,0 +1,108 @@
+{
+  "name": "extract-export",
+  "startedAt": "2026-05-31T10:01:29.269Z",
+  "endedAt": "2026-05-31T10:01:33.579Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Extrahieren-Seite mit extrahiertem Dokument öffnen",
+      "startedAtMs": 1780221692701,
+      "endedAtMs": 1780221692925,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Export-Button — schreibt sourceelements.json in den Daten-Ordner des Dokuments",
+              "selector": "button[aria-label=\"Export sourceelements.json\"]",
+              "box": {
+                "x": 1300,
+                "y": 59,
+                "width": 84,
+                "height": 30
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Voraussetzung: Dokument wurde bereits segmentiert/extrahiert (Boxen + Text vorhanden, Status „Extrahiert“).",
+        "Die Sub-Topbar zeigt rechts vier Doc-Level-Aktionen: Verzeichnisse erkennen, Alle Seiten extrahieren, Abgeschlossene Seiten schützen, Export."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Export anstoßen → Toast „Exported sourceelements.json“",
+      "startedAtMs": 1780221693379,
+      "endedAtMs": 1780221693490,
+      "actions": [
+        "click Export-button",
+        "wait for success toast"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Success-Toast bestätigt Server-Schreibvorgang",
+              "selector": "text=Exported sourceelements.json",
+              "box": {
+                "x": 1013,
+                "y": 847,
+                "width": 358,
+                "height": 24
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf Export ruft POST /api/admin/docs/{slug}/export auf — der Server schreibt synchron sourceelements.json.",
+        "Erfolgsmeldung als Toast unten rechts; kein Browser-Download (Datei landet auf dem Server, nicht beim Nutzer)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Ergebnis prüfen — sourceelements.json liegt im Daten-Ordner",
+      "startedAtMs": 1780221693491,
+      "endedAtMs": 1780221693579,
+      "actions": [
+        "read /home/ktazefid/Documents/local-pdf-test/data/1997-ronkohavi-standford-accuracy-estimation-model-selection/sourceelements.json"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Datei-Pfad: /home/ktazefid/Documents/local-pdf-test/data/1997-ronkohavi-standford-accuracy-estimation-model-selection/sourceelements.json"
+            },
+            {
+              "kind": "note",
+              "text": "Größe 46.2 KB · 137 Elemente"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Datei vorhanden (46.2 KB) mit 137 Source-Elementen.",
+        "Pfad: <data_root>/<slug>/sourceelements.json — wird vom Synthese-Schritt als Eingabe gelesen."
+      ],
+      "status": "ok"
+    }
+  ]
+}

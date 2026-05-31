@@ -1,0 +1,281 @@
+{
+  "name": "curator-management",
+  "startedAt": "2026-05-28T07:04:52.822Z",
+  "endedAt": "2026-05-28T07:05:26.133Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Anmelden als Admin",
+      "startedAtMs": 1779951892823,
+      "endedAtMs": 1779951894642,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = admin",
+        "click button[type=\"submit\"]",
+        "waitForUrl /#\\/admin\\//"
+      ],
+      "screenshots": [],
+      "notes": [],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Zur Kuratoren-Verwaltung",
+      "startedAtMs": 1779951894642,
+      "endedAtMs": 1779951895033,
+      "actions": [
+        "click header a[href=\"#/admin/curators\"]",
+        "expectVisible h1:has-text(\"Curators\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Tabelle listet token-basierte Kuratoren mit Token-Prefix + Erstelldatum."
+            },
+            {
+              "kind": "highlight",
+              "selector": "button:has-text(\"Create curator\")",
+              "text": "Anlegen",
+              "box": {
+                "x": 1273.84375,
+                "y": 72,
+                "width": 102.15625,
+                "height": 26
+              }
+            }
+          ],
+          "note": "Kuratoren-Liste"
+        }
+      ],
+      "notes": [
+        "Tabelle listet token-basierte Kuratoren mit Token-Prefix + Erstelldatum."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Kurator anlegen",
+      "startedAtMs": 1779951895033,
+      "endedAtMs": 1779951895810,
+      "actions": [
+        "click button:has-text(\"Create curator\")",
+        "expectVisible [role=\"dialog\"]",
+        "fill [role=\"dialog\"] input[placeholder=\"Name\"] = wt-kurator-mpp5ed7n",
+        "click [role=\"dialog\"] button[type=\"submit\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Name: wt-kurator-mpp5ed7n"
+            }
+          ],
+          "note": "Anlege-Dialog ausgefüllt"
+        }
+      ],
+      "notes": [
+        "Name: wt-kurator-mpp5ed7n"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Einmal-Token sehen",
+      "startedAtMs": 1779951895810,
+      "endedAtMs": 1779951926133,
+      "actions": [
+        "expectVisible text=Curator token",
+        "click button:has-text(\"Dismiss\"), [role=\"dialog\"] button:has-text(\"OK\"), [role=\"dialog\"] button:has-text(\"Schließen\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Token wird nur EINMAL angezeigt — Server speichert nur einen Hash. Copy-Button legt es in die Zwischenablage."
+            },
+            {
+              "kind": "highlight",
+              "selector": "button:has-text(\"Copy\")",
+              "text": "Token kopieren",
+              "box": {
+                "x": 822.84375,
+                "y": 446,
+                "width": 45.15625,
+                "height": 28
+              }
+            }
+          ],
+          "note": "Token-Dialog (einmalige Anzeige)"
+        },
+        {
+          "filename": "screenshots/04_02.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [],
+          "note": "FAILURE: page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Dismiss\"), [role=\"dialog\"] button:has-text(\"OK\"), [role=\"dialog\"] button:has-text(\"Schließen\")')\u001b[22m\n"
+        }
+      ],
+      "notes": [
+        "Token wird nur EINMAL angezeigt — Server speichert nur einen Hash. Copy-Button legt es in die Zwischenablage."
+      ],
+      "status": "failed",
+      "errorMessage": "page.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button:has-text(\"Dismiss\"), [role=\"dialog\"] button:has-text(\"OK\"), [role=\"dialog\"] button:has-text(\"Schließen\")')\u001b[22m\n"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@radix-ui_react-dialog.js?v=2538ce4f",
+        "lineNumber": 1420,
+        "columnNumber": 35
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "warning",
+      "text": "Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@radix-ui_react-dialog.js?v=2538ce4f",
+        "lineNumber": 1420,
+        "columnNumber": 35
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "warning",
+      "text": "Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@radix-ui_react-dialog.js?v=2538ce4f",
+        "lineNumber": 1420,
+        "columnNumber": 35
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "warning",
+      "text": "Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/@radix-ui_react-dialog.js?v=2538ce4f",
+        "lineNumber": 1420,
+        "columnNumber": 35
+      },
+      "stepIndex": 2
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    }
+  ],
+  "pageErrors": []
+}

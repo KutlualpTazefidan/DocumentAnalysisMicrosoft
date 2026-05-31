@@ -1,0 +1,177 @@
+{
+  "name": "synthese-generate",
+  "startedAt": "2026-05-31T17:04:27.557Z",
+  "endedAt": "2026-05-31T17:04:39.286Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Voraussetzung: vLLM verfügbar — Status „running“",
+      "startedAtMs": 1780247070114,
+      "endedAtMs": 1780247070504,
+      "actions": [
+        "GET /api/admin/llm/status"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "LLM-Start/Stop-Button",
+              "selector": "button:has-text(\"Start\"), button:has-text(\"Stop\")",
+              "box": {
+                "x": 1094,
+                "y": 12,
+                "width": 64,
+                "height": 24
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Synthese braucht ein laufendes LLM. Status-Pill oben (vLLM gestoppt/läuft) macht das sichtbar.",
+        "Start/Stop-Buttons direkt in der Top-Bar — alternativ POST /api/admin/llm/start.",
+        "Aktuelles Modell: Qwen/Qwen3-8B, base_url: http://127.0.0.1:8000/v1.",
+        "Erst wenn der Status auf „läuft“ steht, sind die Generate-Buttons im Synthese-Tab aktivierbar."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Seite 3 geöffnet — mittleres Panel wartet auf Box-Klick",
+      "startedAtMs": 1780247072788,
+      "endedAtMs": 1780247072899,
+      "actions": [
+        "navigate to page 3"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Auf Seite 3 (über ▶-Buttons aus dem Page-Strip)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Mittleres Panel zeigt „Klicke ein Element im HTML-Bereich, um Fragen zu sehen“ — Box-Auswahl ist Voraussetzung.",
+        "Linke Spalte = read-only HTML-Vorschau der aktuellen Seite (iframe, vom Server gelieferte html.html-Slice).",
+        "Rechts: vLLM-Status, Seiten-Navigation, „Diese Seite sperren“, Box-Eigenschaften (noch leer)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Box p3-b0 ausgewählt → Generate-Button aktiviert",
+      "startedAtMs": 1780247073810,
+      "endedAtMs": 1780247074160,
+      "actions": [
+        "click iframe [data-source-box=\"p3-b0\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Aktivierter Generate-Button",
+              "selector": "button[aria-label=\"Fragen für diese Box generieren\"]",
+              "box": {
+                "x": 1236,
+                "y": 402,
+                "width": 248,
+                "height": 30
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Box-Eigenschaften zeigen p3-b0"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf einen Paragraf-Block im iframe sendet die box_id an die React-App.",
+        "Rechtes Panel füllt sich: Box-ID, Tag-Badge („paragraph“), Vorschau-Text, Anzahl bestehender Fragen.",
+        "„Fragen für diese Box generieren“ ist jetzt aktiv (vorher disabled solange keine Auswahl)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Box-Generate gestartet — vLLM streamt",
+      "startedAtMs": 1780247075010,
+      "endedAtMs": 1780247075137,
+      "actions": [
+        "click button \"Fragen für diese Box generieren\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Generate-Button im Pending-State, Stream läuft"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "POST /api/admin/docs/{slug}/synthesise?box_id={box_id} — Server ruft das LLM mit Box-Text als Kontext.",
+        "Antwort als NDJSON-Stream: pro Frage ein Event, plus work-complete am Ende.",
+        "Button switcht auf „…“ (Pending-Indikator), restliche Aktionen sind disabled solange der Lauf läuft.",
+        "Typische Laufzeit: 5-15s für 4-6 Fragen pro Box (Qwen3-8B auf RTX 4090)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "2 Fragen für p3-b0 sichtbar",
+      "startedAtMs": 1780247079196,
+      "endedAtMs": 1780247079270,
+      "actions": [
+        "wait for stream completion",
+        "react-query auto-rerenders questions panel"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "2 neue Q&A im Panel",
+              "selector": "[data-testid=\"synthesise-questions\"]",
+              "box": {
+                "x": 610,
+                "y": 101,
+                "width": 610,
+                "height": 849
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "LLM hat 2 Q&A-Pairs für p3-b0 erzeugt — Liste rendert im mittleren Panel.",
+        "Pro Frage: Frage-Text, generierte Antwort, Box-Pin (springt zum Quell-Element), Verfeinern / Antwort-überschreiben / Verwerfen-Aktionen.",
+        "Antworten kommen automatisch mit dem ersten Generate (Server ruft LLM für jede Frage auf den Box-Text an).",
+        "Für eigene, manuell formulierte Fragen → siehe Kurator-Pfad „eigene Frage anlegen“: POST /api/curate/docs/{slug}/questions."
+      ],
+      "status": "ok"
+    }
+  ]
+}

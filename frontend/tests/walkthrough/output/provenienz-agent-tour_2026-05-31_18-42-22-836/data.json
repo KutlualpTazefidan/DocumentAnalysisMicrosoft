@@ -1,0 +1,190 @@
+{
+  "name": "provenienz-agent-tour",
+  "startedAt": "2026-05-31T18:42:22.836Z",
+  "endedAt": "2026-05-31T18:42:31.908Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Agent-View — Orchestrator + Sub-Agent + 5 Tabs",
+      "startedAtMs": 1780252947325,
+      "endedAtMs": 1780252947409,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/provenienz",
+        "click view toggle \"Agent\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Auswahl-Tab (Default beim Agent-View-Start)",
+              "selector": "nav button:has-text(\"Auswahl\")",
+              "box": {
+                "x": 1089,
+                "y": 101,
+                "width": 73,
+                "height": 36
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Canvas oben: Orchestrator (gerade aktiv) — wählt einen Sub-Agent. Sub-Agent trägt seine Skills (orange Pills) + Werkzeuge (cyan Pills) inline.",
+        "Klick auf ein Pill → Detail im Auswahl-Tab rechts.",
+        "Default-Tab beim Wechsel: „Auswahl“ — leerer Platzhalter solange kein Pill/Knoten selektiert.",
+        "Header: aktiver LLM-Backend + Modell-Name (z.B. Qwen3-8B via vLLM)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Tab „Schritte“ — Registry der ausführbaren LLM-Schritte",
+      "startedAtMs": 1780252948594,
+      "endedAtMs": 1780252948707,
+      "actions": [
+        "click tab \"Schritte\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Step-Registry-Tab",
+              "selector": "nav button:has-text(\"Schritte\")",
+              "box": {
+                "x": 1162,
+                "y": 101,
+                "width": 68,
+                "height": 36
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Liste aller registrierten Steps, die der Orchestrator vorschlagen kann: extract_claims, formulate_task, search, cross_doc_search, register_lookup, evaluate, propose_stop, decompose_hit, promote_search_result, investigate_table.",
+        "Pro Step: Name, Beschreibung, akzeptierte Anker-Typen, optional Beispiel-Prompts.",
+        "Klick auf einen Step → Auswahl-Tab zeigt das Detail (Parameter-Schema, akzeptierte Anker-Knoten, Implementierungs-Pfad).",
+        "Dieser Tab macht sichtbar, was der Agent „kann“ — die Provenance-DAGs setzen sich aus genau diesen Steps zusammen."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Tab „Werkzeuge“ — Tools, die Sub-Agents zur Verfügung haben",
+      "startedAtMs": 1780252949709,
+      "endedAtMs": 1780252949811,
+      "actions": [
+        "click tab \"Werkzeuge\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Tool-Registry-Tab",
+              "selector": "nav button:has-text(\"Werkzeuge\")",
+              "box": {
+                "x": 1230,
+                "y": 101,
+                "width": 88,
+                "height": 36
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Tools sind primitivere Bausteine als Steps: BM25-Search, Cross-Doc-Search, Register-Lookup, Calculator, Investigate-Table, etc.",
+        "Ein Step kombiniert ein oder mehrere Tools mit LLM-Aufrufen zu einer höheren Aktion.",
+        "Klick auf ein Tool → Detail im Auswahl-Tab: Input/Output-Schema, welche Sub-Agents es tragen, Beispiel-Calls.",
+        "Trennt das WAS (Step) vom WIE (Tool) — wichtig wenn Tools wiederverwendet werden über mehrere Steps."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Tab „Fähigkeiten“ — Skill-Library der Sub-Agents",
+      "startedAtMs": 1780252950778,
+      "endedAtMs": 1780252950862,
+      "actions": [
+        "click tab \"Fähigkeiten\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Skill-Library-Tab",
+              "selector": "nav button:has-text(\"Fähigkeiten\")",
+              "box": {
+                "x": 1318,
+                "y": 101,
+                "width": 91,
+                "height": 36
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Skills sind verfeinerbare LLM-Skill-Pakete (System-Prompts + Approach-Definitionen) für spezifische Aufgaben.",
+        "Pro Skill: Name, Beschreibung, zugehörige Steps, Versions-Historie.",
+        "Skills sind editierbar / versionierbar — POST/PATCH /skills für eigene Anpassungen, GET /skills/{id}/runs für Lauf-Historie.",
+        "Wenn ein Step eine Skill braucht, sucht der Server eine passende aus dieser Library (Best-Match nach Tags + Context)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Tab „Wünsche“ — Capability-Requests des Agents",
+      "startedAtMs": 1780252951836,
+      "endedAtMs": 1780252951908,
+      "actions": [
+        "click tab \"Wünsche\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Capability-Requests-Tab",
+              "selector": "nav button:has-text(\"Wünsche\")",
+              "box": {
+                "x": 1410,
+                "y": 101,
+                "width": 76,
+                "height": 36
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Wenn der Agent erkennt, dass ihm ein Tool / eine Skill fehlt, hinterlegt er einen Capability-Request — ähnlich einem Feature-Wunsch.",
+        "Pro Request: gewünschte Capability, Begründung, betroffener Lauf (Session + Node).",
+        "Liste der offenen Wünsche dient als Backlog für die Toolchain-Erweiterung — Entwickler arbeiten sie ab, registrieren neue Tools/Steps.",
+        "Geschlossene/erfüllte Requests bleiben sichtbar (Audit), gefiltert oben in den Listen-Optionen.",
+        "Dieses Konstrukt schließt den Kreis: Agent läuft → erkennt Defizit → meldet als Wunsch → Team baut → Agent kann mehr."
+      ],
+      "status": "ok"
+    }
+  ]
+}

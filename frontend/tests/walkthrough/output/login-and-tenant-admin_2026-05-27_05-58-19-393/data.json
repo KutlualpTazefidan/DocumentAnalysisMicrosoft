@@ -1,0 +1,241 @@
+{
+  "name": "login-and-tenant-admin",
+  "startedAt": "2026-05-27T05:58:19.393Z",
+  "endedAt": "2026-05-27T05:58:31.674Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Open landing → Anmelden",
+      "startedAtMs": 1779861499396,
+      "endedAtMs": 1779861500695,
+      "actions": [
+        "goto /",
+        "expectVisible h1:has-text(\"GOLDENS\")",
+        "click a:has-text(\"Anmelden\")",
+        "waitForUrl /#\\/login/",
+        "expectVisible h1:has-text(\"Local-PDF\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Landing page: three feature highlights + single CTA."
+            },
+            {
+              "kind": "highlight",
+              "selector": "a:has-text(\"Anmelden\")",
+              "text": "Anmelden CTA",
+              "box": {
+                "x": 630.515625,
+                "y": 313,
+                "width": 138.96875,
+                "height": 48
+              }
+            }
+          ],
+          "note": "Landing page"
+        },
+        {
+          "filename": "screenshots/01_02.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Now on /login — credential form (legacy token tab hidden)."
+            }
+          ],
+          "note": "Login page"
+        }
+      ],
+      "notes": [
+        "Landing page: three feature highlights + single CTA.",
+        "Now on /login — credential form (legacy token tab hidden)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Fill credentials",
+      "startedAtMs": 1779861500695,
+      "endedAtMs": 1779861501377,
+      "actions": [
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = admin"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "button[type=\"submit\"]",
+              "text": "Login button",
+              "box": {
+                "x": 540,
+                "y": 607,
+                "width": 320,
+                "height": 32
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Cookie is set HttpOnly by the backend on success."
+            }
+          ],
+          "note": "Form pre-submit"
+        }
+      ],
+      "notes": [
+        "Cookie is set HttpOnly by the backend on success."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Submit + land on inbox",
+      "startedAtMs": 1779861501377,
+      "endedAtMs": 1779861511674,
+      "actions": [
+        "click button[type=\"submit\"]",
+        "waitForUrl /\\/admin\\//"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [],
+          "note": "FAILURE: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================"
+        }
+      ],
+      "notes": [],
+      "status": "failed",
+      "errorMessage": "page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/login",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 2
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/login",
+      "method": "POST",
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "stepIndex": 2
+    }
+  ],
+  "pageErrors": []
+}

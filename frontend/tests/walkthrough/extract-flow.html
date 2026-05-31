@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body{margin:0;background:#eef2f6;font-family:system-ui,-apple-system,sans-serif;padding:26px}
+  h1{font-size:19px;color:#0f172a;margin:0 0 2px}
+  .sub{font-size:12.5px;color:#64748b;margin:0 0 18px}
+  .legend{font-size:12px;color:#334155;margin:14px 0 0;display:flex;gap:18px;align-items:center}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .mermaid{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px}
+</style></head>
+<body>
+  <h1>Extrahieren — Workflow (korrigiert)</h1>
+  <p class="sub">Zuerst schlägt die MinerU-Extraktion die Boxen vor (Phase 1) — danach beginnt die Korrektur Seite für Seite (Phase 2).</p>
+  <pre class="mermaid">
+flowchart TD
+  A["PDF hochladen / Dokument öffnen"] --> B["1 · MinerU-Extraktion<br/>schlägt die Boxen vor<br/>(Segmentierung erkennt Boxen + liest sie → Text)"]
+  B --> C["Extrahieren-Seite:<br/>Boxen + Text liegen vor"]
+  C --> D["2 · Korrektur beginnt — Seite prüfen"]
+  D --> E{"Boxen korrekt?<br/>(Lage · Typ · Vollständigkeit)"}
+  E -- nein --> F["Box korrigieren<br/>• ziehen / skalieren (Box wird neu gelesen)<br/>• Typ ändern · Aktivieren / Deaktivieren<br/>• Verbinden / Trennen über Seiten<br/>• Neue Box / Box löschen<br/>• „Diese Box extrahieren“"]
+  F --> D
+  E -- ja --> G{"Text korrekt?"}
+  G -- nein --> H["Text im HTML-Editor korrigieren<br/>(speichert automatisch)"]
+  H --> D
+  G -- ja --> I["Seite abschließen 🔒<br/>lokale Selbst-Sperre (localStorage) · Status „Abgeschlossen“"]
+  I --> J{"Weitere Seiten?"}
+  J -- ja --> K["Nächste Seite (◀ ▶ / Raster)"]
+  K --> D
+  J -- nein --> L["Export → sourceelements.json"]
+  D -. "bei Bedarf neu anstoßen" .-> M["„Diese Seite“ / „Alle Seiten extrahieren“<br/>= MinerU erneut laufen lassen"]
+  M -.-> D
+  C -. "optional, doc-weit" .-> N["Verzeichnisse erkennen → Register-Panel"]
+
+  classDef mineru fill:#1E7EB2,stroke:#154f72,color:#fff;
+  classDef done fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f;
+  classDef export fill:#1E7EB2,stroke:#154f72,color:#fff;
+  class B mineru;
+  class I done;
+  class L export;
+  </pre>
+
+  <div class="legend">
+    <b>Seiten-Status:</b>
+    <span><span class="sw" style="background:#fca5a5"></span>Nicht extrahiert</span>
+    <span><span class="sw" style="background:#86efac"></span>Extrahiert (von MinerU)</span>
+    <span><span class="sw" style="background:#93c5fd"></span>Abgeschlossen (gesperrt)</span>
+  </div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { useMaxWidth: false, htmlLabels: true, nodeSpacing: 45, rankSpacing: 45 } });
+</script>
+</body></html>

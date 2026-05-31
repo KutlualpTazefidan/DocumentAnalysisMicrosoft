@@ -1,0 +1,259 @@
+{
+  "name": "admin-inbox-to-extract",
+  "startedAt": "2026-05-27T11:25:42.853Z",
+  "endedAt": "2026-05-27T11:26:15.716Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Anmelden als Admin",
+      "startedAtMs": 1779881142854,
+      "endedAtMs": 1779881144572,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = admin",
+        "click button[type=\"submit\"]",
+        "waitForUrl /#\\/admin\\//"
+      ],
+      "screenshots": [],
+      "notes": [],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Posteingang prüfen",
+      "startedAtMs": 1779881144572,
+      "endedAtMs": 1779881144713,
+      "actions": [
+        "expectVisible h1:has-text(\"Local-PDF Posteingang\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Tabelle zeigt alle PDFs des aktiven Fachbereichs mit Status-Badge, Seitenzahl, Element-Anzahl, Datum, und 'fortsetzen/ansehen'-Link."
+            },
+            {
+              "kind": "highlight",
+              "selector": "table",
+              "text": "PDF-Liste",
+              "box": {
+                "x": 24,
+                "y": 158,
+                "width": 1352,
+                "height": 117
+              }
+            }
+          ],
+          "note": "Posteingang im aktiven Fachbereich"
+        }
+      ],
+      "notes": [
+        "Tabelle zeigt alle PDFs des aktiven Fachbereichs mit Status-Badge, Seitenzahl, Element-Anzahl, Datum, und 'fortsetzen/ansehen'-Link."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Schritt-Tabs in der Topbar",
+      "startedAtMs": 1779881144713,
+      "endedAtMs": 1779881144785,
+      "actions": [],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "nav[role=\"tablist\"]",
+              "text": "Workflow-Tabs",
+              "box": {
+                "x": 16,
+                "y": 48,
+                "width": 1368,
+                "height": 37
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Dateien / Extrahieren / Synthese / Vergleich / Provenienz — die fünf Stufen der Pipeline. Inaktive Tabs sind ausgegraut, weil noch kein Dokument geöffnet ist."
+            }
+          ],
+          "note": "DocStepTabs (alles ausser Dateien disabled)"
+        }
+      ],
+      "notes": [
+        "Dateien / Extrahieren / Synthese / Vergleich / Provenienz — die fünf Stufen der Pipeline. Inaktive Tabs sind ausgegraut, weil noch kein Dokument geöffnet ist."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Erste Zeile öffnen → Extract",
+      "startedAtMs": 1779881144785,
+      "endedAtMs": 1779881175343,
+      "actions": [
+        "click table tbody tr:first-child a",
+        "waitForUrl /#\\/admin\\/doc\\/.*\\/extract/"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "table tbody tr:first-child a",
+              "text": "Doc öffnen"
+            },
+            {
+              "kind": "note",
+              "text": "Extract-Stage geladen — Workflow-Tabs sind jetzt alle aktiv (PDF + Vorschau + Box-Editor sichtbar)."
+            }
+          ],
+          "note": "Extract-Stage des Dokuments"
+        }
+      ],
+      "notes": [
+        "Extract-Stage geladen — Workflow-Tabs sind jetzt alle aktiv (PDF + Vorschau + Box-Editor sichtbar)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Zurück zum Posteingang",
+      "startedAtMs": 1779881175343,
+      "endedAtMs": 1779881175716,
+      "actions": [
+        "click header a[href=\"#/admin/inbox\"]",
+        "expectVisible h1:has-text(\"Local-PDF Posteingang\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Nav-Link zurück — Workflow ist re-entrant, kein Datenverlust."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Nav-Link zurück — Workflow ist re-entrant, kein Datenverlust."
+      ],
+      "status": "ok"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    }
+  ],
+  "pageErrors": []
+}

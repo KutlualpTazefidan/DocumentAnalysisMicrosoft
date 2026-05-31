@@ -1,0 +1,281 @@
+{
+  "name": "auth-failure",
+  "startedAt": "2026-05-27T11:25:18.076Z",
+  "endedAt": "2026-05-27T11:25:26.445Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Falscher Fachbereich",
+      "startedAtMs": 1779881118078,
+      "endedAtMs": 1779881120143,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "expectVisible [role=\"dialog\"]",
+        "fill input[aria-label=\"Fachbereich\"] = bogus-tenant-xyz",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = anything",
+        "click button[type=\"submit\"]",
+        "expectVisible text=Login fehlgeschlagen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Tippfehler im Fachbereich-Feld — Backend kennt den Slug nicht."
+            },
+            {
+              "kind": "error",
+              "text": "401 — Fachbereich/Benutzer/Passwort falsch"
+            }
+          ],
+          "note": "Fehlermeldung im Modal"
+        }
+      ],
+      "notes": [
+        "Tippfehler im Fachbereich-Feld — Backend kennt den Slug nicht."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Falsches Passwort",
+      "startedAtMs": 1779881120143,
+      "endedAtMs": 1779881120946,
+      "actions": [
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Passwort\"] = definitely-wrong",
+        "click button[type=\"submit\"]",
+        "expectVisible text=Login fehlgeschlagen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Backend gibt 401 zurück — gleicher Text wie bei falschem Fachbereich. Bewusste Entscheidung: keinen Hinweis geben WELCHES Feld falsch ist, damit Brute-Force keine Benutzer-Enumeration ermöglicht."
+            }
+          ],
+          "note": "Identische Fehlermeldung — bewusst generisch"
+        }
+      ],
+      "notes": [
+        "Backend gibt 401 zurück — gleicher Text wie bei falschem Fachbereich. Bewusste Entscheidung: keinen Hinweis geben WELCHES Feld falsch ist, damit Brute-Force keine Benutzer-Enumeration ermöglicht."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Session abgelaufen — Redirect-Notice",
+      "startedAtMs": 1779881120946,
+      "endedAtMs": 1779881126445,
+      "actions": [
+        "goto /login?reason=expired",
+        "expectVisible text=Sitzung abgelaufen. Bitte erneut anmelden."
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [],
+          "note": "FAILURE: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=Sitzung abgelaufen. Bitte erneut anmelden.') to be visible\u001b[22m\n"
+        }
+      ],
+      "notes": [],
+      "status": "failed",
+      "errorMessage": "page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('text=Sitzung abgelaufen. Bitte erneut anmelden.') to be visible\u001b[22m\n"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/login",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/login",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 1
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=2538ce4f",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=2538ce4f",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 2
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/login",
+      "method": "POST",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/login",
+      "method": "POST",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 1
+    }
+  ],
+  "pageErrors": []
+}
