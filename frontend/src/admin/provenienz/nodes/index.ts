@@ -7,6 +7,7 @@ import { CapabilityRequestTile } from "./CapabilityRequestTile";
 import { ChunkTile } from "./ChunkTile";
 import { ClaimTile } from "./ClaimTile";
 import { EvaluationTile } from "./EvaluationTile";
+import { ExpertCorrectionTile } from "./ExpertCorrectionTile";
 import { FallbackNode } from "./FallbackNode";
 import { GoalTile } from "./GoalTile";
 import { ManualReviewTile } from "./ManualReviewTile";
@@ -26,6 +27,7 @@ export const nodeTypes: Record<string, ComponentType<NodeProps>> = {
   search_result: SearchResultTile,
   action_proposal: ActionProposalTile,
   plan_proposal: PlanProposalTile,
+  expert_correction: ExpertCorrectionTile,
   capability_request: CapabilityRequestTile,
   manual_review: ManualReviewTile,
   reflection: ReflectionTile,

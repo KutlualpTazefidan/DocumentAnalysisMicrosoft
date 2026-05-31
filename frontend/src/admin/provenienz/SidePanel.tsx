@@ -7,6 +7,7 @@ import { CapabilityRequestPanel } from "./panels/CapabilityRequestPanel";
 import { ChunkPanel } from "./panels/ChunkPanel";
 import { ClaimPanel } from "./panels/ClaimPanel";
 import { EvaluationPanel } from "./panels/EvaluationPanel";
+import { ExpertCorrectionPanel } from "./panels/ExpertCorrectionPanel";
 import { GoalPanel } from "./panels/GoalPanel";
 import { ManualReviewPanel } from "./panels/ManualReviewPanel";
 import { PlanProposalPanel } from "./panels/PlanProposalPanel";
@@ -89,6 +90,8 @@ export function SidePanel({
       return <ActionProposalPanel {...common} />;
     case "plan_proposal":
       return <PlanProposalPanel {...common} />;
+    case "expert_correction":
+      return <ExpertCorrectionPanel {...common} />;
     case "capability_request":
       return <CapabilityRequestPanel {...common} />;
     case "manual_review":

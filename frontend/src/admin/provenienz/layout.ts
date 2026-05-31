@@ -34,6 +34,7 @@ export type ViewNodeKind =
   | "search_result"
   | "action_proposal"
   | "plan_proposal"
+  | "expert_correction"
   | "capability_request"
   | "manual_review"
   | "reflection"
@@ -131,6 +132,23 @@ export interface CapabilityRequestView {
   request: ProvNode;
 }
 
+/**
+ * Expert correction of an LLM plan_proposal — captured via the
+ * kind-widened POST /decide. Renders as a small red/orange sibling tile
+ * connected to its source plan_proposal via a dashed "stattdessen" edge.
+ * Carries the typed override (intended_step / reason) in payload plus
+ * an `is_unimplemented` marker so the tile can badge unimplemented
+ * methods distinctly.
+ */
+export interface ExpertCorrectionView {
+  view_id: string;
+  kind: "expert_correction";
+  correction: ProvNode;
+  /** The plan_proposal this correction overrides. Used by the layout
+   *  walker to place this view as a sibling of the proposal. */
+  target_proposal_node_id: string;
+}
+
 export interface ManualReviewView {
   view_id: string;
   kind: "manual_review";
@@ -204,6 +222,7 @@ export type ViewNode =
   | SearchResultTileView
   | ActionProposalView
   | PlanProposalView
+  | ExpertCorrectionView
   | CapabilityRequestView
   | ManualReviewView
   | ReflectionView
@@ -251,6 +270,7 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   search_result: { w: 320, h: 144 },
   action_proposal: { w: 320, h: 240 },
   plan_proposal: { w: 320, h: 220 },
+  expert_correction: { w: 272, h: 132 },
   capability_request: { w: 320, h: 180 },
   manual_review: { w: 320, h: 160 },
   reflection: { w: 320, h: 180 },
@@ -886,6 +906,32 @@ export function buildViewGraph(
     list.sort((a, b) => a.node.created_at.localeCompare(b.node.created_at));
   }
 
+  // ── 5b) Expert-Correction siblings (plan_proposal override capture) ──────
+  // Captured via the kind-widened POST /decide when the admin chose
+  // "Verwerfen → Lieber so" instead of "Akzeptieren". Each correction is
+  // a sibling tile of its target plan_proposal, joined by a dashed
+  // "stattdessen" edge. The plan_proposal tile is intentionally NOT
+  // tombstoned — the audit trail is the whole point of Provenienz, so
+  // reviewers see "agent suggested X → expert prescribed Y".
+  for (const n of provNodes) {
+    if (n.kind !== "expert_correction") continue;
+    const targetId = String(n.payload.target_proposal_node_id || "");
+    if (!targetId || !planViewByNodeId.has(targetId)) continue;
+    const ecViewId = `view:${n.node_id}`;
+    viewNodes.push({
+      view_id: ecViewId,
+      kind: "expert_correction",
+      correction: n,
+      target_proposal_node_id: targetId,
+    });
+    viewEdges.push({
+      id: `e:override:${n.node_id}`,
+      source: `view:${targetId}`,
+      target: ecViewId,
+      kind: "overrides",
+    });
+  }
+
   // ── 6) Action-Proposals (decision folded inline) ──────────────────────────
   // Every action_proposal becomes a trunk tile. Source edge:
   //   • If a plan_proposal exists for the same anchor created BEFORE this
@@ -1488,18 +1534,35 @@ export function layoutViewGraph(
 
   const rfEdges: RfEdge[] = viewEdges.map((e) => {
     const color = edgeColor(e.kind);
+    // "overrides" edges (plan_proposal → expert_correction) render as
+    // a dashed sibling connector with a label so the canvas reads as
+    // "agent suggested X | expert prescribed Y" at a glance.
+    const dashed = e.kind === "overrides";
+    const label = e.kind === "overrides" ? "stattdessen" : undefined;
     return {
       id: e.id,
       source: e.source,
       target: e.target,
       sourceHandle: e.sourceHandle,
       type: "smoothstep",
+      label,
+      labelStyle: dashed
+        ? { fill: color, fontSize: 10, fontStyle: "italic" }
+        : undefined,
+      labelBgPadding: dashed ? ([4, 2] as [number, number]) : undefined,
+      labelBgStyle: dashed
+        ? { fill: "#1e293b", fillOpacity: 0.85 }
+        : undefined,
       // offset = half RANK_SEP keeps smoothstep's perpendicular run-out
       // small enough to fit inside the rank gap (no loop) while leaving
       // a vertical segment at both ends so the arrow marker points
       // straight down, not sideways.
       pathOptions: { borderRadius: 4, offset: 8 },
-      style: { stroke: color, strokeWidth: 1.5 },
+      style: {
+        stroke: color,
+        strokeWidth: 1.5,
+        ...(dashed ? { strokeDasharray: "6 4" } : {}),
+      },
       markerEnd: { type: MarkerType.ArrowClosed, color },
     };
   });
@@ -1566,6 +1629,11 @@ function edgeColor(kind: string): string {
     // segments.json. Old chunk → new chunk, drawn as a side edge so
     // the trunk layout treats both as independent roots while the
     // user still sees "this replaces that".
+    case "overrides":
+      return "#f43f5e"; // rose-500 — plan_proposal → expert_correction
+    // dashed sibling edge labelled "stattdessen". Same hue family as
+    // the ExpertCorrectionTile so the override visually reads as one
+    // pair.
     default:
       return "#475569";
   }
