@@ -5622,6 +5622,126 @@ def _maybe_record_reason(
     )
 
 
+def _record_plan_expert_correction(
+    cfg, sd: Path, body: DecideRequest, proposal: Node, session_id: str
+) -> dict:
+    """Persist a typed expert override of a `plan_proposal`.
+
+    Writes (in order):
+      1. ``expert_correction`` Node (Audit-Anker) — payload mirrors the
+         body's ExpertCorrection block + back-refs to the proposal +
+         is_unimplemented marker. ``actor="human"`` on the Node, not in
+         payload (top-level Dataclass field).
+      2. NOTE-skill record via ``append_reason`` so the existing
+         ``_gather_reason_guidance`` injection picks the override up
+         on the next /next-step. Carries ``correction_origin="plan_proposal"``
+         so a future Phase-2 migration (overrides.jsonl split) can filter
+         these without crawling the DAG.
+      3. (Only when ``intended_step`` is unknown) ``capability_request``
+         Node tagged ``actor="human"`` so the Wünsche-Tab aggregator can
+         distinguish expert-prescribed gaps from agent-emitted ones.
+      4. Edge ``kind="overrides"`` from the new expert_correction Node
+         to the source plan_proposal so the canvas can render the
+         "stattdessen" dotted sibling edge.
+
+    Returns a dict ``{expert_correction, capability_request, edges}``
+    suitable for the route response body.
+
+    Callers should already have validated that ``body.expert_correction``
+    is not None and that ``proposal.kind == "plan_proposal"``.
+    """
+    assert body.expert_correction is not None, (
+        "_record_plan_expert_correction called without expert_correction body — "
+        "the route's semantic guard should have rejected this earlier"
+    )
+    assert proposal.kind == "plan_proposal", (
+        f"_record_plan_expert_correction expects plan_proposal, got {proposal.kind}"
+    )
+    ec_body = body.expert_correction
+    target_step_kind = str(proposal.payload.get("name", "")) or "unknown_step"
+    is_unimplemented = ec_body.intended_step not in _KNOWN_STEPS
+
+    # ── 1) Audit Node ────────────────────────────────────────────────
+    ec_node = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=session_id,
+            kind="expert_correction",
+            payload={
+                "intended_step": ec_body.intended_step,
+                "intended_args": ec_body.intended_args,
+                "reason": ec_body.reason,
+                "target_proposal_node_id": proposal.node_id,
+                "target_step_kind": target_step_kind,
+                "is_unimplemented": is_unimplemented,
+            },
+            actor="human",
+        ),
+    )
+
+    # ── 2) NOTE-skill via the existing reason pipeline ───────────────
+    # step_kind = the proposal's recommended step name so future
+    # plan_proposals of the *same* kind surface this override via
+    # _gather_reason_guidance. Synthesise a proposal_summary from the
+    # plan_proposal payload (which carries name + reasoning) since the
+    # legacy `recommended.label` key does not exist on plan_proposal.
+    proposal_summary = (target_step_kind + " — " + str(proposal.payload.get("reasoning", "")))[:200]
+    append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id=new_id(),
+            step_kind=target_step_kind,
+            session_id=session_id,
+            proposal_id=proposal.node_id,
+            proposal_summary=proposal_summary,
+            override_summary=ec_body.intended_step[:200],
+            reason_text=ec_body.reason[:200],
+            actor="human",
+            correction_origin="plan_proposal",
+        ),
+    )
+
+    # ── 3) capability_request Node (only for unimplemented steps) ────
+    cr_node: Node | None = None
+    if is_unimplemented:
+        cr_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="capability_request",
+                payload={
+                    "name": ec_body.intended_step,
+                    "description": ec_body.reason[:400],
+                    "target_expert_correction_node_id": ec_node.node_id,
+                    "target_proposal_node_id": proposal.node_id,
+                },
+                actor="human",
+            ),
+        )
+
+    # ── 4) Edge: expert_correction → plan_proposal (dotted "stattdessen") ─
+    edge = append_edge(
+        sd,
+        Edge(
+            edge_id=new_id(),
+            session_id=session_id,
+            from_node=ec_node.node_id,
+            to_node=proposal.node_id,
+            kind="overrides",
+            reason="stattdessen",
+            actor="human",
+        ),
+    )
+
+    return {
+        "expert_correction": ec_node.__dict__,
+        "capability_request": cr_node.__dict__ if cr_node is not None else None,
+        "edges": [edge.__dict__],
+    }
+
+
 def _resolve_claims(payload: dict, body: DecideRequest) -> list[str]:
     """Pick the list of claim strings to spawn, based on the user's
     decision against an extract_claims proposal."""

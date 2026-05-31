@@ -34,6 +34,13 @@ class Reason:
     reason_text: str  # free-text from body.reason on /decide
     actor: str  # "human" — overrides only
     created_at: str = ""
+    # Optional discriminator surfacing where the override originated. Set
+    # to "plan_proposal" by the expert-override capture path so a future
+    # Phase-2 migration (potentially splitting plan-overrides into a
+    # dedicated overrides.jsonl) can filter NOTE skills by their origin
+    # without crawling the session DAG. Empty for the legacy
+    # action_proposal /decide path.
+    correction_origin: str = ""
 
 
 def append_reason(data_root: Path, r: Reason) -> Reason:
@@ -84,6 +91,10 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
         parts.append(f"  Grund:      {grund}")
     free_text = "\n".join(parts) if parts else grund
 
+    # Origin prefix in the skill name lets a downstream filter (Phase-2
+    # migration, audit query) distinguish plan-override NOTEs from
+    # action-proposal NOTEs without re-parsing the prompt body.
+    origin_tag = f"-{r.correction_origin}" if r.correction_origin else ""
     skill = Skill(
         skill_id=r.reason_id,
         # Use the full reason_id in the name. ULIDs share a 10-char
@@ -91,7 +102,7 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
         # truncating to 8 chars caused name-collisions in fast write
         # bursts (each NOTE skill is upsert-by-name in the unified
         # store, so collisions silently drop earlier reasons).
-        name=f"note-{r.reason_id}",
+        name=f"note{origin_tag}-{r.reason_id}",
         version=1,
         enabled=True,
         description=grund[:80],
