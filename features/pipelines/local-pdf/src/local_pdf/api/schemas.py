@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,6 +27,7 @@ __all__ = [
     "CuratorsFile",
     "DocMeta",
     "DocStatus",
+    "ExpertCorrection",
     "ExtractRegionRequest",
     "HealthResponse",
     "HtmlPayload",
@@ -278,3 +279,18 @@ class RefineQuestionRequest(BaseModel):
 class DeprecateQuestionRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     reason: str | None = None
+
+
+class ExpertCorrection(BaseModel):
+    """Typed expert override of an LLM plan_proposal.
+
+    Captured via the kind-widened /sessions/{id}/decide. The intended_step
+    may or may not be in the registered step set — when not, the route also
+    spawns a capability_request Node (actor="human") so the unimplemented
+    method gets tracked alongside agent-emitted requests.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    intended_step: str = Field(min_length=1, max_length=120)
+    intended_args: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field(min_length=1, max_length=2000)

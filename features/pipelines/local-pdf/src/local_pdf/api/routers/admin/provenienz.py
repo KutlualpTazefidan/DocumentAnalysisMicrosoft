@@ -20,8 +20,9 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from llm_clients.base import Message
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
+from local_pdf.api.schemas import ExpertCorrection  # noqa: TC001 — runtime Pydantic field type
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.llm import get_default_model, get_llm_client
 from local_pdf.provenienz.approaches import (
@@ -5546,11 +5547,33 @@ async def propose_stop(session_id: str, body: ProposeStopRequest, request: Reque
 
 
 class DecideRequest(BaseModel):
+    """Decide a proposal node.
+
+    Polymorphic on the resolved `proposal.kind` (action_proposal vs
+    plan_proposal). Action-proposal callers send `accepted`. Plan-proposal
+    callers send `expert_correction` and omit `accepted`. The wire-level
+    shape stays one model; semantic enforcement lives in the route (see
+    `decide()` and `_record_plan_expert_correction()`).
+    """
+
     proposal_node_id: str
-    accepted: Literal["recommended", "alt", "override"]
+    # Widened from required Literal to optional so the plan_proposal branch
+    # can omit it. Hard rejection of empty `accepted` on the action_proposal
+    # branch happens in the route.
+    accepted: Literal["recommended", "alt", "override"] | None = None
     alt_index: int | None = None
     reason: str | None = None
     override: str | None = None
+    expert_correction: ExpertCorrection | None = None
+
+    @model_validator(mode="after")
+    def _shape_check(self) -> DecideRequest:
+        # Soft cross-field check: at least one of `accepted` and
+        # `expert_correction` must be set so we never end up with an
+        # ambiguous request before the route resolves the proposal kind.
+        if self.accepted is None and self.expert_correction is None:
+            raise ValueError("decide requires either `accepted` or `expert_correction`")
+        return self
 
 
 def _override_summary(body: DecideRequest) -> str:
