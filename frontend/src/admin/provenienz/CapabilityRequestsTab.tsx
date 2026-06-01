@@ -23,9 +23,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
           <TrendingUp className="w-4 h-4" aria-hidden /> Capability-Wünsche
         </h3>
         <p className={`${T.body} text-slate-400`}>
-          Was der Agent während Recherchen anfragt aber nicht hat. Sortiert
-          nach Häufigkeit — eine datengestützte TODO-Liste für
-          Tool-/Skill-Entwicklung.
+          Was beim Recherchieren fehlt — vom Agent angefragt oder vom Experten vorgegeben. Sortiert nach Häufigkeit; eine datengestützte TODO-Liste für Tool-/Skill-Entwicklung.
         </p>
       </header>
 
@@ -33,8 +31,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
       {error && <p className={`${T.body} text-red-400`}>{error.message}</p>}
       {data && data.length === 0 && !isLoading && (
         <p className={`${T.body} text-slate-500 italic`}>
-          Noch keine Capability-Wünsche. Sobald der Agent „capability_request" in
-          einer Sitzung wählt, erscheint er hier aggregiert.
+          Noch keine Capability-Wünsche. Sobald der Agent eine fehlende Fähigkeit meldet oder ein Experte eine Capability vorgibt, erscheint sie hier aggregiert.
         </p>
       )}
 
