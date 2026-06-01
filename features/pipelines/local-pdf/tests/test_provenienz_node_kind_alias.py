@@ -267,3 +267,177 @@ def test_alias_helper_is_idempotent_on_already_new_kinds():
     )
     out = router_mod._alias_legacy_override_nodes([new_step_override, new_method_request])
     assert out == [new_step_override, new_method_request]
+
+
+# ── MIXED session: legacy + new co-exist (defence against double-mapping) ──
+
+
+def test_session_detail_mixed_legacy_and_new_kinds_coexist(client):
+    """A session can plausibly carry BOTH a pre-Phase-3 expert_correction
+    Node (with the parallel legacy human-CR) AND a post-Phase-3
+    expert_method_request Node written by the new writer — e.g. an
+    operator running migrations across versions. The alias helper
+    must:
+      • Map the legacy EC to expert_method_request (driven by
+        is_unimplemented=true) and suppress its parallel human-CR.
+      • Pass the new expert_method_request through unchanged
+        (idempotent — no double-map, no spurious suppression of the
+        new Node's payload-folded data).
+      • Leave any agent-emitted capability_request untouched.
+
+    Counts both gaps separately in the canvas node list AND in the
+    /capability-requests aggregator.
+    """
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    legacy_ec_id, legacy_cr_id = _seed_legacy_expert_correction(
+        client, sid, is_unimplemented=True, intended_step="legacy_method"
+    )
+    assert legacy_cr_id is not None
+
+    # Drop a new-shape expert_method_request alongside (different
+    # intended_step so the aggregator surfaces both as distinct
+    # wishlist entries).
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+    new_emr = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="expert_method_request",
+            payload={
+                "intended_step": "new_method",
+                "name": "new_method",
+                "description": "post-Phase-3 write",
+                "reason": "post-Phase-3 write",
+                "target_proposal_node_id": "plan-x",
+            },
+            actor="human",
+        ),
+    )
+    # Agent-emitted CR alongside — must be left untouched.
+    agent_cr = append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="capability_request",
+            payload={"name": "AgentTool", "description": "agent flagged"},
+            actor="agent",
+        ),
+    )
+
+    # Canvas view via session-detail.
+    sess = client.get(
+        f"/api/admin/provenienz/sessions/{sid}", headers={"X-Auth-Token": "tok"}
+    ).json()
+    by_id = {n["node_id"]: n for n in sess["nodes"]}
+    # Legacy EC aliased to expert_method_request.
+    assert by_id[legacy_ec_id]["kind"] == "expert_method_request"
+    # Legacy human-CR suppressed.
+    assert legacy_cr_id not in by_id
+    # New expert_method_request passes through with kind intact + payload preserved.
+    assert by_id[new_emr.node_id]["kind"] == "expert_method_request"
+    assert by_id[new_emr.node_id]["payload"]["name"] == "new_method"
+    # Agent-emitted CR still here.
+    assert by_id[agent_cr.node_id]["kind"] == "capability_request"
+    assert by_id[agent_cr.node_id]["actor"] == "agent"
+
+    # Aggregator: three distinct gaps surface, each counted once.
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    requests_by_name = {req["name"]: req for req in r.json()["requests"]}
+    # Legacy gap surfaces via the still-present legacy human-CR (the
+    # canvas-side suppression doesn't affect this aggregator).
+    assert requests_by_name["legacy_method"]["count"] == 1
+    assert requests_by_name["legacy_method"]["examples"][0]["actor"] == "human"
+    # New gap surfaces via the new expert_method_request kind.
+    assert requests_by_name["new_method"]["count"] == 1
+    assert requests_by_name["new_method"]["examples"][0]["actor"] == "human"
+    # Agent gap unchanged.
+    assert requests_by_name["AgentTool"]["count"] == 1
+    assert requests_by_name["AgentTool"]["examples"][0]["actor"] == "agent"
+
+
+def test_alias_helper_does_not_suppress_new_method_request_when_legacy_ec_co_present():
+    """Direct unit-level guard: when a legacy EC + a new
+    expert_method_request both exist, the suppression rule (which
+    targets the parallel legacy human-CR) MUST NOT accidentally drop
+    the new Node. The suppression is keyed on
+    payload.target_expert_correction_node_id — new method-requests
+    don't carry that field, so they're safe by construction; this
+    test pins that behaviour."""
+    from local_pdf.provenienz.storage import Node
+
+    legacy_ec = Node(
+        node_id="ec-legacy",
+        session_id="s",
+        kind="expert_correction",
+        payload={
+            "intended_step": "old_method",
+            "is_unimplemented": True,
+            "target_proposal_node_id": "plan-legacy",
+        },
+        actor="human",
+    )
+    legacy_cr = Node(
+        node_id="cr-legacy",
+        session_id="s",
+        kind="capability_request",
+        payload={
+            "name": "old_method",
+            "target_expert_correction_node_id": "ec-legacy",
+        },
+        actor="human",
+    )
+    new_emr = Node(
+        node_id="emr-new",
+        session_id="s",
+        kind="expert_method_request",
+        payload={
+            "intended_step": "new_method",
+            "name": "new_method",
+            "target_proposal_node_id": "plan-new",
+            # Deliberately NO target_expert_correction_node_id field.
+        },
+        actor="human",
+    )
+
+    out = router_mod._alias_legacy_override_nodes([legacy_ec, legacy_cr, new_emr])
+    kinds_by_id = {n.node_id: n.kind for n in out}
+    # Legacy EC mapped to method_request kind.
+    assert kinds_by_id["ec-legacy"] == "expert_method_request"
+    # Legacy human-CR suppressed.
+    assert "cr-legacy" not in kinds_by_id
+    # New expert_method_request passes through unchanged.
+    assert kinds_by_id["emr-new"] == "expert_method_request"
+
+
+def test_alias_helper_does_not_double_map_legacy_known_step():
+    """Pin: a legacy EC with is_unimplemented=false maps to
+    expert_step_override exactly once. No re-mapping back to
+    expert_correction or onward to expert_method_request even on
+    repeated invocation (defends against the alias being applied
+    twice in some future composition)."""
+    from local_pdf.provenienz.storage import Node
+
+    legacy_ec = Node(
+        node_id="ec-legacy",
+        session_id="s",
+        kind="expert_correction",
+        payload={
+            "intended_step": "formulate_task",
+            "is_unimplemented": False,
+            "target_proposal_node_id": "plan-legacy",
+        },
+        actor="human",
+    )
+
+    first_pass = router_mod._alias_legacy_override_nodes([legacy_ec])
+    assert len(first_pass) == 1
+    assert first_pass[0].kind == "expert_step_override"
+    # Idempotence: applying the alias to its own output is a no-op.
+    second_pass = router_mod._alias_legacy_override_nodes(first_pass)
+    assert second_pass == first_pass
