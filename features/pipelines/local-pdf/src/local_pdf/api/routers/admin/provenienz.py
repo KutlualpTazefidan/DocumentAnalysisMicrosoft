@@ -4805,6 +4805,206 @@ def _llm_extract_claim_goals(
     return [str(g).strip()[:200] if isinstance(g, str) else "" for g in parsed]
 
 
+# ── Phase-RGA: Reasoning-Gap-Analysis evaluator ─────────────────────────
+
+# Default score threshold. Override at runtime via env var
+# PROVENIENZ_RGA_SCORE_THRESHOLD. Score < threshold = gap detected.
+_RGA_DEFAULT_THRESHOLD = 3
+
+# Kill switch. When set to "0"/"false"/"no", the evaluator call is
+# skipped entirely from _record_plan_expert_correction (see Step 4 wire);
+# the override flows through the pre-Phase-RGA path.
+_RGA_DEFAULT_ENABLED = "1"
+
+
+def _rga_threshold() -> int:
+    """Read PROVENIENZ_RGA_SCORE_THRESHOLD, defaulting to
+    _RGA_DEFAULT_THRESHOLD on missing or malformed value."""
+    raw = os.environ.get("PROVENIENZ_RGA_SCORE_THRESHOLD", "")
+    try:
+        return int(raw) if raw else _RGA_DEFAULT_THRESHOLD
+    except ValueError:
+        _log.warning(
+            "rga: malformed PROVENIENZ_RGA_SCORE_THRESHOLD=%r, falling back to %d",
+            raw,
+            _RGA_DEFAULT_THRESHOLD,
+        )
+        return _RGA_DEFAULT_THRESHOLD
+
+
+def _rga_enabled() -> bool:
+    """Read PROVENIENZ_RGA_ENABLED env switch. Treats "0"/"false"/"no"
+    (case-insensitive) as disabled; everything else as enabled."""
+    raw = os.environ.get("PROVENIENZ_RGA_ENABLED", _RGA_DEFAULT_ENABLED).strip().lower()
+    return raw not in ("0", "false", "no")
+
+
+RGA_PLAUSIBLE_STEPS_SYSTEM = (
+    "Du bist ein Recherche-Planer in einem dokumenten-getriebenen "
+    "Provenienz-System. Deine Aufgabe ist NICHT, irgendeine Entscheidung zu "
+    "bewerten. Du siehst weder die Empfehlung eines Agenten noch den Wunsch "
+    "eines Experten. Du siehst einen Knoten + ein Sitzungs-Ziel + eine "
+    "Notiz zum Kontext.\n\n"
+    "Aufgabe: nenne die zwei bis drei plausibelsten Prozess-Schritte, die "
+    "jetzt — rein aus der Inhalts-Logik des Knotens und des Sitzungs-Ziels "
+    "heraus — sinnvoll wären. Reihenfolge = absteigende Plausibilität. Der "
+    "wahrscheinlichste Schritt steht an erster Stelle.\n\n"
+    "WICHTIG zur Hintergrund-Notiz: die Notiz dient NUR der Themen-"
+    "Orientierung. Sie ist KEINE Begründung, die du übernehmen sollst, und "
+    'sie ist KEIN Hinweis auf einen "richtigen" Schritt. Wenn sie einen '
+    "Schritt nahelegt, prüfe trotzdem unabhängig, ob dieser Schritt aus der "
+    "Inhalts-Logik selbst plausibel ist. Schritte, die nur durch die Notiz "
+    "motiviert sind und nicht durch den Knoten selbst, gehören NICHT in "
+    "deine Liste.\n\n"
+    "Wähle ausschließlich Schritte aus der unten genannten Step-Liste. "
+    "Nutze die Step-Namen exakt wie dort gelistet — keine Verkürzungen, "
+    "keine Synonyme.\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON in genau dieser Form:\n\n"
+    "{\n"
+    '  "ranked_steps": ["<Step-Name-1>", "<Step-Name-2>", "<Step-Name-3>"],\n'
+    '  "rationale": "<ein bis zwei kurze deutsche Sätze pro Schritt: warum '
+    "dieser Schritt für DIESEN Knoten plausibel ist — bezogen auf den "
+    'Inhalt, nicht auf die Notiz>"\n'
+    "}\n\n"
+    "Liefere mindestens zwei und höchstens drei Schritte. Kein Vor- oder "
+    "Nachtext, keine Codeblöcke, keine zusätzlichen Felder.\n"
+)
+
+
+CLARIFICATION_TEMPLATE = (
+    "Sie haben statt »{agent_pick}« den Schritt »{intended_step}« gewählt "
+    "mit der Begründung: «{reason}». Aus dem Knoten allein lässt sich "
+    "»{intended_step}« nicht ableiten. Bitte erläutern Sie, was am Knoten-"
+    "Inhalt oder am Sitzungs-Ziel »{intended_step}« hier nahelegt — "
+    "was haben Sie gesehen, das der Agent nicht gesehen hat?"
+)
+
+
+def _llm_evaluate_plan_override(
+    anchor: Node,
+    session_goal: str,
+    reason_text: str,
+    intended_step: str,
+) -> dict:
+    """Phase-RGA Top-N inclusion evaluator. Asks the planner LLM to
+    enumerate the 2-3 most plausible next-steps for the anchor + reason
+    (as 'Hintergrund-Notiz', not as justification). The expert's
+    intended_step is matched mechanically against the ranked list;
+    rank → score: 0→5, 1→4, 2→3, absent→1. Score < threshold = gap.
+
+    The LLM NEVER sees the agent's pick or the expert's intended_step —
+    structural sycophancy resistance is the whole point of the Top-N
+    framing.
+
+    Returns dict with keys:
+      - ranked_steps_raw: list[str] of step names the LLM emitted (pre-alias)
+      - ranked_steps_canonical: list[str] post-alias-canonicalization
+        (Qwen3-8B hallucinates short forms like 'extract' that map to
+        'extract_claims' via _STEP_ALIASES)
+      - rank: int | None  (0/1/2 if intended_step appears in canonical,
+        else None)
+      - score: int (5/4/3 from rank, 1 if absent or LLM failure)
+      - rationale: str (the LLM's per-step justification, capped 400 chars)
+      - parse_error: bool (True on any JSON/LLM/validation failure)
+
+    Fail-soft: any failure path returns score=5 (= "obvious", no gap
+    detected, no clarification spawn) + parse_error=True so telemetry
+    can see how often this fires.
+    """
+    valid_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
+    if not valid_steps:
+        # Anchor kind has no registered steps — evaluator can't do
+        # anything meaningful; treat as obvious (caller should never
+        # have reached here, but defensive).
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": "no valid steps for anchor kind",
+            "parse_error": False,
+        }
+
+    # User-prompt builder. Mirror the _llm_next_step framing for the
+    # anchor + session_goal block, then the reason as a "themen-notiz"
+    # block, then the valid steps for the anchor kind.
+    user = (
+        f"## Knoten\n"
+        f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}\n\n"
+        f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
+        f"## Hintergrund-Notiz (NUR zur Themen-Orientierung, NICHT als Begründung bewerten)\n"
+        f"{reason_text[:400]}\n\n"
+        f"## Verfügbare Steps\n{', '.join(valid_steps)}\n\n"
+        f"Plausibelste Schritte (JSON):"
+    )
+
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=RGA_PLAUSIBLE_STEPS_SYSTEM + _NO_THINK),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+            max_tokens=_MAX_TOKENS_STRUCTURED,
+        )
+    except Exception as exc:
+        _log.warning("rga: LLM call failed: %s", exc)
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": f"LLM call failed: {exc}",
+            "parse_error": True,
+        }
+
+    raw_text = _strip_json_fence(completion.text or "")
+    try:
+        parsed = json.loads(raw_text)
+        ranked_raw = parsed.get("ranked_steps", [])
+        rationale = str(parsed.get("rationale", ""))[:400]
+        if not isinstance(ranked_raw, list) or not (2 <= len(ranked_raw) <= 3):
+            raise ValueError(f"ranked_steps malformed: {ranked_raw!r}")
+        ranked_raw = [str(s).strip() for s in ranked_raw if str(s).strip()]
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        _log.warning("rga: parse failed for completion %r: %s", raw_text[:200], exc)
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": f"parse failed: {exc}",
+            "parse_error": True,
+        }
+
+    # Alias canonicalization — Qwen3-8B hallucinates short forms.
+    # _STEP_ALIASES is structured as {alias: {anchor_kind: canonical}}.
+    # Drop any entry that doesn't canonicalize to a valid step for
+    # this anchor kind.
+    ranked_canonical: list[str] = []
+    for name in ranked_raw:
+        canon = _STEP_ALIASES.get(name, {}).get(anchor.kind, name)
+        if canon in valid_steps:
+            ranked_canonical.append(canon)
+
+    # Mechanical rank → score.
+    rank: int | None = None
+    if intended_step in ranked_canonical:
+        rank = ranked_canonical.index(intended_step)
+    score_table = {0: 5, 1: 4, 2: 3}
+    score = score_table.get(rank, 1) if rank is not None else 1
+
+    return {
+        "ranked_steps_raw": ranked_raw,
+        "ranked_steps_canonical": ranked_canonical,
+        "rank": rank,
+        "score": score,
+        "rationale": rationale,
+        "parse_error": False,
+    }
+
+
 def _llm_next_step(
     anchor: Node,
     session_goal: str,
