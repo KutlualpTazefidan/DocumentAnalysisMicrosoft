@@ -561,11 +561,19 @@ export interface CapabilityRequestExample {
   description: string;
   reasoning: string;
   created_at: string;
+  /** "agent" → capability_request (Phase-3 invariant), "human" →
+   *  legacy capability_request OR Phase-3 expert_method_request.
+   *  May be empty/unknown on corrupt rows — UI defaults to Agent. */
+  actor: string;
 }
 
 export interface CapabilityRequestAggregation {
   name: string;
   count: number;
+  /** Authoritative per-actor sub-counts from the backend (Phase-4).
+   *  Sum equals `count` — frontend defaults unknown/empty actor values
+   *  to the agent bucket to match the backend bucketing. */
+  count_by_actor: { human: number; agent: number };
   examples: CapabilityRequestExample[];
 }
 

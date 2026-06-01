@@ -441,3 +441,384 @@ def test_alias_helper_does_not_double_map_legacy_known_step():
     # Idempotence: applying the alias to its own output is a no-op.
     second_pass = router_mod._alias_legacy_override_nodes(first_pass)
     assert second_pass == first_pass
+
+
+# ── Phase-4: count_by_actor + canonical sort tiebreaker ─────────────────
+
+
+def test_capability_requests_aggregator_count_by_actor_mixed_method(client):
+    """Mixed actors on the same name: 2 expert_method_request (human) +
+    1 capability_request (agent) collapse into one wishlist entry whose
+    count_by_actor splits cleanly. Pins the dual-purpose sub-count
+    behaviour the Phase-4 UI relies on."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    for _ in range(2):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="expert_method_request",
+                payload={
+                    "intended_step": "summarize_section",
+                    "name": "summarize_section",
+                    "description": "Expert prescribes",
+                    "reason": "Expert prescribes",
+                    "target_proposal_node_id": "plan-x",
+                },
+                actor="human",
+            ),
+        )
+    append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="capability_request",
+            payload={"name": "summarize_section", "description": "agent flagged"},
+            actor="agent",
+        ),
+    )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    matches = [req for req in r.json()["requests"] if req["name"] == "summarize_section"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert entry["count"] == 3
+    assert entry["count_by_actor"] == {"human": 2, "agent": 1}
+    assert entry["count_by_actor"]["human"] + entry["count_by_actor"]["agent"] == entry["count"]
+
+
+def test_capability_requests_aggregator_count_by_actor_agent_only(client):
+    """Pure-agent method: 3 capability_request Nodes (actor='agent')
+    bucket entirely to the agent side, leaving human at 0."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    for _ in range(3):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": "TableComparator", "description": "agent flagged"},
+                actor="agent",
+            ),
+        )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    matches = [req for req in r.json()["requests"] if req["name"] == "TableComparator"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert entry["count"] == 3
+    assert entry["count_by_actor"] == {"human": 0, "agent": 3}
+
+
+def test_capability_requests_aggregator_count_by_actor_human_only_mixed_legacy_and_new(client):
+    """Legacy human capability_request + post-Phase-3
+    expert_method_request on the same name both bucket as human.
+    Confirms the aggregator treats the two kinds as equivalent
+    expert-prescribed signal sources (no canvas-style suppression
+    leaking into this path)."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    # Legacy human-actor capability_request — no
+    # target_expert_correction_node_id, so the canvas-side suppression
+    # rule doesn't kick in (and the aggregator doesn't apply it anyway).
+    append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="capability_request",
+            payload={"name": "legacy_x_human", "description": "pre-Phase-3 human capture"},
+            actor="human",
+        ),
+    )
+    # New-shape expert_method_request, same name.
+    append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="expert_method_request",
+            payload={
+                "intended_step": "legacy_x_human",
+                "name": "legacy_x_human",
+                "description": "post-Phase-3 write",
+                "reason": "post-Phase-3 write",
+                "target_proposal_node_id": "plan-x",
+            },
+            actor="human",
+        ),
+    )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    matches = [req for req in r.json()["requests"] if req["name"] == "legacy_x_human"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert entry["count"] == 2
+    assert entry["count_by_actor"] == {"human": 2, "agent": 0}
+
+
+def test_capability_requests_aggregator_count_by_actor_defaults_unknown_actor_to_agent(client):
+    """Only the literal "human" string counts toward the human bucket.
+    Empty strings, unknown values, and the canonical "agent" all fall
+    into the agent bucket. Pins that the response shape carries exactly
+    two keys ("human", "agent") — no third bucket like "?" leaks
+    through."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    for actor_value in ("", "bot", "agent"):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": "unknown_method_actor_test", "description": "x"},
+                actor=actor_value,
+            ),
+        )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    matches = [req for req in r.json()["requests"] if req["name"] == "unknown_method_actor_test"]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert entry["count"] == 3
+    assert entry["count_by_actor"] == {"human": 0, "agent": 3}
+    # Response shape invariant: exactly two buckets, no orphan keys.
+    assert set(entry["count_by_actor"].keys()) == {"human", "agent"}
+
+
+def test_capability_requests_aggregator_count_by_actor_sum_equals_count_invariant(client):
+    """Property-style guard: for every wishlist entry the API returns,
+    count_by_actor.human + count_by_actor.agent == count. Cross-default-
+    consistency invariant — the backend bucketing never produces
+    orphaned counts, regardless of the actor-mix on the underlying
+    Nodes."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    # method_a: 3 agent + 2 human → count=5
+    for _ in range(3):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": "method_a", "description": "x"},
+                actor="agent",
+            ),
+        )
+    for _ in range(2):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="expert_method_request",
+                payload={
+                    "intended_step": "method_a",
+                    "name": "method_a",
+                    "description": "x",
+                    "reason": "x",
+                    "target_proposal_node_id": "plan-x",
+                },
+                actor="human",
+            ),
+        )
+    # method_b: 1 agent + 4 human → count=5
+    append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="capability_request",
+            payload={"name": "method_b", "description": "x"},
+            actor="agent",
+        ),
+    )
+    for _ in range(4):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="expert_method_request",
+                payload={
+                    "intended_step": "method_b",
+                    "name": "method_b",
+                    "description": "x",
+                    "reason": "x",
+                    "target_proposal_node_id": "plan-x",
+                },
+                actor="human",
+            ),
+        )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    payload = r.json()
+    assert len(payload["requests"]) >= 2
+    for entry in payload["requests"]:
+        cba = entry["count_by_actor"]
+        assert cba["human"] + cba["agent"] == entry["count"], (
+            f"sum invariant broken for {entry['name']!r}: "
+            f"{cba['human']} + {cba['agent']} != {entry['count']}"
+        )
+
+
+def test_capability_requests_aggregator_sort_tiebreaker_prefers_higher_human_count(client):
+    """Three methods all carrying count=3 must order by descending
+    human-count: alpha (3h/0a) → beta (1h/2a) → gamma (0h/3a). Pins
+    the expert-prescribed-ranks-first tiebreaker introduced in Step 1."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    # alpha_method: 3 human / 0 agent
+    for _ in range(3):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="expert_method_request",
+                payload={
+                    "intended_step": "alpha_method",
+                    "name": "alpha_method",
+                    "description": "x",
+                    "reason": "x",
+                    "target_proposal_node_id": "plan-x",
+                },
+                actor="human",
+            ),
+        )
+    # beta_method: 1 human / 2 agent
+    append_node(
+        sd,
+        Node(
+            node_id=new_id(),
+            session_id=sid,
+            kind="expert_method_request",
+            payload={
+                "intended_step": "beta_method",
+                "name": "beta_method",
+                "description": "x",
+                "reason": "x",
+                "target_proposal_node_id": "plan-x",
+            },
+            actor="human",
+        ),
+    )
+    for _ in range(2):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": "beta_method", "description": "x"},
+                actor="agent",
+            ),
+        )
+    # gamma_method: 0 human / 3 agent
+    for _ in range(3):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": "gamma_method", "description": "x"},
+                actor="agent",
+            ),
+        )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    names_in_order = [
+        req["name"]
+        for req in r.json()["requests"]
+        if req["name"] in {"alpha_method", "beta_method", "gamma_method"}
+    ]
+    assert names_in_order == ["alpha_method", "beta_method", "gamma_method"]
+
+
+def test_capability_requests_aggregator_sort_alphabetical_within_same_human_count(client):
+    """Secondary tiebreaker: when count AND human-count match,
+    names sort ascending. Pins (-count, -human, +name) as the
+    canonical key — "alpha_method" precedes "yankee_method" even
+    though both carry count=2 with human=1/agent=1."""
+    from local_pdf.provenienz.storage import Node, append_node, new_id
+
+    _slug, sid = _seed_session_with_chunk(client)
+    cfg = client.app.state.config
+    sd = router_mod._find_session_dir(cfg.data_root, sid)
+    assert sd is not None
+
+    # Seed yankee FIRST to defend against insertion-order leaking into
+    # the response shape — only the canonical sort should set order.
+    for name in ("yankee_method", "alpha_method"):
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="expert_method_request",
+                payload={
+                    "intended_step": name,
+                    "name": name,
+                    "description": "x",
+                    "reason": "x",
+                    "target_proposal_node_id": "plan-x",
+                },
+                actor="human",
+            ),
+        )
+        append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=sid,
+                kind="capability_request",
+                payload={"name": name, "description": "x"},
+                actor="agent",
+            ),
+        )
+
+    r = client.get("/api/admin/provenienz/capability-requests", headers={"X-Auth-Token": "tok"})
+    names_in_order = [
+        req["name"]
+        for req in r.json()["requests"]
+        if req["name"] in {"alpha_method", "yankee_method"}
+    ]
+    assert names_in_order == ["alpha_method", "yankee_method"]

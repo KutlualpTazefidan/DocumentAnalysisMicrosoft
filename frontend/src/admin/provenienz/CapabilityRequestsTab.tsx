@@ -1,4 +1,4 @@
-import { TrendingUp, Wrench } from "lucide-react";
+import { Bot, TrendingUp, UserCog, Wrench } from "lucide-react";
 
 import { useCapabilityRequests } from "../hooks/useProvenienz";
 import { T } from "../styles/typography";
@@ -23,9 +23,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
           <TrendingUp className="w-4 h-4" aria-hidden /> Capability-Wünsche
         </h3>
         <p className={`${T.body} text-slate-400`}>
-          Was der Agent während Recherchen anfragt aber nicht hat. Sortiert
-          nach Häufigkeit — eine datengestützte TODO-Liste für
-          Tool-/Skill-Entwicklung.
+          Was beim Recherchieren fehlt — vom Agent angefragt oder vom Experten vorgegeben. Sortiert nach Häufigkeit; eine datengestützte TODO-Liste für Tool-/Skill-Entwicklung.
         </p>
       </header>
 
@@ -33,8 +31,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
       {error && <p className={`${T.body} text-red-400`}>{error.message}</p>}
       {data && data.length === 0 && !isLoading && (
         <p className={`${T.body} text-slate-500 italic`}>
-          Noch keine Capability-Wünsche. Sobald der Agent „capability_request" in
-          einer Sitzung wählt, erscheint er hier aggregiert.
+          Noch keine Capability-Wünsche. Sobald der Agent eine fehlende Fähigkeit meldet oder ein Experte eine Capability vorgibt, erscheint sie hier aggregiert.
         </p>
       )}
 
@@ -52,7 +49,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                 </p>
               </div>
               <span className="text-[10px] uppercase tracking-wide bg-yellow-700 text-yellow-50 px-2 py-0.5 rounded shrink-0">
-                {req.count}× angefragt
+                {req.count}× · {req.count_by_actor.human}E / {req.count_by_actor.agent}A
               </span>
             </div>
 
@@ -69,8 +66,29 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                       key={ex.node_id}
                       className="rounded bg-chrome2-900/60 p-2 border border-chrome2-500"
                     >
-                      <p className={`${T.tiny} text-slate-400 font-mono`}>
-                        {ex.slug} · {ex.session_id.slice(0, 12)}… · {ex.created_at}
+                      <p
+                        className={`${T.tiny} text-slate-400 font-mono flex items-center gap-1.5 flex-wrap`}
+                      >
+                        {ex.actor === "human" ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-violet-900/40 text-violet-200 border border-violet-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            aria-label="Quelle: Experten-Vorgabe"
+                            title="Von einem Experten als Capability vorgegeben"
+                          >
+                            <UserCog className="w-3 h-3" aria-hidden /> Experte
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-sky-900/40 text-sky-200 border border-sky-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            aria-label="Quelle: Agent-Anfrage"
+                            title="Vom Agent während einer Recherche als fehlend gemeldet"
+                          >
+                            <Bot className="w-3 h-3" aria-hidden /> Agent
+                          </span>
+                        )}
+                        <span>
+                          {ex.slug} · {ex.session_id.slice(0, 12)}… · {ex.created_at}
+                        </span>
                       </p>
                       {ex.description && (
                         <p className={`${T.body} text-yellow-100 mt-0.5`}>
