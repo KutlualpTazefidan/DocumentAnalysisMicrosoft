@@ -49,6 +49,29 @@ nächsten ähnlichen Anker-Lage spontan **den Experten-Pfad** wählen. Heutige
 NOTE-Skill-Injection schiebt das in die richtige Richtung — wir füttern sie
 jetzt mit strukturierten Daten statt rohem free-text.
 
+### Dual Purpose — zwei Loops, zwei Konsumenten
+
+Overrides bedienen ZWEI distinct Downstream-Loops mit verschiedenen Zeitskalen
+und verschiedenen Konsumenten. Phase 1 hat beide implementiert, aber Purpose 2
+als Side-Effect einer Override-Branch behandelt; die Phasen-Roadmap macht den
+Split explizit:
+
+| Purpose | Zeitskala | Mechanismus | Konsument |
+|---|---|---|---|
+| **1. Agent lernen lassen** (Korrekturen-Korpus) | Nächster Run | NOTE-Skill → `_gather_reason_guidance` → Planer-Prompt | Der Agent selbst |
+| **2. Capability-Gap markieren** (Build-this-Tool-Wunschliste) | Tage / Wochen / Monate | `capability_request`-Node (Phase 1, Human-Aktor) → Phase 3: gesplittet als `expert_method_request` | Zukünftiger Capability-Wishlist-Workflow (Dev-Review-Board / Digest / Auto-Mint / Sub-Agent) |
+
+**Konsequenz für die Phasen-Reihenfolge:**
+- Phase 1 + Phase 2 schärfen Purpose 1 (Korpus-Aufbau, Anchor-Shape-Retrieval,
+  Feedback-Loop-Sichtbarkeit, Post-hoc-Capture).
+- Phase 3 (Sibling-Node-Kinds) macht Purpose 2 unblocked: cleanly-typed
+  `expert_method_request`-Nodes statt einer polymorphen `expert_correction` mit
+  `is_unimplemented`-Flag im Payload. Erst danach lohnt sich der
+  Wishlist-Workflow im UI / als Digest / als Auto-Mint.
+- Phase 4+ (Replikation) baut auf dem typed-Mark auf — Auto-Mint zählt
+  `expert_method_request`-Frequenz pro `intended_step`, nicht Flag-Filter über
+  alle `expert_correction`-Records.
+
 ### Anti-Goals (Phase 1)
 
 - **Kein neues Endpoint** — wir widen `/decide`, ergänzen kein paralleles
