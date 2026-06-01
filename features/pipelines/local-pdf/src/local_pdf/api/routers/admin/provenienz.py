@@ -58,6 +58,7 @@ from local_pdf.provenienz.storage import (
     Edge,
     Node,
     SessionMeta,
+    _now,
     append_edge,
     append_node,
     append_tombstone,
@@ -5003,6 +5004,74 @@ def _llm_evaluate_plan_override(
         "rationale": rationale,
         "parse_error": False,
     }
+
+
+def _emit_rga_telemetry(
+    data_root: Path,
+    *,
+    session_id: str,
+    proposal_node_id: str,
+    anchor_kind: str,
+    anchor_fingerprint: dict[str, Any],
+    agent_pick: str,
+    intended_step: str,
+    capture_source: str,
+    eval_result: dict,
+    threshold: int,
+    gap_detected: bool,
+    reason_text: str,
+    resolution: str | None = None,
+) -> None:
+    """Append one JSONL row to {data_root}/provenienz/rga_telemetry.jsonl
+    per evaluator call (and a second row per /clarify resolution in
+    Step 6 — same function, called with resolution="submitted"/"skipped").
+
+    Separate file (NOT events.jsonl) because events.jsonl is contractually
+    reserved for the Node/Edge replay log. Telemetry is calibration
+    corpus material — read in batch later to tune the score threshold
+    against the real distribution of evaluator outputs.
+
+    Failure to write telemetry MUST NEVER break /decide. All exceptions
+    are caught + logged at warning level.
+
+    Fields (per spec §Telemetry):
+      - ts, session_id, proposal_node_id, anchor_kind, anchor_fingerprint
+      - agent_pick, intended_step, capture_source
+      - ranked_steps_raw, ranked_steps_canonical, rank, score
+      - threshold, gap_detected
+      - rationale, reason_text[:200], parse_error, model
+      - resolution (None on the /decide eval row, "submitted" or
+        "skipped" on a /clarify follow-up row written from Step 6)
+    """
+    row: dict[str, Any] = {
+        "ts": _now(),
+        "session_id": session_id,
+        "proposal_node_id": proposal_node_id,
+        "anchor_kind": anchor_kind,
+        "anchor_fingerprint": anchor_fingerprint,
+        "agent_pick": agent_pick,
+        "intended_step": intended_step,
+        "capture_source": capture_source,
+        "ranked_steps_raw": eval_result.get("ranked_steps_raw", []),
+        "ranked_steps_canonical": eval_result.get("ranked_steps_canonical", []),
+        "rank": eval_result.get("rank"),
+        "score": eval_result.get("score", 5),
+        "threshold": threshold,
+        "gap_detected": gap_detected,
+        "rationale": eval_result.get("rationale", ""),
+        "reason_text": (reason_text or "")[:200],
+        "parse_error": eval_result.get("parse_error", False),
+        "model": get_default_model(),
+        "resolution": resolution,
+    }
+    try:
+        telemetry_dir = data_root / "provenienz"
+        telemetry_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = telemetry_dir / "rga_telemetry.jsonl"
+        with telemetry_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as exc:  # telemetry must never break /decide
+        _log.warning("rga: failed to write telemetry row: %s", exc)
 
 
 def _llm_next_step(
