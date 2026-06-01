@@ -77,8 +77,10 @@ Split explizit:
 - **Kein neues Endpoint** — wir widen `/decide`, ergänzen kein paralleles
   `/correct` oder `/overrides`. (Vergleich Backend-Brainstorm #2/#5).
 - **Keine separate `overrides.jsonl`** — NOTE-Skill-Korpus reuse mit
-  `correction_origin="plan_proposal"`-Marker als Migrations-Anker für Phase 2.
-- **Kein Auto-Promote zu `PROMPT_OVERLAY`/`REACTIVE`-Skills** — bleibt Phase 3.
+  `correction_origin="plan_proposal"`-Marker als Migrations-Anker für
+  spätere Phasen (Phase 4 Replikation, falls Korpus-Split-UX nötig).
+- **Kein Auto-Promote zu `PROMPT_OVERLAY`/`REACTIVE`-Skills** — bleibt
+  Phase 4 (Replikation; siehe §13 für die volle Phasen-Roadmap).
 - **Keine anchor-shape Retrieval** — Phase 2.
 - **Kein Stream-Phase-Event** „berücksichtigt deine frühere Korrektur" —
   Phase 2.
