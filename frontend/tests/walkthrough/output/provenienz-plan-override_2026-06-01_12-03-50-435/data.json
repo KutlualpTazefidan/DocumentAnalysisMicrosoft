@@ -1,0 +1,195 @@
+{
+  "name": "provenienz-plan-override",
+  "startedAt": "2026-06-01T12:03:50.435Z",
+  "endedAt": "2026-06-01T12:04:39.869Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Sitzung + Plan-Vorschlag „extract_claims“ — Panel offen, Verwerfen sichtbar",
+      "startedAtMs": 1780315436079,
+      "endedAtMs": 1780315436284,
+      "actions": [
+        "POST /sessions {slug, root_chunk_id:\"p2-b0\"}",
+        "POST /sessions/01KT1H2XY1JKEBC7Z4T87C64KB/next-step",
+        "click plan_proposal-Tile im Canvas"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Plan-Proposal-Panel im Idle-Zustand: Akzeptieren + Verwerfen sichtbar."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Setup: Sitzung über die API + /next-step liefert einen plan_proposal-Vorschlag.",
+        "Klick auf die Tile öffnet das PlanProposalPanel rechts: Step-Name, Begründung, Alternativen, Akzeptieren + Verwerfen.",
+        "LLM-Wahl: extract_claims (Der Chunk enthält mathematische Notationen und Definitionen, die als messbare Aussagen interpretiert werden kö…)",
+        "Verwerfen ist der Eintrittspunkt für die Korrektur-Capture — ein einzelner Klick öffnet die Inline-Form."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Verwerfen-Klick → Inline-Form erscheint (Combobox + Textarea + Submit)",
+      "startedAtMs": 1780315436913,
+      "endedAtMs": 1780315437002,
+      "actions": [
+        "click button { name: \"Verwerfen\" }"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Combobox-Input fokussiert (autoFocus); Submit disabled solange Reason leer."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Erster Klick auf Verwerfen morpht den Button — kein Modal, kein Page-Wechsel.",
+        "Form-Felder oben → unten: „Stattdessen…“ (datalist-Combobox über valid_steps_per_anchor), „Warum?“ (Textarea, required), „Korrektur erfassen“-Submit, „Abbrechen“ / „Doch löschen“-Footer.",
+        "Akzeptieren ist disabled solange die Form offen ist — vermeidet das versehentliche Doppel-Feuern „accept + override“ auf demselben Tile.",
+        "Esc oder „Abbrechen“ kollabieren die Form ohne Submit; „Doch löschen“ ist der explizite Pfad „dieser Vorschlag war wirklich Rauschen“."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Submit „formulate_task“ → expert_step_override-Tile + dotted \"stattdessen\"-Edge",
+      "startedAtMs": 1780315440736,
+      "endedAtMs": 1780315440895,
+      "actions": [
+        "fill input { name: \"Stattdessen…\" } → \"formulate_task\"",
+        "fill textarea { name: \"Warum?\" } → reason",
+        "click button { name: \"Korrektur erfassen\" }",
+        "POST /sessions/01KT1H2XY1JKEBC7Z4T87C64KB/decide"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "expert_step_override-Tile (rose) + dashed \"stattdessen\"-Edge zum amber plan_proposal."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Submit feuert POST /decide mit dem typisierten expert_correction-Block: { proposal_node_id, expert_correction: { intended_step, intended_args: {}, reason } }.",
+        "Phase-3: server schreibt einen expert_step_override-Node (kind discriminates, kein is_unimplemented-Flag mehr), einen NOTE-Skill mit correction_origin=\"plan_proposal\" ins Korpus und eine \"overrides\"-Edge zurück zum plan_proposal — der wird NICHT tombstoned, damit der Audit-Trail steht.",
+        "Canvas rendert die Tile als roses Geschwister (Purpose 1 — teach the agent) mit dem dashed „stattdessen“-Edge — UI-Story: „Agent suggested X | Expert prescribed Y“.",
+        "Erfasste expert_step_override-Nodes in der Session: 1."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Unbekannte Methode „summarize_section“ → expert_method_request-Tile + Aggregator surfaces actor=human",
+      "startedAtMs": 1780315445121,
+      "endedAtMs": 1780315445286,
+      "actions": [
+        "fill { name: \"Stattdessen…\" } → \"summarize_section\"",
+        "fill { name: \"Warum?\" } → reason",
+        "click \"Korrektur erfassen\"",
+        "POST /sessions/01KT1H2XY1JKEBC7Z4T87C64KB/decide",
+        "GET /capability-requests"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Ein spawned-Node: expert_method_request (amber, AlertTriangle-Icon, „landet auf der Capability-Wunschliste“-Badge)."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Combobox-Hint „Neuer Skill — wird auch als Capability-Wunsch erfasst“ erscheint, sobald die Eingabe nicht im valid_steps_per_anchor steckt.",
+        "Phase-3: server schreibt EINEN expert_method_request-Node (Purpose 2 — mark a capability gap). Die capability_request-Payload-Felder (`name`, `description`) sind direkt in den Node gefaltet — kein separater capability_request-Spawn mehr. Der `capability_request`-Kind bleibt agent-only per Invariante.",
+        "Aggregator unter /capability-requests includiert sowohl `capability_request` (agent-emitted) als auch `expert_method_request` (expert-prescribed) — actor-Field discriminates.",
+        "Live im Aggregator: name=summarize_section · count=1 · actor=human.",
+        "Phase-4 (Replikation): Capability-Wishlist-UI baut auf diesem typed-Mark auf — sortiert nach Häufigkeit, gruppiert nach intended_step, surfaces Build-this-Tool-Backlog für die Dev-Crew."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Leere Reason → Submit ist disabled, kein POST /decide",
+      "startedAtMs": 1780315478963,
+      "endedAtMs": 1780315479093,
+      "actions": [
+        "click \"Verwerfen\"",
+        "fill { name: \"Stattdessen…\" } → \"formulate_task\"",
+        "leave { name: \"Warum?\" } empty",
+        "attempt click „Korrektur erfassen“"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Submit disabled=true, POSTs seit Click=0."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Client-side Guard: canSubmitCorrection = trimmedStep ≠ \"\" && trimmedReason ≠ \"\" — beide müssen non-empty sein.",
+        "Submit-Button rendert sich mit disabled-State (helles Grau, opacity-50, kein Hover-Highlight); der Click hat keine Wirkung.",
+        "Server hört nichts: 0 /decide POST(s) zwischen Verwerfen-Klick und jetzt.",
+        "Damit wird verhindert, dass jemand versehentlich eine Reason-lose Korrektur abschickt — Reason ist das einzig wirklich wichtige Datum für die Replikation des Expert-Flows."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 5,
+      "title": "Esc → Form kollabiert auf Verwerfen-Button zurück",
+      "startedAtMs": 1780315479784,
+      "endedAtMs": 1780315479866,
+      "actions": [
+        "press Escape"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/06_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Panel zurück im Idle-Zustand — Akzeptieren + Verwerfen sichtbar."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Document-Level keydown-Listener (gemounted nur solange die Form offen ist) räumt den lokalen State: verwerfenMode → idle, intendedStep → \"\", reason → \"\".",
+        "Effekt: Form weg, Original-Buttons (Akzeptieren + Verwerfen) wieder sichtbar, Akzeptieren re-enabled, kein Network-Call.",
+        "Cheaper Escape-Hatch für „eigentlich war ich nur am Stöbern, nicht am Übersteuern“ — kein Modal-Dismiss, keine doppelte Bestätigung.",
+        "State nach Esc: form weg = true; Verwerfen-Button wieder da = true."
+      ],
+      "status": "ok"
+    }
+  ]
+}

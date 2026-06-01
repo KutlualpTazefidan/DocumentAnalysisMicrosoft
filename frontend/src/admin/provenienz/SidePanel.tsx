@@ -90,7 +90,13 @@ export function SidePanel({
       return <ActionProposalPanel {...common} />;
     case "plan_proposal":
       return <PlanProposalPanel {...common} />;
+    case "expert_step_override":
+    case "expert_method_request":
     case "expert_correction":
+      // Same panel surface for both Phase-3 kinds + the deprecated
+      // legacy kind. The view shape (correction Node + target plan_id)
+      // is identical across all three; ExpertCorrectionPanel narrows
+      // and renders kind-aware copy/accent inside.
       return <ExpertCorrectionPanel {...common} />;
     case "capability_request":
       return <CapabilityRequestPanel {...common} />;

@@ -34,6 +34,12 @@ export type ViewNodeKind =
   | "search_result"
   | "action_proposal"
   | "plan_proposal"
+  | "expert_step_override"
+  | "expert_method_request"
+  // Deprecated post-Phase-3 — the backend session-detail endpoint
+  // aliases legacy expert_correction Nodes to the two new kinds above.
+  // Retained in the union so any straggling consumer reference still
+  // typechecks; the layout walker never emits this kind.
   | "expert_correction"
   | "capability_request"
   | "manual_review"
@@ -133,19 +139,51 @@ export interface CapabilityRequestView {
 }
 
 /**
- * Expert correction of an LLM plan_proposal — captured via the
- * kind-widened POST /decide. Renders as a small red/orange sibling tile
- * connected to its source plan_proposal via a dashed "stattdessen" edge.
- * Carries the typed override (intended_step / reason) in payload plus
- * an `is_unimplemented` marker so the tile can badge unimplemented
- * methods distinctly.
+ * Phase-3 split (replaces ExpertCorrectionView). Expert override of an
+ * LLM plan_proposal where the expert picked a DIFFERENT KNOWN step —
+ * Purpose 1, teach the agent. Renders as a small rose-accented sibling
+ * tile connected to its source plan_proposal via a dashed "stattdessen"
+ * edge. Carries the typed override (intended_step / reason) in payload.
+ */
+export interface ExpertStepOverrideView {
+  view_id: string;
+  kind: "expert_step_override";
+  correction: ProvNode;
+  /** The plan_proposal this correction overrides. Used by the layout
+   *  walker to place this view as a sibling of the proposal. */
+  target_proposal_node_id: string;
+}
+
+/**
+ * Phase-3 split (replaces ExpertCorrectionView). Expert override where
+ * the expert named a method that DOESN'T EXIST yet — Purpose 2, mark a
+ * capability gap. Renders as a small amber-accented sibling tile.
+ * Payload folds in the capability_request fields (`name`, `description`)
+ * so the wishlist aggregator reads it directly; no separate
+ * capability_request Node is spawned (the kind stays agent-only).
+ */
+export interface ExpertMethodRequestView {
+  view_id: string;
+  kind: "expert_method_request";
+  correction: ProvNode;
+  /** The plan_proposal this method-request targets. Used by the layout
+   *  walker to place this view as a sibling of the proposal. */
+  target_proposal_node_id: string;
+}
+
+/**
+ * Deprecated post-Phase-3 — kept to preserve the type union for any
+ * straggling reference. The backend session-detail endpoint aliases
+ * legacy `expert_correction` Nodes to one of the two new kinds above
+ * (driven by `payload.is_unimplemented`), so the layout walker never
+ * emits this kind for new data.
+ *
+ * @deprecated Use {@link ExpertStepOverrideView} or {@link ExpertMethodRequestView}.
  */
 export interface ExpertCorrectionView {
   view_id: string;
   kind: "expert_correction";
   correction: ProvNode;
-  /** The plan_proposal this correction overrides. Used by the layout
-   *  walker to place this view as a sibling of the proposal. */
   target_proposal_node_id: string;
 }
 
@@ -222,6 +260,8 @@ export type ViewNode =
   | SearchResultTileView
   | ActionProposalView
   | PlanProposalView
+  | ExpertStepOverrideView
+  | ExpertMethodRequestView
   | ExpertCorrectionView
   | CapabilityRequestView
   | ManualReviewView
@@ -270,6 +310,10 @@ const NODE_DIMS: Record<ViewNodeKind, { w: number; h: number }> = {
   search_result: { w: 320, h: 144 },
   action_proposal: { w: 320, h: 240 },
   plan_proposal: { w: 320, h: 220 },
+  expert_step_override: { w: 272, h: 132 },
+  expert_method_request: { w: 272, h: 132 },
+  // Deprecated post-Phase-3 — layout walker never emits this kind; the
+  // dim entry is kept so the Record<ViewNodeKind, …> type stays total.
   expert_correction: { w: 272, h: 132 },
   capability_request: { w: 320, h: 180 },
   manual_review: { w: 320, h: 160 },
@@ -908,22 +952,38 @@ export function buildViewGraph(
 
   // ── 5b) Expert-Correction siblings (plan_proposal override capture) ──────
   // Captured via the kind-widened POST /decide when the admin chose
-  // "Verwerfen → Lieber so" instead of "Akzeptieren". Each correction is
-  // a sibling tile of its target plan_proposal, joined by a dashed
-  // "stattdessen" edge. The plan_proposal tile is intentionally NOT
-  // tombstoned — the audit trail is the whole point of Provenienz, so
-  // reviewers see "agent suggested X → expert prescribed Y".
+  // "Verwerfen → Lieber so" instead of "Akzeptieren". Phase-3 split the
+  // single expert_correction kind into expert_step_override (Purpose 1
+  // — teach the agent) and expert_method_request (Purpose 2 — mark a
+  // capability gap). The backend session-detail endpoint aliases legacy
+  // expert_correction Nodes to one of the two new kinds before the
+  // frontend ever sees them, so the walker only needs to handle the
+  // new kinds. Each correction is a sibling tile of its target
+  // plan_proposal, joined by a dashed "stattdessen" edge. The
+  // plan_proposal tile is intentionally NOT tombstoned — the audit
+  // trail is the whole point of Provenienz.
   for (const n of provNodes) {
-    if (n.kind !== "expert_correction") continue;
+    if (n.kind !== "expert_step_override" && n.kind !== "expert_method_request") {
+      continue;
+    }
     const targetId = String(n.payload.target_proposal_node_id || "");
     if (!targetId || !planViewByNodeId.has(targetId)) continue;
     const ecViewId = `view:${n.node_id}`;
-    viewNodes.push({
-      view_id: ecViewId,
-      kind: "expert_correction",
-      correction: n,
-      target_proposal_node_id: targetId,
-    });
+    if (n.kind === "expert_step_override") {
+      viewNodes.push({
+        view_id: ecViewId,
+        kind: "expert_step_override",
+        correction: n,
+        target_proposal_node_id: targetId,
+      });
+    } else {
+      viewNodes.push({
+        view_id: ecViewId,
+        kind: "expert_method_request",
+        correction: n,
+        target_proposal_node_id: targetId,
+      });
+    }
     viewEdges.push({
       id: `e:override:${n.node_id}`,
       source: `view:${targetId}`,

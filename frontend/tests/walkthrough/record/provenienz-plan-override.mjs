@@ -1,11 +1,14 @@
 // Walkthrough recording: provenienz-plan-override
-// Tour the expert-override capture path on a plan_proposal:
+// Tour the expert-override capture path on a plan_proposal (Phase-3
+// shape: expert_step_override + expert_method_request kinds):
 //   ① Sitzung + /next-step liefert einen plan_proposal-Vorschlag
 //   ② Verwerfen-Klick morpht den Button in eine Inline-Form
 //      (Stattdessen-Combobox + Warum-Textarea + Submit + Doch löschen)
-//   ③ Bekannten Step wählen → /decide spawnt expert_correction-Tile als
-//      Geschwister mit dotted "stattdessen"-Edge
-//   ④ Unbekannten Step (free-text) → zusätzlich capability_request-Tile
+//   ③ Bekannten Step wählen → /decide spawnt expert_step_override-Tile
+//      (rose, Purpose 1 — teach the agent) mit dotted "stattdessen"-Edge
+//   ④ Unbekannten Step (free-text) → /decide spawnt EIN
+//      expert_method_request-Tile (amber, Purpose 2 — capability gap);
+//      kein separater capability_request-Node mehr (Daten gefaltet)
 //   ⑤ Leere Reason → Submit ist disabled (kein Network-Call)
 //   ⑥ Esc kollabiert die Form zurück auf den Verwerfen-Button
 //
@@ -164,16 +167,16 @@ const reasonKnown = "Chunk ist eine Konstrukt-Definition, kein Faktum — Task f
 await page.getByLabel(/Stattdessen…/).fill("formulate_task");
 await page.getByLabel(/Warum\?/).fill(reasonKnown);
 await page.waitForTimeout(300);
-await page.getByRole("button", { name: /Korrektur erfassen/ }).click();
+await page.getByRole("button", { name: /^Korrektur erfassen$/ }).click();
 await page.waitForLoadState("networkidle").catch(() => {});
 await page.waitForTimeout(1800);
 // Bring the canvas focus back so the EC sibling tile is visible in the screenshot.
 const sessAfter1 = await getSession(session.session_id);
-const ecAfter1 = sessAfter1.nodes.filter(n => n.kind === "expert_correction");
-console.log(`After known-step submit: ${ecAfter1.length} EC node(s).`);
+const ecAfter1 = sessAfter1.nodes.filter(n => n.kind === "expert_step_override");
+console.log(`After known-step submit: ${ecAfter1.length} expert_step_override node(s).`);
 await clickPlanTile(page, proposalId);
 await page.waitForTimeout(800);
-await rec.step(page, `Submit „${decideCalls.at(-1)?.body?.expert_correction?.intended_step}“ → expert_correction-Tile + dotted "stattdessen"-Edge`, {
+await rec.step(page, `Submit „${decideCalls.at(-1)?.body?.expert_correction?.intended_step}“ → expert_step_override-Tile + dotted "stattdessen"-Edge`, {
   actions: [
     'fill input { name: "Stattdessen…" } → "formulate_task"',
     'fill textarea { name: "Warum?" } → reason',
@@ -182,12 +185,12 @@ await rec.step(page, `Submit „${decideCalls.at(-1)?.body?.expert_correction?.i
   ],
   notes: [
     "Submit feuert POST /decide mit dem typisierten expert_correction-Block: { proposal_node_id, expert_correction: { intended_step, intended_args: {}, reason } }.",
-    "Server schreibt einen expert_correction-Node (actor=human), einen NOTE-Skill mit correction_origin=\"plan_proposal\" ins Korpus und eine \"overrides\"-Edge zurück zum plan_proposal — der wird NICHT tombstoned, damit der Audit-Trail steht.",
-    "Canvas rendert die EC-Tile als roses Geschwister mit dem dashed „stattdessen“-Edge — UI-Story: „Agent suggested X | Expert prescribed Y“.",
-    `Erfasste expert_correction-Nodes in der Session: ${ecAfter1.length}.`,
+    "Phase-3: server schreibt einen expert_step_override-Node (kind discriminates, kein is_unimplemented-Flag mehr), einen NOTE-Skill mit correction_origin=\"plan_proposal\" ins Korpus und eine \"overrides\"-Edge zurück zum plan_proposal — der wird NICHT tombstoned, damit der Audit-Trail steht.",
+    "Canvas rendert die Tile als roses Geschwister (Purpose 1 — teach the agent) mit dem dashed „stattdessen“-Edge — UI-Story: „Agent suggested X | Expert prescribed Y“.",
+    `Erfasste expert_step_override-Nodes in der Session: ${ecAfter1.length}.`,
   ],
   shots: [{ annotations: [
-    { kind: "note", text: "EC-Tile (rose) + dashed \"stattdessen\"-Edge zum amber plan_proposal." },
+    { kind: "note", text: "expert_step_override-Tile (rose) + dashed \"stattdessen\"-Edge zum amber plan_proposal." },
   ] }],
 });
 
@@ -200,17 +203,18 @@ await page.getByLabel(/Stattdessen…/).fill(unimplemented);
 await page.waitForTimeout(200);
 await page.getByLabel(/Warum\?/).fill(reasonUnknown);
 await page.waitForTimeout(300);
-await page.getByRole("button", { name: /Korrektur erfassen/ }).click();
+await page.getByRole("button", { name: /^Korrektur erfassen$/ }).click();
 await page.waitForLoadState("networkidle").catch(() => {});
 await page.waitForTimeout(2000);
 const sessAfter2 = await getSession(session.session_id);
-const crAfter2 = sessAfter2.nodes.filter(n => n.kind === "capability_request" && n.actor === "human");
+const emrAfter2 = sessAfter2.nodes.filter(n => n.kind === "expert_method_request" && n.actor === "human");
+const humanCRsAfter2 = sessAfter2.nodes.filter(n => n.kind === "capability_request" && n.actor === "human");
 const crAggr = await fetchCapabilityRequests();
 const aggrMatch = crAggr.find(r => r.name === unimplemented);
-console.log(`After unknown-step submit: ${crAfter2.length} human-actor CR(s); aggregator name=${aggrMatch?.name}.`);
+console.log(`After unknown-step submit: ${emrAfter2.length} expert_method_request node(s); ${humanCRsAfter2.length} legacy human-CR(s); aggregator name=${aggrMatch?.name}.`);
 await clickPlanTile(page, proposalId);
 await page.waitForTimeout(800);
-await rec.step(page, `Unbekannte Methode „${unimplemented}“ → EC + capability_request spawnen + Aggregator surfaces actor=human`, {
+await rec.step(page, `Unbekannte Methode „${unimplemented}“ → expert_method_request-Tile + Aggregator surfaces actor=human`, {
   actions: [
     `fill { name: "Stattdessen…" } → "${unimplemented}"`,
     `fill { name: "Warum?" } → reason`,
@@ -220,12 +224,13 @@ await rec.step(page, `Unbekannte Methode „${unimplemented}“ → EC + capabil
   ],
   notes: [
     "Der Combobox-Hint „Neuer Skill — wird auch als Capability-Wunsch erfasst“ erscheint, sobald die Eingabe nicht im valid_steps_per_anchor steckt.",
-    "Server schreibt zusätzlich eine capability_request-Node (actor=human) mit Back-Refs auf EC + plan_proposal — der Aggregator unter /capability-requests listet sie alongside agent-emitted Requests, getrennt per actor-Field.",
+    "Phase-3: server schreibt EINEN expert_method_request-Node (Purpose 2 — mark a capability gap). Die capability_request-Payload-Felder (`name`, `description`) sind direkt in den Node gefaltet — kein separater capability_request-Spawn mehr. Der `capability_request`-Kind bleibt agent-only per Invariante.",
+    "Aggregator unter /capability-requests includiert sowohl `capability_request` (agent-emitted) als auch `expert_method_request` (expert-prescribed) — actor-Field discriminates.",
     `Live im Aggregator: name=${aggrMatch?.name ?? "(missing)"} · count=${aggrMatch?.count ?? 0} · actor=${aggrMatch?.examples?.[0]?.actor ?? "—"}.`,
-    "Phase-2 wird in der Wünsche-Tab UI ein Badge „von Expert:in“ vs „vom Agent“ hinzufügen — die Daten dafür landen schon korrekt in Phase 1.",
+    "Phase-4 (Replikation): Capability-Wishlist-UI baut auf diesem typed-Mark auf — sortiert nach Häufigkeit, gruppiert nach intended_step, surfaces Build-this-Tool-Backlog für die Dev-Crew.",
   ],
   shots: [{ annotations: [
-    { kind: "note", text: "Zwei spawned-Nodes: expert_correction + capability_request (beide actor=human)." },
+    { kind: "note", text: "Ein spawned-Node: expert_method_request (amber, AlertTriangle-Icon, „landet auf der Capability-Wunschliste“-Badge)." },
   ] }],
 });
 
@@ -236,7 +241,7 @@ await page.waitForTimeout(400);
 await page.getByLabel(/Stattdessen…/).fill("formulate_task");
 // Warum bewusst leer lassen.
 await page.waitForTimeout(300);
-const submitBtn = page.getByRole("button", { name: /Korrektur erfassen/ });
+const submitBtn = page.getByRole("button", { name: /^Korrektur erfassen$/ });
 const submitDisabled = await submitBtn.isDisabled();
 await submitBtn.click({ trial: true }).catch(() => {}); // trial click = no real click, just hit-testing
 await page.waitForTimeout(800);
@@ -280,7 +285,7 @@ await rec.step(page, "Esc → Form kollabiert auf Verwerfen-Button zurück", {
 });
 
 // Cleanup: drop the test session (also drops the recorded plan_proposal,
-// expert_correction, capability_request Nodes + edges).
+// expert_step_override, expert_method_request Nodes + edges).
 await deleteSession(session.session_id);
 console.log(`Cleanup: session ${session.session_id} gelöscht.`);
 console.log(`Total /decide POSTs in this recording: ${decideCalls.length}`);
