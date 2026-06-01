@@ -10,8 +10,32 @@ const KINDS: BoxKind[] = [
   "formula",
   "list_item",
   "auxiliary",
+  "toc",
+  "list_of_tables",
+  "list_of_figures",
+  "bibliography",
   "discard",
 ];
+
+// Human-readable labels for the dropdown. Without this the user sees the
+// raw enum values; with it Verzeichnis kinds show their proper German
+// names so manual reclassification matches the badges and detection
+// hints.
+const KIND_LABELS: Record<BoxKind, string> = {
+  heading: "heading",
+  paragraph: "paragraph",
+  table: "table",
+  figure: "figure",
+  caption: "caption",
+  formula: "formula",
+  list_item: "list_item",
+  auxiliary: "auxiliary",
+  toc: "Inhaltsverzeichnis",
+  list_of_tables: "Tabellenverzeichnis",
+  list_of_figures: "Abbildungsverzeichnis",
+  bibliography: "Literaturverzeichnis",
+  discard: "discard",
+};
 
 interface Props {
   selected: SegmentBox | null;
@@ -62,12 +86,13 @@ export function BoxPropertiesPanel({
   const isActive = selected ? selected.kind !== "discard" : false;
   return (
     <div className="flex flex-col gap-3">
-      <span className={T.tinyBold}>Properties</span>
+      <span className={T.tinyBold}>Eigenschaften</span>
 
       {selected ? (
         <>
+          {/* ── Tier 1: primary — the per-box decisions made constantly ── */}
           <div>
-            <label className={`block ${T.bodyMuted}`}>Kind</label>
+            <label className={`block ${T.bodyMuted}`}>Typ</label>
             <select
               className="w-full border rounded p-1 text-slate-900"
               value={selected.kind}
@@ -75,82 +100,23 @@ export function BoxPropertiesPanel({
             >
               {KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {KIND_LABELS[k]}
                 </option>
               ))}
             </select>
           </div>
 
           <div className={`${T.body} text-slate-700`}>
-            Confidence: {selected.confidence.toFixed(2)}
-          </div>
-
-          <div>
-            <span className={T.bodyMuted}>bbox</span>
-            <div className={`grid grid-cols-2 gap-1 ${T.mono} mt-1`}>
-              <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                x0: {selected.bbox[0].toFixed(3)}
-              </div>
-              <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                y0: {selected.bbox[1].toFixed(3)}
-              </div>
-              <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                x1: {selected.bbox[2].toFixed(3)}
-              </div>
-              <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
-                y1: {selected.bbox[3].toFixed(3)}
-              </div>
-            </div>
-          </div>
-
-          {/* Merge/Unmerge up | down */}
-          <div className="grid grid-cols-2 gap-2">
-            {selected.continues_from ? (
-              <button
-                aria-label="Unmerge up"
-                className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
-                onClick={onUnmergeUp}
-              >
-                Unmerge ↑
-              </button>
-            ) : (
-              <button
-                aria-label="Merge up"
-                disabled={currentPage <= 1}
-                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={onMergeUp}
-              >
-                Merge up
-              </button>
-            )}
-            {selected.continues_to ? (
-              <button
-                aria-label="Unmerge down"
-                className="px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200"
-                onClick={onUnmergeDown}
-              >
-                Unmerge ↓
-              </button>
-            ) : (
-              <button
-                aria-label="Merge down"
-                disabled={currentPage >= totalPages}
-                className="px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={onMergeDown}
-              >
-                Merge down
-              </button>
-            )}
+            Konfidenz: {selected.confidence.toFixed(2)}
           </div>
 
           {/* Deactivate | Activate — Activated highlight = currently active
-              (kind != discard); pending state on either button shows the
-              html refresh is in flight. */}
+              (kind != discard); pending state shows the html refresh in flight. */}
           <div className="grid grid-cols-2 gap-2">
             <button
               aria-label="Deactivate"
               disabled={pending}
-              className={`px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`${T.body} px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
                 selected.kind === "discard"
                   ? "bg-red-700 text-white border border-red-700"
                   : "border border-slate-300 text-slate-700 hover:bg-slate-50"
@@ -160,51 +126,120 @@ export function BoxPropertiesPanel({
               {pending && !isActive
                 ? "…"
                 : selected.kind === "discard"
-                  ? "✓ Deactivated"
-                  : "Deactivate"}
+                  ? "✓ Deaktiviert"
+                  : "Deaktivieren"}
             </button>
             <button
               aria-label="Activate"
               disabled={pending}
-              className={`px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`${T.body} px-2 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
                 isActive
                   ? "bg-green-700 text-white border border-green-700"
                   : "border border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={onActivate}
             >
-              {pending && isActive ? "…" : isActive ? "✓ Activated" : "Activate"}
+              {pending && isActive ? "…" : isActive ? "✓ Aktiv" : "Aktivieren"}
             </button>
           </div>
 
-          <button
-            aria-label="Reset box"
-            className="w-full px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-            onClick={onResetBox}
-          >
-            Reset
-          </button>
+          {/* ── Tier 2: structure — merge/unmerge with adjacent pages ── */}
+          <div>
+            <span className={T.bodyMuted}>Struktur</span>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {selected.continues_from ? (
+                <button
+                  aria-label="Unmerge up"
+                  className={`${T.body} px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200`}
+                  onClick={onUnmergeUp}
+                >
+                  Trennen ↑
+                </button>
+              ) : (
+                <button
+                  aria-label="Merge up"
+                  disabled={currentPage <= 1}
+                  className={`${T.body} px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+                  onClick={onMergeUp}
+                >
+                  Verbinden ↑
+                </button>
+              )}
+              {selected.continues_to ? (
+                <button
+                  aria-label="Unmerge down"
+                  className={`${T.body} px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200`}
+                  onClick={onUnmergeDown}
+                >
+                  Trennen ↓
+                </button>
+              ) : (
+                <button
+                  aria-label="Merge down"
+                  disabled={currentPage >= totalPages}
+                  className={`${T.body} px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+                  onClick={onMergeDown}
+                >
+                  Verbinden ↓
+                </button>
+              )}
+            </div>
+          </div>
 
-          {rawSnippet !== undefined && (
-            <details className="mt-2 group">
-              <summary className={`${T.tinyBold} cursor-pointer text-slate-700 select-none`}>
-                Quelltext (mineru.json)
-              </summary>
-              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-slate-50 p-2 text-[11px] leading-snug font-mono text-slate-700">
-                {rawSnippet || "(leer)"}
-              </pre>
+          {/* ── Tier 3: rare — folded away by default ── */}
+          <details className="group">
+            <summary className={`${T.tinyBold} cursor-pointer text-slate-700 select-none`}>
+              Mehr
+            </summary>
+            <div className="flex flex-col gap-3 mt-2">
               <button
-                type="button"
-                className="mt-1 text-xs text-blue-600 hover:underline disabled:text-slate-400"
-                disabled={!rawSnippet}
-                onClick={() => {
-                  if (rawSnippet) navigator.clipboard?.writeText(rawSnippet);
-                }}
+                aria-label="Reset box"
+                className={`${T.body} w-full px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50`}
+                onClick={onResetBox}
               >
-                kopieren
+                Zurücksetzen
               </button>
-            </details>
-          )}
+
+              <div>
+                <span className={T.bodyMuted}>bbox</span>
+                <div className={`grid grid-cols-2 gap-1 ${T.mono} mt-1`}>
+                  <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
+                    x0: {selected.bbox[0].toFixed(3)}
+                  </div>
+                  <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
+                    y0: {selected.bbox[1].toFixed(3)}
+                  </div>
+                  <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
+                    x1: {selected.bbox[2].toFixed(3)}
+                  </div>
+                  <div className="border border-slate-200 rounded px-2 py-1 text-slate-800">
+                    y1: {selected.bbox[3].toFixed(3)}
+                  </div>
+                </div>
+              </div>
+
+              {rawSnippet !== undefined && (
+                <details className="group">
+                  <summary className={`${T.tinyBold} cursor-pointer text-slate-700 select-none`}>
+                    Quelltext (mineru.json)
+                  </summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-slate-200 bg-slate-50 p-2 text-[11px] leading-snug font-mono text-slate-700">
+                    {rawSnippet || "(leer)"}
+                  </pre>
+                  <button
+                    type="button"
+                    className="mt-1 text-xs text-blue-600 hover:underline disabled:text-slate-400"
+                    disabled={!rawSnippet}
+                    onClick={() => {
+                      if (rawSnippet) navigator.clipboard?.writeText(rawSnippet);
+                    }}
+                  >
+                    kopieren
+                  </button>
+                </details>
+              )}
+            </div>
+          </details>
         </>
       ) : (
         <p className="text-slate-400">Wähle eine Box aus</p>

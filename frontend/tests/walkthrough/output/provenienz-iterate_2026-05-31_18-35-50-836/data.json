@@ -1,0 +1,125 @@
+{
+  "name": "provenienz-iterate",
+  "startedAt": "2026-05-31T18:35:50.836Z",
+  "endedAt": "2026-05-31T18:36:16.926Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Sitzung mit Wurzel-Chunk „p2-b0“ — Canvas zeigt nur den Anker",
+      "startedAtMs": 1780252553891,
+      "endedAtMs": 1780252553944,
+      "actions": [
+        "POST /sessions {slug, root_chunk_id:\"p2-b0\"}",
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/provenienz"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Session-ID: 01KSZN48R9SV…"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Neue Sitzung wird mit genau einem Knoten initialisiert — dem Wurzel-Chunk (kind=chunk).",
+        "Linkes Rail: Sitzungs-Liste; Canvas mittig: Graph mit dem Chunk-Anker; rechtes Panel: Detail der ausgewählten Node.",
+        "Sitzung wird über /sessions angelegt; root_chunk_id verweist auf eine MinerU-Box-ID (z.B. p2-b0)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "AI-Vorschlag: extract_claims (plan_proposal Node)",
+      "startedAtMs": 1780252564022,
+      "endedAtMs": 1780252564068,
+      "actions": [
+        "POST /sessions/01KSZN48R9SVG4424DT9JDY5Z3/next-step {anchor_node_id}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Proposal-Node: 01KSZN4KCPK6…"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "/next-step lässt den Planer den Kontext um den Anker zusammensuchen (Chunk-Text, vorhandene Claims, gesteckte Approaches), wählt eine ausführbare Aktion + begründet sie.",
+        "Antwort = neuer plan_proposal Node mit payload.name (z.B. „extract_claims“, „formulate_task“, „search“) + reasoning + alt-Vorschlägen.",
+        "Im Canvas erscheint die Vorschlags-Tile als Kind des Anker-Chunks; UI zeigt sie hellblau mit dem Sparkles-Icon.",
+        "Konkrete AI-Wahl: extract_claims",
+        "Begründung (gekürzt): „Der Chunk enthält mathematische Notationen und Definitionen, die als messbare Aussagen interpretiert werden können. extract_claims ist der e…“"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "User liest Begründung + Alternativen im rechten Panel",
+      "startedAtMs": 1780252565270,
+      "endedAtMs": 1780252565316,
+      "actions": [
+        "click proposal node in canvas (UI flow)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Plan-Proposal-Panel zeigt Begründung + Alternativen + Apply-Button"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "PlanProposalPanel rendert: Schritt-Name, Begründung, Goal-Alignment, mögliche Alternativen, „Anwenden“-Button.",
+        "Der User entscheidet, ob er die AI-Empfehlung übernimmt, eine Alternative wählt oder komplett überschreibt.",
+        "Drei Entscheidungs-Pfade: recommended (AI-Wahl) · alt (Alternative aus dem Vorschlag) · override (eigene Aktion)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "„Anwenden“ klicken → extract_claims läuft → 1 neue Nodes",
+      "startedAtMs": 1780252576871,
+      "endedAtMs": 1780252576921,
+      "actions": [
+        "POST /sessions/01KSZN48R9SVG4424DT9JDY5Z3/extract-claims"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "1 neue Node(s) hängen unter dem Anker"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "PlanProposalPanel.handleAccept routet anhand payload.name auf den passenden Step-Endpoint (extract_claims → /extract-claims, formulate_task → /formulate-task, search → /search).",
+        "Wichtig: /decide ist ein anderer Pfad — er gilt nur für action_proposal-Nodes (z.B. Promote/Decompose/Investigate, wo der User aus mehreren Hits auswählt).",
+        "Konkret hier: extract_claims produziert 1 neue Sub-Node(s) unter dem Chunk-Anker.",
+        "Damit ist eine Iteration der Provenance-Kette komplett. Vom neuen Node kann erneut /next-step ausgelöst werden — die Kette wächst iterativ zum DAG.",
+        "Audit-Trail bleibt: der plan_proposal-Tile wird NICHT gelöscht („Reviewers sehen agent suggested X → step Y produced Z“)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ export function CuratorDocs() {
   const q = useQuery({
     queryKey: ["curate", "docs"],
     queryFn: () => listAssignedDocs(token!),
-    enabled: !!token,
+    enabled: true,
   });
   if (q.isLoading) return <div className="p-6 h-full overflow-auto">Lade…</div>;
   if (q.isError) return <div className="p-6 text-red-600">Fehler beim Laden.</div>;

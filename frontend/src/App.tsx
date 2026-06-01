@@ -1,15 +1,20 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Landing } from "./landing/Landing";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
 import { Inbox } from "./admin/routes/inbox";
 import { Extract } from "./admin/routes/extract";
 import { Synthesise } from "./admin/routes/Synthesise";
+import { Comparison } from "./admin/routes/Comparison";
+import { Provenienz } from "./admin/routes/Provenienz";
 import { DocCurators } from "./admin/routes/DocCurators";
 import { Curators } from "./admin/routes/Curators";
 import { CuratorActivity } from "./admin/routes/CuratorActivity";
 import { Pipelines } from "./admin/routes/Pipelines";
 import { Dashboard } from "./admin/routes/Dashboard";
+import { TenantsAdmin } from "./admin/routes/TenantsAdmin";
+import { Settings } from "./admin/routes/Settings";
 import { CuratorDocs } from "./curator/routes/Docs";
 import { CuratorDocPage } from "./curator/routes/DocPage";
 
@@ -17,8 +22,8 @@ export function App() {
   return (
     <div className="min-h-screen">
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/admin" element={<AdminShell />}>
           <Route index element={<Navigate to="inbox" replace />} />
           <Route path="inbox" element={<Inbox />} />
@@ -27,11 +32,15 @@ export function App() {
           <Route path="doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
           <Route path="doc/:slug/extract" element={<Extract />} />
           <Route path="doc/:slug/synthesise" element={<Synthesise />} />
+          <Route path="doc/:slug/compare" element={<Comparison />} />
+          <Route path="doc/:slug/provenienz" element={<Provenienz />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
           <Route path="curators" element={<Curators />} />
           <Route path="curators/:id/activity" element={<CuratorActivity />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="tenants" element={<TenantsAdmin />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="/curate" element={<CuratorShell />}>
           <Route index element={<CuratorDocs />} />

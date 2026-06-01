@@ -1,5 +1,5 @@
 // frontend/src/admin/components/DocStepTabs.tsx
-import { FileText, Folder, Sparkles } from "lucide-react";
+import { FileText, Folder, GitCompare, GitMerge, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { T } from "../styles/typography";
 
@@ -8,9 +8,11 @@ interface Props {
 }
 
 const TABS = [
-  { key: "files", label: "Files", icon: Folder, href: (_slug: string) => "/admin/inbox" },
-  { key: "extract", label: "Extract", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
-  { key: "synthesise", label: "Synthesise", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
+  { key: "files", label: "Dateien", icon: Folder, href: (_slug: string) => "/admin/inbox" },
+  { key: "extract", label: "Extrahieren", icon: FileText, href: (slug: string) => `/admin/doc/${slug}/extract` },
+  { key: "synthesise", label: "Synthese", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
+  { key: "compare", label: "Vergleich", icon: GitCompare, href: (slug: string) => `/admin/doc/${slug}/compare` },
+  { key: "provenienz", label: "Provenienz", icon: GitMerge, href: (slug: string) => `/admin/doc/${slug}/provenienz` },
 ] as const;
 
 export function DocStepTabs({ slug }: Props): JSX.Element {
@@ -20,16 +22,18 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
     if (key === "files") return pathname.endsWith("/inbox");
     if (key === "extract") return pathname.endsWith("/extract");
     if (key === "synthesise") return pathname.endsWith("/synthesise");
+    if (key === "compare") return pathname.endsWith("/compare");
+    if (key === "provenienz") return pathname.endsWith("/provenienz");
     return false;
   }
 
-  const activeTabClass = "text-white border-b-2 border-blue-400";
+  const activeTabClass = "text-white border-b-2 border-white";
   const inactiveTabClass = "text-navy-200 hover:text-white hover:bg-navy-700/40";
-  const disabledTabClass = "text-navy-500 opacity-50 cursor-not-allowed";
+  const disabledTabClass = "text-navy-300 cursor-not-allowed";
   const baseTabClass = `flex items-center gap-2 px-4 py-2 ${T.body} font-medium transition-colors`;
 
   return (
-    <nav role="tablist" className="flex items-center border-b border-navy-700 -mb-px">
+    <nav role="tablist" className="flex items-center border-b border-chrome2-700 -mb-px">
       {TABS.map((tab) => {
         const active = isActive(tab.key);
         const Icon = tab.icon;

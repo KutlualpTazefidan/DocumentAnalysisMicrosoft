@@ -7,6 +7,10 @@
 .box-list_item  { --box-color: #4f46e5; }
 .box-auxiliary  { --box-color: #06b6d4; }
 .box-discard    { --box-color: #6b7280; }
+.box-toc              { --box-color: #ca8a04; }
+.box-list_of_tables   { --box-color: #c026d3; }
+.box-list_of_figures  { --box-color: #65a30d; }
+.box-bibliography     { --box-color: #78350f; }
 
 .box-outline {
   position: absolute;

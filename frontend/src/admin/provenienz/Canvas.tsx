@@ -1,0 +1,365 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactFlow, {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  SelectionMode,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import {
+  Grid3x3,
+  Hand,
+  Maximize2,
+  MoveVertical,
+  MoveHorizontal,
+  MousePointer2,
+  RotateCcw,
+  Wand2,
+} from "lucide-react";
+
+import type { ProvEdge, ProvNode } from "../hooks/useProvenienz";
+import { layoutGraph, type LayoutDirection, type ViewNode } from "./layout";
+import { nodeTypes } from "./nodes";
+import { usePersistedPositions } from "./usePersistedPositions";
+
+interface Props {
+  nodes: ProvNode[];
+  edges: ProvEdge[];
+  /** Session meta — needed to synthesise the Goal tile + position the
+   *  Plan-Vorschlag tile relative to the goal. */
+  meta?: { session_id: string; goal: string };
+  /** When provided, tile positions persist across tab navigations under
+   *  this session id. Pass null to disable persistence. */
+  sessionId?: string | null;
+  /** Receives the view_id of the clicked tile. */
+  onSelectView?: (viewId: string | null) => void;
+  /** Map view_id → ViewNode so the side panel can render kind-specific UI. */
+  onViewIndex?: (index: Map<string, ViewNode>) => void;
+}
+
+/**
+ * React-Flow wrapper. Builds a collapsed view-graph (proposal+decision pairs
+ * folded, claim+task fused, search_results bagged) before dagre runs. Toolbar
+ * gives a reset, layout-direction toggle, and snap-to-grid toggle.
+ */
+export function Canvas({
+  nodes,
+  edges,
+  meta,
+  sessionId,
+  onSelectView,
+  onViewIndex,
+}: Props): JSX.Element {
+  const [direction, setDirection] = useState<LayoutDirection>("TB");
+  const [snap, setSnap] = useState(true);
+  const [resetSignal, setResetSignal] = useState(0);
+  const lastResetRef = useRef(0);
+  /** "pan"    = left-drag = pan (classic, default).
+   *  "select" = left-drag = lasso, mid/right = pan. */
+  const [mouseMode, setMouseMode] = useState<"select" | "pan">("pan");
+  /** When true, every time a new node arrives the layout auto-rearranges
+   *  (= triggers a reset) so the new tile sits properly. When false,
+   *  the user's manual moves are preserved and new tiles get an offset
+   *  relative to the dragged root. */
+  const [autoLayout, setAutoLayout] = useState(true);
+  const prevNodeCountRef = useRef(0);
+
+  const persisted = usePersistedPositions(sessionId ?? null);
+
+  // Measured tile dimensions captured AFTER ReactFlow's first render.
+  // The first layout pass uses NODE_DIMS estimates (each tile-kind has
+  // a fixed estimate); when the browser actually measures the rendered
+  // tiles we feed the real sizes back into a second layout pass so
+  // wrapped/oversized tiles don't push neighbours into overlap.
+  const [measuredDims, setMeasuredDims] = useState<
+    Map<string, { w: number; h: number }>
+  >(new Map());
+
+  const laid = useMemo(
+    () => layoutGraph(nodes, edges, { direction, measuredDims }, meta),
+    [nodes, edges, direction, meta, measuredDims],
+  );
+
+  // Auto-layout on new-node arrival: detect when the node count went up
+  // and bump resetSignal so the position-pipeline below uses fresh laid
+  // positions for everything (= "Layout neu berechnen" effect).
+  useEffect(() => {
+    const prev = prevNodeCountRef.current;
+    const curr = nodes.length;
+    prevNodeCountRef.current = curr;
+    if (autoLayout && curr > prev && prev > 0) {
+      setResetSignal((n) => n + 1);
+    }
+  }, [nodes.length, autoLayout]);
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState(laid.nodes);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(laid.edges);
+
+  // After ReactFlow measures the rendered tiles, feed real sizes back
+  // into the layout. ReactFlow v11 stores measured dims directly on
+  // node.width / node.height (set after first render). Compares the new
+  // map against the previous so we only trigger a re-layout when sizes
+  // actually change — without that guard the laid → rfNodes → measured
+  // → laid loop never settles.
+  useEffect(() => {
+    setMeasuredDims((prev) => {
+      const next = new Map<string, { w: number; h: number }>();
+      for (const n of rfNodes) {
+        if (typeof n.width === "number" && typeof n.height === "number") {
+          next.set(n.id, { w: n.width, h: n.height });
+        }
+      }
+      // No measurements yet (or partial) → keep prior state to avoid
+      // re-layout flicker before the first full pass lands.
+      if (next.size === 0 || next.size < rfNodes.length) return prev;
+      const stable =
+        next.size === prev.size &&
+        [...next].every(([k, v]) => {
+          const p = prev.get(k);
+          return p !== undefined && p.w === v.w && p.h === v.h;
+        });
+      return stable ? prev : next;
+    });
+  }, [rfNodes]);
+
+  // Position pipeline:
+  //   1. Reset → discard everything; use fresh dagre positions
+  //   2. Otherwise: live drag > persisted > dagre. New tiles take dagre's
+  //      position, *translated* by the chunk's drag-delta so a new claim
+  //      lands relative to where the user moved the chunk, not where dagre
+  //      assumed it was. Fixes the "all tiles stack at the top" symptom
+  //      after the user drags the root tile away from its dagre default.
+  useEffect(() => {
+    const isReset = resetSignal > lastResetRef.current;
+    lastResetRef.current = resetSignal;
+    setRfNodes((prev) => {
+      if (isReset) return laid.nodes;
+      const livePos = new Map(prev.map((n) => [n.id, n.position]));
+
+      // Compute the offset the user/persisted positions imposed on the
+      // chunk root. New tiles will be shifted by the same vector so the
+      // whole subtree visually follows the dragged root.
+      const root = laid.nodes.find((n) => n.type === "chunk");
+      const rootDagre = root?.position ?? { x: 0, y: 0 };
+      const rootEffective =
+        (root && (livePos.get(root.id) ?? persisted.loaded.get(root.id))) ??
+        rootDagre;
+      const offset = {
+        x: rootEffective.x - rootDagre.x,
+        y: rootEffective.y - rootDagre.y,
+      };
+
+      return laid.nodes.map((n) => {
+        const live = livePos.get(n.id);
+        if (live) return { ...n, position: live };
+        const persistedPos = persisted.loaded.get(n.id);
+        if (persistedPos) return { ...n, position: persistedPos };
+        return {
+          ...n,
+          position: { x: n.position.x + offset.x, y: n.position.y + offset.y },
+        };
+      });
+    });
+    setRfEdges(laid.edges);
+  }, [
+    laid.nodes,
+    laid.edges,
+    setRfNodes,
+    setRfEdges,
+    resetSignal,
+    persisted.loaded,
+  ]);
+
+  // Save positions whenever they change (debounced inside the hook). Gated
+  // on persisted.ready so a fresh remount can't write the dagre defaults
+  // back to localStorage before the saved positions get loaded.
+  useEffect(() => {
+    if (!sessionId || !persisted.ready) return;
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const n of rfNodes) positions.set(n.id, n.position);
+    persisted.save(positions);
+  }, [rfNodes, sessionId, persisted]);
+
+  useEffect(() => {
+    if (!onViewIndex) return;
+    const idx = new Map<string, ViewNode>();
+    for (const v of laid.viewNodes) idx.set(v.view_id, v);
+    onViewIndex(idx);
+  }, [laid.viewNodes, onViewIndex]);
+
+  return (
+    <div className="w-full h-full bg-chrome2-900 relative">
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={(_e, n) => onSelectView?.(n.id)}
+        onPaneClick={() => onSelectView?.(null)}
+        snapToGrid={snap}
+        snapGrid={[16, 16]}
+        fitView
+        proOptions={{ hideAttribution: true }}
+        // Mouse-mode toggle (toolbar):
+        //   "select" → left-drag draws a lasso, mid/right-drag pans
+        //   "pan"    → left-drag pans (classic), no lasso
+        // Multi-selection via Cmd/Ctrl-click works in both modes.
+        selectionOnDrag={mouseMode === "select"}
+        panOnDrag={mouseMode === "select" ? [1, 2] : true}
+        selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode={["Meta", "Control"]}
+        selectionKeyCode={null}
+      >
+        <Background
+          variant={BackgroundVariant.Lines}
+          gap={16}
+          color="#334155"
+          lineWidth={0.5}
+        />
+        <Controls />
+        <MiniMap pannable zoomable nodeColor={() => "#334155"} />
+        <Toolbar
+          direction={direction}
+          onToggleDirection={() =>
+            setDirection((d) => (d === "TB" ? "LR" : "TB"))
+          }
+          snap={snap}
+          onToggleSnap={() => setSnap((s) => !s)}
+          mouseMode={mouseMode}
+          onToggleMouseMode={() =>
+            setMouseMode((m) => (m === "select" ? "pan" : "select"))
+          }
+          autoLayout={autoLayout}
+          onToggleAutoLayout={() => setAutoLayout((a) => !a)}
+          onReset={() => {
+            persisted.clear();
+            setResetSignal((n) => n + 1);
+          }}
+        />
+      </ReactFlow>
+    </div>
+  );
+}
+
+/**
+ * Floating toolbar: reset / fit-view, layout-direction toggle, snap toggle.
+ * Lives inside <ReactFlow> so it can call `useReactFlow` to access fitView().
+ */
+function Toolbar({
+  direction,
+  onToggleDirection,
+  snap,
+  onToggleSnap,
+  mouseMode,
+  onToggleMouseMode,
+  autoLayout,
+  onToggleAutoLayout,
+  onReset,
+}: {
+  direction: LayoutDirection;
+  onToggleDirection: () => void;
+  snap: boolean;
+  onToggleSnap: () => void;
+  mouseMode: "select" | "pan";
+  onToggleMouseMode: () => void;
+  autoLayout: boolean;
+  onToggleAutoLayout: () => void;
+  onReset: () => void;
+}): JSX.Element {
+  const rf = useReactFlow();
+  return (
+    <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 bg-chrome2-800/95 border border-chrome2-500 rounded shadow-md p-1">
+      <ToolbarButton
+        title="Layout neu berechnen (alle Positionen verwerfen)"
+        onClick={() => {
+          onReset();
+          // fitView lands on the next frame so it sees the new positions.
+          setTimeout(() => rf.fitView({ duration: 250, padding: 0.2 }), 16);
+        }}
+      >
+        <RotateCcw className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        title="An Bildschirm anpassen"
+        onClick={() => rf.fitView({ duration: 250, padding: 0.2 })}
+      >
+        <Maximize2 className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        title={direction === "TB" ? "Auf horizontal umschalten" : "Auf vertikal umschalten"}
+        onClick={onToggleDirection}
+      >
+        {direction === "TB" ? (
+          <MoveHorizontal className="w-4 h-4" />
+        ) : (
+          <MoveVertical className="w-4 h-4" />
+        )}
+      </ToolbarButton>
+      <ToolbarButton
+        title={snap ? "Snap-to-Grid: an" : "Snap-to-Grid: aus"}
+        onClick={onToggleSnap}
+        active={snap}
+      >
+        <Grid3x3 className="w-4 h-4" />
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          mouseMode === "select"
+            ? "Maus: Auswahl-Modus (Links-Drag = Lasso). Klick zum Wechseln auf Pan."
+            : "Maus: Pan-Modus (Links-Drag = verschieben). Klick zum Wechseln auf Auswahl."
+        }
+        onClick={onToggleMouseMode}
+        active={mouseMode === "select"}
+      >
+        {mouseMode === "select" ? (
+          <MousePointer2 className="w-4 h-4" />
+        ) : (
+          <Hand className="w-4 h-4" />
+        )}
+      </ToolbarButton>
+      <ToolbarButton
+        title={
+          autoLayout
+            ? "Auto-Layout an: bei neuen Tiles wird neu angeordnet"
+            : "Auto-Layout aus: manuelle Positionen bleiben, neue Tiles werden eingefügt"
+        }
+        onClick={onToggleAutoLayout}
+        active={autoLayout}
+      >
+        <Wand2 className="w-4 h-4" />
+      </ToolbarButton>
+    </div>
+  );
+}
+
+function ToolbarButton({
+  title,
+  onClick,
+  children,
+  active = false,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  active?: boolean;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`p-1.5 rounded transition-colors ${
+        active
+          ? "bg-brand-500 text-white"
+          : "text-slate-300 hover:bg-chrome2-700 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}

@@ -1,0 +1,116 @@
+{
+  "name": "extract-page-extract",
+  "startedAt": "2026-05-31T14:38:39.033Z",
+  "endedAt": "2026-05-31T14:39:21.616Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Extrahieren-Seite: zwei Eintrittspunkte für Re-Extraktion",
+      "startedAtMs": 1780238321537,
+      "endedAtMs": 1780238321842,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Voll-Lauf — alle Seiten",
+              "selector": "button[aria-label=\"Re-extract all\"]",
+              "box": {
+                "x": 913,
+                "y": 60,
+                "width": 174,
+                "height": 28
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Nur die aktuelle Seite",
+              "selector": "button[aria-label=\"Re-extract this page\"]",
+              "box": {
+                "x": 1137,
+                "y": 244,
+                "width": 247,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„Alle Seiten extrahieren“ (oben, blau) startet den Voll-Lauf über alle Seiten — gut für initiale Extraktion oder nach Schema-Updates.",
+        "„Diese Seite extrahieren“ (rechts) wirkt nur auf die aktuell sichtbare Seite — schnell für Korrektur einzelner Seiten ohne den ganzen PDF neu zu jagen.",
+        "Beide rufen denselben /segment-Endpoint, nur mit unterschiedlichem ?start=&end=-Range."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "„Diese Seite extrahieren“ → Lauf startet",
+      "startedAtMs": 1780238322499,
+      "endedAtMs": 1780238322640,
+      "actions": [
+        "click button[aria-label='Re-extract this page']"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Stream-Events landen im Worker-Status-Indicator (oben rechts)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Beim Klick öffnet sich ein NDJSON-Stream vom Backend; UI streamt Worker-Events in Real-Time.",
+        "Während der Lauf läuft, ist das HTML-Editor-Panel mit „loading…“ überlagert; Boxen blinken nicht (vorhandene Geometrie bleibt sichtbar).",
+        "Typische Laufzeit für eine Seite: ~30-60s (DocLayout-YOLO + MinerU VLM pro Seite)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Lauf abgeschlossen — Seite frisch extrahiert",
+      "startedAtMs": 1780238361538,
+      "endedAtMs": 1780238361616,
+      "actions": [
+        "poll backend status until extracted"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Frische Box-Geometrie aus dem Re-Lauf",
+              "selector": "[data-testid^=\"box-\"]",
+              "box": {
+                "x": 136,
+                "y": 291,
+                "width": 394,
+                "height": 38
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Status springt zurück auf „Extrahiert“ (DocStatus.extracted) sobald write_segments + write_mineru + write_html durch sind.",
+        "Box-Overlay aktualisiert sich automatisch (react-query invalidiert segments/html/mineru nach dem Stream)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

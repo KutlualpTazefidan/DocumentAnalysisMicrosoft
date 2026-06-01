@@ -1,0 +1,322 @@
+{
+  "name": "auth-failure",
+  "startedAt": "2026-05-28T08:10:53.554Z",
+  "endedAt": "2026-05-28T08:10:56.888Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Falscher Fachbereich",
+      "startedAtMs": 1779955853556,
+      "endedAtMs": 1779955855406,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "expectVisible [role=\"dialog\"]",
+        "fill input[aria-label=\"Fachbereich\"] = bogus-tenant-xyz",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = anything",
+        "click button[type=\"submit\"]",
+        "expectVisible text=Login fehlgeschlagen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Tippfehler im Fachbereich-Feld — Backend kennt den Slug nicht."
+            },
+            {
+              "kind": "error",
+              "text": "401 — Fachbereich/Benutzer/Passwort falsch"
+            }
+          ],
+          "note": "Fehlermeldung im Modal"
+        }
+      ],
+      "notes": [
+        "Tippfehler im Fachbereich-Feld — Backend kennt den Slug nicht."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Falsches Passwort",
+      "startedAtMs": 1779955855406,
+      "endedAtMs": 1779955856133,
+      "actions": [
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Passwort\"] = definitely-wrong",
+        "click button[type=\"submit\"]",
+        "expectVisible text=Login fehlgeschlagen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Backend gibt 401 zurück — gleicher Text wie bei falschem Fachbereich. Bewusste Entscheidung: keinen Hinweis geben WELCHES Feld falsch ist, damit Brute-Force keine Benutzer-Enumeration ermöglicht."
+            }
+          ],
+          "note": "Identische Fehlermeldung — bewusst generisch"
+        }
+      ],
+      "notes": [
+        "Backend gibt 401 zurück — gleicher Text wie bei falschem Fachbereich. Bewusste Entscheidung: keinen Hinweis geben WELCHES Feld falsch ist, damit Brute-Force keine Benutzer-Enumeration ermöglicht."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Session abgelaufen — Redirect-Notice",
+      "startedAtMs": 1779955856133,
+      "endedAtMs": 1779955856392,
+      "actions": [
+        "goto /#/login?reason=expired",
+        "expectVisible text=Sitzung abgelaufen. Bitte erneut anmelden."
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "p:has-text(\"Sitzung abgelaufen\")",
+              "text": "Expired-Hinweis",
+              "box": {
+                "x": 540,
+                "y": 287,
+                "width": 320,
+                "height": 20
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Wird vom Auth-Middleware-Redirect verwendet, wenn der Session-Cookie abläuft mitten in der Nutzung."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Wird vom Auth-Middleware-Redirect verwendet, wenn der Session-Cookie abläuft mitten in der Nutzung."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Legacy-Token-Tab via ?legacy=1",
+      "startedAtMs": 1779955856392,
+      "endedAtMs": 1779955856888,
+      "actions": [
+        "goto /#/login?legacy=1",
+        "expectVisible button:has-text(\"API-Token (alt)\")",
+        "click button:has-text(\"API-Token (alt)\")",
+        "expectVisible input[aria-label=\"API-Token\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "button:has-text(\"API-Token (alt)\")",
+              "text": "Versteckter Tab",
+              "box": {
+                "x": 630.671875,
+                "y": 372,
+                "width": 117.4375,
+                "height": 34
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Default ist der Tab nicht sichtbar — Power-User / Docs öffnen ihn explizit per Query-Param."
+            }
+          ],
+          "note": "API-Token-Modus aktiv (Legacy-Pfad)"
+        }
+      ],
+      "notes": [
+        "Default ist der Tab nicht sichtbar — Power-User / Docs öffnen ihn explizit per Query-Param."
+      ],
+      "status": "ok"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=734e1b1c",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=734e1b1c",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=734e1b1c",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/login",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/login",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 1
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 2
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 2
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/login",
+      "method": "POST",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/login",
+      "method": "POST",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 1
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 2
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 2
+    }
+  ],
+  "pageErrors": []
+}

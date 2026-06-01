@@ -17,7 +17,7 @@ export function CuratorDocPage() {
   const els = useQuery({
     queryKey: ["curate", "elements", slug],
     queryFn: () => listCurateElements(slug!, token!),
-    enabled: !!slug && !!token,
+    enabled: !!slug,
   });
 
   const mut = useMutation({

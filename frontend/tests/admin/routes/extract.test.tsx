@@ -53,6 +53,15 @@ const server = setupServer(
   http.get("*/api/admin/docs/rep/mineru", () =>
     HttpResponse.json(MINERU_DATA),
   ),
+  // Server-backed per-page status — default: no pages done. Individual
+  // tests override this handler to simulate a page being marked done.
+  http.get("*/api/admin/docs/rep/pages/status", () =>
+    HttpResponse.json({ slug: "rep", done_pages: [] }),
+  ),
+  http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+    const body = (await request.json()) as { status: string };
+    return HttpResponse.json({ page: Number(params.page), status: body.status });
+  }),
 );
 
 beforeAll(() => server.listen());
@@ -94,16 +103,16 @@ function wrapNoHtml() {
   );
 }
 
-// Helper: wait until the HTML editor is mounted (preview iframe visible).
+// Helper: wait until the HTML editor host (Shadow DOM mount) is visible.
 async function waitForEditor() {
-  await waitFor(() => expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByTestId("html-editor-host")).toBeInTheDocument());
 }
 
 describe("ExtractRoute", () => {
   it("loads html and shows preview iframe in editor", async () => {
     render(wrap());
     await waitForEditor();
-    expect(screen.getByTestId("html-preview-iframe")).toBeInTheDocument();
+    expect(screen.getByTestId("html-editor-host")).toBeInTheDocument();
   });
 
   it("Export button posts and toasts", async () => {
@@ -127,10 +136,10 @@ describe("ExtractRoute", () => {
     render(wrap());
     await waitForEditor();
     // The Extract tab must be present and marked active (aria-current=page)
-    const extractTab = screen.getByRole("tab", { name: /extract/i });
+    const extractTab = screen.getByRole("tab", { name: /extrahieren/i });
     expect(extractTab).toHaveAttribute("aria-current", "page");
     // Other tabs present but not active
-    expect(screen.getByRole("tab", { name: /synthesise/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("tab", { name: /synthese/i })).not.toHaveAttribute("aria-current");
   });
 
   it("Re-extract this box is disabled when no box is highlighted, enabled after clicking one", async () => {
@@ -158,7 +167,7 @@ describe("ExtractRoute", () => {
     render(wrapNoHtml());
 
     // Full chrome renders: DocStepTabs in the top bar
-    await waitFor(() => expect(screen.getByRole("tab", { name: /extract/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: /extrahieren/i })).toBeInTheDocument());
     // Top-bar action button "Re-extract all" remains the entry point
     expect(screen.getByLabelText("Re-extract all")).toBeInTheDocument();
     // Hint card overlay is visible
@@ -217,32 +226,65 @@ describe("ExtractRoute", () => {
     expect(screen.getByTestId("page-btn-1")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("lock button toggles page to blue (locked) state and persists to localStorage", async () => {
+  it("lock button PATCHes the page to done and flips the page button to blue", async () => {
+    // Server starts with page 1 not done; after the PATCH it reports it done
+    // so the post-mutation refetch keeps the button blue.
+    let done: number[] = [];
+    const patchSpy = vi.fn();
+    server.use(
+      http.get("*/api/admin/docs/rep/pages/status", () =>
+        HttpResponse.json({ slug: "rep", done_pages: done }),
+      ),
+      http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+        const body = (await request.json()) as { status: string };
+        patchSpy({ page: Number(params.page), status: body.status });
+        if (body.status === "done") done = [Number(params.page)];
+        else done = done.filter((p) => p !== Number(params.page));
+        return HttpResponse.json({ page: Number(params.page), status: body.status });
+      }),
+    );
+
     render(wrap());
     await waitForEditor();
     await waitFor(() => screen.getByTestId("extract-page-grid-toggle"));
 
-    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    const lockBtn = screen.getByRole("button", { name: /seite abschließen/i });
     fireEvent.click(lockBtn);
 
+    // PATCH fired with the "done" status for page 1.
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith({ page: 1, status: "done" }),
+    );
+
+    // Page-grid button for page 1 flips to blue (done) state.
     fireEvent.click(screen.getByTestId("extract-page-grid-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("page-btn-1").className).toContain("blue"),
     );
-
-    const stored = JSON.parse(localStorage.getItem("extract.approved.rep") ?? "[]") as number[];
-    expect(stored).toContain(1);
   });
 
-  it("lock button label toggles to 'Diese Seite entsperren' after locking", async () => {
+  it("lock button label toggles to 'Seite wieder öffnen' after marking done", async () => {
+    let done: number[] = [];
+    server.use(
+      http.get("*/api/admin/docs/rep/pages/status", () =>
+        HttpResponse.json({ slug: "rep", done_pages: done }),
+      ),
+      http.patch("*/api/admin/docs/rep/pages/:page/status", async ({ params, request }) => {
+        const body = (await request.json()) as { status: string };
+        if (body.status === "done") done = [Number(params.page)];
+        else done = done.filter((p) => p !== Number(params.page));
+        return HttpResponse.json({ page: Number(params.page), status: body.status });
+      }),
+    );
+
     render(wrap());
     await waitForEditor();
 
-    const lockBtn = screen.getByRole("button", { name: /diese seite sperren/i });
+    const lockBtn = screen.getByRole("button", { name: /seite abschließen/i });
     fireEvent.click(lockBtn);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /diese seite entsperren/i })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /seite wieder öffnen/i })).toBeInTheDocument(),
     );
   });
 

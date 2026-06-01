@@ -177,6 +177,196 @@ def cmd_segment_serve(*, host: str, port: int, log_level: str) -> int:
     return 0
 
 
+def _resolve_data_root() -> Path:
+    """Resolve the data_root the same way the FastAPI Config does.
+
+    Reads LOCAL_PDF_DATA_ROOT (the env var the running server uses) so
+    CLI invocations and the server share the same auth.db without an
+    extra flag. Falls back to the Config default if unset.
+    """
+    import os
+    from pathlib import Path
+
+    root_str = os.environ.get("LOCAL_PDF_DATA_ROOT", "data/raw-pdfs")
+    return Path(root_str).expanduser().resolve()
+
+
+def cmd_segment_auth_init(
+    *,
+    tenant_slug: str,
+    tenant_name: str,
+    admin_username: str,
+    admin_password: str,
+    admin_pseudonym: str | None,
+) -> int:
+    """Bootstrap the local auth DB with one tenant + one admin user.
+
+    Idempotent semantics:
+      * Tenant slug already taken -> reuse existing tenant (warn).
+      * Admin username already taken inside tenant -> abort with hint.
+
+    On success, prints the pseudonym + the auth.db path so the operator
+    sees exactly what was written.
+    """
+    from local_pdf.auth.db import auth_db_path, ensure_schema, open_auth_db
+    from local_pdf.auth.tenants import create_tenant, get_tenant_by_slug
+    from local_pdf.auth.users import create_user
+
+    if not admin_password:
+        print("ERROR: admin password must be non-empty.", file=sys.stderr)
+        return 2
+
+    data_root = _resolve_data_root()
+    print(f"data_root: {data_root}")
+    print(f"auth.db:   {auth_db_path(data_root)}")
+
+    with open_auth_db(data_root) as conn:
+        ensure_schema(conn)
+        existing = get_tenant_by_slug(conn, tenant_slug)
+        if existing is not None:
+            print(f"tenant {tenant_slug!r} already exists (reusing).")
+            tenant = existing
+        else:
+            try:
+                tenant = create_tenant(conn, slug=tenant_slug, name=tenant_name)
+            except ValueError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 3
+            print(f"created tenant: {tenant.slug} (id={tenant.tenant_id})")
+
+        try:
+            user = create_user(
+                conn,
+                tenant_id=tenant.tenant_id,
+                username=admin_username,
+                password=admin_password,
+                role="admin",
+                pseudonym=admin_pseudonym,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 4
+
+    print(f"created admin user: {user.username}")
+    print(f"  user_id:   {user.user_id}")
+    print(f"  pseudonym: {user.pseudonym}  (lands in audit logs)")
+    print(f"  role:      {user.role}")
+    print()
+    print("Next: login at /api/auth/login with tenant_slug + username + password.")
+    print("(auth.db is chmod 0600 — keep data_root private.)")
+    return 0
+
+
+def cmd_segment_auth_create_user(
+    *,
+    tenant_slug: str,
+    username: str,
+    password: str,
+    role: str,
+    pseudonym: str | None,
+) -> int:
+    """Create an additional user inside an existing tenant."""
+    from local_pdf.auth.db import ensure_schema, open_auth_db
+    from local_pdf.auth.tenants import get_tenant_by_slug
+    from local_pdf.auth.users import create_user
+
+    if not password:
+        print("ERROR: password must be non-empty.", file=sys.stderr)
+        return 2
+
+    data_root = _resolve_data_root()
+    with open_auth_db(data_root) as conn:
+        ensure_schema(conn)
+        tenant = get_tenant_by_slug(conn, tenant_slug)
+        if tenant is None:
+            print(f"ERROR: tenant not found: {tenant_slug!r}", file=sys.stderr)
+            print("Run 'auth init' first.", file=sys.stderr)
+            return 3
+        try:
+            user = create_user(
+                conn,
+                tenant_id=tenant.tenant_id,
+                username=username,
+                password=password,
+                role=role,  # type: ignore[arg-type]
+                pseudonym=pseudonym,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 4
+
+    print(f"created user: {user.username}")
+    print(f"  user_id:   {user.user_id}")
+    print(f"  pseudonym: {user.pseudonym}")
+    print(f"  role:      {user.role}")
+    return 0
+
+
+def cmd_segment_tenant_migrate(*, tenant_slug: str, mode: str, dry_run: bool) -> int:
+    """Migrate legacy slug-keyed data into ``tenants/{slug}/``.
+
+    Default mode is ``copy`` so originals stay around as a backup;
+    pass ``--mode=move`` once the new layout has been verified.
+    """
+    from local_pdf.auth.migration import migrate_legacy_data
+
+    data_root = _resolve_data_root()
+    report = migrate_legacy_data(data_root, target_tenant=tenant_slug, mode=mode, dry_run=dry_run)
+    print(f"data_root: {data_root}")
+    print(f"target:    {report.target_root}")
+    print(f"mode:      {report.mode}" + (" [DRY-RUN]" if report.dry_run else ""))
+    print()
+    print(
+        f"would move {report.moved_count} entries"
+        if report.dry_run
+        else f"migrated {report.moved_count} entries"
+    )
+    for p in report.moved_paths:
+        marker = "WOULD" if report.dry_run else "OK   "
+        print(f"  {marker} {p.name}")
+    if report.skipped_paths:
+        print()
+        print(f"skipped {len(report.skipped_paths)} entries:")
+        for path, reason in report.skipped_paths:
+            print(f"  -- {path.name}: {reason}")
+    if report.bytes_total:
+        mb = report.bytes_total / (1024 * 1024)
+        print(f"\nsize affected: ~{mb:.1f} MiB")
+    return 0
+
+
+def cmd_segment_auth_backup(*, dest: str) -> int:
+    """Snapshot the auth DB to a gzipped file.
+
+    Uses sqlite3 online-backup (no quiesce required). Prints the
+    resulting path + compressed size so the operator can verify.
+    """
+    from pathlib import Path
+
+    from local_pdf.auth.backup import backup_auth_db
+
+    data_root = _resolve_data_root()
+    dest_path = Path(dest).expanduser().resolve()
+    try:
+        info = backup_auth_db(data_root, dest_path)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 3
+    print(f"backed up: {info['source']}")
+    print(f"        -> {info['dest']}")
+    print(f"  size:    {info['bytes_written']} bytes (gzipped)")
+    print(f"  source:  {info['source_pages']} pages")
+    return 0
+
+
+def _prompt_password(label: str) -> str:
+    """Read a password from stdin with no echo; called when --password
+    flag is omitted to avoid leaving creds in shell history."""
+    import getpass
+
+    return getpass.getpass(f"{label}: ")
+
+
 def _add_segment_subparser(subparsers) -> None:
     seg = subparsers.add_parser("segment", help="local-pdf pipeline commands")
     seg_sub = seg.add_subparsers(dest="segment_cmd", required=True)
@@ -187,6 +377,95 @@ def _add_segment_subparser(subparsers) -> None:
     serve.set_defaults(
         func=lambda args: cmd_segment_serve(
             host=args.host, port=args.port, log_level=args.log_level
+        )
+    )
+
+    # ── auth: tenant + first-admin bootstrap, plus user-creation ─────────
+    auth = seg_sub.add_parser("auth", help="local-pdf auth management")
+    auth_sub = auth.add_subparsers(dest="auth_cmd", required=True)
+
+    init = auth_sub.add_parser("init", help="bootstrap first tenant + first admin user")
+    init.add_argument("--tenant-slug", required=True)
+    init.add_argument("--tenant-name", required=True)
+    init.add_argument("--admin-username", required=True)
+    init.add_argument("--admin-password", default=None, help="omit to prompt")
+    init.add_argument(
+        "--admin-pseudonym",
+        default=None,
+        help="optional override; auto-generated when absent",
+    )
+    init.set_defaults(
+        func=lambda args: cmd_segment_auth_init(
+            tenant_slug=args.tenant_slug,
+            tenant_name=args.tenant_name,
+            admin_username=args.admin_username,
+            admin_password=args.admin_password or _prompt_password("Admin password"),
+            admin_pseudonym=args.admin_pseudonym,
+        )
+    )
+
+    create_user = auth_sub.add_parser(
+        "create-user", help="create an additional user in an existing tenant"
+    )
+    create_user.add_argument("--tenant-slug", required=True)
+    create_user.add_argument("--username", required=True)
+    create_user.add_argument("--password", default=None, help="omit to prompt")
+    create_user.add_argument("--role", choices=["admin", "reviewer", "curator"], default="curator")
+    create_user.add_argument("--pseudonym", default=None)
+    create_user.set_defaults(
+        func=lambda args: cmd_segment_auth_create_user(
+            tenant_slug=args.tenant_slug,
+            username=args.username,
+            password=args.password or _prompt_password("Password"),
+            role=args.role,
+            pseudonym=args.pseudonym,
+        )
+    )
+
+    backup = auth_sub.add_parser(
+        "backup", help="snapshot the auth DB (sqlite online-backup + gzip)"
+    )
+    backup.add_argument(
+        "--to",
+        dest="dest",
+        required=True,
+        help="destination file path; .db.gz suffix recommended",
+    )
+    backup.set_defaults(func=lambda args: cmd_segment_auth_backup(dest=args.dest))
+
+    migrate = seg_sub.add_parser(
+        "tenant",
+        help="multi-tenant data lifecycle (migrate legacy data into tenants/)",
+    )
+    migrate_sub = migrate.add_subparsers(dest="tenant_cmd", required=True)
+    mig = migrate_sub.add_parser(
+        "migrate",
+        help="copy/move legacy slug-keyed data into tenants/{slug}/",
+    )
+    mig.add_argument(
+        "--tenant-slug",
+        default="default",
+        help="target tenant for the legacy data (default: 'default')",
+    )
+    mig.add_argument(
+        "--mode",
+        choices=["copy", "move"],
+        default="copy",
+        help=(
+            "copy: leave originals as backup (default). move: replace "
+            "originals with the migrated tree."
+        ),
+    )
+    mig.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="walk + plan without touching the filesystem",
+    )
+    mig.set_defaults(
+        func=lambda args: cmd_segment_tenant_migrate(
+            tenant_slug=args.tenant_slug,
+            mode=args.mode,
+            dry_run=args.dry_run,
         )
     )
 

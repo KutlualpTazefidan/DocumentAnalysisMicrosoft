@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,6 +27,7 @@ __all__ = [
     "CuratorsFile",
     "DocMeta",
     "DocStatus",
+    "ExpertCorrection",
     "ExtractRegionRequest",
     "HealthResponse",
     "HtmlPayload",
@@ -35,8 +36,11 @@ __all__ = [
     "ModelLoadingEvent",
     "ModelUnloadedEvent",
     "ModelUnloadingEvent",
+    "PageStatus",
+    "PageStatusFile",
     "SegmentBox",
     "SegmentsFile",
+    "SetPageStatusRequest",
     "SplitBoxRequest",
     "UpdateBoxRequest",
     "WorkCompleteEvent",
@@ -58,6 +62,14 @@ class BoxKind(StrEnum):
     # (running headers, footers, page numbers). Renamed to "auxiliary" for
     # user-facing clarity; legacy "abandon" values are migrated on read.
     auxiliary = "auxiliary"
+    # Verzeichnis-Einträge: detected by `provenienz.registers.detect_registers`
+    # after extraction completes, or set manually via the Extract-Tab dropdown.
+    # Excluded from the BM25 search corpus by default; consolidated lookup via
+    # `RegisterLookup` tool (see `provenienz.registers.read_register`).
+    toc = "toc"
+    list_of_tables = "list_of_tables"
+    list_of_figures = "list_of_figures"
+    bibliography = "bibliography"
     discard = "discard"
 
 
@@ -72,6 +84,15 @@ class DocStatus(StrEnum):
     archived = "archived"
     done = "done"  # legacy from A.0; keep for back-compat
     needs_ocr = "needs_ocr"
+
+
+class PageStatus(StrEnum):
+    # Per-page curation status, ORTHOGONAL to DocStatus. Only "done" is
+    # server-persisted (see PageStatusFile); "not_started"/"in_progress" are
+    # derived client-side and never stored.
+    not_started = "not_started"
+    in_progress = "in_progress"
+    done = "done"
 
 
 class SegmentBox(BaseModel):
@@ -131,6 +152,19 @@ class UpdateBoxRequest(BaseModel):
     manually_activated: bool | None = None
 
 
+class SetPageStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    status: PageStatus
+
+
+class PageStatusFile(BaseModel):
+    # Per-doc sidecar. Stores ONLY the set of "done" pages; everything else is
+    # derived. done_pages is kept deduped + sorted by the storage layer.
+    model_config = ConfigDict(frozen=True)
+    slug: str
+    done_pages: list[int] = Field(default_factory=list)
+
+
 class MergeBoxesRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     box_ids: list[str] = Field(min_length=2)
@@ -157,6 +191,18 @@ class ExtractRegionRequest(BaseModel):
 class HtmlPayload(BaseModel):
     model_config = ConfigDict(frozen=True)
     html: str
+
+
+class UpdateElementRequest(BaseModel):
+    """PATCH body for ``/api/admin/docs/<slug>/elements/<box_id>``.
+
+    User-edited HTML for a single element. The router re-runs the inline-LaTeX
+    conversion before storing so user input ($\\alpha$, $$..$$, ``\\dot{q}``)
+    stays consistent with what the segment-time pipeline produces.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    html_snippet: str
 
 
 class HealthResponse(BaseModel):
@@ -233,3 +279,26 @@ class RefineQuestionRequest(BaseModel):
 class DeprecateQuestionRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     reason: str | None = None
+
+
+class ExpertCorrection(BaseModel):
+    """Typed expert override of an LLM plan_proposal.
+
+    Captured via the kind-widened /sessions/{id}/decide. The intended_step
+    may or may not be in the registered step set — when not, the route also
+    spawns a capability_request Node (actor="human") so the unimplemented
+    method gets tracked alongside agent-emitted requests.
+
+    `post_hoc=True` marks corrections captured from the persistent drawer
+    in PlanProposalPanel after Akzeptieren already fired ("I realised too
+    late" case — see Phase-2 spec). post_hoc EC Nodes still feed
+    _gather_reason_guidance the same way; the flag is preserved on the
+    node payload purely for audit and future analytics (do experts
+    actually catch their own mistakes post-hoc, and how often?).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    intended_step: str = Field(min_length=1, max_length=120)
+    intended_args: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field(min_length=1, max_length=2000)
+    post_hoc: bool = False

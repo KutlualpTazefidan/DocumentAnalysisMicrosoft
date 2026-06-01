@@ -81,6 +81,45 @@ export function usePutHtml(slug: string, token: string) {
   return useMutation({ mutationFn: (html: string) => putHtml(slug, html, token) });
 }
 
+/** PATCH /api/admin/docs/{slug}/elements/{box_id} — update one element's
+ *  html_snippet from the in-place editor. Backend re-runs the LaTeX
+ *  conversion so user input ($..$, $$..$$, bare \\command{...}) renders
+ *  consistently with the segment-time pipeline. Invalidates html + mineru
+ *  queries so the editor re-renders with the canonical form. */
+export function useUpdateElement(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ boxId, html }: { boxId: string; html: string }) => {
+      const r = await fetch(
+        `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/elements/${encodeURIComponent(boxId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Auth-Token": token,
+          },
+          body: JSON.stringify({ html_snippet: html }),
+        },
+      );
+      if (!r.ok) {
+        let detail = `${r.status} ${r.statusText}`;
+        try {
+          const body = await r.json();
+          if (body && typeof body.detail === "string") detail = body.detail;
+        } catch {
+          /* keep status-line fallback */
+        }
+        throw new Error(`update element failed: ${detail}`);
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["html", slug] });
+      qc.invalidateQueries({ queryKey: ["mineru", slug] });
+    },
+  });
+}
+
 export function useExportSourceElements(slug: string, token: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -98,10 +137,12 @@ export async function* streamSegment(
   token: string,
   start?: number,
   end?: number,
+  protectDone?: boolean,
 ): AsyncGenerator<WorkerEvent> {
   const params = new URLSearchParams();
   if (start !== undefined) params.set("start", String(start));
   if (end !== undefined) params.set("end", String(end));
+  if (protectDone) params.set("protect_done", "true");
   const qs = params.toString() ? `?${params.toString()}` : "";
   const r = await fetch(
     `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/segment${qs}`,

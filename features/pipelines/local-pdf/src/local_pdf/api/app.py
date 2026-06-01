@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -15,17 +16,29 @@ from local_pdf.api.auth import install_auth_middleware
 from local_pdf.api.config import ApiConfig
 from local_pdf.api.schemas import HealthResponse
 
+_log = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """App lifespan — release MinerU VLM weights + CUDA memory on shutdown.
+    """App lifespan — release MinerU VLM weights + CUDA memory + SIGTERM
+    any managed vLLM subprocess on shutdown.
 
     Without this, Ctrl-C on the dev server can leave the process hanging
     on PyTorch worker threads / cached predictor singletons. We call
     MinerU's own shutdown helper plus torch.cuda.empty_cache() so
-    uvicorn's shutdown signal can finish.
+    uvicorn's shutdown signal can finish. We also tell the local vLLM
+    process manager to terminate any subprocess it owns — so an admin
+    who Ctrl-C's the backend doesn't end up with an orphan vLLM holding
+    GPU memory.
     """
     yield
+    try:
+        from local_pdf.llm_server.process import terminate_on_app_shutdown
+
+        terminate_on_app_shutdown()
+    except Exception:
+        pass
     try:
         from mineru.backend.vlm.vlm_analyze import shutdown_cached_models
 
@@ -44,6 +57,17 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     cfg = ApiConfig()
     cfg.data_root.mkdir(parents=True, exist_ok=True)
+
+    # Run skill-system migration at startup so the first request after
+    # deploy already has skills.jsonl populated. Idempotent — no-op if
+    # the _meta.json flag exists. Failure must NOT prevent boot: log and
+    # degrade rather than crash.
+    try:
+        from local_pdf.provenienz.skill_migration import migrate_legacy_to_skills
+
+        migrate_legacy_to_skills(cfg.data_root)
+    except Exception as exc:
+        _log.warning("skill migration at startup failed: %s", exc)
 
     app = FastAPI(
         title="local-pdf-api",
@@ -68,10 +92,19 @@ def create_app() -> FastAPI:
         return HealthResponse(data_root=str(cfg.data_root))
 
     from local_pdf.api.routers._gone import router as gone_router
+    from local_pdf.api.routers.admin.auth_mgmt import router as admin_auth_mgmt_router
+    from local_pdf.api.routers.admin.comparison import router as comparison_router
     from local_pdf.api.routers.admin.curators import router as admin_curators_router
     from local_pdf.api.routers.admin.docs import router as admin_docs_router
     from local_pdf.api.routers.admin.extract import router as extract_router
+    from local_pdf.api.routers.admin.llm_server import router as llm_server_router
+    from local_pdf.api.routers.admin.pipelines import router as pipelines_router
+    from local_pdf.api.routers.admin.provenienz import router as provenienz_router
+    from local_pdf.api.routers.admin.provenienz_approaches import (
+        router as provenienz_approaches_router,
+    )
     from local_pdf.api.routers.admin.segments import router as segments_router
+    from local_pdf.api.routers.admin.skills import router as skills_router
     from local_pdf.api.routers.admin.synthesise import router as synthesise_router
     from local_pdf.api.routers.auth import router as auth_router
     from local_pdf.api.routers.curate.docs import router as curate_docs_router
@@ -84,7 +117,14 @@ def create_app() -> FastAPI:
     app.include_router(segments_router)
     app.include_router(extract_router)
     app.include_router(synthesise_router)
+    app.include_router(comparison_router)
+    app.include_router(pipelines_router)
+    app.include_router(provenienz_router)
+    app.include_router(provenienz_approaches_router)
+    app.include_router(skills_router)
+    app.include_router(llm_server_router)
     app.include_router(admin_curators_router)
+    app.include_router(admin_auth_mgmt_router)
     app.include_router(curate_docs_router)
     app.include_router(curate_elements_router)
     app.include_router(curate_questions_router)

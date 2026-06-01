@@ -7,16 +7,45 @@ export default {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
+        // Chrome scale — derived from ADMIN_THEME.chrome (#031E31).
+        // navy-800 is the primary chrome bg; lighter shades = text/borders
+        // on that dark backdrop; darker = deeper chrome variant.
         navy: {
-          // Derived from ADMIN_THEME.chrome (#1e3a8a). navy-800 is the primary
-          // chrome colour; lighter shades are used for text/borders on that
-          // dark backdrop; darker shades for hover/active states.
-          200: "#bfdbfe", // near blue-200 — readable light text on dark bg
-          500: "#3b82f6", // blue-500 equivalent
-          600: "#2563eb", // blue-600 — active/hover accent
-          700: "#1d4ed8", // blue-700 — border / subtle bg on chrome
-          800: "#1e3a8a", // blue-900 — ADMIN_THEME.chrome
-          900: "#172554", // deeper — darkest chrome variant
+          200: "#cfe6f5", // light text on dark chrome (was blue-200)
+          300: "#8fbfdb", // dimmed-but-readable text (replaces opacity-fix
+                          // for disabled DocStepTabs which read text-navy-500/opacity-50
+                          // — see audit; navy-500 alone is too dim on the new chrome)
+          500: "#5a9ec9", // mid — active hint text
+          600: "#1E7EB2", // brand blue — accent / active state on chrome
+          700: "#0a2e47", // subtle border / hover-darker than chrome bg
+          800: "#031E31", // ADMIN_THEME.chrome — primary chrome bg
+          900: "#021727", // deepest chrome variant
+        },
+        // Secondary chrome — the doc-step-tab bar (DEFAULT) plus a slate
+        // scale used to re-skin the Provenienz workspace so it reads as
+        // the same family as the second bar instead of clashing navy.
+        chrome2: {
+          DEFAULT: "#576977", // the second top bar (bg-chrome2)
+          500: "#6d7f8d", // borders / muted on the dark workspace
+          600: "#576977", // = second bar / rail accent
+          700: "#455563", // rails
+          800: "#3a4753", // panels
+          900: "#2b3640", // workspace body
+        },
+        // Brand action palette — the single blue for primary CTAs, links,
+        // and the focus ring. Use these (not raw `blue-*`) when the surface
+        // is white/light; navy-600 for the same hue on the chrome.
+        brand: {
+          500: "#1E7EB2",
+          600: "#196590", // ~8% darker — hover
+          700: "#154f72", // ~16% darker — active / pressed
+        },
+        // Destructive palette — base + permanent destructive variant.
+        // Use `.btn-danger` for buttons; raw `danger-700` for delete-row
+        // text / persistent destructive states (Deaktivieren).
+        danger: {
+          500: "#AE1B25", // base
+          700: "#881A17", // hover / permanent destructive
         },
       },
     },

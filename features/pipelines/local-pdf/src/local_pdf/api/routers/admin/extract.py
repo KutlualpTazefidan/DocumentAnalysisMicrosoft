@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import UTC, datetime
 
@@ -13,18 +14,24 @@ from local_pdf.api.schemas import (
     DocStatus,
     ExtractRegionRequest,
     HtmlPayload,
+    PageStatusFile,
     WorkFailedEvent,
 )
+from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.convert.source_elements import build_source_elements_payload
+from local_pdf.provenienz.registers import detect_and_persist_registers
 from local_pdf.storage.sidecar import (
     doc_dir,
     read_html,
     read_meta,
     read_mineru,
+    read_page_status,
     read_segments,
+    update_page_status,
     write_html,
     write_meta,
     write_mineru,
+    write_page_status,
     write_source_elements,
 )
 from local_pdf.workers.base import now_ms
@@ -36,13 +43,21 @@ router = APIRouter()
 _MINERU_EXTRACT_FN = None
 
 
+def _tr(request: Request):
+    """Tenant-aware data_root for the active request. Cookie-mode
+    users in tenant != default get data_root/tenants/{slug}/; legacy
+    callers see the bare data_root."""
+    raw = request.app.state.config.data_root
+    return tenant_data_root(raw, tenant_slug_from_request(request))
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 _PDF_STYLE = (
     "<style>"
-    "body{font-family:Georgia,'Times New Roman',serif;"
+    "body{font-family:Georgia,'Times New Roman',serif;font-size:15px;"
     "max-width:720px;margin:2rem auto;padding:0 2rem;line-height:1.6;color:#1f2937}"
     "h1{font-size:2em;font-weight:bold;text-align:center;margin:1.5em 0 0.5em}"
     "h2{font-size:1.5em;font-weight:bold;margin:1.2em 0 0.4em;"
@@ -325,18 +340,19 @@ def _merge_elements(existing: list[dict], new_elements: list[dict]) -> list[dict
 
 
 @router.post("/api/admin/docs/{slug}/extract")
-async def run_extract(slug: str, request: Request, page: int | None = None) -> StreamingResponse:
-    cfg = request.app.state.config
-    pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
+async def run_extract(
+    slug: str, request: Request, page: int | None = None, protect_done: bool = False
+) -> StreamingResponse:
+    pdf = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     if seg is None:
         raise HTTPException(status_code=400, detail="run /segment first")
-    meta = read_meta(cfg.data_root, slug)
+    meta = read_meta(_tr(request), slug)
     if meta is not None:
         write_meta(
-            cfg.data_root,
+            _tr(request),
             slug,
             meta.model_copy(
                 update={"status": DocStatus.extracting, "last_touched_utc": _now_iso()}
@@ -348,13 +364,29 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
         targets = [b for b in targets if b.page == page]
 
     def stream():
+        # Snapshot the done-page set once at run start. Used both to skip
+        # re-extraction of done pages (target filter) and to preserve their
+        # already-extracted elements on a protected full run (merge below).
+        done = set(
+            (
+                read_page_status(_tr(request), slug) or PageStatusFile(slug=slug, done_pages=[])
+            ).done_pages
+        )
+        # Don't re-extract pages the user marked done on a protected full run.
+        # Use a fresh name — rebinding the enclosing `targets` inside the
+        # generator would make it a local and raise UnboundLocalError.
+        active_targets = (
+            [b for b in targets if b.page not in done]
+            if (page is None and protect_done)
+            else targets
+        )
         try:
             with MineruWorker(
                 extract_fn=_MINERU_EXTRACT_FN,
                 raster_dpi=seg.raster_dpi,
-                image_writer_dir=doc_dir(cfg.data_root, slug) / "mineru-images",
+                image_writer_dir=doc_dir(_tr(request), slug) / "mineru-images",
             ) as worker:
-                for ev in worker.run(pdf, targets):
+                for ev in worker.run(pdf, active_targets):
                     # Persist after each yielded WorkProgressEvent's box result.
                     yield ev.model_dump_json() + "\n"
                 # Build elements list from worker.results.
@@ -371,7 +403,7 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     # `targets` excludes discards and the new run doesn't
                     # produce a replacement. Per-page replace = the user's
                     # current activate/deactivate state always wins.
-                    existing_data = read_mineru(cfg.data_root, slug)
+                    existing_data = read_mineru(_tr(request), slug)
                     existing_elements = existing_data["elements"] if existing_data else []
                     other_pages = [
                         e
@@ -382,15 +414,51 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
                     existing_diags = existing_data.get("diagnostics", []) if existing_data else []
                     kept_diags = [d for d in existing_diags if d.get("page") != page]
                     merged_diagnostics = kept_diags + new_diagnostics
+                elif protect_done:
+                    # Protected full run: done pages were filtered OUT of
+                    # active_targets, so the worker produced nothing for them.
+                    # PRESERVE their already-extracted elements + diagnostics
+                    # rather than wiping them, then append the freshly-extracted
+                    # (non-done) elements.
+                    existing_data = read_mineru(_tr(request), slug)
+                    existing_elements = existing_data["elements"] if existing_data else []
+                    kept = [
+                        e
+                        for e in existing_elements
+                        if _page_from_box_id(e.get("box_id", "")) in done
+                    ]
+                    merged = kept + new_elements
+                    existing_diags = existing_data.get("diagnostics", []) if existing_data else []
+                    kept_diags = [d for d in existing_diags if d.get("page") in done]
+                    merged_diagnostics = kept_diags + new_diagnostics
                 else:
                     merged = new_elements
                     merged_diagnostics = new_diagnostics
                 write_mineru(
-                    cfg.data_root,
+                    _tr(request),
                     slug,
                     {"elements": merged, "diagnostics": merged_diagnostics},
                 )
-                write_html(cfg.data_root, slug, _wrap_html(merged))
+                write_html(_tr(request), slug, _wrap_html(merged))
+                # Reconcile done-bits on the SUCCESS path (post-write = atomic
+                # end-of-run). Per-page status is orthogonal to DocStatus.
+                if page is not None:
+                    # Re-extracted a single page → that page is no longer "done".
+                    update_page_status(_tr(request), slug, page, False)
+                elif not protect_done:
+                    # Full default run replaced EVERYTHING → clear all done-bits.
+                    write_page_status(_tr(request), slug, PageStatusFile(slug=slug, done_pages=[]))
+                # protect_done full run: done pages were preserved → keep bits.
+                # Verzeichnis-detection: full-doc extraction is the only
+                # state where we have heading-text for every box, so this
+                # only runs when ``page is None``. Manual per-page reruns
+                # don't re-trigger the walk — the user can still flip kinds
+                # via the dropdown in the Extract tab when they need to.
+                # Detection is best-effort; never let a heuristic regression
+                # block extraction completion (suppress all exceptions).
+                if page is None:
+                    with contextlib.suppress(Exception):
+                        detect_and_persist_registers(_tr(request), slug)
                 for ev in worker.unload():
                     yield ev.model_dump_json() + "\n"
         except Exception as exc:
@@ -410,11 +478,10 @@ async def run_extract(slug: str, request: Request, page: int | None = None) -> S
 
 @router.post("/api/admin/docs/{slug}/extract/region")
 async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Request) -> dict:
-    cfg = request.app.state.config
-    pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
+    pdf = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     if seg is None:
         raise HTTPException(status_code=400, detail="run /segment first")
     target = next((b for b in seg.boxes if b.box_id == body.box_id), None)
@@ -423,7 +490,7 @@ async def run_extract_region(slug: str, body: ExtractRegionRequest, request: Req
     with MineruWorker(
         extract_fn=_MINERU_EXTRACT_FN,
         raster_dpi=seg.raster_dpi,
-        image_writer_dir=doc_dir(cfg.data_root, slug) / "mineru-images",
+        image_writer_dir=doc_dir(_tr(request), slug) / "mineru-images",
     ) as worker:
         result = worker.extract_region(pdf, target)
     return {"box_id": result.box_id, "html": result.html}
@@ -437,8 +504,7 @@ async def get_mineru(slug: str, request: Request) -> dict:
     colored page-button grid.  Returns 404 when no extraction has been
     run yet.
     """
-    cfg = request.app.state.config
-    data = read_mineru(cfg.data_root, slug)
+    data = read_mineru(_tr(request), slug)
     if data is None:
         raise HTTPException(status_code=404, detail=f"no mineru data for {slug}")
     return data
@@ -446,8 +512,7 @@ async def get_mineru(slug: str, request: Request) -> dict:
 
 @router.get("/api/admin/docs/{slug}/html")
 async def get_html(slug: str, request: Request) -> dict:
-    cfg = request.app.state.config
-    html = read_html(cfg.data_root, slug)
+    html = read_html(_tr(request), slug)
     if html is None:
         raise HTTPException(status_code=404, detail=f"no html for {slug}")
     return {"html": html}
@@ -455,13 +520,12 @@ async def get_html(slug: str, request: Request) -> dict:
 
 @router.put("/api/admin/docs/{slug}/html")
 async def put_html(slug: str, body: HtmlPayload, request: Request) -> dict:
-    cfg = request.app.state.config
-    if not (doc_dir(cfg.data_root, slug)).exists():
+    if not (doc_dir(_tr(request), slug)).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    write_html(cfg.data_root, slug, body.html)
-    meta = read_meta(cfg.data_root, slug)
+    write_html(_tr(request), slug, body.html)
+    meta = read_meta(_tr(request), slug)
     if meta is not None:
-        write_meta(cfg.data_root, slug, meta.model_copy(update={"last_touched_utc": _now_iso()}))
+        write_meta(_tr(request), slug, meta.model_copy(update={"last_touched_utc": _now_iso()}))
     return {"ok": True}
 
 
@@ -486,11 +550,10 @@ async def diagnose_extract(slug: str, request: Request, page: int = 1) -> dict:
           ]
         }
     """
-    cfg = request.app.state.config
-    pdf = doc_dir(cfg.data_root, slug) / "source.pdf"
+    pdf = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     raster_dpi = seg.raster_dpi if seg is not None else 288
 
     try:
@@ -586,19 +649,18 @@ async def diagnose_extract(slug: str, request: Request, page: int = 1) -> dict:
 
 @router.post("/api/admin/docs/{slug}/export")
 async def run_export(slug: str, request: Request) -> dict:
-    cfg = request.app.state.config
-    seg = read_segments(cfg.data_root, slug)
+    seg = read_segments(_tr(request), slug)
     if seg is None:
         raise HTTPException(status_code=400, detail="run /segment first")
-    html = read_html(cfg.data_root, slug)
+    html = read_html(_tr(request), slug)
     if html is None:
         raise HTTPException(status_code=400, detail="run /extract first")
     payload = build_source_elements_payload(slug=slug, segments=seg, html=html)
-    write_source_elements(cfg.data_root, slug, payload)
-    meta = read_meta(cfg.data_root, slug)
+    write_source_elements(_tr(request), slug, payload)
+    meta = read_meta(_tr(request), slug)
     if meta is not None:
         write_meta(
-            cfg.data_root,
+            _tr(request),
             slug,
             meta.model_copy(update={"status": DocStatus.done, "last_touched_utc": _now_iso()}),
         )
@@ -621,13 +683,12 @@ async def get_page_image(
 
     import pdfplumber
 
-    cfg = request.app.state.config
-    pdf_path = doc_dir(cfg.data_root, slug) / "source.pdf"
+    pdf_path = doc_dir(_tr(request), slug) / "source.pdf"
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail=f"pdf not found: {slug}")
 
     if dpi is None:
-        seg = read_segments(cfg.data_root, slug)
+        seg = read_segments(_tr(request), slug)
         dpi = seg.raster_dpi if seg is not None else 288
 
     with pdfplumber.open(str(pdf_path)) as pdf:
@@ -649,8 +710,7 @@ async def get_mineru_image(slug: str, filename: str, request: Request) -> FileRe
     """
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="invalid filename")
-    cfg = request.app.state.config
-    path = doc_dir(cfg.data_root, slug) / "mineru-images" / filename
+    path = doc_dir(_tr(request), slug) / "mineru-images" / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"image not found: {filename}")
     return FileResponse(path)
@@ -659,8 +719,7 @@ async def get_mineru_image(slug: str, filename: str, request: Request) -> FileRe
 @router.get("/api/admin/docs/{slug}/mineru-images")
 async def list_mineru_images(slug: str, request: Request) -> dict:
     """List image cropouts MinerU saved during extraction for this doc."""
-    cfg = request.app.state.config
-    img_dir = doc_dir(cfg.data_root, slug) / "mineru-images"
+    img_dir = doc_dir(_tr(request), slug) / "mineru-images"
     if not img_dir.exists():
         return {"images": []}
     files = sorted(p.name for p in img_dir.iterdir() if p.is_file())

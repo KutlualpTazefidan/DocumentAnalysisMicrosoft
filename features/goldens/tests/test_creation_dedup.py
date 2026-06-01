@@ -5,7 +5,6 @@ Spec: docs/superpowers/specs/2026-04-29-a5-synthetic-design.md §4.4, §9.
 
 from __future__ import annotations
 
-import logging
 import math
 from dataclasses import dataclass, field
 
@@ -89,19 +88,36 @@ def test_filter_dedups_within_a_single_call():
     assert kept == ["X?"]
 
 
-def test_disabled_when_client_is_none_returns_input_and_warns(caplog):
-    """`client=None` → filter returns the generated list unchanged
-    and logs a single WARNING for the session."""
+def test_text_equality_fallback_when_client_is_none():
+    """`client=None` → filter falls back to normalized-text equality.
+
+    Drops exact dups and trivial near-misses (case, punctuation,
+    whitespace) without making any embedding calls. Distinct
+    questions pass through.
+    """
     dedup = QuestionDedup(client=None, model="emb", threshold=0.95)
-    with caplog.at_level(logging.WARNING):
-        kept_a = dedup.filter(["q1", "q2"], against=[], source_key="src1")
-        kept_b = dedup.filter(["q3"], against=[], source_key="src2")
-    assert kept_a == ["q1", "q2"]
-    assert kept_b == ["q3"]
-    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-    # Exactly one warning per session, not one per call.
-    assert len(warnings) == 1
-    assert "dedup disabled" in warnings[0].getMessage().lower()
+    # Within one call.
+    kept = dedup.filter(
+        ["What is X?", "what is x?", "What is Y?"],
+        against=[],
+        source_key="src1",
+    )
+    assert kept == ["What is X?", "What is Y?"]
+    # Across calls with same source_key — second call sees the first's
+    # accepted set as a baseline, so a re-emitted dup is dropped.
+    again = dedup.filter(
+        ["What is X???", "Brand new"],
+        against=[],
+        source_key="src1",
+    )
+    assert again == ["Brand new"]
+    # `against=[…existing]` is honoured too.
+    kept_with_existing = dedup.filter(
+        ["Different question"],
+        against=["Different question."],
+        source_key="src2",
+    )
+    assert kept_with_existing == []
 
 
 def test_caches_existing_embeddings_per_source_key():

@@ -1,0 +1,104 @@
+import { CornerDownRight, FileText, History, Lock, Quote } from "lucide-react";
+import { Handle, Position, type NodeProps } from "reactflow";
+
+import type { ChunkView } from "../layout";
+
+/**
+ * Root tile of a session — the source-document chunk the user picked.
+ * Promoted chunks (created via "Weiter erforschen" on a search result row)
+ * render with a small purple "abgeleitet" marker.
+ *
+ * When ``replacedByRefresh`` is set, the tile dims and shows a "ersetzt"
+ * badge — a newer chunk Node carries a ``refreshes`` edge pointing here,
+ * so this one is the historical predecessor. Both stay clickable: the
+ * old chunk's claims/tasks/evaluations remain anchored here for audit,
+ * fresh research happens on the new one.
+ */
+export function ChunkTile({ data }: NodeProps<ChunkView>): JSX.Element {
+  const text = String((data.chunk.payload.text as string) ?? "");
+  const boxId = String((data.chunk.payload.box_id as string) ?? "");
+  const closed = !!data.closedByStop;
+  const promoted = data.promoted;
+  const replaced = !!data.replacedByRefresh;
+  const claimCount = data.claimCount;
+  const depthRaw = data.chunk.payload.recursion_depth;
+  const depth = typeof depthRaw === "number" ? depthRaw : 0;
+
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 text-white shadow-md w-64 ${
+        promoted
+          ? "border-purple-400 bg-slate-700"
+          : "border-slate-500 bg-slate-700"
+      } ${replaced ? "opacity-60" : ""}`}
+    >
+      <Handle
+        type="target"
+        position={promoted ? Position.Left : Position.Top}
+        className="opacity-0"
+      />
+      <header className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-slate-300">
+        <span className="flex items-center gap-1">
+          <FileText className="w-3 h-3" aria-hidden />
+          {promoted ? "Chunk · abgeleitet" : "Chunk"}
+          {depth > 0 && (
+            <span
+              className="ml-1 font-mono text-cyan-300"
+              title={`Rekursionstiefe: ${depth}. Erzeugt durch ${depth}× promote_search_result.`}
+            >
+              ↳ Ebene {depth}
+            </span>
+          )}
+          {replaced && (
+            <span
+              className="ml-1 flex items-center gap-0.5 text-orange-300"
+              title="Wurde durch eine neuere Version ersetzt — bleibt für den Audit erhalten."
+            >
+              <History className="w-3 h-3" aria-hidden /> ersetzt
+            </span>
+          )}
+        </span>
+        {boxId && (
+          <span className="font-mono text-blue-300 bg-chrome2-900/60 px-1 rounded">
+            {boxId}
+          </span>
+        )}
+      </header>
+      {promoted && (
+        <div className="mt-1 rounded bg-purple-900/30 border border-purple-700/40 px-1.5 py-1">
+          <p className="text-[10px] text-purple-300 flex items-center gap-1">
+            <CornerDownRight className="w-3 h-3" aria-hidden />
+            abgeleitet aus
+          </p>
+          {data.chunk.payload.origin_claim_text ? (
+            <p className="text-[10px] text-purple-100 italic line-clamp-2 mt-0.5">
+              „{String(data.chunk.payload.origin_claim_text)}"
+            </p>
+          ) : null}
+          {data.chunk.payload.origin_query ? (
+            <p className="text-[10px] text-purple-200 mt-0.5">
+              Suche: „{String(data.chunk.payload.origin_query)}"
+            </p>
+          ) : null}
+        </div>
+      )}
+      <p className="text-xs leading-snug mt-1 line-clamp-3">{text}</p>
+      <footer className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-300/85">
+        {claimCount > 0 ? (
+          <span className="flex items-center gap-1">
+            <Quote className="w-3 h-3" aria-hidden />
+            {claimCount} Aussage{claimCount === 1 ? "" : "n"} extrahiert
+          </span>
+        ) : (
+          <span className="italic text-slate-400/75">noch nicht analysiert</span>
+        )}
+        {closed && (
+          <span className="ml-auto text-amber-300 flex items-center gap-1">
+            <Lock className="w-3 h-3" aria-hidden /> abgeschlossen
+          </span>
+        )}
+      </footer>
+      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+    </div>
+  );
+}

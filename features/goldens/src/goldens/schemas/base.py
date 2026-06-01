@@ -74,6 +74,16 @@ class HumanActor(BaseModel):
     def _pseudonym_non_empty(cls, v: str) -> str:
         if not v:
             raise ValueError("pseudonym must be non-empty")
+        # Defensive: catch obvious de-anonymisation patterns at the
+        # audit-log boundary. The local_pdf.auth.pseudonyms validator
+        # rejects the same shapes at user-creation time, but a code
+        # path that bypasses the auth layer (e.g. a script that
+        # writes events directly) would otherwise be able to leak a
+        # real identity into the JSONL.
+        if "@" in v:
+            raise ValueError(
+                f"pseudonym must not contain an email shape — got {v!r}; use a fantasy name instead"
+            )
         return v
 
 

@@ -1884,7 +1884,10 @@ def test_vlm_segment_kind_change_to_discard_hides_box_from_html(
     import local_pdf.api.routers.admin.segments as seg_mod
 
     cfg = client_vlm_segment.app.state.config
-    seg_mod._refresh_active_html(cfg, "doc")
+    # _refresh_active_html now takes the tenant-aware data_root; the
+    # test invokes the legacy single-tenant path so we pass
+    # cfg.data_root directly.
+    seg_mod._refresh_active_html(cfg.data_root, "doc")
 
     html_after = client_vlm_segment.get(
         "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
@@ -1931,6 +1934,53 @@ def test_vlm_segment_reactivate_restores_box_in_html_even_if_vlm_fails(
         "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
     ).json()["html"]
     assert 'data-source-box="p1-b1"' in html_on
+
+
+def test_update_element_persists_and_refreshes_html(client_vlm_segment) -> None:
+    """PATCH /elements/{box_id} updates mineru.json + html.html, runs LaTeX pass."""
+    _run_segment_vlm(client_vlm_segment, "doc")
+
+    new_html = '<p data-source-box="p1-b1">Updated paragraph $\\alpha$ value.</p>'
+    r = client_vlm_segment.patch(
+        "/api/admin/docs/doc/elements/p1-b1",
+        headers={"X-Auth-Token": "tok"},
+        json={"html_snippet": new_html},
+    )
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert payload["box_id"] == "p1-b1"
+    # Stored raw is the user-submitted form
+    assert payload["html_snippet_raw"] == new_html
+    # Rendered runs through _convert_inline_latex — symbol map / MathML pass
+    # turns $\alpha$ into a lifted form. Either MathML or the Unicode glyph
+    # (U+03B1, GREEK SMALL LETTER ALPHA, built from \u escape so ruff
+    # RUF001 doesn't flag the literal char).
+    alpha = "\u03b1"
+    assert "<math" in payload["html_snippet"] or alpha in payload["html_snippet"]
+
+    # mineru.json reflects the change.
+    mineru = client_vlm_segment.get(
+        "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
+    ).json()
+    el = next(e for e in mineru["elements"] if e["box_id"] == "p1-b1")
+    assert el["html_snippet_raw"] == new_html
+
+    # html.html got regenerated and contains the updated paragraph (filtered
+    # by data-source-box so we don't depend on exact rendering).
+    html = client_vlm_segment.get(
+        "/api/admin/docs/doc/html", headers={"X-Auth-Token": "tok"}
+    ).json()["html"]
+    assert "Updated paragraph" in html
+
+
+def test_update_element_unknown_box_returns_404(client_vlm_segment) -> None:
+    _run_segment_vlm(client_vlm_segment, "doc")
+    r = client_vlm_segment.patch(
+        "/api/admin/docs/doc/elements/p99-bxx",
+        headers={"X-Auth-Token": "tok"},
+        json={"html_snippet": "<p>nope</p>"},
+    )
+    assert r.status_code == 404
 
 
 def test_vlm_segment_delete_box_hides_from_html(client_vlm_segment) -> None:
@@ -1990,16 +2040,21 @@ def test_vlm_segment_kind_change_preserves_position_metadata(
 def test_vlm_segment_kind_change_keeps_old_snippet_when_vlm_empty(
     client_vlm_segment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """If the VLM re-extract returns empty, the OLD snippet must stay so
-    the box doesn't vanish from html.html."""
+    """When VLM re-extract returns empty on a kind change:
+
+    - the inner content (text + positional data-* attrs) is preserved
+      so the box doesn't vanish from html.html
+    - the OUTER tag is rewrapped to match the new kind, so the change
+      is reflected in the rendered style even without a fresh VLM call
+    """
     _run_segment_vlm(client_vlm_segment, "doc")
 
-    # Capture the original snippet for p1-b0.
     mineru0 = client_vlm_segment.get(
         "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
     ).json()
     original = next(e["html_snippet"] for e in mineru0["elements"] if e["box_id"] == "p1-b0")
-    assert original  # sanity
+    assert original  # sanity — should be a heading <h2>
+    assert original.startswith("<h2")
 
     import local_pdf.api.routers.admin.segments as seg_mod
 
@@ -2016,7 +2071,11 @@ def test_vlm_segment_kind_change_keeps_old_snippet_when_vlm_empty(
         "/api/admin/docs/doc/mineru", headers={"X-Auth-Token": "tok"}
     ).json()
     snippet = next(e["html_snippet"] for e in mineru1["elements"] if e["box_id"] == "p1-b0")
-    assert snippet == original
+    # Outer tag now matches the new kind; inner text + data-* attrs preserved.
+    assert snippet.startswith("<p ")
+    assert snippet.endswith("</p>")
+    assert "Document Title" in snippet
+    assert 'data-source-box="p1-b0"' in snippet
 
 
 def _fake_middle_json_with_side_by_side_paragraphs() -> dict:

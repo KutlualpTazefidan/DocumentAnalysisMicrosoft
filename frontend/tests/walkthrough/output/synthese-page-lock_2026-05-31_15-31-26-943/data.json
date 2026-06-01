@@ -1,0 +1,116 @@
+{
+  "name": "synthese-page-lock",
+  "startedAt": "2026-05-31T15:31:26.943Z",
+  "endedAt": "2026-05-31T15:31:31.162Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Synthese-Tab: „Diese Seite sperren“ (rechte Seitenleiste)",
+      "startedAtMs": 1780241489625,
+      "endedAtMs": 1780241489757,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/synthesise"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Sperren/Entsperren-Button (unlocked)",
+              "selector": "[data-testid=\"synth-page-lock\"]",
+              "box": {
+                "x": 1136,
+                "y": 190,
+                "width": 248,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Sperren markiert die Seite als abgeschlossen — nach LLM-Generate + manueller Kuratierung sollen keine weiteren Auto-Läufe versehentlich gute Q&A überschreiben.",
+        "Lock blockiert „Fragen für diese Box generieren“ und „Fragen für die Seite generieren“ — Schutz vor Überschreiben.",
+        "Gleicher Lock-State wie im Extrahieren-Tab (gemeinsamer localStorage-Key) — wer dort sperrt, sperrt auch hier."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Seite gesperrt → Button-Label + Stil wechselt",
+      "startedAtMs": 1780241490402,
+      "endedAtMs": 1780241490501,
+      "actions": [
+        "click [data-testid=\"synth-page-lock\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Jetzt im Lock-Zustand",
+              "selector": "[data-testid=\"synth-page-lock\"]",
+              "box": {
+                "x": 1136,
+                "y": 190,
+                "width": 248,
+                "height": 32
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Generate disabled solange gesperrt",
+              "selector": "button:has-text(\"Fragen für diese Box generieren\")",
+              "box": {
+                "x": 1136,
+                "y": 333,
+                "width": 248,
+                "height": 30
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Button wechselt: 🔒 „Diese Seite sperren“ → 🔓 „Diese Seite entsperren“ (Blau-Variant).",
+        "approvedPages-Set (localStorage) bekommt die aktuelle Page-Nummer dazu.",
+        "Generate-Buttons darunter werden disabled — UI-Hinweis verhindert versehentliche Re-Generate-Klicks."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Entsperren → Generate wieder verfügbar",
+      "startedAtMs": 1780241491047,
+      "endedAtMs": 1780241491162,
+      "actions": [
+        "click [data-testid=\"synth-page-lock\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Wieder im Default-Zustand (unlocked, Generate aktiv)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Beim Entsperren verschwindet die Seiten-Nummer aus approvedPages → Generate-Buttons werden wieder aktiv.",
+        "Status ist nicht server-persistiert (localStorage only) — pro Browser-Profil. Nächste A.x-Iteration soll das server-seitig spiegeln (siehe PageStatus-Sidecar im Extrahieren-Pfad)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

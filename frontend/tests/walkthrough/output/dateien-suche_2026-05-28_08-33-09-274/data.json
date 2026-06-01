@@ -1,0 +1,218 @@
+{
+  "name": "dateien-suche",
+  "startedAt": "2026-05-28T08:33:09.274Z",
+  "endedAt": "2026-05-28T08:33:11.760Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Anmelden als Admin",
+      "startedAtMs": 1779957189277,
+      "endedAtMs": 1779957191037,
+      "actions": [
+        "goto /",
+        "click button:has-text(\"Anmelden\")",
+        "fill input[aria-label=\"Fachbereich\"] = default",
+        "fill input[aria-label=\"Benutzername\"] = admin",
+        "fill input[aria-label=\"Passwort\"] = admin",
+        "click button[type=\"submit\"]",
+        "waitForUrl /#\\/admin\\//"
+      ],
+      "screenshots": [],
+      "notes": [],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Posteingang — alle Zeilen sichtbar",
+      "startedAtMs": 1779957191037,
+      "endedAtMs": 1779957191203,
+      "actions": [
+        "expectVisible h1:has-text(\"Local-PDF Posteingang\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "selector": "input[placeholder=\"suchen…\"]",
+              "text": "Suchfeld",
+              "box": {
+                "x": 898.390625,
+                "y": 108,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Ausgangszustand: alle PDFs des Fachbereichs in der Tabelle."
+            }
+          ],
+          "note": "Ungefilterte Liste"
+        }
+      ],
+      "notes": [
+        "Ausgangszustand: alle PDFs des Fachbereichs in der Tabelle."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Treffer-Filter (AB-INBOX-06)",
+      "startedAtMs": 1779957191203,
+      "endedAtMs": 1779957191485,
+      "actions": [
+        "fill input[placeholder=\"suchen…\"] = 148",
+        "expectVisible tr:has-text(\"148\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Filter matcht Dateiname/slug-Substring — nur passende Zeilen bleiben."
+            }
+          ],
+          "note": "Gefiltert auf '148'"
+        }
+      ],
+      "notes": [
+        "Filter matcht Dateiname/slug-Substring — nur passende Zeilen bleiben."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Nicht-Treffer → leerer Body (AB-INBOX-07)",
+      "startedAtMs": 1779957191485,
+      "endedAtMs": 1779957191760,
+      "actions": [
+        "fill input[placeholder=\"suchen…\"] = zzz-kein-treffer-xyz"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Unpassender String → Tabellen-Body zeigt keine Zeilen."
+            }
+          ],
+          "note": "Leeres Suchergebnis"
+        }
+      ],
+      "notes": [
+        "Unpassender String → Tabellen-Body zeigt keine Zeilen."
+      ],
+      "status": "ok"
+    }
+  ],
+  "console": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 494,
+        "columnNumber": 8
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "location": {
+        "url": "http://127.0.0.1:5173/@vite/client",
+        "lineNumber": 617,
+        "columnNumber": 14
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-RPCDYKBN.js?v=734e1b1c",
+        "lineNumber": 21550,
+        "columnNumber": 24
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=734e1b1c",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "warning",
+      "text": "⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.",
+      "location": {
+        "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=734e1b1c",
+        "lineNumber": 4435,
+        "columnNumber": 12
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "location": {
+        "url": "http://127.0.0.1:5173/favicon.ico",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": {
+        "url": "http://127.0.0.1:5173/api/auth/me",
+        "lineNumber": 0,
+        "columnNumber": 0
+      },
+      "stepIndex": 0
+    }
+  ],
+  "networkErrors": [
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/auth/me",
+      "method": "GET",
+      "status": 401,
+      "statusText": "Unauthorized",
+      "stepIndex": 0
+    }
+  ],
+  "pageErrors": []
+}

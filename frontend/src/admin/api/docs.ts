@@ -1,5 +1,5 @@
 import { ApiError, apiFetch } from "./adminClient";
-import type { CuratorCreated, CuratorRecord, DocMeta, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
+import type { CuratorCreated, CuratorRecord, DocMeta, RegistersResponse, SegmentBox, SegmentsFile, SourceElementsPayload, BoxKind } from "../types/domain";
 
 export async function listDocs(token: string): Promise<DocMeta[]> {
   const r = await apiFetch("/api/admin/docs", token);
@@ -99,6 +99,26 @@ export async function resetPage(slug: string, page: number, token: string): Prom
   return r.json();
 }
 
+export async function detectRegisters(
+  slug: string,
+  token: string,
+): Promise<{ slug: string; boxes_reclassified: number }> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/segments/detect-registers`,
+    token,
+    { method: "POST" },
+  );
+  return r.json();
+}
+
+export async function getRegisters(slug: string, token: string): Promise<RegistersResponse> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/registers`,
+    token,
+  );
+  return r.json();
+}
+
 export async function resetBox(slug: string, boxId: string, token: string): Promise<SegmentBox> {
   const r = await apiFetch(
     `/api/admin/docs/${encodeURIComponent(slug)}/segments/${encodeURIComponent(boxId)}/reset`,
@@ -176,6 +196,30 @@ export async function extractRegion(slug: string, boxId: string, token: string):
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ box_id: boxId }),
   });
+  return r.json();
+}
+
+// ── Per-page extraction status (server-backed) ─────────────────────────────
+
+export async function getPageStatus(
+  slug: string,
+  token: string,
+): Promise<{ slug: string; done_pages: number[] }> {
+  const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/pages/status`, token);
+  return r.json();
+}
+
+export async function setPageStatus(
+  slug: string,
+  page: number,
+  status: "done" | "not_started" | "in_progress",
+  token: string,
+): Promise<{ page: number; status: string }> {
+  const r = await apiFetch(
+    `/api/admin/docs/${encodeURIComponent(slug)}/pages/${page}/status`,
+    token,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) },
+  );
   return r.json();
 }
 

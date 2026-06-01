@@ -8,7 +8,15 @@
   }
 
   :focus-visible {
-    @apply outline-none ring-2 ring-blue-500 ring-offset-2;
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2;
+  }
+
+  /* Focus-visible on chrome-area elements (the navy header). The default
+     ring-brand-500 is the same blue as the chrome and disappears against
+     it; switch to amber on chrome descendants so tab-focus stays visible. */
+  .bg-navy-800 :focus-visible,
+  .bg-navy-900 :focus-visible {
+    @apply ring-amber-400;
   }
 }
 
@@ -18,7 +26,7 @@
   }
 
   .btn-primary {
-    @apply btn bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-500;
+    @apply btn bg-brand-500 text-white hover:bg-brand-600 disabled:bg-brand-500/40 disabled:cursor-not-allowed;
   }
 
   .btn-secondary {
@@ -26,10 +34,10 @@
   }
 
   .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700;
+    @apply btn bg-danger-500 text-white hover:bg-danger-700;
   }
 
   .input {
-    @apply w-full rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+    @apply w-full rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
   }
 }

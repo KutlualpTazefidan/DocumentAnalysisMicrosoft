@@ -1,5 +1,5 @@
 // frontend/src/local-pdf/components/BoxOverlay.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SegmentBox } from "../types/domain";
 import "../styles/box-colors.css";
 import { T } from "../styles/typography";
@@ -8,14 +8,31 @@ interface Props {
   box: SegmentBox;
   selected: boolean;
   deactivated?: boolean;
+  /** Select-only: no drag/resize handles. Used on finished/locked pages
+   *  where the geometry (and thus a re-extract) must not change. */
+  readOnly?: boolean;
   onSelect: (boxId: string) => void;
-  onChange: (boxId: string, bbox: [number, number, number, number]) => void;
+  /** Fired ONCE on mouse-up with the final bbox — never per mouse-move — so a
+   *  drag persists (and re-extracts) a single time instead of per pixel. */
+  onCommit: (boxId: string, bbox: [number, number, number, number]) => void;
   scale: number;
 }
 
-export function BoxOverlay({ box, selected, deactivated = false, onSelect, onChange, scale }: Props): JSX.Element {
-  const [x0, y0, x1, y1] = box.bbox;
+export function BoxOverlay({ box, selected, deactivated = false, readOnly = false, onSelect, onCommit, scale }: Props): JSX.Element {
   const [drag, setDrag] = useState<{ corner: string; sx: number; sy: number; orig: [number, number, number, number] } | null>(null);
+  // Live drag preview — drives the visual during a drag with no network
+  // round-trip; committed + cleared on mouse-up.
+  const [preview, setPreview] = useState<[number, number, number, number] | null>(null);
+  // Latest onCommit in a ref so the window listeners don't tear down on a
+  // parent re-render mid-drag.
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+  // Latest dragged bbox, read on mouse-up. Kept in a ref so the commit
+  // happens in the event handler (pure) — never inside a setState updater,
+  // which React StrictMode double-invokes (that would re-extract twice).
+  const previewRef = useRef<[number, number, number, number] | null>(null);
+
+  const [x0, y0, x1, y1] = preview ?? box.bbox;
 
   const style: React.CSSProperties = {
     left: x0 * scale,
@@ -41,10 +58,16 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       else if (drag!.corner === "bl") n = [ox0 + dx, oy0, ox1, oy1 + dy];
       else if (drag!.corner === "br") n = [ox0, oy0, ox1 + dx, oy1 + dy];
       else n = [ox0 + dx, oy0 + dy, ox1 + dx, oy1 + dy];
-      onChange(box.box_id, n);
+      previewRef.current = n;
+      setPreview(n);
     }
     function onUp() {
+      // Commit exactly once, in the handler (not in a setState updater).
+      const final = previewRef.current;
+      previewRef.current = null;
+      setPreview(null);
       setDrag(null);
+      if (final) onCommitRef.current(box.box_id, final);
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -52,9 +75,10 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drag, scale, onChange, box.box_id]);
+  }, [drag, scale, box.box_id]);
 
   function startDrag(corner: string, e: React.MouseEvent) {
+    if (readOnly) return;
     e.stopPropagation();
     setDrag({ corner, sx: e.clientX, sy: e.clientY, orig: box.bbox });
   }
@@ -66,7 +90,7 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
       className={cls.join(" ")}
       style={style}
       onClick={() => onSelect(box.box_id)}
-      onMouseDown={(e) => selected && startDrag("center", e)}
+      onMouseDown={(e) => selected && !readOnly && startDrag("center", e)}
     >
       <span className="box-label">
         {box.kind} · {box.confidence.toFixed(2)}
@@ -89,7 +113,7 @@ export function BoxOverlay({ box, selected, deactivated = false, onSelect, onCha
           ↓ p{box.page + 1}
         </span>
       )}
-      {selected && (
+      {selected && !readOnly && (
         <>
           <div data-testid="handle-tl" className="box-handle" style={{ left: -5, top: -5 }} onMouseDown={(e) => startDrag("tl", e)} />
           <div data-testid="handle-tr" className="box-handle" style={{ right: -5, top: -5 }} onMouseDown={(e) => startDrag("tr", e)} />

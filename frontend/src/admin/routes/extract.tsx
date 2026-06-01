@@ -1,5 +1,5 @@
 // frontend/src/admin/routes/extract.tsx
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
 import { getDoc } from "../api/docs";
 import { T } from "../styles/typography";
+import { Crop, Download, FolderTree, Lock, Play, Plus, RefreshCw, Trash2, Unlock } from "lucide-react";
 
 import { BoxLegend } from "../components/BoxLegend";
 import { ExtractDiagnose } from "../components/ExtractDiagnose";
@@ -21,6 +22,7 @@ import { apiBase } from "../api/adminClient";
 import {
   useCreateBox,
   useDeleteBox,
+  useDetectRegisters,
   useMergeBoxDown,
   useMergeBoxUp,
   useResetBox,
@@ -30,6 +32,8 @@ import {
   useUpdateBox,
 } from "../hooks/useSegments";
 import { BoxPropertiesPanel } from "../components/BoxPropertiesPanel";
+import { RegisterClusterOverlay } from "../components/RegisterClusterOverlay";
+import { RegistersPanel } from "../components/RegistersPanel";
 import type { BoxKind } from "../types/domain";
 import {
   streamSegment,
@@ -37,8 +41,9 @@ import {
   useExtractRegion,
   useHtml,
   useMineru,
-  usePutHtml,
+  useUpdateElement,
 } from "../hooks/useExtract";
+import { usePageStatus, useSetPageStatus } from "../hooks/usePageStatus";
 import { applyEvent, initialStreamState, type StreamState } from "../streamReducer";
 import { loadConf, effectiveThreshold } from "../lib/confThreshold";
 import type { WorkerEvent } from "../types/domain";
@@ -51,50 +56,33 @@ function reducer(state: StreamState, ev: WorkerEvent): StreamState {
   return applyEvent(state, ev);
 }
 
-// ── Approval helpers (v1: localStorage) ───────────────────────────────────────
-
-function approvedPagesKey(slug: string): string {
-  return `extract.approved.${slug}`;
-}
-
-function loadApprovedPages(slug: string): Set<number> {
-  try {
-    const raw = localStorage.getItem(approvedPagesKey(slug));
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw) as number[];
-    return new Set(arr);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveApprovedPages(slug: string, pages: Set<number>): void {
-  localStorage.setItem(approvedPagesKey(slug), JSON.stringify([...pages]));
-}
-
 // ── Page-state helpers ─────────────────────────────────────────────────────────
 
-type PageState = "no-extraction" | "extracted" | "approved";
+// Three states map onto the 3-colour legend:
+//   not_started  (red)   — no mineru extraction, not marked done
+//   in_progress  (green) — has mineru extraction (derived from extractedPages)
+//   done         (blue)  — server marked the page abgeschlossen
+type PageState = "not_started" | "in_progress" | "done";
 
 function pageStateFor(
   pageNum: number,
   extractedPages: Set<number>,
-  approvedPages: Set<number>,
+  serverDone: Set<number>,
 ): PageState {
-  if (approvedPages.has(pageNum)) return "approved";
-  if (extractedPages.has(pageNum)) return "extracted";
-  return "no-extraction";
+  if (serverDone.has(pageNum)) return "done";
+  if (extractedPages.has(pageNum)) return "in_progress";
+  return "not_started";
 }
 
 function pageButtonClasses(state: PageState, isActive: boolean): string {
   const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center transition-colors`;
   const ring = isActive ? " ring-2 ring-blue-500" : "";
   switch (state) {
-    case "approved":
+    case "done":
       return `${base} bg-blue-100 hover:bg-blue-200 text-blue-800${ring}`;
-    case "extracted":
+    case "in_progress":
       return `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`;
-    case "no-extraction":
+    case "not_started":
     default:
       return `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
   }
@@ -105,7 +93,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const segments = useSegments(slug ?? "", token);
   const html = useHtml(slug ?? "", token);
   const mineru = useMineru(slug ?? "", token);
-  const putHtml = usePutHtml(slug ?? "", token);
+  const updateElement = useUpdateElement(slug ?? "", token);
   const exportSrc = useExportSourceElements(slug ?? "", token);
   const extractRegion = useExtractRegion(slug ?? "", token);
   // Segment-route mutation hooks reused so the extract sidebar can edit
@@ -113,6 +101,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   // user switch routes.
   const updateBoxMut = useUpdateBox(slug ?? "", token);
   const resetBoxMut = useResetBox(slug ?? "", token);
+  const detectRegistersMut = useDetectRegisters(slug ?? "", token);
   const mergeUpMut = useMergeBoxUp(slug ?? "", token);
   const mergeDownMut = useMergeBoxDown(slug ?? "", token);
   const unmergeUpMut = useUnmergeBoxUp(slug ?? "", token);
@@ -132,16 +121,26 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const [gridOpen, setGridOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
-  const [approvedPages, setApprovedPages] = useState<Set<number>>(() =>
-    loadApprovedPages(slug ?? ""),
+  // Server-backed per-page "done" status (replaces the old localStorage
+  // approval flag). Only "done" comes from the server; in_progress /
+  // not_started are derived from extractedPages below.
+  const pageStatus = usePageStatus(slug ?? "", token);
+  const setStatus = useSetPageStatus(slug ?? "", token);
+  const serverDone = useMemo(
+    () => new Set(pageStatus.data?.done_pages ?? []),
+    [pageStatus.data],
   );
+  // "Abgeschlossene Seiten schützen" — when on, a full-doc run passes
+  // protect_done=true so the backend skips pages already marked done.
+  // Default OFF.
+  const [protectDone, setProtectDone] = useState(false);
   // Zoom persisted under admin.extract.scale, mirroring segment's pattern.
   const [scale, setScale] = useState<number>(() => {
     const stored = parseFloat(localStorage.getItem("admin.extract.scale") ?? "");
     return Number.isFinite(stored) && stored >= 0.25 && stored <= 4 ? stored : 1.2;
   });
-  const debounceRef = useRef<number | null>(null);
   const [streamState, dispatch] = useReducer(reducer, undefined, initialStreamState);
+  const [registersOpen, setRegistersOpen] = useState(false);
   const { success, error } = useToast();
 
   function persistScale(s: number) {
@@ -150,16 +149,21 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     localStorage.setItem("admin.extract.scale", String(clamped));
   }
 
-  function handleHtmlChange(next: string) {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      putHtml.mutate(next);
-    }, 300);
+  /**
+   * Save a single edited element back to mineru.json. Called by the
+   * in-place editor on blur. The backend re-runs `_convert_inline_latex`
+   * so user-typed `$..$` / bare LaTeX gets re-rendered consistently with
+   * the segment-time pipeline.
+   */
+  function handleElementChange(boxId: string, newOuterHtml: string) {
+    updateElement.mutate(
+      { boxId, html: newOuterHtml },
+      {
+        onError: (e) =>
+          error(e instanceof Error ? e.message : "Speichern fehlgeschlagen"),
+      },
+    );
   }
-
-  useEffect(() => () => {
-    if (debounceRef.current) window.clearTimeout(debounceRef.current);
-  }, []);
 
   // After Step 1, segmentation = extraction (single VLM pass produces both
   // bboxes and content). The buttons that used to call /extract now call
@@ -167,7 +171,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   async function runExtract() {
     setRunning(true);
     try {
-      for await (const ev of streamSegment(slug!, token)) {
+      for await (const ev of streamSegment(slug!, token, undefined, undefined, protectDone)) {
         dispatch(ev);
         if (ev.type === "work-complete") success(`extracted ${ev.items_processed} blocks`);
         if (ev.type === "work-failed") error(ev.reason);
@@ -175,6 +179,9 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       await segments.refetch();
       await html.refetch();
       await mineru.refetch();
+      // A full run clears done bits on the backend (unless protected) →
+      // refetch so the page-grid colours reflect the new server state.
+      await pageStatus.refetch();
     } catch (e) {
       error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
@@ -193,6 +200,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       await segments.refetch();
       await html.refetch();
       await mineru.refetch();
+      await pageStatus.refetch();
     } catch (e) {
       error(e instanceof Error ? e.message : "Extraction fehlgeschlagen");
     } finally {
@@ -222,17 +230,6 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     });
   }
 
-  function handleToggleApprove() {
-    const next = new Set(approvedPages);
-    if (next.has(page)) {
-      next.delete(page);
-    } else {
-      next.add(page);
-    }
-    setApprovedPages(next);
-    saveApprovedPages(slug ?? "", next);
-  }
-
   const rasterDpi = segments.data?.raster_dpi ?? 144;
   const boxScale = (scale * 72) / rasterDpi;
 
@@ -254,13 +251,18 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const confState = useMemo(() => loadConf(slug ?? ""), [slug]);
   const confThresholdForPage = effectiveThreshold(confState, page);
 
-  const boxesOnPage = useMemo(() => {
-    const allOnPage = (segments.data?.boxes ?? []).filter((b) => b.page === page);
-    // Apply the same confidence filter as segment route (display only — extraction is not filtered).
-    return allOnPage.filter(
-      (b) => b.kind !== "discard" && (b.manually_activated || b.confidence >= confThresholdForPage),
-    );
-  }, [segments.data, page, confThresholdForPage]);
+  // All non-discarded boxes on the page (pre confidence-filter) — used to
+  // show how many got hidden by the confidence filter.
+  const allBoxesOnPage = useMemo(
+    () => (segments.data?.boxes ?? []).filter((b) => b.page === page && b.kind !== "discard"),
+    [segments.data, page],
+  );
+  const boxesOnPage = useMemo(
+    // Same confidence filter as segment route (display only — extraction is not filtered).
+    () => allBoxesOnPage.filter((b) => b.manually_activated || b.confidence >= confThresholdForPage),
+    [allBoxesOnPage, confThresholdForPage],
+  );
+  const hiddenCount = allBoxesOnPage.length - boxesOnPage.length;
 
   // The currently-selected box (highlighted via click) — sourced from segments
   // so the BoxPropertiesPanel reflects the latest state after edits.
@@ -293,12 +295,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
     [html.data, page, slug],
   );
 
-  // ── Saving status derived from putHtml mutation state ─────────────────
-  const savingStatus = putHtml.isPending
-    ? "Saving…"
-    : putHtml.isSuccess
-    ? "Saved"
-    : null;
+  // ── Saving status derived from updateElement mutation state ───────────
+  const savingStatus = updateElement.isPending
+    ? "Speichert…"
+    : updateElement.isSuccess
+      ? "Gespeichert"
+      : null;
 
   // ── Action buttons — right-aligned in top bar ─────────────────────────
   // Re-extract-this-box and Re-extract-this-page live in the side pane now;
@@ -306,19 +308,67 @@ export function ExtractRoute({ token }: Props): JSX.Element {
   const actionButtons = (
     <div className="flex items-center gap-1.5">
       <button
+        aria-label="Verzeichnisse erkennen und anzeigen"
+        title="Erkennt Inhalts-/Tabellen-/Abbildungs-/Literaturverzeichnis im ganzen Dokument und öffnet die strukturierte Tabellenansicht. Manuell gesetzte Boxen bleiben unverändert — Re-Klick ist sicher."
+        className={`${T.body} px-3 py-1 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
+        onClick={() =>
+          detectRegistersMut.mutate(undefined, {
+            onError: (e) =>
+              error(
+                e instanceof Error
+                  ? e.message
+                  : "Verzeichnis-Erkennung fehlgeschlagen",
+              ),
+            onSuccess: (out) => {
+              if (out.boxes_reclassified === 0) {
+                success("Keine neuen Verzeichnisse erkannt");
+              } else {
+                success(
+                  `${out.boxes_reclassified} Box(en) als Verzeichnis-Eintrag klassifiziert`,
+                );
+              }
+              // Open the panel either way — the user pressed the button
+              // because they want to see the registers, not just trigger
+              // a silent re-classification.
+              setRegistersOpen(true);
+            },
+          })
+        }
+        disabled={detectRegistersMut.isPending}
+      >
+        <FolderTree className="w-3.5 h-3.5" aria-hidden />
+        {detectRegistersMut.isPending ? "Scanne…" : "Verzeichnisse erkennen"}
+      </button>
+      <span aria-hidden className="self-stretch w-px bg-white/25 mx-1" />
+      <button
         aria-label="Re-extract all"
-        className={`${T.body} px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+        className={`${T.body} px-3 py-1 btn-primary gap-1.5`}
         onClick={runExtract}
         disabled={running}
       >
+        <Play className="w-3.5 h-3.5" aria-hidden />
         Alle Seiten extrahieren
       </button>
+      <label
+        className={`${T.body} flex items-center gap-1.5 text-navy-100 cursor-pointer select-none`}
+        title="Bereits abgeschlossene Seiten bei „Alle Seiten extrahieren“ überspringen."
+      >
+        <input
+          type="checkbox"
+          aria-label="Abgeschlossene Seiten schützen"
+          checked={protectDone}
+          onChange={(e) => setProtectDone(e.target.checked)}
+          className="accent-blue-600"
+        />
+        Abgeschlossene Seiten schützen
+      </label>
       <button
         aria-label="Export sourceelements.json"
-        className={`${T.body} px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`${T.body} px-3 py-1 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
         onClick={handleExport}
         disabled={exportSrc.isPending}
       >
+        <Download className="w-3.5 h-3.5" aria-hidden />
         Export
       </button>
       {/* Save-state indicator (HTML editor). Extraction progress lives in the
@@ -331,7 +381,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
-    <div className="flex items-center justify-between px-4 py-2 bg-navy-800 text-white border-b border-navy-700 flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
       <DocStepTabs slug={slug!} />
       {actionButtons}
     </div>
@@ -380,14 +430,22 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <div className="absolute inset-0 overflow-auto p-4">
             <div className="flex justify-center">
               <PdfPage slug={slug!} token={token} page={page} scale={scale}>
+                {/* Wrapper rectangles for Verzeichnis-clusters render
+                    BEHIND the individual box outlines so the per-box
+                    colours stay primary; the wrapper just signals
+                    "these belong together". pointer-events:none means
+                    it never blocks click handlers on inner boxes. */}
+                <RegisterClusterOverlay boxes={boxesOnPage} scale={boxScale} />
                 {boxesOnPage.map((b) => (
                   <BoxOverlay
                     key={b.box_id}
                     box={b}
                     selected={highlight === b.box_id}
-                    // Boxes are read-only in extract view — click to highlight only
+                    // Editable via drag/resize; commits once on mouse-up.
+                    // Finished ("abgeschlossen") pages are select-only.
+                    readOnly={serverDone.has(page)}
                     onSelect={(id) => setHighlight((prev) => (prev === id ? null : id))}
-                    onChange={() => {}}
+                    onCommit={(id, bbox) => updateBoxMut.mutate({ boxId: id, patch: { bbox } })}
                     scale={boxScale}
                   />
                 ))}
@@ -412,7 +470,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
         {/* HTML editor pane — shows only the current page's content */}
         <div className="flex-[2] flex flex-col border-l border-slate-200 min-w-0">
-          <HtmlEditor html={visibleHtml} onChange={handleHtmlChange} onClickElement={handleClickElement} />
+          <HtmlEditor
+            html={visibleHtml}
+            onClickElement={handleClickElement}
+            onElementChange={handleElementChange}
+            highlightedBoxId={highlight}
+            status={savingStatus ?? undefined}
+          />
         </div>
 
         {/* Sidebar — colored page-button grid */}
@@ -423,6 +487,13 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               page-toggle button, and the expanding grid disappears below
               the visible area. */}
           <div className="sticky top-0 z-10 bg-white -mx-4 px-4 pb-2 -mt-4 pt-4 border-b border-slate-100 flex flex-col gap-3">
+            {/* Progress — how many pages are marked abgeschlossen */}
+            <p
+              className={`${T.tiny} text-slate-500 text-center`}
+              data-testid="pages-done-progress"
+            >
+              {serverDone.size} / {totalPages} abgeschlossen
+            </p>
             {/* Legend strip — single line, always visible */}
             <div className={`flex items-center justify-between gap-1 ${T.tiny} text-slate-600 whitespace-nowrap`}>
               <span className="flex items-center gap-1">
@@ -435,7 +506,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded bg-blue-200 shrink-0" aria-hidden="true" />
-                Gesperrt
+                Abgeschlossen
               </span>
             </div>
 
@@ -454,7 +525,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
               aria-label={`Seite ${page} von ${totalPages}, ${gridOpen ? "Liste schließen" : "Liste öffnen"}`}
               aria-expanded={gridOpen}
               onClick={() => setGridOpen((p) => !p)}
-              className={`${pageButtonClasses(pageStateFor(page, extractedPages, approvedPages), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
+              className={`${pageButtonClasses(pageStateFor(page, extractedPages, serverDone), true)} flex-1 !h-9 flex items-center justify-center gap-1 ${T.body} transition-colors`}
               data-testid="extract-page-grid-toggle"
             >
               <span>Seite {page} / {totalPages}</span>
@@ -494,7 +565,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                   aria-label="Page navigation"
                 >
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                    const state = pageStateFor(p, extractedPages, approvedPages);
+                    const state = pageStateFor(p, extractedPages, serverDone);
                     return (
                       <button
                         key={p}
@@ -523,15 +594,12 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           {/* Per-page extract */}
           <button
             aria-label="Re-extract this page"
-            title={
-              approvedPages.has(page)
-                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
-                : undefined
-            }
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed`}
+            title={serverDone.has(page) ? "Seite ist abgeschlossen." : undefined}
+            className={`w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`}
             onClick={runExtractThisPage}
-            disabled={running || approvedPages.has(page)}
+            disabled={running || serverDone.has(page)}
           >
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden />
             {running ? "Läuft…" : "Diese Seite extrahieren"}
           </button>
 
@@ -539,42 +607,53 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           <button
             aria-label="Re-extract this box"
             title={
-              approvedPages.has(page)
-                ? "Seite ist gesperrt. Erst entsperren um neu zu extrahieren."
+              serverDone.has(page)
+                ? "Seite ist abgeschlossen."
                 : !highlight
                 ? "Klicke zuerst eine Box im PDF an"
                 : undefined
             }
-            className={`w-full ${T.body} px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={`w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
             onClick={handleReExtractBox}
-            disabled={!highlight || running || approvedPages.has(page)}
+            disabled={!highlight || running || serverDone.has(page)}
           >
+            <Crop className="w-3.5 h-3.5" aria-hidden />
             Diese Box extrahieren
           </button>
 
           {/* Lock / unlock current page (was "Diese Seite genehmigen") */}
           <button
-            aria-label={approvedPages.has(page) ? "Diese Seite entsperren" : "Diese Seite sperren"}
+            aria-label={serverDone.has(page) ? "Seite wieder öffnen" : "Seite abschließen"}
             className={
-              approvedPages.has(page)
-                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200 w-full`
-                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 w-full`
+              serverDone.has(page)
+                ? `w-full ${T.body} px-3 py-1.5 btn-primary gap-1.5`
+                : `w-full ${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5`
             }
-            onClick={handleToggleApprove}
+            onClick={() =>
+              setStatus.mutate({ page, status: serverDone.has(page) ? "not_started" : "done" })
+            }
           >
-            {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
+            {serverDone.has(page) ? (
+              <><Lock className="w-3.5 h-3.5" aria-hidden />Seite wieder öffnen</>
+            ) : (
+              <><Unlock className="w-3.5 h-3.5" aria-hidden />Seite abschließen</>
+            )}
           </button>
+          <p className={`${T.tiny} text-slate-500 text-center -mt-1`}>
+            Abgeschlossene Seiten können nicht neu extrahiert werden.
+          </p>
 
           {/* Conf filter status indicator */}
           <p
             className={`${T.bodyMuted} text-center`}
             data-testid="conf-filter-status"
+            title="Boxen mit niedriger Konfidenz werden ausgeblendet (Anzeige-Filter; die Extraktion ist nicht betroffen)."
           >
-            Filter aktiv: Conf ≥ {confThresholdForPage.toFixed(2)}
+            {hiddenCount} Boxen unter Schwelle {confThresholdForPage.toFixed(2)} ausgeblendet
           </p>
 
           <p className={`${T.body} text-slate-400 text-center`}>
-            {boxesOnPage.length} boxes on page {page}
+            {boxesOnPage.length} Boxen auf Seite {page}
           </p>
 
           {/* New / Delete box — POST /segments (creates a kind=paragraph
@@ -586,7 +665,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
             <button
               aria-label="New box"
               disabled={createBoxMut.isPending}
-              className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`${T.body} px-3 py-1.5 btn-secondary text-slate-900 gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
               onClick={() =>
                 createBoxMut.mutate(
                   { page, bbox: [50, 50, 200, 200], kind: "paragraph" },
@@ -598,13 +677,14 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                 )
               }
             >
-              {createBoxMut.isPending ? "…" : "New box"}
+              <Plus className="w-3.5 h-3.5" aria-hidden />
+              {createBoxMut.isPending ? "…" : "Neue Box"}
             </button>
             <button
               aria-label="Delete box"
               disabled={!focusedBox || deleteBoxMut.isPending}
               title={!focusedBox ? "Wähle zuerst eine Box aus" : `Box ${focusedBox.box_id} löschen`}
-              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              className={`${T.body} px-3 py-1.5 btn-danger gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed`}
               onClick={() => {
                 if (!focusedBox) return;
                 if (!window.confirm(`Box ${focusedBox.box_id} löschen?`)) return;
@@ -618,7 +698,8 @@ export function ExtractRoute({ token }: Props): JSX.Element {
                 });
               }}
             >
-              {deleteBoxMut.isPending ? "…" : "Delete box"}
+              <Trash2 className="w-3.5 h-3.5" aria-hidden />
+              {deleteBoxMut.isPending ? "…" : "Box löschen"}
             </button>
           </div>
 
@@ -708,12 +789,19 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       </div>
 
       <StageIndicator state={streamState} />
+
+      <RegistersPanel
+        open={registersOpen}
+        slug={slug ?? ""}
+        token={token}
+        onClose={() => setRegistersOpen(false)}
+      />
     </div>
   );
 }
 
 export function Extract() {
   const { token } = useAuth();
-  if (!token) return <div className="p-6">Not authorised.</div>;
+  if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <ExtractRoute token={token} />;
 }
