@@ -27,6 +27,12 @@ export const nodeTypes: Record<string, ComponentType<NodeProps>> = {
   search_result: SearchResultTile,
   action_proposal: ActionProposalTile,
   plan_proposal: PlanProposalTile,
+  // Phase-3: one tile component (kind-aware accent + label) registered
+  // under all three override kinds. The deprecated expert_correction
+  // entry handles aliased pre-Phase-3 Nodes; live writes are always
+  // expert_step_override or expert_method_request.
+  expert_step_override: ExpertCorrectionTile,
+  expert_method_request: ExpertCorrectionTile,
   expert_correction: ExpertCorrectionTile,
   capability_request: CapabilityRequestTile,
   manual_review: ManualReviewTile,

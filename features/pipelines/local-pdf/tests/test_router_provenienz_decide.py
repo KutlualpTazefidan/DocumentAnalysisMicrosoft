@@ -125,10 +125,12 @@ def _plan_propose(
 # ── plan_proposal /decide branch tests (expert-override capture) ─────────
 
 
-def test_decide_plan_proposal_known_step_spawns_expert_correction(client):
-    """Override with a known step: 1 expert_correction Node spawned with
-    actor=human + is_unimplemented=False. No capability_request because the
-    intended_step is registered. Plan-proposal stays alive (audit-trail)."""
+def test_decide_plan_proposal_known_step_spawns_expert_step_override(client):
+    """Phase-3: Override with a known step lands as a single
+    expert_step_override Node (Purpose 1 — teach the agent), actor=human.
+    No capability_request because the intended_step is registered, no
+    is_unimplemented flag (the Node-Kind is the discriminator).
+    Plan-proposal stays alive (audit-trail)."""
     sid, _chunk, plan_id = _plan_propose(client)
     r = client.post(
         f"/api/admin/provenienz/sessions/{sid}/decide",
@@ -146,12 +148,12 @@ def test_decide_plan_proposal_known_step_spawns_expert_correction(client):
     # decision Node carries the synthetic "plan_override" verb.
     assert body["decision_node"]["kind"] == "decision"
     assert body["decision_node"]["payload"]["accepted"] == "plan_override"
-    # Exactly one spawned node — the expert_correction. No capability_request.
+    # Exactly one spawned node — the typed override. No capability_request.
     assert len(body["spawned_nodes"]) == 1
     ec = body["spawned_nodes"][0]
-    assert ec["kind"] == "expert_correction"
+    assert ec["kind"] == "expert_step_override"
     assert ec["actor"] == "human"
-    assert ec["payload"]["is_unimplemented"] is False
+    assert "is_unimplemented" not in ec["payload"]
     assert ec["payload"]["target_proposal_node_id"] == plan_id
     assert ec["payload"]["target_step_kind"] == "extract_claims"
     # Edges: decided-by (decision → plan) + overrides (ec → plan).
@@ -164,9 +166,13 @@ def test_decide_plan_proposal_known_step_spawns_expert_correction(client):
     assert any(n["node_id"] == plan_id and n["kind"] == "plan_proposal" for n in sess["nodes"])
 
 
-def test_decide_plan_proposal_unknown_step_spawns_capability_request(client):
-    """Override with an unimplemented step name: spawns both an
-    expert_correction AND a capability_request, both tagged actor=human."""
+def test_decide_plan_proposal_unknown_step_spawns_expert_method_request(client):
+    """Phase-3: Override with an unimplemented step name lands as a
+    SINGLE expert_method_request Node (Purpose 2 — mark a capability
+    gap), with the capability_request payload fields (`name`,
+    `description`) folded in directly. No parallel capability_request
+    Node spawn — the capability_request kind stays agent-only by
+    invariant."""
     sid, _chunk, plan_id = _plan_propose(client)
     r = client.post(
         f"/api/admin/provenienz/sessions/{sid}/decide",
@@ -181,17 +187,26 @@ def test_decide_plan_proposal_unknown_step_spawns_capability_request(client):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    kinds = sorted(n["kind"] for n in body["spawned_nodes"])
-    assert kinds == ["capability_request", "expert_correction"]
-    ec = next(n for n in body["spawned_nodes"] if n["kind"] == "expert_correction")
-    cr = next(n for n in body["spawned_nodes"] if n["kind"] == "capability_request")
-    assert ec["payload"]["is_unimplemented"] is True
-    assert cr["actor"] == "human"
-    assert cr["payload"]["name"] == "summarize_section"
-    # CR carries back-refs to both the EC and the original plan_proposal
-    # so the audit chain ec → cr → source is reconstructable.
-    assert cr["payload"]["target_expert_correction_node_id"] == ec["node_id"]
-    assert cr["payload"]["target_proposal_node_id"] == plan_id
+    # Exactly one spawned Node — the method-request. NO separate CR.
+    assert len(body["spawned_nodes"]) == 1
+    emr = body["spawned_nodes"][0]
+    assert emr["kind"] == "expert_method_request"
+    assert emr["actor"] == "human"
+    assert "is_unimplemented" not in emr["payload"]
+    # Folded capability_request payload-fields (aggregator-readable).
+    assert emr["payload"]["name"] == "summarize_section"
+    assert emr["payload"]["description"].startswith("Chunk braucht erst")
+    # Original expert-override fields preserved.
+    assert emr["payload"]["intended_step"] == "summarize_section"
+    assert emr["payload"]["target_proposal_node_id"] == plan_id
+    # Edges: decided-by + overrides (method-request → plan).
+    edge_kinds = {e["kind"] for e in body["spawned_edges"]}
+    assert {"decided-by", "overrides"} <= edge_kinds
+    # No agent-emitted capability_request was somehow created either.
+    sess = client.get(
+        f"/api/admin/provenienz/sessions/{sid}", headers={"X-Auth-Token": "tok"}
+    ).json()
+    assert not any(n["kind"] == "capability_request" for n in sess["nodes"])
 
 
 def test_decide_plan_proposal_persists_note_skill_with_origin_marker(client):
@@ -241,8 +256,11 @@ def test_decide_action_proposal_backcompat_recommended(client):
     # Two claim Nodes spawn from the mocked _llm_extract_claims fixture.
     spawned_kinds = [n["kind"] for n in body["spawned_nodes"]]
     assert spawned_kinds.count("claim") == 2
-    # No expert_correction in the action_proposal path.
-    assert all(n["kind"] != "expert_correction" for n in body["spawned_nodes"])
+    # Phase-3: none of the override Node-Kinds appear in the
+    # action_proposal path (the kind-widening only enables them on the
+    # plan_proposal branch).
+    _override_kinds = {"expert_correction", "expert_step_override", "expert_method_request"}
+    assert all(n["kind"] not in _override_kinds for n in body["spawned_nodes"])
     # Edges anchor the claims to the source chunk (legacy behavior).
     edge_kinds = {e["kind"] for e in body["spawned_edges"]}
     assert {"extracts-from", "decided-by", "triggers"} <= edge_kinds
@@ -343,14 +361,16 @@ def test_decide_plan_proposal_concurrent_overrides_append_only(client):
     sess = client.get(
         f"/api/admin/provenienz/sessions/{sid}", headers={"X-Auth-Token": "tok"}
     ).json()
-    # Both expert_correction Nodes persist (no last-write-wins replacement —
-    # event log is append-only by design so the audit trail is lossless).
-    ec_nodes = [n for n in sess["nodes"] if n["kind"] == "expert_correction"]
-    assert len(ec_nodes) == 2
+    # Phase-3: both intended_steps ("formulate_task", "search") are
+    # known steps → each lands as an expert_step_override (not the
+    # legacy expert_correction kind). Both Nodes persist; no
+    # last-write-wins replacement — event log is append-only.
+    eso_nodes = [n for n in sess["nodes"] if n["kind"] == "expert_step_override"]
+    assert len(eso_nodes) == 2
     # Both linked to the same source plan_proposal.
-    assert all(n["payload"]["target_proposal_node_id"] == plan_id for n in ec_nodes)
+    assert all(n["payload"]["target_proposal_node_id"] == plan_id for n in eso_nodes)
     # Both reasons captured verbatim.
-    reasons = {n["payload"]["reason"] for n in ec_nodes}
+    reasons = {n["payload"]["reason"] for n in eso_nodes}
     assert reasons == {"Erste Überlegung", "Nach Nachdenken: lieber suchen"}
 
 
