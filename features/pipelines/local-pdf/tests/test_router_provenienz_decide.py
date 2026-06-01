@@ -26,6 +26,12 @@ def client(tmp_path, monkeypatch):
             "Die Baugruppe ist X",
         ],
     )
+    # Phase-RGA: the gap-detection evaluator (Step 4 wire-in) would
+    # otherwise fire on every plan_proposal /decide and burn real LLM
+    # calls. The legacy decide tests below don't exercise RGA; opt out
+    # via the kill-switch. RGA-specific tests at the bottom of this
+    # file re-enable per-test.
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: False)
     from fastapi.testclient import TestClient
     from local_pdf.api.app import create_app
 
@@ -501,3 +507,184 @@ def test_decide_persists_decision_and_edges_in_event_log(client):
     # Edges land in the file too.
     edge_kinds = {e["kind"] for e in detail["edges"]}
     assert {"extracts-from", "decided-by", "triggers"} <= edge_kinds
+
+
+# ── Phase-RGA: clarification spawn on gap-detected /decide ──────────────
+
+
+def test_decide_plan_proposal_gap_detected_returns_clarification(client, monkeypatch):
+    """When the evaluator says score < threshold, /decide response carries
+    a clarification block, Reason is written with pending_clarification=True,
+    override Node payload has rga + pending_clarification."""
+    # Re-enable RGA for this test
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: True)
+    # Stub the evaluator to force a "gap" verdict (intended_step absent
+    # from ranked list -> score 1 -> gap_detected since threshold=3)
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_evaluate_plan_override",
+        lambda anchor, goal, reason, intended: {
+            "ranked_steps_raw": ["extract_claims", "propose_stop"],
+            "ranked_steps_canonical": ["extract_claims", "propose_stop"],
+            "rank": None,
+            "score": 1,
+            "rationale": "intended_step absent from plausible list",
+            "parse_error": False,
+        },
+    )
+
+    sid, _chunk, plan_id = _plan_propose(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": plan_id,
+            "expert_correction": {
+                "intended_step": "formulate_task",
+                "reason": "Konstrukt-Definition.",
+            },
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    # Response carries clarification block (not None)
+    assert body.get("clarification") is not None
+    assert "question" in body["clarification"]
+    assert body["clarification"]["score"] == 1
+    assert body["clarification"]["override_node_id"] is not None
+    # Override Node has rga + pending_clarification on its payload
+    override = body["spawned_nodes"][0]
+    assert override["payload"]["pending_clarification"] is True
+    assert override["payload"]["capture_source"] == "decision_time"
+    assert "rga" in override["payload"]
+    assert override["payload"]["rga"]["score"] == 1
+    # Reason was written immediately (write-now+pending). Verify by
+    # reading reasons corpus.
+    from local_pdf.provenienz.reasons import read_reasons
+
+    cfg = client.app.state.config
+    reasons = read_reasons(cfg.data_root, step_kind="extract_claims", last_n=10)
+    assert len(reasons) == 1
+    assert reasons[0].pending_clarification is True
+    assert reasons[0].capture_source == "decision_time"
+    assert reasons[0].clarification == ""
+
+
+def test_decide_plan_proposal_obvious_no_clarification(client, monkeypatch):
+    """When evaluator says rank 0 -> score 5 -> obvious, response has
+    clarification=None, Reason has pending_clarification=False."""
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: True)
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_evaluate_plan_override",
+        lambda anchor, goal, reason, intended: {
+            "ranked_steps_raw": ["formulate_task", "propose_stop"],
+            "ranked_steps_canonical": ["formulate_task", "propose_stop"],
+            "rank": 0,
+            "score": 5,
+            "rationale": "obvious match",
+            "parse_error": False,
+        },
+    )
+    sid, _chunk, plan_id = _plan_propose(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": plan_id,
+            "expert_correction": {
+                "intended_step": "formulate_task",
+                "reason": "Claim braucht Suche.",
+            },
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body.get("clarification") is None
+    override = body["spawned_nodes"][0]
+    assert override["payload"]["pending_clarification"] is False
+    assert override["payload"]["rga"]["score"] == 5
+
+
+def test_decide_plan_proposal_post_hoc_skips_rga(client, monkeypatch):
+    """post_hoc=True path skips the evaluator entirely. No rga key on
+    payload, no clarification, no telemetry row."""
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: True)
+    eval_called = {"count": 0}
+
+    def _spy(*args, **kwargs):
+        eval_called["count"] += 1
+        return {
+            "score": 1,
+            "rank": None,
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rationale": "",
+            "parse_error": False,
+        }
+
+    monkeypatch.setattr(router_mod, "_llm_evaluate_plan_override", _spy)
+
+    sid, _chunk, plan_id = _plan_propose(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": plan_id,
+            "expert_correction": {
+                "intended_step": "formulate_task",
+                "reason": "Im Nachhinein: andere Methode passt besser.",
+                "post_hoc": True,
+            },
+        },
+    )
+    assert r.status_code == 201
+    # Evaluator must NOT have been called
+    assert eval_called["count"] == 0
+    body = r.json()
+    assert body.get("clarification") is None
+    override = body["spawned_nodes"][0]
+    assert override["payload"]["pending_clarification"] is False
+    assert override["payload"]["capture_source"] == "post_hoc"
+    assert "rga" not in override["payload"]
+
+
+def test_decide_plan_proposal_kill_switch_skips_rga(client, monkeypatch):
+    """When PROVENIENZ_RGA_ENABLED=false (via _rga_enabled stub), the
+    evaluator is not called and response has no clarification, even
+    when the override would otherwise be gap-flagged."""
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: False)
+    eval_called = {"count": 0}
+
+    def _spy(*args, **kwargs):
+        eval_called["count"] += 1
+        return {
+            "score": 1,
+            "rank": None,
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rationale": "",
+            "parse_error": False,
+        }
+
+    monkeypatch.setattr(router_mod, "_llm_evaluate_plan_override", _spy)
+
+    sid, _chunk, plan_id = _plan_propose(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": plan_id,
+            "expert_correction": {
+                "intended_step": "formulate_task",
+                "reason": "Konstrukt-Definition.",
+            },
+        },
+    )
+    assert r.status_code == 201
+    assert eval_called["count"] == 0
+    body = r.json()
+    assert body.get("clarification") is None
+    override = body["spawned_nodes"][0]
+    assert override["payload"]["pending_clarification"] is False
+    assert "rga" not in override["payload"]

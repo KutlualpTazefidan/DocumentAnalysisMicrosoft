@@ -6094,12 +6094,20 @@ def _record_plan_expert_correction(
     target_step_kind = str(proposal.payload.get("name", "")) or "unknown_step"
     is_unimplemented = ec_body.intended_step not in _KNOWN_STEPS
 
+    # Read the session goal for the RGA evaluator. Defensive default —
+    # the session can be active without a goal set (Phase-A.1
+    # /sessions/{id}/goal is optional).
+    meta = read_meta(sd)
+    session_goal = (meta.goal if meta is not None else "") or ""
+
     # Resolve the proposal's anchor so we can compute its fingerprint —
     # Phase-2 retrieval prioritises corrections that match by
     # (step_kind, anchor_fingerprint). Empty fingerprint when the anchor
     # can't be resolved (e.g. proposal payload missing anchor_node_id, or
-    # the anchor was tombstoned mid-session).
+    # the anchor was tombstoned mid-session). Hoist ``anchor_node`` out
+    # of the inner branch so the RGA gate (below) can guard on it.
     anchor_fingerprint: dict[str, Any] = {}
+    anchor_node: Node | None = None
     anchor_node_id = str(proposal.payload.get("anchor_node_id", "") or "")
     if anchor_node_id:
         sess_nodes, _ = read_session(sd)
@@ -6107,9 +6115,46 @@ def _record_plan_expert_correction(
         if anchor_node is not None:
             anchor_fingerprint = compute_anchor_fingerprint(anchor_node.kind, anchor_node.payload)
 
+    # ── Phase-RGA: gap-detection evaluator + telemetry ────────────────
+    # capture_source discriminates decision-time corrections (the live
+    # /decide flow) from post-hoc reflections (the Phase-2 drawer). The
+    # evaluator + clarification-state are scoped to the decision-time
+    # path; post-hoc reflections are by definition NOT open decisions, so
+    # interrogating them with a clarifying-state question would re-frame
+    # reflection as cross-examination.
+    capture_source = "post_hoc" if ec_body.post_hoc else "decision_time"
+    eval_result: dict | None = None
+    gap_detected = False
+    if _rga_enabled() and not ec_body.post_hoc and anchor_node is not None:
+        eval_result = _llm_evaluate_plan_override(
+            anchor_node,
+            session_goal,
+            ec_body.reason,
+            ec_body.intended_step,
+        )
+        threshold = _rga_threshold()
+        gap_detected = eval_result["score"] < threshold
+        _emit_rga_telemetry(
+            cfg.data_root,
+            session_id=session_id,
+            proposal_node_id=proposal.node_id,
+            anchor_kind=anchor_node.kind,
+            anchor_fingerprint=anchor_fingerprint,
+            agent_pick=target_step_kind,
+            intended_step=ec_body.intended_step,
+            capture_source=capture_source,
+            eval_result=eval_result,
+            threshold=threshold,
+            gap_detected=gap_detected,
+            reason_text=ec_body.reason,
+        )
+
     # ── 1) Audit Node — kind chosen by is_unimplemented ──────────────
     # Shared payload across both kinds. Drop the Phase-1
     # `is_unimplemented` flag — the Node.kind is the discriminator.
+    # Phase-RGA: capture_source + pending_clarification land on every
+    # override Node; the rga sub-dict is only present on the
+    # decision-time, evaluator-ran path.
     shared_payload: dict[str, Any] = {
         "intended_step": ec_body.intended_step,
         "intended_args": ec_body.intended_args,
@@ -6118,7 +6163,16 @@ def _record_plan_expert_correction(
         "target_step_kind": target_step_kind,
         "anchor_fingerprint": anchor_fingerprint,
         "post_hoc": ec_body.post_hoc,
+        "capture_source": capture_source,
+        "pending_clarification": gap_detected,
     }
+    if eval_result is not None:
+        shared_payload["rga"] = {
+            "ranked_steps_canonical": eval_result["ranked_steps_canonical"],
+            "rank": eval_result["rank"],
+            "score": eval_result["score"],
+            "threshold": _rga_threshold(),
+        }
     if is_unimplemented:
         # Fold the Phase-1 capability_request payload-fields directly
         # into the method-request Node so the /capability-requests
@@ -6152,6 +6206,11 @@ def _record_plan_expert_correction(
     # Purpose 1 (teach the agent) is always-on. step_kind = the
     # proposal's recommended step name so future plan_proposals of the
     # same kind surface this override via _gather_reason_guidance.
+    # Phase-RGA: write-now+pending semantics — the Reason lands
+    # immediately so the prompt-injector picks the raw expert reasoning
+    # up on the next /next-step. clarification="" is filled later by
+    # /clarify (Step 6); pending_clarification distinguishes
+    # gap-flagged-but-unresolved entries from finalized ones in audit.
     proposal_summary = (target_step_kind + " — " + str(proposal.payload.get("reasoning", "")))[:200]
     append_reason(
         cfg.data_root,
@@ -6166,6 +6225,9 @@ def _record_plan_expert_correction(
             actor="human",
             correction_origin="plan_proposal",
             anchor_fingerprint=anchor_fingerprint,
+            clarification="",
+            pending_clarification=gap_detected,
+            capture_source=capture_source,
         ),
     )
 
@@ -6183,9 +6245,22 @@ def _record_plan_expert_correction(
         ),
     )
 
+    clarification: dict | None = None
+    if gap_detected and eval_result is not None:
+        clarification = {
+            "question": CLARIFICATION_TEMPLATE.format(
+                agent_pick=target_step_kind,
+                intended_step=ec_body.intended_step,
+                reason=ec_body.reason,
+            ),
+            "score": eval_result["score"],
+            "override_node_id": override_node.node_id,
+        }
+
     return {
         "override_node": override_node.__dict__,
         "edges": [edge.__dict__],
+        "clarification": clarification,
     }
 
 
@@ -6897,6 +6972,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             "decision_node": decision.__dict__,
             "spawned_nodes": spawned,
             "spawned_edges": [e_decided.__dict__, *captured["edges"]],
+            # Phase-RGA: surface the clarification block (None on
+            # obvious overrides / post_hoc / kill-switched paths;
+            # dict with {question, score, override_node_id} on
+            # gap-detected paths). The frontend transitions into
+            # clarifying-state when this is non-None and routes to
+            # POST /clarify (Step 6).
+            "clarification": captured.get("clarification"),
         }
 
     # ── action_proposal branch (unchanged) ─────────────────────────────
