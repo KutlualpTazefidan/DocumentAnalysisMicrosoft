@@ -95,7 +95,9 @@ function makeWrapper(): (props: { children: ReactNode }) => JSX.Element {
   );
 }
 
-function renderPanel(): { onSelectView: ReturnType<typeof vi.fn> } {
+function renderPanel(
+  opts: { view?: PlanProposalView } = {},
+): { onSelectView: ReturnType<typeof vi.fn> } {
   const Wrapper = makeWrapper();
   const onSelectView = vi.fn();
   render(
@@ -103,7 +105,7 @@ function renderPanel(): { onSelectView: ReturnType<typeof vi.fn> } {
       <PlanProposalPanel
         sessionId="01SID"
         token="tok"
-        view={planView}
+        view={opts.view ?? planView}
         nodes={[planNode]}
         edges={[]}
         onSelectView={onSelectView}
@@ -313,5 +315,119 @@ describe("PlanProposalPanel — keyboard tab order", () => {
 
     await user.tab();
     expect(screen.getByRole("button", { name: /^Korrektur erfassen$/i })).toHaveFocus();
+  });
+});
+
+// ── Phase-2: post-hoc correction drawer ────────────────────────────────
+
+describe("PlanProposalPanel — post-hoc drawer", () => {
+  it("renders the drawer toggle in idle state alongside Akzeptieren/Verwerfen", async () => {
+    renderPanel();
+    expect(
+      await screen.findByRole("button", { name: /Akzeptieren/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Verwerfen$/i })).toBeInTheDocument();
+    expect(
+      screen.getByTestId("plan-posthoc-toggle"),
+    ).toHaveTextContent(/Im Nachhinein/i);
+  });
+
+  it("hides Akzeptieren+Verwerfen but keeps the drawer when the plan is consumed", () => {
+    // Once a downstream action_proposal exists, firing Akzeptieren again
+    // would double-execute the step, so the decision-time footer is
+    // removed. The drawer remains so the user can still capture an
+    // after-the-fact "I realised too late" correction.
+    const consumedView: PlanProposalView = { ...planView, consumed: true };
+    renderPanel({ view: consumedView });
+    expect(
+      screen.queryByRole("button", { name: /Akzeptieren/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Verwerfen$/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-posthoc-toggle")).toBeInTheDocument();
+  });
+
+  it("clicking the drawer toggle expands the same correction form (combobox + textarea)", async () => {
+    renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("plan-posthoc-toggle"));
+
+    // Form fields appear inside the drawer.
+    expect(screen.getByLabelText(/Stattdessen…/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Warum\?/i)).toBeInTheDocument();
+    // Slate-accented submit button reads as a sibling of the Verwerfen
+    // flow but distinguishes itself with the "(im Nachhinein)" tag.
+    expect(
+      screen.getByRole("button", { name: /Korrektur \(im Nachhinein\) erfassen/i }),
+    ).toBeInTheDocument();
+    // The drawer must NOT carry a "Doch löschen" button — deletion is
+    // tied to the decision-time footer (Verwerfen), not the after-the-
+    // fact reflective path.
+    expect(
+      screen.queryByRole("button", { name: /Doch löschen/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("submitting the post-hoc form POSTs /decide with post_hoc=true", async () => {
+    const decideHandler = vi.fn((body: unknown) => body);
+    server.use(
+      http.post("*/api/admin/provenienz/sessions/:sid/decide", async ({ request }) => {
+        const body = await request.json();
+        decideHandler(body);
+        return HttpResponse.json(
+          {
+            decision_node: { node_id: "01DEC", kind: "decision" },
+            spawned_nodes: [],
+            spawned_edges: [],
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("plan-posthoc-toggle"));
+    await user.type(screen.getByLabelText(/Stattdessen…/i), "formulate_task");
+    await user.type(
+      screen.getByLabelText(/Warum\?/i),
+      "im Nachhinein gemerkt: Task wäre besser gewesen.",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Korrektur \(im Nachhinein\) erfassen/i }),
+    );
+
+    await waitFor(() => expect(decideHandler).toHaveBeenCalledTimes(1));
+    expect(decideHandler).toHaveBeenCalledWith({
+      proposal_node_id: "01PLAN",
+      expert_correction: {
+        intended_step: "formulate_task",
+        intended_args: {},
+        reason: "im Nachhinein gemerkt: Task wäre besser gewesen.",
+        post_hoc: true,
+      },
+    });
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+  });
+
+  it("Esc collapses the drawer back to the toggle without submitting", async () => {
+    const decideHandler = vi.fn();
+    server.use(
+      http.post("*/api/admin/provenienz/sessions/:sid/decide", () => {
+        decideHandler();
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+
+    renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("plan-posthoc-toggle"));
+    expect(screen.getByLabelText(/Stattdessen…/i)).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByLabelText(/Stattdessen…/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-posthoc-toggle")).toBeInTheDocument();
+    expect(decideHandler).not.toHaveBeenCalled();
   });
 });
