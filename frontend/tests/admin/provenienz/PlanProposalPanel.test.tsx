@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setupServer } from "msw/node";
@@ -205,6 +205,7 @@ describe("PlanProposalPanel — Verwerfen morph", () => {
         intended_step: "formulate_task",
         intended_args: {},
         reason: "Task formulieren passt besser.",
+        post_hoc: false,
       },
     });
     // Panel closes (onSelectView(null)) after a successful submit.
@@ -429,5 +430,333 @@ describe("PlanProposalPanel — post-hoc drawer", () => {
     expect(screen.queryByLabelText(/Stattdessen…/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("plan-posthoc-toggle")).toBeInTheDocument();
     expect(decideHandler).not.toHaveBeenCalled();
+  });
+});
+
+// ── Phase-RGA: clarifying-state ──────────────────────────────────────────
+
+describe("PlanProposalPanel — Reasoning-Gap-Analysis clarifying state", () => {
+  it("transitions to clarifying when /decide response carries clarification", async () => {
+    // MSW handler: /decide returns clarification block on submit
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () => {
+          return HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: {
+                question: "Bitte erläutern Sie, was am Knoten »formulate_task« nahelegt — was haben Sie gesehen?",
+                score: 1,
+                override_node_id: "01OVR",
+              },
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Verwerfen/i }));
+    await user.type(screen.getByLabelText(/Stattdessen/i), "formulate_task");
+    await user.type(
+      screen.getByLabelText(/Warum\?/i),
+      "Konstrukt-Definition.",
+    );
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
+
+    // Panel does NOT close — instead, the clarifying section appears.
+    await waitFor(() =>
+      expect(screen.getByTestId("plan-clarifying-section")).toBeInTheDocument(),
+    );
+    expect(onSelectView).not.toHaveBeenCalled();
+
+    // Agent's question rendered in role=status, aria-live=polite
+    const questionRegion = screen.getByRole("status");
+    expect(questionRegion).toHaveAttribute("aria-live", "polite");
+    expect(questionRegion).toHaveTextContent(/Bitte erläutern Sie/);
+
+    // Readonly summary of the override above. Scope to the clarifying
+    // section AND exclude role=status (the agent's question echoes the
+    // step name back at the expert) so getByText (singular) hits only
+    // the readonly summary span, not the question text — and not the
+    // considered_alternatives list outside the clarifying section.
+    const section = screen.getByTestId("plan-clarifying-section");
+    const stattdessenLabel = within(section).getByText(/^Stattdessen:$/);
+    expect(stattdessenLabel.parentElement).toHaveTextContent(/formulate_task/);
+    const begruendungLabel = within(section).getByText(/^Begründung:$/);
+    expect(begruendungLabel.parentElement).toHaveTextContent(
+      /Konstrukt-Definition/,
+    );
+
+    // Buttons rendered
+    expect(
+      screen.getByRole("button", { name: /Klarstellung absenden/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Ohne Antwort schließen/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("submits clarification via POST /clarify and closes panel", async () => {
+    let clarifyBody: unknown = null;
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () =>
+          HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: {
+                question: "Erklären Sie bitte.",
+                score: 1,
+                override_node_id: "01OVR",
+              },
+            },
+            { status: 201 },
+          ),
+      ),
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/clarify",
+        async ({ request }) => {
+          clarifyBody = await request.json();
+          return HttpResponse.json(
+            {
+              override_node: { node_id: "01OVR", kind: "expert_step_override" },
+              spawned_nodes: [],
+              spawned_edges: [],
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    // Walk through Verwerfen → form → submit (triggers clarifying)
+    await user.click(screen.getByRole("button", { name: /Verwerfen/i }));
+    await user.type(screen.getByLabelText(/Stattdessen/i), "formulate_task");
+    await user.type(screen.getByLabelText(/Warum\?/i), "weil.");
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
+
+    // Wait for clarifying state
+    await waitFor(() =>
+      expect(screen.getByTestId("plan-clarifying-section")).toBeInTheDocument(),
+    );
+
+    // Type the clarification + submit
+    await user.type(
+      screen.getByLabelText(/Ihre Klarstellung/i),
+      "Der Term verweist auf eine Variable.",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Klarstellung absenden/i }),
+    );
+
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+    expect(clarifyBody).toEqual({
+      override_node_id: "01OVR",
+      clarification: "Der Term verweist auf eine Variable.",
+      skipped: false,
+    });
+  });
+
+  it("skip-button posts /clarify with skipped=true and closes panel", async () => {
+    let clarifyBody: unknown = null;
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () =>
+          HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: {
+                question: "Erklären?",
+                score: 1,
+                override_node_id: "01OVR",
+              },
+            },
+            { status: 201 },
+          ),
+      ),
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/clarify",
+        async ({ request }) => {
+          clarifyBody = await request.json();
+          return HttpResponse.json(
+            {
+              override_node: { node_id: "01OVR", kind: "expert_step_override" },
+              spawned_nodes: [{ node_id: "01SKIP", kind: "clarification_skipped" }],
+              spawned_edges: [{ edge_id: "01ED", kind: "annotates" }],
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Verwerfen/i }));
+    await user.type(screen.getByLabelText(/Stattdessen/i), "formulate_task");
+    await user.type(screen.getByLabelText(/Warum\?/i), "x");
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("plan-clarifying-section")).toBeInTheDocument(),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Ohne Antwort schließen/i }),
+    );
+
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+    expect(clarifyBody).toEqual({
+      override_node_id: "01OVR",
+      clarification: "",
+      skipped: true,
+    });
+  });
+
+  it("Esc in clarifying state triggers the same skip flow", async () => {
+    let clarifyBody: unknown = null;
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () =>
+          HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: {
+                question: "Warum?",
+                score: 1,
+                override_node_id: "01OVR",
+              },
+            },
+            { status: 201 },
+          ),
+      ),
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/clarify",
+        async ({ request }) => {
+          clarifyBody = await request.json();
+          return HttpResponse.json(
+            {
+              override_node: { node_id: "01OVR" },
+              spawned_nodes: [],
+              spawned_edges: [],
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Verwerfen/i }));
+    await user.type(screen.getByLabelText(/Stattdessen/i), "formulate_task");
+    await user.type(screen.getByLabelText(/Warum\?/i), "x");
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("plan-clarifying-section")).toBeInTheDocument(),
+    );
+
+    // Esc should fire the skip handler — funnels through handleClarifyExit
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+    expect(clarifyBody).toMatchObject({
+      override_node_id: "01OVR",
+      skipped: true,
+    });
+  });
+
+  it("obvious-path response (clarification=null) closes panel without entering clarifying", async () => {
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () =>
+          HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: null,
+            },
+            { status: 201 },
+          ),
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Verwerfen/i }));
+    await user.type(screen.getByLabelText(/Stattdessen/i), "formulate_task");
+    await user.type(screen.getByLabelText(/Warum\?/i), "x");
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
+
+    // Panel closes as in pre-RGA behavior
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+    expect(screen.queryByTestId("plan-clarifying-section")).not.toBeInTheDocument();
+  });
+
+  it("post-hoc drawer never enters clarifying state even if backend returned a clarification block", async () => {
+    // Backend SHOULD never return clarification on post_hoc path (Step 4
+    // short-circuit), but test the defensive boundary: the frontend
+    // handleSubmitPostHoc must not transition to clarifying even if it
+    // somehow received a clarification.
+    server.use(
+      http.post(
+        "*/api/admin/provenienz/sessions/:sid/decide",
+        async () =>
+          HttpResponse.json(
+            {
+              decision_node: { node_id: "01DEC", kind: "decision" },
+              spawned_nodes: [{ node_id: "01OVR", kind: "expert_step_override" }],
+              spawned_edges: [],
+              clarification: {
+                question: "Should not appear in UI",
+                score: 1,
+                override_node_id: "01OVR",
+              },
+            },
+            { status: 201 },
+          ),
+      ),
+    );
+
+    const { onSelectView } = renderPanel();
+    const user = userEvent.setup();
+    // Open the post-hoc drawer (NOT the Verwerfen form)
+    await user.click(screen.getByRole("button", { name: /Im Nachhinein/i }));
+    // The post-hoc drawer's form looks similar to Verwerfen-form;
+    // submit through it
+    const inputs = screen.getAllByLabelText(/Stattdessen/i);
+    const reasonInputs = screen.getAllByLabelText(/Warum\?/i);
+    // Use the LAST input (post-hoc one is below the Verwerfen one in DOM)
+    await user.type(inputs[inputs.length - 1], "summarize_section");
+    await user.type(reasonInputs[reasonInputs.length - 1], "Im Nachhinein.");
+    // Find the post-hoc submit button
+    const postHocSubmit = screen.getByRole("button", {
+      name: /Korrektur \(im Nachhinein\) erfassen/i,
+    });
+    await user.click(postHocSubmit);
+
+    // Panel closes per post-hoc semantics — clarification block ignored
+    await waitFor(() => expect(onSelectView).toHaveBeenCalledWith(null));
+    expect(screen.queryByTestId("plan-clarifying-section")).not.toBeInTheDocument();
   });
 });
