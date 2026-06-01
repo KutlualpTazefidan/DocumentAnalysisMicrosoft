@@ -1,4 +1,4 @@
-import { TrendingUp, Wrench } from "lucide-react";
+import { Bot, TrendingUp, UserCog, Wrench } from "lucide-react";
 
 import { useCapabilityRequests } from "../hooks/useProvenienz";
 import { T } from "../styles/typography";
@@ -69,8 +69,29 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                       key={ex.node_id}
                       className="rounded bg-chrome2-900/60 p-2 border border-chrome2-500"
                     >
-                      <p className={`${T.tiny} text-slate-400 font-mono`}>
-                        {ex.slug} · {ex.session_id.slice(0, 12)}… · {ex.created_at}
+                      <p
+                        className={`${T.tiny} text-slate-400 font-mono flex items-center gap-1.5 flex-wrap`}
+                      >
+                        {ex.actor === "human" ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-violet-900/40 text-violet-200 border border-violet-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            aria-label="Quelle: Experten-Vorgabe"
+                            title="Von einem Experten als Capability vorgegeben"
+                          >
+                            <UserCog className="w-3 h-3" aria-hidden /> Experte
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-sky-900/40 text-sky-200 border border-sky-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            aria-label="Quelle: Agent-Anfrage"
+                            title="Vom Agent während einer Recherche als fehlend gemeldet"
+                          >
+                            <Bot className="w-3 h-3" aria-hidden /> Agent
+                          </span>
+                        )}
+                        <span>
+                          {ex.slug} · {ex.session_id.slice(0, 12)}… · {ex.created_at}
+                        </span>
                       </p>
                       {ex.description && (
                         <p className={`${T.body} text-yellow-100 mt-0.5`}>
