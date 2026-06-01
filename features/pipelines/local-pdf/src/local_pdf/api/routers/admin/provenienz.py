@@ -5985,6 +5985,26 @@ def _next_step_run(
         },
     )
 
+    # ── Phase 1b: prior_corrections (Phase-2 feedback-loop visibility) ─
+    # Surfaces only when _gather_reason_guidance actually picked up some
+    # past expert corrections for this (step_kind, anchor) — keeps the
+    # event stream clean for sessions with no prior overrides yet.
+    # Lets the LiveRunPanel render the literal "agent berücksichtigt N
+    # frühere Korrekturen" card that closes the feedback loop visually.
+    reason_refs = [g for g in guidance_refs if g.kind == "reason"]
+    if reason_refs:
+        yield PhaseEvent(
+            phase="prior_corrections",
+            status="completed",
+            label="Frühere Korrekturen berücksichtigt",
+            ms_since_run_start=now_ms(),
+            ms_elapsed=0,
+            payload={
+                "count": len(reason_refs),
+                "summaries": [{"id": r.id, "summary": r.summary} for r in reason_refs],
+            },
+        )
+
     # ── Phase 2: gather_tools ─────────────────────────────────────────
     p_start = time.monotonic()
     yield PhaseEvent(
