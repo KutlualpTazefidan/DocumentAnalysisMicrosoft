@@ -613,3 +613,64 @@ def test_goal_alignment_defaults_to_empty_when_llm_omits_it(monkeypatch):
     node = r.json()
     # Field exists, defaults to empty string when LLM omits.
     assert node["payload"]["goal_alignment"] == ""
+
+
+# ── Phase-2: prior_corrections phase event ─────────────────────────────
+
+
+def test_stream_emits_prior_corrections_when_reasons_exist(client):
+    """When a prior expert correction for the same step_kind exists,
+    the stream emits an extra prior_corrections phase event so the
+    LiveRunPanel can render the feedback-loop card. Payload carries
+    the count + a summary list keyed by reason_id."""
+    from local_pdf.provenienz.reasons import Reason, append_reason
+
+    cfg = client.app.state.config
+    rid = append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="prev",
+            proposal_id="prev-prop",
+            proposal_summary="Auto-Heuristik",
+            override_summary="Lieber Sub-Statements",
+            reason_text="Heuristik nimmt zu viel Boilerplate mit",
+            actor="human",
+        ),
+    ).reason_id
+
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    assert r.status_code == 200, r.text
+    events = _parse_sse(r.text)
+
+    prior_events = [e for e in events if e[0] == "phase" and e[1]["phase"] == "prior_corrections"]
+    assert len(prior_events) == 1
+    payload = prior_events[0][1]["payload"]
+    assert payload["count"] == 1
+    summaries = payload["summaries"]
+    assert len(summaries) == 1
+    assert summaries[0]["id"] == rid
+    assert "Heuristik" in summaries[0]["summary"]
+    # Emitted as a completed-only event (no started counterpart) so
+    # the LiveRunPanel can render it without waiting for a start tick.
+    assert prior_events[0][1]["status"] == "completed"
+
+
+def test_stream_omits_prior_corrections_on_fresh_session(client):
+    """Counter-test: no reasons seeded → no prior_corrections event.
+    Keeps the stream clean for first-time documents."""
+    sid, chunk_node_id = _bootstrap_session(client)
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step/stream",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_node_id},
+    )
+    events = _parse_sse(r.text)
+    prior_events = [e for e in events if e[0] == "phase" and e[1]["phase"] == "prior_corrections"]
+    assert prior_events == []
