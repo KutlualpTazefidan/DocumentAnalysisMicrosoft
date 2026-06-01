@@ -2,18 +2,28 @@ import { T } from "../../styles/typography";
 import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 
 /**
- * Read-only inspector for the expert_correction tile.
+ * Read-only inspector for the expert-override tile (Phase-3 split:
+ * expert_step_override + expert_method_request + the deprecated legacy
+ * expert_correction shape). Renders kind-aware copy + accent so the
+ * panel reads either as "Lieber dieser Step" (Purpose 1) or as "Neue
+ * Methode gewünscht" (Purpose 2 — capability gap).
  *
- * Phase-1 surface: shows what the expert prescribed plus the rationale.
- * Editing/retraction lives in a later phase — for now the override is
- * append-only, and the matching capability_request (if the intended_step
- * was unimplemented) is visible by clicking through to its tile.
+ * Editing/retraction is out of scope; the override is append-only, and
+ * the matching wishlist entry surfaces in the agent-wide
+ * Capability-Wishlist (Phase 4) via the /capability-requests
+ * aggregator that now also reads expert_method_request payloads.
  */
 export function ExpertCorrectionPanel({
   view,
   onSelectView,
 }: PanelCommonProps): JSX.Element {
-  if (view.kind !== "expert_correction") return <></>;
+  if (
+    view.kind !== "expert_step_override" &&
+    view.kind !== "expert_method_request" &&
+    view.kind !== "expert_correction"
+  ) {
+    return <></>;
+  }
   const node = view.correction;
   const p = node.payload as {
     intended_step?: string;
@@ -21,29 +31,45 @@ export function ExpertCorrectionPanel({
     reason?: string;
     target_proposal_node_id?: string;
     target_step_kind?: string;
+    // Legacy Phase-1 marker — present on aliased Nodes from before
+    // Phase-3 + on the deprecated expert_correction kind. The
+    // post-Phase-3 path drops it; the Node.kind discriminates.
     is_unimplemented?: boolean;
   };
-  const argsAsJson = p.intended_args && Object.keys(p.intended_args).length > 0
-    ? JSON.stringify(p.intended_args, null, 2)
-    : "";
+  // Treat the new kind as the primary discriminator, falling back to
+  // the legacy payload flag when an aliased Node is shown. Both paths
+  // converge on the same isMethodRequest signal.
+  const isMethodRequest =
+    view.kind === "expert_method_request" ||
+    (view.kind === "expert_correction" && p.is_unimplemented === true);
+  const argsAsJson =
+    p.intended_args && Object.keys(p.intended_args).length > 0
+      ? JSON.stringify(p.intended_args, null, 2)
+      : "";
+
+  const title = isMethodRequest ? "Methoden-Wunsch" : "Korrektur";
+  const subtitle = p.target_step_kind ? `statt ${p.target_step_kind}` : "—";
+  const stepAccent = isMethodRequest ? "text-amber-300" : "text-rose-300";
 
   return (
     <div className="flex flex-col h-full">
       <PanelHeader
-        title="Korrektur"
-        subtitle={p.target_step_kind ? `statt ${p.target_step_kind}` : "—"}
+        title={title}
+        subtitle={subtitle}
         onClose={() => onSelectView(null)}
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div>
-          <p className={T.tinyBold}>Vorgeschlagener Schritt</p>
-          <p className={`text-rose-300 ${T.body} font-mono`}>
+          <p className={T.tinyBold}>
+            {isMethodRequest ? "Gewünschte Methode" : "Vorgeschlagener Schritt"}
+          </p>
+          <p className={`${stepAccent} ${T.body} font-mono`}>
             {p.intended_step || "—"}
           </p>
-          {p.is_unimplemented && (
+          {isMethodRequest && (
             <p className={`${T.tiny} text-amber-300 italic mt-1`}>
-              Dieser Schritt ist (noch) nicht im Registry — er wurde
-              parallel als Capability-Wunsch hinterlegt.
+              Diese Methode existiert noch nicht — sie landet in der
+              Capability-Wunschliste, sodass das Team sie bauen kann.
             </p>
           )}
         </div>
@@ -64,10 +90,9 @@ export function ExpertCorrectionPanel({
           </div>
         )}
         <p className={`${T.tiny} text-slate-500 italic`}>
-          Erfasst über „Verwerfen → Lieber so" am ursprünglichen
-          Agent-Vorschlag. Die Korrektur landet als NOTE-Skill im Korpus
-          und steht beim nächsten /next-step-Lauf als „Frühere
-          Korrektur" zur Verfügung.
+          {isMethodRequest
+            ? `Erfasst über „Verwerfen → Lieber so“ mit einer Methode, die noch nicht im Registry steht. Der Wunsch landet zentral auf der Capability-Wunschliste.`
+            : `Erfasst über „Verwerfen → Lieber so“ am ursprünglichen Agent-Vorschlag. Die Korrektur landet als NOTE-Skill im Korpus und steht beim nächsten /next-step-Lauf als „Frühere Korrektur“ zur Verfügung.`}
         </p>
       </div>
     </div>
