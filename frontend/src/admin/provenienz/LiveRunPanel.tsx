@@ -415,6 +415,35 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
         </div>
       );
     }
+    case "prior_corrections": {
+      // Phase-2 feedback-loop visibility. Surfaces when the planner
+      // pulled in past expert corrections via _gather_reason_guidance
+      // — closes the loop "the agent is learning from past overrides".
+      const summaries = (p.summaries ?? []) as Array<{
+        id: string;
+        summary: string;
+      }>;
+      const count = (p.count ?? summaries.length) as number;
+      return (
+        <div
+          className={`${T.tiny} text-emerald-100 space-y-1 rounded border border-emerald-700/60 bg-emerald-900/30 p-2`}
+        >
+          <p className="text-emerald-200 font-medium">
+            💡 Agent berücksichtigt {count} frühere{" "}
+            {count === 1 ? "Korrektur" : "Korrekturen"}
+          </p>
+          {summaries.length > 0 && (
+            <ul className="space-y-0.5">
+              {summaries.map((s) => (
+                <li key={s.id} className="font-mono text-emerald-100/80">
+                  „{s.summary || s.id}"
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    }
     case "gather_tools": {
       const steps = (p.available_steps ?? []) as string[];
       const anchorKind = String(p.anchor_kind ?? "?");
