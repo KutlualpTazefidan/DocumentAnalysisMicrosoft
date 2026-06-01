@@ -538,12 +538,12 @@ _log.info("decide.plan_override", extra={
 
 ---
 
-## 13. Future Phases (referenz only)
+## 13. Phasen-Roadmap
 
-### Phase 2 — Strukturierung
+### Phase 2 — Strukturierung (geshipped)
 
-- Sibling-Node-Kinds: `expert_step_override` + `expert_method_request` für
-  schärfere Provenance (Data-Brainstorm #2)
+- ~~Sibling-Node-Kinds — verschoben nach Phase 3 (eigener Branch /
+  Konsumenten-Rationale brauchte Dual-Purpose-Framing aus §1)~~
 - Anchor-Shape-Retrieval in `_gather_reason_guidance` — match nach
   `anchor_fingerprint`, nicht nur `step_kind` (Feedback-Brainstorm #1)
 - Stream-Phase-Event `prior_corrections` im `/next-step/stream` — UI zeigt
@@ -551,14 +551,69 @@ _log.info("decide.plan_override", extra={
 - Post-hoc Korrektur-Schublade im PlanProposalPanel auch nach Akzeptieren
   (UX-Brainstorm #2 — „I realised too late"-Case)
 
-### Phase 3 — Replikation
+### Phase 3 — Sibling-Node-Kinds (in Arbeit, Branch `feat/expert-override-sibling-kinds`)
 
-- Auto-mint `PROMPT_OVERLAY`-Skill ab N≥3 agreeing Overrides (Feedback #2)
+**Goal:** den polymorphen `expert_correction`-Node aufspalten in zwei
+spezifische Kinds, damit jede der zwei Dual-Purpose-Loops (§1) ihren eigenen,
+cleanly-typed Stream bekommt.
+
+**Node-Kind-Split:**
+
+| Phase 1 | Phase 3 | Purpose |
+|---|---|---|
+| `expert_correction` + `payload.is_unimplemented=false` | `expert_step_override` | Purpose 1 — füttert NOTE-Skill-Korpus, identisch zum heutigen Pfad |
+| `expert_correction` + `payload.is_unimplemented=true` (+ separater `capability_request`-Node) | `expert_method_request` (capability-Daten ins Payload gefaltet, KEIN separater CR-Node) | Purpose 2 — cleanly-typed Mark für den Capability-Wishlist-Workflow |
+
+**Invariante:** `capability_request` bleibt **agent-only**
+(`actor="agent"`). Phase 1 hat ihn auch für Human-Aktor geschrieben — das
+wandert ab Phase 3 komplett in `expert_method_request`. Bestehende
+agent-emitted `capability_request`-Nodes bleiben unverändert.
+
+**Migrations-Strategie: Alias-on-read, kein Backfill.**
+- `events.jsonl` ist append-only — Re-Write existierender Records ist Vertragsbruch.
+- Aggregator / Read-Path mappt:
+  - `expert_correction` + `is_unimplemented=false` → View-Kind `expert_step_override`
+  - `expert_correction` + `is_unimplemented=true` → View-Kind `expert_method_request`,
+    und der parallele `capability_request`-Sibling mit `actor="human"` wird im View
+    unterdrückt (vermeidet Doppel-Render).
+- Trade-off (transparent): die `is_unimplemented`-Payload-Form lebt forever in
+  alten Records. Das ist der Preis für die append-only-Garantie. Phase-4-
+  Konsumenten lesen den neuen Stream typed; alte Daten kommen via Alias rein
+  und sind in den Aggregator-Returns nicht mehr unterscheidbar.
+
+**Steps (siehe `feat/expert-override-sibling-kinds`-Branch):**
+
+| # | File | Was | Effort |
+|---|---|---|---|
+| 1 | dieser Spec | Phase-3-Sektion + Renumbering (Phase 3-Replikation → Phase 4) | S |
+| 2 | `provenienz.py` `_record_plan_expert_correction` | Branch-Split: kind-write je nach `is_unimplemented`, Flag aus neuem Payload, CR-Daten in Method-Request gefaltet | M |
+| 3 | `provenienz.py` Aggregator | Alias-on-read + Human-CR-Suppression | M |
+| 4 | `test_router_provenienz_decide.py` + neue `test_provenienz_node_kind_alias.py` | Writer-Split-Tests + Alias-Tests | M |
+| 5 | `useProvenienz.ts` + `layout.ts` | Type-Unions, NODE_DIMS, Layout-Walker case-split | M |
+| 6 | `nodes/ExpertStepOverrideTile.tsx` + `nodes/ExpertMethodRequestTile.tsx` | 2 Tiles ersetzen `ExpertCorrectionTile` (rose vs amber Akzent) | M |
+| 7 | `SidePanel.tsx` + 2 neue Panels | Routing + Panel-Split (Step-Override-Panel vs Method-Request-Panel) | M |
+| 8 | `PlanProposalPanel.test.tsx` + Tile-Tests | Bestehende Assertions umschreiben + neue Render-Tests | M |
+| 9 | `provenienz-plan-override.mjs` | Walkthrough re-record für beide Branches | S |
+
+**Konsument-Rationale (§1 Dual Purpose):** Phase 3 ist der Vorläufer für den
+Capability-Wishlist-Workflow (Phase 4+). Ohne typed-Mark muss jeder Konsument
+über alle `expert_correction`-Records crawlen + Flag-Filter anwenden — mit
+typed-Mark reichst eine direkte Query nach `kind="expert_method_request"`.
+
+### Phase 4 — Replikation (Backlog)
+
+- Auto-mint `PROMPT_OVERLAY`-Skill ab N≥3 agreeing `expert_step_override`s
+  (Feedback #2) — zählt jetzt cleanly über Phase-3-Mark
+- Capability-Wishlist-Workflow auf `expert_method_request`-Korpus:
+  einfaches Admin-Board / wöchentlicher Digest / Auto-Mint von
+  REACTIVE-Skill-Stubs für häufig gefragte unimplementierte Methoden
 - Explicit „Promote to rule" → `REACTIVE`-Skill mit `TriggerConditions`
   (Feedback #3)
 - RAG über typed-override-Records via lokalen Embedding-Model
   (Feedback #6, wenn Corpus ≥30)
 - Separater `overrides.jsonl`-Store (Backend #5), wenn Korpus-Split-UX nötig
+- Tool-Creating Sub-Agent: liest akkumulierte `expert_method_request`s,
+  draftet Python-Skeleton, öffnet PR (Phase N+1)
 
 ---
 
