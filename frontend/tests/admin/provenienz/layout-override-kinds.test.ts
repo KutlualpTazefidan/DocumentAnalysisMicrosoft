@@ -34,19 +34,6 @@ function node(
   };
 }
 
-function edge(id: string, from: string, to: string, kind: string): ProvEdge {
-  return {
-    edge_id: id,
-    session_id: "s1",
-    from_node: from,
-    to_node: to,
-    kind,
-    reason: null,
-    actor: "human",
-    created_at: id,
-  };
-}
-
 function baseChunkAndPlan(): { nodes: ProvNode[]; edges: ProvEdge[] } {
   // Plan-proposal sits as a sibling of a chunk anchor. Minimal trunk
   // so the walker has a planViewByNodeId entry to attach the override
