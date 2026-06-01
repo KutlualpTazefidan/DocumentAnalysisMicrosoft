@@ -288,9 +288,17 @@ class ExpertCorrection(BaseModel):
     may or may not be in the registered step set — when not, the route also
     spawns a capability_request Node (actor="human") so the unimplemented
     method gets tracked alongside agent-emitted requests.
+
+    `post_hoc=True` marks corrections captured from the persistent drawer
+    in PlanProposalPanel after Akzeptieren already fired ("I realised too
+    late" case — see Phase-2 spec). post_hoc EC Nodes still feed
+    _gather_reason_guidance the same way; the flag is preserved on the
+    node payload purely for audit and future analytics (do experts
+    actually catch their own mistakes post-hoc, and how often?).
     """
 
     model_config = ConfigDict(frozen=True)
     intended_step: str = Field(min_length=1, max_length=120)
     intended_args: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field(min_length=1, max_length=2000)
+    post_hoc: bool = False

@@ -47,7 +47,12 @@ from local_pdf.provenienz.llm import (
     build_proposal_node,
     resolve_provider,
 )
-from local_pdf.provenienz.reasons import Reason, append_reason, read_reasons
+from local_pdf.provenienz.reasons import (
+    Reason,
+    append_reason,
+    compute_anchor_fingerprint,
+    read_reasons,
+)
 from local_pdf.provenienz.searcher import InDocSearcher
 from local_pdf.provenienz.storage import (
     Edge,
@@ -5669,6 +5674,19 @@ def _record_plan_expert_correction(
     target_step_kind = str(proposal.payload.get("name", "")) or "unknown_step"
     is_unimplemented = ec_body.intended_step not in _KNOWN_STEPS
 
+    # Resolve the proposal's anchor so we can compute its fingerprint —
+    # Phase-2 retrieval (Step 3) prioritises corrections that match by
+    # (step_kind, anchor_fingerprint). Empty fingerprint when the anchor
+    # can't be resolved (e.g. proposal payload missing anchor_node_id, or
+    # the anchor was tombstoned mid-session).
+    anchor_fingerprint: dict[str, Any] = {}
+    anchor_node_id = str(proposal.payload.get("anchor_node_id", "") or "")
+    if anchor_node_id:
+        sess_nodes, _ = read_session(sd)
+        anchor_node = next((n for n in sess_nodes if n.node_id == anchor_node_id), None)
+        if anchor_node is not None:
+            anchor_fingerprint = compute_anchor_fingerprint(anchor_node.kind, anchor_node.payload)
+
     # ── 1) Audit Node ────────────────────────────────────────────────
     ec_node = append_node(
         sd,
@@ -5683,6 +5701,8 @@ def _record_plan_expert_correction(
                 "target_proposal_node_id": proposal.node_id,
                 "target_step_kind": target_step_kind,
                 "is_unimplemented": is_unimplemented,
+                "anchor_fingerprint": anchor_fingerprint,
+                "post_hoc": ec_body.post_hoc,
             },
             actor="human",
         ),
@@ -5707,6 +5727,7 @@ def _record_plan_expert_correction(
             reason_text=ec_body.reason[:200],
             actor="human",
             correction_origin="plan_proposal",
+            anchor_fingerprint=anchor_fingerprint,
         ),
     )
 

@@ -13,14 +13,66 @@ relevant overrides for in-context examples.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import re
+from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from local_pdf.provenienz.storage import _now, new_id
 
 if TYPE_CHECKING:
     from local_pdf.provenienz.skills import Skill
+
+
+# Marker line that the skill-encoder prepends to NOTE.prompt.free_text so
+# the Phase-2 anchor-shape retrieval can read the source anchor's
+# fingerprint back without parsing the human-readable payload. The legacy
+# _unpack_free_text already ignores any line that doesn't match its
+# three Empfehlung/Korrektur/Grund prefixes, so adding this is backward-
+# compatible for callers that still walk the old shape.
+_FINGERPRINT_LINE_PREFIX = "__fingerprint__: "
+
+
+def compute_anchor_fingerprint(anchor_kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Lightweight signature of the anchor a plan_proposal targets.
+
+    Returned shape: ``{"anchor_kind": <kind>, "patterns": [str, ...]}``.
+    The patterns are coarse-grained binary signals (has_table, has_formula,
+    short_text, …) — they don't try to capture domain meaning, just
+    enough surface structure for two anchors to be considered "similar".
+
+    Phase-2 retrieval keys on the (step_kind, fingerprint) tuple: when a
+    new plan_proposal comes in with the same anchor_kind and overlapping
+    patterns, prior corrections on similar anchors surface in the planner
+    prompt first. Empty dict for unknown / null anchors so the call site
+    can always store the result without conditionals.
+    """
+    if not anchor_kind:
+        return {}
+    text_parts = [
+        str(payload.get(key, "") or "")
+        for key in ("text", "html", "html_snippet", "html_snippet_raw", "preview")
+    ]
+    text = "\n".join(t for t in text_parts if t)
+    text_lower = text.lower()
+    patterns: list[str] = []
+    if "<table" in text_lower:
+        patterns.append("has_table")
+    if "<ul" in text_lower or "<ol" in text_lower or re.search(r"(?m)^\s*[-*]\s+\S", text):
+        patterns.append("has_list")
+    if re.search(r"\$[^$\n]+\$|\\[a-zA-Z]+\{|\^\{|_\{", text):
+        patterns.append("has_formula")
+    if re.search(r"<h[1-6][>\s]", text_lower):
+        patterns.append("has_heading")
+    if re.search(r"<figure[>\s]|<img[>\s]", text_lower):
+        patterns.append("has_figure")
+    stripped_len = len(re.sub(r"<[^>]+>", "", text).strip())
+    if 0 < stripped_len <= 200:
+        patterns.append("short_text")
+    elif stripped_len > 1500:
+        patterns.append("long_text")
+    return {"anchor_kind": anchor_kind, "patterns": sorted(set(patterns))}
 
 
 @dataclass(frozen=True)
@@ -41,6 +93,12 @@ class Reason:
     # without crawling the session DAG. Empty for the legacy
     # action_proposal /decide path.
     correction_origin: str = ""
+    # Phase-2: lightweight signature of the anchor the source plan_proposal
+    # targeted. Empty dict for legacy/action-proposal Reasons (which never
+    # carried anchor context). See compute_anchor_fingerprint() for the
+    # shape and the retrieval-time prioritisation logic in
+    # _gather_reason_guidance.
+    anchor_fingerprint: dict[str, Any] = field(default_factory=dict)
 
 
 def append_reason(data_root: Path, r: Reason) -> Reason:
@@ -81,8 +139,13 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
     grund = (r.reason_text or "").strip()
     # Pack the legacy 3-line block into free_text so the prompt-injector
     # can render it under the "Frühere Korrekturen" header without
-    # losing the proposal/override context.
+    # losing the proposal/override context. Phase-2 anchor_fingerprint
+    # (if present) is prepended as a marker line so retrieval-time code
+    # can score the (step_kind, fingerprint) match without touching the
+    # human-readable block.
     parts: list[str] = []
+    if r.anchor_fingerprint:
+        parts.append(_FINGERPRINT_LINE_PREFIX + json.dumps(r.anchor_fingerprint, sort_keys=True))
     if proposal:
         parts.append(f"Empfehlung: {proposal}")
     if override:
@@ -151,10 +214,20 @@ def _skill_to_reason(s: Skill) -> Reason:
 
     Unpacks the legacy 3-line ``Empfehlung/Korrektur/Grund`` block from
     ``free_text`` so the original proposal_summary / override_summary
-    / reason_text round-trip correctly.
+    / reason_text round-trip correctly. Phase-2 anchor_fingerprint is
+    decoded from the optional leading ``__fingerprint__:``-line; empty
+    dict when the line is absent (legacy / action_proposal Reasons).
     """
     step_kind = s.fires_on[0] if s.fires_on else "evaluate"
     proposal, override, grund = _unpack_free_text(s.prompt.free_text)
+    fingerprint: dict[str, Any] = {}
+    for raw in s.prompt.free_text.splitlines():
+        if raw.startswith(_FINGERPRINT_LINE_PREFIX):
+            try:
+                fingerprint = json.loads(raw[len(_FINGERPRINT_LINE_PREFIX) :])
+            except json.JSONDecodeError:
+                fingerprint = {}
+            break
     return Reason(
         reason_id=s.skill_id,
         step_kind=step_kind,
@@ -165,6 +238,7 @@ def _skill_to_reason(s: Skill) -> Reason:
         reason_text=grund,
         actor="human",
         created_at=s.created_at,
+        anchor_fingerprint=fingerprint,
     )
 
 
