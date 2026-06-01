@@ -20,7 +20,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from llm_clients.base import Message
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from local_pdf.api.schemas import ExpertCorrection  # noqa: TC001 — runtime Pydantic field type
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
@@ -6009,6 +6009,30 @@ class DecideRequest(BaseModel):
         return self
 
 
+class ClarifyRequest(BaseModel):
+    """Body for POST /sessions/{id}/clarify. Resolves a pending
+    Phase-RGA clarification from a prior /decide call. Exactly one of
+    (clarification non-empty, skipped=True) must be supplied.
+
+    The override_node_id is the node spawned by the gap-detected /decide
+    response (returned in response.clarification.override_node_id).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    override_node_id: str = Field(min_length=1)
+    clarification: str = Field(default="", max_length=4000)
+    skipped: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_of_submit_or_skip(self) -> ClarifyRequest:
+        has_text = bool(self.clarification.strip())
+        if has_text == self.skipped:  # both True or both False
+            raise ValueError(
+                "exactly one of {clarification (non-empty), skipped=True} must be supplied"
+            )
+        return self
+
+
 def _override_summary(body: DecideRequest) -> str:
     """One-line override summary capped at 200 chars."""
     s = (body.override or "").strip().replace("\n", " ")
@@ -7944,3 +7968,217 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         }
 
     raise HTTPException(status_code=501, detail=f"step_kind not yet handled: {step_kind}")
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/clarify",
+    status_code=201,
+)
+async def clarify(session_id: str, body: ClarifyRequest, request: Request) -> dict:
+    """Resolve a Phase-RGA pending clarification.
+
+    Submit-path (body.clarification non-empty):
+      - Update the override Node payload: pending_clarification=False,
+        clarification=<text>. Re-append the Node event (same node_id,
+        mutated payload) following the existing tombstone-style update
+        pattern used elsewhere in this module.
+      - Append-event the existing Reason to flip pending_clarification
+        and add the clarification text. The reason_id stays the same;
+        read_reasons' dedup keeps the latest record.
+      - Emit a /clarify telemetry row (resolution="submitted").
+
+    Skip-path (body.skipped=True):
+      - Spawn a new `clarification_skipped` annotation Node with payload
+        carrying the question + agent_pick + intended_step + back-ref
+        to the override.
+      - Spawn an edge `kind="annotates"` from skip-Node -> override-Node.
+      - Update the override Node payload: pending_clarification=False
+        (no clarification text). Re-append.
+      - Append-event the existing Reason to flip pending_clarification.
+      - Emit a /clarify telemetry row (resolution="skipped").
+
+    Returns: a dict with the updated override_node + any new spawned
+    nodes/edges + edges list, mirroring decide's shape.
+
+    Errors:
+      - 404 if override_node_id not found in the session.
+      - 409 if the override Node's payload already has
+        pending_clarification=False (double-resolve guard).
+      - 422 from the model_validator (FastAPI default) if neither/both
+        of clarification + skipped supplied — never reaches the handler.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _edges = read_session(sd)
+    override_node = next(
+        (n for n in nodes if n.node_id == body.override_node_id),
+        None,
+    )
+    if override_node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"override node not found: {body.override_node_id}",
+        )
+    if override_node.kind not in ("expert_step_override", "expert_method_request"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"node is not an expert override: kind={override_node.kind}",
+        )
+    if not override_node.payload.get("pending_clarification", False):
+        raise HTTPException(
+            status_code=409,
+            detail=f"override already resolved: {body.override_node_id}",
+        )
+
+    target_proposal_node_id = str(override_node.payload.get("target_proposal_node_id", "") or "")
+    target_step_kind = str(override_node.payload.get("target_step_kind", "") or "")
+    intended_step = str(override_node.payload.get("intended_step", "") or "")
+    reason_text = str(override_node.payload.get("reason", "") or "")
+    capture_source = str(
+        override_node.payload.get("capture_source", "decision_time") or "decision_time"
+    )
+    anchor_fingerprint = override_node.payload.get("anchor_fingerprint", {})
+
+    # Update the override Node's payload via re-append (same node_id,
+    # mutated payload). The read-time path always uses the latest record.
+    new_payload = dict(override_node.payload)
+    new_payload["pending_clarification"] = False
+    clarification_text = ""
+    if not body.skipped:
+        clarification_text = body.clarification.strip()
+        new_payload["clarification"] = clarification_text
+    updated_override = append_node(
+        sd,
+        Node(
+            node_id=override_node.node_id,
+            session_id=session_id,
+            kind=override_node.kind,
+            payload=new_payload,
+            actor=override_node.actor,
+        ),
+    )
+
+    # Re-write the Reason via append (read_reasons dedups latest-wins).
+    # The original reason_id was minted inside _record_plan_expert_correction;
+    # we don't have it directly. Look it up by matching the unique
+    # (step_kind, override_summary, reason_text, pending_clarification=True)
+    # tuple — read_reasons strips session_id/proposal_id (Skill round-trip
+    # is lossy on those), so we use the surviving fields. The pending=True
+    # flag distinguishes the not-yet-resolved Reason this clarify call is
+    # targeting from any prior resolved overrides on the same step_kind.
+    override_summary_key = intended_step[:200]
+    reason_text_key = reason_text[:200]
+    existing_reasons = [
+        r
+        for r in read_reasons(cfg.data_root, step_kind=target_step_kind, last_n=50)
+        if r.override_summary == override_summary_key
+        and r.reason_text == reason_text_key
+        and r.pending_clarification
+    ]
+    # If found, reuse its reason_id so the latest-wins dedup collapses
+    # both records into one entry. Otherwise mint a new one (defensive —
+    # shouldn't fire in practice unless the corpus lost the original
+    # Reason between /decide and /clarify).
+    reason_id = existing_reasons[-1].reason_id if existing_reasons else new_id()
+    proposal_summary = (
+        target_step_kind + " — " + str(override_node.payload.get("reason", "")[:0])
+    )[:200]
+    # Re-build the proposal_summary from the existing NOTE-skill if possible.
+    if existing_reasons:
+        proposal_summary = existing_reasons[-1].proposal_summary
+    append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id=reason_id,
+            step_kind=target_step_kind,
+            session_id=session_id,
+            proposal_id=target_proposal_node_id,
+            proposal_summary=proposal_summary,
+            override_summary=intended_step[:200],
+            reason_text=reason_text[:200],
+            actor="human",
+            correction_origin="plan_proposal",
+            anchor_fingerprint=anchor_fingerprint,
+            clarification=clarification_text,
+            pending_clarification=False,
+            capture_source=capture_source,
+        ),
+    )
+
+    spawned_nodes: list[dict] = []
+    spawned_edges: list[dict] = []
+
+    if body.skipped:
+        # Spawn the clarification_skipped annotation Node + "annotates" edge.
+        skip_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="clarification_skipped",
+                payload={
+                    "target_override_node_id": override_node.node_id,
+                    "target_proposal_node_id": target_proposal_node_id,
+                    "agent_pick": target_step_kind,
+                    "intended_step": intended_step,
+                    # Re-build the question from the template — used for
+                    # telemetry "bad question vs rushed expert" analysis.
+                    "question": CLARIFICATION_TEMPLATE.format(
+                        agent_pick=target_step_kind,
+                        intended_step=intended_step,
+                        reason=reason_text,
+                    ),
+                },
+                actor="human",
+            ),
+        )
+        spawned_nodes.append(skip_node.__dict__)
+        ann_edge = append_edge(
+            sd,
+            Edge(
+                edge_id=new_id(),
+                session_id=session_id,
+                from_node=skip_node.node_id,
+                to_node=override_node.node_id,
+                kind="annotates",
+                reason="clarification skipped",
+                actor="human",
+            ),
+        )
+        spawned_edges.append(ann_edge.__dict__)
+
+    # Emit second telemetry row reflecting the resolution.
+    # eval_result is None (no new evaluator call); we still record the
+    # resolution flag so the calibration corpus can pair /decide rows
+    # with their resolution.
+    _emit_rga_telemetry(
+        cfg.data_root,
+        session_id=session_id,
+        proposal_node_id=target_proposal_node_id,
+        anchor_kind=str(override_node.payload.get("anchor_fingerprint", {}).get("anchor_kind", "")),
+        anchor_fingerprint=anchor_fingerprint,
+        agent_pick=target_step_kind,
+        intended_step=intended_step,
+        capture_source=capture_source,
+        eval_result={
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 0,  # post-resolution; the original /decide row holds the score
+            "rationale": "",
+            "parse_error": False,
+        },
+        threshold=_rga_threshold(),
+        gap_detected=True,  # by definition, if we're resolving, gap was detected
+        reason_text=reason_text,
+        resolution="skipped" if body.skipped else "submitted",
+    )
+
+    return {
+        "override_node": updated_override.__dict__,
+        "spawned_nodes": spawned_nodes,
+        "spawned_edges": spawned_edges,
+    }
