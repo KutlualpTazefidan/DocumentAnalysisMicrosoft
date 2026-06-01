@@ -2292,14 +2292,18 @@ def _format_reason_examples(reasons: list[Reason]) -> str:
 
 def _gather_reason_guidance(
     data_root: Path,
-    step_kind: str,
+    step_kind: str | None,
     *,
     anchor: Node | None = None,
     last_n: int = 5,
 ) -> tuple[str, list[GuidanceRef]]:
     """Fetch up to *last_n* reasons matching *step_kind*, prioritised by
     anchor-shape similarity, and return ``(extra_system_block,
-    guidance_refs)``.
+    guidance_refs)``. Pass ``step_kind=None`` to retrieve reasons across
+    all step kinds — used by the next-step planner stream where reasons
+    recorded by plan_proposal /decide overrides (tagged with the
+    *recommended* step's name, e.g. extract_claims) should still surface
+    even though the planner itself runs under step_kind="next_step".
 
     Phase-2 anchor-shape retrieval: when ``anchor`` is provided, the
     candidate reasons are scored into three tiers:
@@ -2514,7 +2518,15 @@ def _gather_guidance_split(
         blocks.append(extra)
     refs: list[GuidanceRef] = [ref for _a, ref in passive]
     refs.extend(ref for _a, ref in active)
-    reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind, anchor=anchor)
+    # Reasons are fetched WITHOUT the step_kind filter so that
+    # plan_proposal-correction reasons (recorded by /decide with
+    # step_kind=<recommended step>, e.g. "extract_claims") surface in
+    # the planner prompt — the planner runs at the meta level
+    # ("next_step") and otherwise would never see overrides of its own
+    # past recommendations. The Phase-2 anchor-shape tier scoring
+    # keeps the prioritisation tight: structurally similar anchors win
+    # over recency regardless of which downstream step they targeted.
+    reason_block, reason_refs = _gather_reason_guidance(data_root, None, anchor=anchor)
     if reason_block:
         blocks.append(reason_block)
         refs.extend(reason_refs)
