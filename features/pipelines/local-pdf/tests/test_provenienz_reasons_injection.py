@@ -361,6 +361,11 @@ def test_rga_pending_reason_surfaces_in_planner_prompt_then_clarification_lands(
     # Dedup invariant: the reason_text appears exactly ONCE in the
     # rendered block (not twice from pending + resolved events).
     assert extra_system_resolved.count("Konstrukt-Definition, kein Faktum") == 1
+    # After /clarify, the prompt-injector emits the Klarstellung line
+    # for the resolved Reason, so the planner sees the enriched
+    # reasoning on subsequent runs.
+    assert "Klarstellung:" in extra_system_resolved
+    assert "Der Term verweist" in extra_system_resolved
 
 
 def test_no_reasons_yields_empty_guidance_block(client, monkeypatch):

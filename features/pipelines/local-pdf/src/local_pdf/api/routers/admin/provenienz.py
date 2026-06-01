@@ -2368,11 +2368,14 @@ def _format_reason_examples(reasons: list[Reason]) -> str:
         return ""
     lines = ["", "## Frühere Korrekturen durch den Nutzer"]
     for r in reasons:
-        lines.append(
+        entry = (
             f"- Empfehlung: {r.proposal_summary}\n"
             f"  Korrektur:  {r.override_summary}\n"
             f"  Grund:      {r.reason_text}"
         )
+        if r.clarification:
+            entry += f"\n  Klarstellung: {r.clarification}"
+        lines.append(entry)
     lines.append("Berücksichtige diese Korrekturen, wenn sie auf die aktuelle Aufgabe zutreffen.")
     return "\n".join(lines)
 
