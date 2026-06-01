@@ -193,6 +193,7 @@ const FLOW_META = {
   "provenienz-stage-tour":   { role: "Admin",     cat: "Provenienz",  order: 10, label: "Provenienz: Rundgang" },
   "provenienz-session-crud": { role: "Admin",     cat: "Provenienz",  order: 20, label: "Provenienz: Sitzung anlegen/löschen" },
   "provenienz-iterate":      { role: "Admin",     cat: "Provenienz",  order: 30, label: "Provenienz: AI-Vorschlag → Anwenden" },
+  "provenienz-plan-override":{ role: "Admin",     cat: "Provenienz",  order: 35, label: "Provenienz: AI-Vorschlag → Korrektur erfassen" },
   "provenienz-agent-tour":   { role: "Admin",     cat: "Provenienz",  order: 40, label: "Provenienz: Agent-Sicht" },
   // ── Hauptpfad (Kurator) ───────────────────────────────────────────────────
   "curator-journey":         { role: "Kurator",   cat: "Hauptpfad",   order: 10, label: "Kurator-Reise (Beispiel)" },
