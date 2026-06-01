@@ -52,7 +52,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                 </p>
               </div>
               <span className="text-[10px] uppercase tracking-wide bg-yellow-700 text-yellow-50 px-2 py-0.5 rounded shrink-0">
-                {req.count}× angefragt
+                {req.count}× · {req.count_by_actor.human}E / {req.count_by_actor.agent}A
               </span>
             </div>
 
