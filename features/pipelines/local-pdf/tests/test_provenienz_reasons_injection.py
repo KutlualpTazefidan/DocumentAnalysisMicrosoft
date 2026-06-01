@@ -126,6 +126,13 @@ def test_evaluate_only_pulls_evaluate_step_kind_reasons(client, monkeypatch):
 
     monkeypatch.setattr(router_mod, "get_llm_client", _factory)
     monkeypatch.setattr(router_mod, "get_default_model", lambda: "test-model")
+    # _llm_pre_reason (ReAct "Thought" layer prepended to every step)
+    # also calls get_llm_client. Without this stub it would consume the
+    # next client in seq before _llm_extract_claims even gets to run,
+    # leaving the actual step with the wrong fake client and tripping
+    # a JSON-parse RuntimeError. Returning "" matches its real-world
+    # failure-mode shape (the field is best-effort).
+    monkeypatch.setattr(router_mod, "_llm_pre_reason", lambda *a, **k: "")
 
     slug = _seed_doc(client)
     sid = client.post(
