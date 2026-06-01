@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "../../../shared/components/useToast";
 import {
   useAgentInfo,
+  useClarify,
   useDecide,
   useDecomposeHit,
   useDeleteNode,
@@ -53,10 +54,24 @@ export function PlanProposalPanel({
   const investigate = useInvestigateTable(token, sessionId);
   const del = useDeleteNode(token, sessionId);
   const decide = useDecide(token, sessionId);
+  const clarify = useClarify(token, sessionId);
   const agentInfo = useAgentInfo(token);
-  const [verwerfenMode, setVerwerfenMode] = useState<"idle" | "form">("idle");
+  const [verwerfenMode, setVerwerfenMode] = useState<
+    "idle" | "form" | "clarifying"
+  >("idle");
   const [intendedStep, setIntendedStep] = useState("");
   const [reason, setReason] = useState("");
+  // Phase-RGA: clarifying-state slots. Populated when /decide returns a
+  // ClarificationPrompt (evaluator detected a gap in the expert's
+  // reasoning). The override Node was already spawned by /decide — these
+  // capture the parameters needed to follow up with /clarify.
+  const [clarificationQuestion, setClarificationQuestion] = useState("");
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
+  const [pendingOverrideNodeId, setPendingOverrideNodeId] = useState("");
+  const [clarificationScore, setClarificationScore] = useState<number | null>(
+    null,
+  );
+  const clarificationTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Post-hoc drawer (Phase-2): a permanent secondary footer for the
   // "I realised too late" case. Independent state from the Verwerfen-
   // morph so both forms can coexist visually without sharing inputs.
@@ -78,12 +93,18 @@ export function PlanProposalPanel({
   }, [agentInfo.data]);
   // Esc collapses the inline-form back to the Verwerfen button without
   // submitting anything — the cheap escape hatch for "actually I was just
-  // browsing, not overriding". Pre-guard so the effect-call order stays
-  // stable; the inner body short-circuits when the form isn't open.
+  // browsing, not overriding". In clarifying-state Esc funnels through
+  // handleClarifyExit so the skip-marker is always emitted (parity with
+  // the X-button / parent-driven close paths). Pre-guard so the effect-
+  // call order stays stable; the inner body short-circuits when the
+  // form isn't open AND we're not clarifying.
   useEffect(() => {
-    if (verwerfenMode !== "form") return;
+    if (verwerfenMode !== "form" && verwerfenMode !== "clarifying") return;
     function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") {
+      if (e.key !== "Escape") return;
+      if (verwerfenMode === "clarifying") {
+        handleClarifyExit();
+      } else if (verwerfenMode === "form") {
         setVerwerfenMode("idle");
         setIntendedStep("");
         setReason("");
@@ -91,6 +112,15 @@ export function PlanProposalPanel({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verwerfenMode, pendingOverrideNodeId]);
+  // Phase-RGA: autoFocus the clarification textarea when the panel
+  // transitions to clarifying-state. The ref is null on first mount;
+  // the effect re-fires after the conditional JSX wires it up.
+  useEffect(() => {
+    if (verwerfenMode === "clarifying") {
+      clarificationTextareaRef.current?.focus();
+    }
   }, [verwerfenMode]);
   // Mirror Esc-collapse for the post-hoc drawer. Separate effect (instead
   // of merging into the one above) so each form's "Esc collapses ME"
@@ -267,14 +297,29 @@ export function PlanProposalPanel({
   async function handleSubmitCorrection(): Promise<void> {
     if (!canSubmitCorrection) return;
     try {
-      await decide.mutateAsync({
+      const result = await decide.mutateAsync({
         proposal_node_id: node.node_id,
         expert_correction: {
           intended_step: trimmedStep,
           intended_args: {},
           reason: trimmedReason,
+          post_hoc: false,
         },
       });
+      if (result.clarification) {
+        // Phase-RGA gap-detected branch — transition to clarifying-state
+        // instead of closing. Don't reset intendedStep/reason: the
+        // clarifying JSX shows them readonly above the new textarea so
+        // the expert's answer stays grounded in their own commitment.
+        // The override Node was already spawned by /decide; we just
+        // need its id to follow up with /clarify.
+        setClarificationQuestion(result.clarification.question);
+        setClarificationScore(result.clarification.score);
+        setPendingOverrideNodeId(result.clarification.override_node_id);
+        setVerwerfenMode("clarifying");
+        return;
+      }
+      // Obvious-path: no gap, close as today.
       toastSuccess(
         isUnknownStep
           ? "Korrektur erfasst + Capability-Wunsch hinterlegt"
@@ -287,9 +332,78 @@ export function PlanProposalPanel({
     }
   }
 
+  function resetClarifyState(): void {
+    setVerwerfenMode("idle");
+    setClarificationQuestion("");
+    setClarificationAnswer("");
+    setPendingOverrideNodeId("");
+    setClarificationScore(null);
+    // Also reset the underlying correction inputs — at this point the
+    // expert is done with this proposal (submit OR skip), so the form
+    // should be empty if they ever revisit.
+    setIntendedStep("");
+    setReason("");
+  }
+
+  async function handleSubmitClarification(): Promise<void> {
+    const text = clarificationAnswer.trim();
+    if (!text) return;
+    try {
+      await clarify.mutateAsync({
+        override_node_id: pendingOverrideNodeId,
+        clarification: text,
+        skipped: false,
+      });
+      resetClarifyState();
+      onSelectView(null);
+    } catch (e) {
+      toastError(
+        `Klarstellung fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  async function handleSkipClarification(): Promise<void> {
+    try {
+      await clarify.mutateAsync({
+        override_node_id: pendingOverrideNodeId,
+        clarification: "",
+        skipped: true,
+      });
+    } catch (e) {
+      // Even on skip-API failure, close the panel — the user wants out.
+      // The override stays in pending state; future calls will return
+      // 409, which is the correct semantic (one resolution per gap).
+      toastError(
+        `Skip-API fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      resetClarifyState();
+      onSelectView(null);
+    }
+  }
+
+  // ALL dismiss paths (Esc, X-button, parent-driven onSelectView(null)
+  // while clarifying) funnel through here so the skip-marker is always
+  // emitted. No-op outside clarifying-state — falls back to the plain
+  // close.
+  function handleClarifyExit(): void {
+    if (verwerfenMode === "clarifying" && pendingOverrideNodeId) {
+      void handleSkipClarification();
+    } else {
+      onSelectView(null);
+    }
+  }
+
   async function handleSubmitPostHoc(): Promise<void> {
     if (!canSubmitPostHoc) return;
     try {
+      // Post-hoc path SKIPS Phase-RGA per design D3 — the backend
+      // /decide route short-circuits clarification=null for post_hoc=
+      // true, so even if we inspected result.clarification here nothing
+      // would fire. Post-hoc is reflective ("I realised too late"), not
+      // interrogative — the gap-detection only makes sense at decision
+      // time. Intentional asymmetry, not an oversight.
       await decide.mutateAsync({
         proposal_node_id: node.node_id,
         expert_correction: {
@@ -317,7 +431,7 @@ export function PlanProposalPanel({
       <PanelHeader
         title="Agent-Vorschlag"
         subtitle={STEP_LABEL[p.name] ?? p.name}
-        onClose={() => onSelectView(null)}
+        onClose={handleClarifyExit}
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div>
@@ -396,12 +510,12 @@ export function PlanProposalPanel({
           <button
             type="button"
             onClick={() => void handleAccept()}
-            disabled={isPending || verwerfenMode === "form"}
+            disabled={isPending || verwerfenMode !== "idle"}
             className={`w-full px-3 py-2 rounded bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold ${T.body} disabled:opacity-50`}
           >
             {isPending ? "…" : "Akzeptieren"}
           </button>
-          {verwerfenMode === "idle" ? (
+          {verwerfenMode === "idle" && (
             <button
               type="button"
               onClick={() => setVerwerfenMode("form")}
@@ -410,12 +524,15 @@ export function PlanProposalPanel({
             >
               Verwerfen
             </button>
-          ) : (
+          )}
+          {verwerfenMode === "form" && (
             // Inline "Lieber so"-form. Captures (a) what the expert
             // would do instead — combobox-typeahead over known steps
             // + raw-string fallback for unimplemented methods — and
             // (b) the reason. POST /decide with the typed
             // expert_correction block (post_hoc defaults to false).
+            // The clarifying-state is rendered as its own section
+            // below, OUTSIDE the !view.consumed gate.
             <CorrectionFormBody
               accent="amber"
               datalistId="plan-correction-step-options"
@@ -436,6 +553,81 @@ export function PlanProposalPanel({
             />
           )}
         </footer>
+      )}
+      {/* Phase-RGA clarifying-state section. Rendered OUTSIDE the
+       *  !view.consumed gate so the panel keeps clarifying even if
+       *  the parent flips consumed mid-flow — the entry path only
+       *  fires from /decide on the decision-time correction, but
+       *  once we're in clarifying we stay until /clarify resolves
+       *  it (or the user dismisses, which still emits a skip). */}
+      {verwerfenMode === "clarifying" && (
+        <div
+          className="p-3 space-y-3 border-t border-chrome2-500"
+          data-testid="plan-clarifying-section"
+        >
+          {/* Readonly summary of what's being clarified — keeps the
+           *  expert's answer grounded in their own committed override. */}
+          <div className="space-y-1 text-[12px] text-slate-300">
+            <div>
+              <span className="text-slate-500">Stattdessen:</span>{" "}
+              <span className="font-mono text-amber-300">
+                {intendedStep.trim()}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">Begründung:</span>{" "}
+              <span className="text-slate-200">{reason.trim()}</span>
+            </div>
+          </div>
+          {/* Agent's clarification question — aria-live="polite" so SRs
+           *  announce the state transition without preempting current
+           *  speech (per UX lens recommendation; assertive would be
+           *  too aggressive for a reflective prompt). */}
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded border border-violet-700/60 bg-violet-900/30 p-2.5 text-[12px] text-violet-100 space-y-1"
+          >
+            <p className="text-violet-300 font-medium text-[11px] uppercase tracking-wide">
+              Frage vom Agenten
+              {clarificationScore !== null && (
+                <span className="ml-1 text-violet-400/80 normal-case font-normal">
+                  · Score {clarificationScore}
+                </span>
+              )}
+            </p>
+            <p className="whitespace-pre-wrap">{clarificationQuestion}</p>
+          </div>
+          <label className="block">
+            <span className="text-[11px] text-slate-400">Ihre Klarstellung</span>
+            <textarea
+              ref={clarificationTextareaRef}
+              value={clarificationAnswer}
+              onChange={(e) => setClarificationAnswer(e.target.value)}
+              className="mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-200 text-sm resize-none"
+              rows={4}
+              placeholder="Was haben Sie gesehen, das der Agent nicht gesehen hat?"
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSubmitClarification()}
+              disabled={!clarificationAnswer.trim() || clarify.isPending}
+              className="flex-1 px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-violet-50 text-sm font-semibold"
+            >
+              Klarstellung absenden
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSkipClarification()}
+              disabled={clarify.isPending}
+              className="px-3 py-1.5 rounded border border-slate-600 hover:bg-slate-800/40 text-slate-300 text-sm"
+            >
+              Ohne Antwort schließen
+            </button>
+          </div>
+        </div>
       )}
       {/* Post-hoc drawer (Phase-2). Permanent secondary footer for the
        *  "I realised too late" case — submits the same correction body
