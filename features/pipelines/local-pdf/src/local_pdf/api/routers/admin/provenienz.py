@@ -2291,19 +2291,62 @@ def _format_reason_examples(reasons: list[Reason]) -> str:
 
 
 def _gather_reason_guidance(
-    data_root: Path, step_kind: str, last_n: int = 5
+    data_root: Path,
+    step_kind: str,
+    *,
+    anchor: Node | None = None,
+    last_n: int = 5,
 ) -> tuple[str, list[GuidanceRef]]:
-    """Fetch up to *last_n* reasons matching *step_kind* and return
-    ``(extra_system_block, guidance_refs)``."""
-    reasons = read_reasons(data_root, step_kind=step_kind, last_n=last_n)
-    block = _format_reason_examples(reasons)
+    """Fetch up to *last_n* reasons matching *step_kind*, prioritised by
+    anchor-shape similarity, and return ``(extra_system_block,
+    guidance_refs)``.
+
+    Phase-2 anchor-shape retrieval: when ``anchor`` is provided, the
+    candidate reasons are scored into three tiers:
+
+      2. step_kind match + same anchor_kind + ≥1 pattern overlap
+      1. step_kind match + same anchor_kind (no pattern overlap)
+      0. step_kind match only (no fingerprint, or fingerprint mismatch)
+
+    Reasons within a tier sort by ``created_at`` descending (newest
+    first). The final cut keeps the top ``last_n`` across all tiers. When
+    ``anchor`` is None or carries no payload pattern, every candidate
+    scores tier 0 → behaviour collapses back to "last_n most recent
+    reasons by step_kind", preserving the Phase-1 contract.
+    """
+    # Pull a wider candidate pool (3x last_n) so the tier-based prioritisation
+    # has room to pull older fingerprint-matched reasons over newer
+    # unmatched ones. read_reasons already filters by step_kind.
+    raw = read_reasons(data_root, step_kind=step_kind, last_n=max(last_n * 3, last_n))
+    if not raw:
+        return "", []
+    current_fp = (
+        compute_anchor_fingerprint(anchor.kind, anchor.payload) if anchor is not None else {}
+    )
+
+    def _score(r: Reason) -> tuple[int, str]:
+        r_fp = r.anchor_fingerprint or {}
+        if not current_fp or not r_fp:
+            return (0, r.created_at)
+        if r_fp.get("anchor_kind") != current_fp.get("anchor_kind"):
+            return (0, r.created_at)
+        if set(r_fp.get("patterns", [])) & set(current_fp.get("patterns", [])):
+            return (2, r.created_at)
+        return (1, r.created_at)
+
+    scored = sorted(raw, key=_score, reverse=True)[:last_n]
+    # Render the kept reasons in chronological order (oldest first) so
+    # the prompt reads as a small timeline; the prioritisation only
+    # decides *which* reasons land in the block, not their internal order.
+    scored.sort(key=lambda r: r.created_at)
+    block = _format_reason_examples(scored)
     refs = [
         GuidanceRef(
             kind="reason",
             id=r.reason_id,
             summary=(r.reason_text or "")[:80],
         )
-        for r in reasons
+        for r in scored
     ]
     return block, refs
 
@@ -2471,7 +2514,7 @@ def _gather_guidance_split(
         blocks.append(extra)
     refs: list[GuidanceRef] = [ref for _a, ref in passive]
     refs.extend(ref for _a, ref in active)
-    reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind)
+    reason_block, reason_refs = _gather_reason_guidance(data_root, step_kind, anchor=anchor)
     if reason_block:
         blocks.append(reason_block)
         refs.extend(reason_refs)
