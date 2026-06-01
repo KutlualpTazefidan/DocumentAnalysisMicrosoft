@@ -406,6 +406,61 @@ async def list_sessions(request: Request, slug: str | None = None) -> list[Sessi
     return out
 
 
+def _alias_legacy_override_nodes(nodes: list[Node]) -> list[Node]:
+    """Phase-3 alias-on-read: map legacy ``expert_correction`` Nodes to
+    the new Phase-3 Node-Kinds so the canvas + side panels see one
+    consistent shape across pre- and post-Phase-3 data.
+
+    Mapping (driven by the legacy ``payload.is_unimplemented`` flag):
+      • ``expert_correction`` + ``is_unimplemented=false`` → kind
+        becomes ``expert_step_override``.
+      • ``expert_correction`` + ``is_unimplemented=true`` → kind
+        becomes ``expert_method_request``; the parallel legacy
+        ``capability_request`` Node (``actor="human"``) that targeted
+        this EC is suppressed from the returned list, since its data
+        is now represented inside the aliased method-request tile.
+
+    Agent-emitted ``capability_request`` Nodes (``actor="agent"``) pass
+    through unchanged — they keep the Invariante that
+    ``capability_request`` is agent-only post-Phase-3.
+
+    No re-write to ``events.jsonl`` — append-only contract preserved.
+    Payload fields stay untouched (including the redundant
+    ``is_unimplemented`` flag on aliased Nodes); the Node-Kind change
+    alone is enough for downstream consumers because the kind is the
+    new discriminator.
+    """
+    from dataclasses import replace as dataclass_replace
+
+    suppressed_node_ids: set[str] = set()
+    legacy_ec_ids: dict[str, bool] = {}  # node_id -> is_unimplemented
+    for n in nodes:
+        if n.kind == "expert_correction":
+            legacy_ec_ids[n.node_id] = bool(n.payload.get("is_unimplemented", False))
+
+    for n in nodes:
+        if n.kind != "capability_request" or n.actor != "human":
+            continue
+        parent_ec_id = str(n.payload.get("target_expert_correction_node_id", "") or "")
+        if parent_ec_id and legacy_ec_ids.get(parent_ec_id) is True:
+            suppressed_node_ids.add(n.node_id)
+
+    out: list[Node] = []
+    for n in nodes:
+        if n.node_id in suppressed_node_ids:
+            continue
+        if n.kind == "expert_correction":
+            new_kind = (
+                "expert_method_request"
+                if n.payload.get("is_unimplemented", False)
+                else "expert_step_override"
+            )
+            out.append(dataclass_replace(n, kind=new_kind))
+        else:
+            out.append(n)
+    return out
+
+
 @router.get("/api/admin/provenienz/sessions/{session_id}")
 async def get_session(session_id: str, request: Request) -> dict:
     cfg = request.app.state.config
@@ -415,6 +470,7 @@ async def get_session(session_id: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
     meta = read_meta(sd)
     nodes, edges = read_session(sd)
+    nodes = _alias_legacy_override_nodes(nodes)
     return {
         "meta": _meta_to_response(meta).model_dump() if meta else None,
         "nodes": [n.__dict__ for n in nodes],
@@ -448,7 +504,18 @@ async def list_capability_requests(request: Request) -> dict:
             except Exception:
                 continue
             for n in nodes:
-                if n.kind != "capability_request":
+                # Purpose-2 (capability-gap) Nodes split across two kinds:
+                #   • capability_request — agent-emitted (post-Phase-3
+                #     Invariante: actor="agent") AND legacy human-actor
+                #     ones from before the Phase-3 writer split (still
+                #     surface in the wishlist; the session-detail
+                #     endpoint's alias-on-read suppresses them only for
+                #     canvas rendering, NOT for this aggregator)
+                #   • expert_method_request — new, post-Phase-3 path
+                #     for expert-prescribed gaps. Carries `name` +
+                #     `description` directly in payload so this
+                #     aggregator reads them with no extra mapping.
+                if n.kind not in ("capability_request", "expert_method_request"):
                     continue
                 name = str(n.payload.get("name", "")).strip() or "(unnamed)"
                 aggregated.setdefault(name, []).append(
@@ -461,11 +528,14 @@ async def list_capability_requests(request: Request) -> dict:
                         "created_at": n.created_at,
                         # Top-level Node.actor surfaces whether the agent
                         # itself flagged the missing capability
-                        # ("agent") or whether an admin captured it via
-                        # the expert-override path on /decide ("human").
-                        # Lets the UI badge them differently and lets
-                        # downstream consumers prioritise expert-prescribed
-                        # gaps without re-querying the source node.
+                        # ("agent" → capability_request) or whether an
+                        # admin captured it via the expert-override
+                        # path on /decide ("human" → legacy
+                        # capability_request OR post-Phase-3
+                        # expert_method_request). Lets the UI badge
+                        # them differently and lets downstream
+                        # consumers prioritise expert-prescribed gaps
+                        # without re-querying the source node.
                         "actor": n.actor,
                     }
                 )
