@@ -167,7 +167,7 @@ const reasonKnown = "Chunk ist eine Konstrukt-Definition, kein Faktum — Task f
 await page.getByLabel(/Stattdessen…/).fill("formulate_task");
 await page.getByLabel(/Warum\?/).fill(reasonKnown);
 await page.waitForTimeout(300);
-await page.getByRole("button", { name: /Korrektur erfassen/ }).click();
+await page.getByRole("button", { name: /^Korrektur erfassen$/ }).click();
 await page.waitForLoadState("networkidle").catch(() => {});
 await page.waitForTimeout(1800);
 // Bring the canvas focus back so the EC sibling tile is visible in the screenshot.
@@ -203,7 +203,7 @@ await page.getByLabel(/Stattdessen…/).fill(unimplemented);
 await page.waitForTimeout(200);
 await page.getByLabel(/Warum\?/).fill(reasonUnknown);
 await page.waitForTimeout(300);
-await page.getByRole("button", { name: /Korrektur erfassen/ }).click();
+await page.getByRole("button", { name: /^Korrektur erfassen$/ }).click();
 await page.waitForLoadState("networkidle").catch(() => {});
 await page.waitForTimeout(2000);
 const sessAfter2 = await getSession(session.session_id);
@@ -241,7 +241,7 @@ await page.waitForTimeout(400);
 await page.getByLabel(/Stattdessen…/).fill("formulate_task");
 // Warum bewusst leer lassen.
 await page.waitForTimeout(300);
-const submitBtn = page.getByRole("button", { name: /Korrektur erfassen/ });
+const submitBtn = page.getByRole("button", { name: /^Korrektur erfassen$/ });
 const submitDisabled = await submitBtn.isDisabled();
 await submitBtn.click({ trial: true }).catch(() => {}); // trial click = no real click, just hit-testing
 await page.waitForTimeout(800);
