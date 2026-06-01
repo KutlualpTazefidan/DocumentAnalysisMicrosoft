@@ -539,13 +539,29 @@ async def list_capability_requests(request: Request) -> dict:
                         "actor": n.actor,
                     }
                 )
-    pairs: list[tuple[int, str, list[dict]]] = [
-        (len(items), name, items[:5]) for name, items in aggregated.items()
-    ]
-    pairs.sort(key=lambda p: (-p[0], p[1]))
+    pairs: list[tuple[int, int, str, list[dict]]] = []
+    for name, items in aggregated.items():
+        # Bucket actors: only the literal "human" string counts as
+        # expert-prescribed; everything else (post-Phase-3
+        # capability_request actor="agent" Invariante, empty strings,
+        # unknown values) defaults to the agent bucket. Pins the
+        # invariant count_by_actor.human + count_by_actor.agent == count
+        # so the frontend's default-to-Agent badge matches the API.
+        human_count = sum(1 for it in items if it.get("actor") == "human")
+        pairs.append((len(items), human_count, name, items[:5]))
+    # Canonical sort: total count desc, then human-count desc
+    # (expert-prescribed wishlist ranks above agent-flagged at equal
+    # total), then name asc. API response order == UI render order.
+    pairs.sort(key=lambda p: (-p[0], -p[1], p[2]))
     return {
         "requests": [
-            {"name": name, "count": count, "examples": examples} for count, name, examples in pairs
+            {
+                "name": name,
+                "count": count,
+                "count_by_actor": {"human": human_count, "agent": count - human_count},
+                "examples": examples,
+            }
+            for count, human_count, name, examples in pairs
         ]
     }
 
