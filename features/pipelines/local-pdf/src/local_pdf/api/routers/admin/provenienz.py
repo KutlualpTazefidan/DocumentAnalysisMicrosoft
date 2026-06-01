@@ -5693,27 +5693,37 @@ def _maybe_record_reason(
 def _record_plan_expert_correction(
     cfg, sd: Path, body: DecideRequest, proposal: Node, session_id: str
 ) -> dict:
-    """Persist a typed expert override of a `plan_proposal`.
+    """Persist a typed expert override of a ``plan_proposal``.
 
-    Writes (in order):
-      1. ``expert_correction`` Node (Audit-Anker) — payload mirrors the
-         body's ExpertCorrection block + back-refs to the proposal +
-         is_unimplemented marker. ``actor="human"`` on the Node, not in
-         payload (top-level Dataclass field).
-      2. NOTE-skill record via ``append_reason`` so the existing
-         ``_gather_reason_guidance`` injection picks the override up
-         on the next /next-step. Carries ``correction_origin="plan_proposal"``
-         so a future Phase-2 migration (overrides.jsonl split) can filter
-         these without crawling the DAG.
-      3. (Only when ``intended_step`` is unknown) ``capability_request``
-         Node tagged ``actor="human"`` so the Wünsche-Tab aggregator can
-         distinguish expert-prescribed gaps from agent-emitted ones.
-      4. Edge ``kind="overrides"`` from the new expert_correction Node
-         to the source plan_proposal so the canvas can render the
-         "stattdessen" dotted sibling edge.
+    Phase-3 Node-Kind split: depending on whether the intended step is
+    in the registry, this writes ONE of two cleanly-typed Nodes
+    instead of Phase-1's polymorphic ``expert_correction``:
 
-    Returns a dict ``{expert_correction, capability_request, edges}``
-    suitable for the route response body.
+      • ``expert_step_override`` (Purpose 1 — teach the agent) — when
+        ``intended_step`` is a known registered step. Payload mirrors
+        the body's ExpertCorrection block + anchor fingerprint.
+      • ``expert_method_request`` (Purpose 2 — mark a capability gap)
+        — when ``intended_step`` names a method that's not yet
+        implemented. Payload folds in the capability-request data
+        (``name``, ``description``) so the
+        ``/capability-requests`` aggregator can read it directly; no
+        separate ``capability_request`` Node is spawned. The
+        ``capability_request`` kind stays agent-only (Invariante).
+
+    Both kinds drop the Phase-1 ``is_unimplemented`` flag from the
+    payload — the Node-Kind itself is the discriminator.
+
+    Always writes (Purpose 1 always-on):
+      • NOTE-skill record via ``append_reason`` so the existing
+        ``_gather_reason_guidance`` injection picks the override up on
+        the next /next-step. Carries ``correction_origin="plan_proposal"``
+        regardless of which kind landed.
+      • Edge ``kind="overrides"`` from the new override Node to the
+        source plan_proposal so the canvas renders the "stattdessen"
+        dotted sibling edge.
+
+    Returns ``{"override_node": <node_dict>, "edges": [<edge_dict>]}``.
+    The route response collects ``override_node`` into ``spawned_nodes``.
 
     Callers should already have validated that ``body.expert_correction``
     is not None and that ``proposal.kind == "plan_proposal"``.
@@ -5730,7 +5740,7 @@ def _record_plan_expert_correction(
     is_unimplemented = ec_body.intended_step not in _KNOWN_STEPS
 
     # Resolve the proposal's anchor so we can compute its fingerprint —
-    # Phase-2 retrieval (Step 3) prioritises corrections that match by
+    # Phase-2 retrieval prioritises corrections that match by
     # (step_kind, anchor_fingerprint). Empty fingerprint when the anchor
     # can't be resolved (e.g. proposal payload missing anchor_node_id, or
     # the anchor was tombstoned mid-session).
@@ -5742,33 +5752,51 @@ def _record_plan_expert_correction(
         if anchor_node is not None:
             anchor_fingerprint = compute_anchor_fingerprint(anchor_node.kind, anchor_node.payload)
 
-    # ── 1) Audit Node ────────────────────────────────────────────────
-    ec_node = append_node(
+    # ── 1) Audit Node — kind chosen by is_unimplemented ──────────────
+    # Shared payload across both kinds. Drop the Phase-1
+    # `is_unimplemented` flag — the Node.kind is the discriminator.
+    shared_payload: dict[str, Any] = {
+        "intended_step": ec_body.intended_step,
+        "intended_args": ec_body.intended_args,
+        "reason": ec_body.reason,
+        "target_proposal_node_id": proposal.node_id,
+        "target_step_kind": target_step_kind,
+        "anchor_fingerprint": anchor_fingerprint,
+        "post_hoc": ec_body.post_hoc,
+    }
+    if is_unimplemented:
+        # Fold the Phase-1 capability_request payload-fields directly
+        # into the method-request Node so the /capability-requests
+        # aggregator can read it without a parallel CR Node spawn.
+        # `name` mirrors `intended_step` (CR-aggregator's primary key);
+        # `description` is the reason truncated to the CR-aggregator's
+        # legacy 400-char cap so the wishlist UI surfaces the context.
+        override_kind = "expert_method_request"
+        override_payload = {
+            **shared_payload,
+            "name": ec_body.intended_step,
+            "description": ec_body.reason[:400],
+        }
+    else:
+        override_kind = "expert_step_override"
+        override_payload = shared_payload
+
+    override_node = append_node(
         sd,
         Node(
             node_id=new_id(),
             session_id=session_id,
-            kind="expert_correction",
-            payload={
-                "intended_step": ec_body.intended_step,
-                "intended_args": ec_body.intended_args,
-                "reason": ec_body.reason,
-                "target_proposal_node_id": proposal.node_id,
-                "target_step_kind": target_step_kind,
-                "is_unimplemented": is_unimplemented,
-                "anchor_fingerprint": anchor_fingerprint,
-                "post_hoc": ec_body.post_hoc,
-            },
+            kind=override_kind,
+            payload=override_payload,
             actor="human",
         ),
     )
 
     # ── 2) NOTE-skill via the existing reason pipeline ───────────────
-    # step_kind = the proposal's recommended step name so future
-    # plan_proposals of the *same* kind surface this override via
-    # _gather_reason_guidance. Synthesise a proposal_summary from the
-    # plan_proposal payload (which carries name + reasoning) since the
-    # legacy `recommended.label` key does not exist on plan_proposal.
+    # Always written, identical shape across both override kinds —
+    # Purpose 1 (teach the agent) is always-on. step_kind = the
+    # proposal's recommended step name so future plan_proposals of the
+    # same kind surface this override via _gather_reason_guidance.
     proposal_summary = (target_step_kind + " — " + str(proposal.payload.get("reasoning", "")))[:200]
     append_reason(
         cfg.data_root,
@@ -5786,32 +5814,13 @@ def _record_plan_expert_correction(
         ),
     )
 
-    # ── 3) capability_request Node (only for unimplemented steps) ────
-    cr_node: Node | None = None
-    if is_unimplemented:
-        cr_node = append_node(
-            sd,
-            Node(
-                node_id=new_id(),
-                session_id=session_id,
-                kind="capability_request",
-                payload={
-                    "name": ec_body.intended_step,
-                    "description": ec_body.reason[:400],
-                    "target_expert_correction_node_id": ec_node.node_id,
-                    "target_proposal_node_id": proposal.node_id,
-                },
-                actor="human",
-            ),
-        )
-
-    # ── 4) Edge: expert_correction → plan_proposal (dotted "stattdessen") ─
+    # ── 3) Edge: override Node → plan_proposal (dotted "stattdessen") ─
     edge = append_edge(
         sd,
         Edge(
             edge_id=new_id(),
             session_id=session_id,
-            from_node=ec_node.node_id,
+            from_node=override_node.node_id,
             to_node=proposal.node_id,
             kind="overrides",
             reason="stattdessen",
@@ -5820,8 +5829,7 @@ def _record_plan_expert_correction(
     )
 
     return {
-        "expert_correction": ec_node.__dict__,
-        "capability_request": cr_node.__dict__ if cr_node is not None else None,
+        "override_node": override_node.__dict__,
         "edges": [edge.__dict__],
     }
 
@@ -6525,13 +6533,11 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             ),
         )
         captured = _record_plan_expert_correction(cfg, sd, body, proposal, session_id)
-        spawned: list[dict] = [captured["expert_correction"]]
-        if captured["capability_request"] is not None:
-            spawned.append(captured["capability_request"])
-        # Same response-shape as the action_proposal branch so frontend
-        # callers can read decision_node/spawned_nodes/spawned_edges
-        # uniformly. The expert_correction Node always lands first in
-        # spawned_nodes; capability_request (if present) follows.
+        # Phase-3: exactly one override Node is spawned (either
+        # expert_step_override or expert_method_request). The
+        # capability_request payload-fields are folded into the
+        # method-request Node directly — no separate CR spawn.
+        spawned: list[dict] = [captured["override_node"]]
         return {
             "decision_node": decision.__dict__,
             "spawned_nodes": spawned,
