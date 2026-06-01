@@ -129,7 +129,7 @@ describe("PlanProposalPanel — idle state", () => {
     expect(screen.queryByLabelText(/Stattdessen…/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Warum\?/i)).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Korrektur erfassen/i }),
+      screen.queryByRole("button", { name: /^Korrektur erfassen$/i }),
     ).not.toBeInTheDocument();
   });
 });
@@ -144,7 +144,7 @@ describe("PlanProposalPanel — Verwerfen morph", () => {
     expect(screen.getByLabelText(/Stattdessen…/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Warum\?/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Korrektur erfassen/i }),
+      screen.getByRole("button", { name: /^Korrektur erfassen$/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Doch löschen/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Abbrechen/i })).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("PlanProposalPanel — Verwerfen morph", () => {
       screen.getByLabelText(/Warum\?/i),
       "Task formulieren passt besser.",
     );
-    await user.click(screen.getByRole("button", { name: /Korrektur erfassen/i }));
+    await user.click(screen.getByRole("button", { name: /^Korrektur erfassen$/i }));
 
     await waitFor(() => expect(decideHandler).toHaveBeenCalledTimes(1));
     expect(decideHandler).toHaveBeenCalledWith({
@@ -224,7 +224,7 @@ describe("PlanProposalPanel — Verwerfen morph", () => {
     await user.type(screen.getByLabelText(/Stattdessen…/i), "formulate_task");
     // Reason stays empty.
 
-    const submit = screen.getByRole("button", { name: /Korrektur erfassen/i });
+    const submit = screen.getByRole("button", { name: /^Korrektur erfassen$/i });
     expect(submit).toBeDisabled();
     // Even when clicked, the disabled button does not fire.
     await user.click(submit);
@@ -312,6 +312,6 @@ describe("PlanProposalPanel — keyboard tab order", () => {
     await user.keyboard("erstmal Begründung");
 
     await user.tab();
-    expect(screen.getByRole("button", { name: /Korrektur erfassen/i })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /^Korrektur erfassen$/i })).toHaveFocus();
   });
 });

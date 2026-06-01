@@ -109,6 +109,11 @@ export interface ExpertCorrection {
   intended_step: string;
   intended_args?: Record<string, unknown>;
   reason: string;
+  /** True when captured via the post-hoc drawer in PlanProposalPanel
+   *  AFTER the user already accepted ("I realised too late"). Persisted
+   *  on the EC node payload for audit only — retrieval treats it
+   *  identically to a decision-time correction. */
+  post_hoc?: boolean;
 }
 
 export interface DecideRequest {
