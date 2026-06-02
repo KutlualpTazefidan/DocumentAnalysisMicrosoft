@@ -92,10 +92,29 @@ export interface ActionProposal {
   created_at: string;
 }
 
+export interface ClarificationPrompt {
+  /** Pre-built German question rendered to the expert. The backend
+   *  formats this via CLARIFICATION_TEMPLATE — frontend is render-only. */
+  question: string;
+  /** Score the evaluator gave (1-5); rank=0→5, rank=1→4, rank=2→3,
+   *  absent→1. Currently informational; future UI could show this. */
+  score: number;
+  /** The expert_step_override / expert_method_request Node spawned by
+   *  the gap-detected /decide. Used as override_node_id in the
+   *  follow-up /clarify call. */
+  override_node_id: string;
+}
+
 export interface DecideResponse {
   decision_node: ProvNode;
   spawned_nodes: ProvNode[];
   spawned_edges: ProvEdge[];
+  /** Phase-RGA: present when the evaluator detected a gap in the
+   *  expert's reasoning. The frontend transitions PlanProposalPanel to
+   *  the "clarifying" state to ask the expert the question. Null/
+   *  undefined when no gap (or RGA disabled / post-hoc path / kill
+   *  switch). */
+  clarification?: ClarificationPrompt | null;
 }
 
 /** Typed expert override of a plan_proposal — captured via the kind-
@@ -126,6 +145,21 @@ export interface DecideRequest {
   override?: string;
   /** plan_proposal branch only — the typed expert override. */
   expert_correction?: ExpertCorrection;
+}
+
+export interface ClarifyRequest {
+  override_node_id: string;
+  /** The expert's deeper explanation. Empty string + skipped=true
+   *  = skip path; non-empty + skipped=false = submit path. Backend
+   *  validates exactly-one-of. */
+  clarification: string;
+  skipped: boolean;
+}
+
+export interface ClarifyResponse {
+  override_node: ProvNode;
+  spawned_nodes: ProvNode[];
+  spawned_edges: ProvEdge[];
 }
 
 // ---- fetchOk (shared util — duplicated from useComparison rather than refactored) ----
@@ -1495,6 +1529,32 @@ export function useDecide(token: string, sessionId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["provenienz", "session", sessionId] });
+    },
+  });
+}
+
+export function useClarify(token: string, sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<ClarifyResponse, Error, ClarifyRequest>({
+    mutationFn: async (body) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/provenienz/sessions/${sessionId}/clarify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        token,
+      );
+      return (await r.json()) as ClarifyResponse;
+    },
+    onSuccess: () => {
+      // Invalidate session-detail so the canvas refetches with the
+      // updated override Node (pending_clarification flipped) and any
+      // new spawned clarification_skipped Node + annotates edge.
+      queryClient.invalidateQueries({
+        queryKey: ["provenienz", "session", sessionId],
+      });
     },
   });
 }

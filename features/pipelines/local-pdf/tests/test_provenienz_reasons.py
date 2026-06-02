@@ -144,3 +144,114 @@ def test_legacy_reason_without_fingerprint_round_trips_with_empty_dict(tmp_path:
     append_reason(tmp_path, _r("extract_claims"))
     [loaded] = read_reasons(tmp_path)
     assert loaded.anchor_fingerprint == {}
+
+
+# ── Phase-RGA: clarification + pending + capture_source round-trip ────────
+
+
+def test_clarification_round_trips_through_skill_store(tmp_path: Path):
+    seeded = append_reason(
+        tmp_path,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="s",
+            proposal_id="p",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+            clarification="weil X spezifisch auf Y verweist",
+        ),
+    )
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.reason_id == seeded.reason_id
+    assert loaded.clarification == "weil X spezifisch auf Y verweist"
+
+
+def test_pending_clarification_round_trips_via_marker_line(tmp_path: Path):
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="s",
+            proposal_id="p",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+            pending_clarification=True,
+        ),
+    )
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.pending_clarification is True
+
+
+def test_capture_source_post_hoc_round_trips(tmp_path: Path):
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="s",
+            proposal_id="p",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+            capture_source="post_hoc",
+        ),
+    )
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.capture_source == "post_hoc"
+
+
+def test_legacy_reason_defaults_all_three_new_fields(tmp_path: Path):
+    # Pre-RGA NOTE-skills decode with empty clarification, False pending,
+    # decision_time capture_source — fully backward-compatible.
+    append_reason(tmp_path, _r("extract_claims"))
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.clarification == ""
+    assert loaded.pending_clarification is False
+    assert loaded.capture_source == "decision_time"
+
+
+def test_read_reasons_dedups_by_reason_id_latest_wins(tmp_path: Path):
+    # Write the same reason_id twice with different clarification values;
+    # the latest record must win (dedup logic in read_reasons).
+    rid = "01TESTID"
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id=rid,
+            step_kind="extract_claims",
+            session_id="s",
+            proposal_id="p",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+            pending_clarification=True,
+        ),
+    )
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id=rid,
+            step_kind="extract_claims",
+            session_id="s",
+            proposal_id="p",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+            clarification="resolved text",
+            pending_clarification=False,
+        ),
+    )
+    out = read_reasons(tmp_path)
+    assert len(out) == 1
+    assert out[0].reason_id == rid
+    assert out[0].pending_clarification is False
+    assert out[0].clarification == "resolved text"

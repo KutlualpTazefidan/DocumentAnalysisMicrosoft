@@ -20,7 +20,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from llm_clients.base import Message
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from local_pdf.api.schemas import ExpertCorrection  # noqa: TC001 — runtime Pydantic field type
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
@@ -58,6 +58,7 @@ from local_pdf.provenienz.storage import (
     Edge,
     Node,
     SessionMeta,
+    _now,
     append_edge,
     append_node,
     append_tombstone,
@@ -2367,11 +2368,14 @@ def _format_reason_examples(reasons: list[Reason]) -> str:
         return ""
     lines = ["", "## Frühere Korrekturen durch den Nutzer"]
     for r in reasons:
-        lines.append(
+        entry = (
             f"- Empfehlung: {r.proposal_summary}\n"
             f"  Korrektur:  {r.override_summary}\n"
             f"  Grund:      {r.reason_text}"
         )
+        if r.clarification:
+            entry += f"\n  Klarstellung: {r.clarification}"
+        lines.append(entry)
     lines.append("Berücksichtige diese Korrekturen, wenn sie auf die aktuelle Aufgabe zutreffen.")
     return "\n".join(lines)
 
@@ -4805,6 +4809,274 @@ def _llm_extract_claim_goals(
     return [str(g).strip()[:200] if isinstance(g, str) else "" for g in parsed]
 
 
+# ── Phase-RGA: Reasoning-Gap-Analysis evaluator ─────────────────────────
+
+# Default score threshold. Override at runtime via env var
+# PROVENIENZ_RGA_SCORE_THRESHOLD. Score < threshold = gap detected.
+_RGA_DEFAULT_THRESHOLD = 3
+
+# Kill switch. When set to "0"/"false"/"no", the evaluator call is
+# skipped entirely from _record_plan_expert_correction (see Step 4 wire);
+# the override flows through the pre-Phase-RGA path.
+_RGA_DEFAULT_ENABLED = "1"
+
+
+def _rga_threshold() -> int:
+    """Read PROVENIENZ_RGA_SCORE_THRESHOLD, defaulting to
+    _RGA_DEFAULT_THRESHOLD on missing or malformed value."""
+    raw = os.environ.get("PROVENIENZ_RGA_SCORE_THRESHOLD", "")
+    try:
+        return int(raw) if raw else _RGA_DEFAULT_THRESHOLD
+    except ValueError:
+        _log.warning(
+            "rga: malformed PROVENIENZ_RGA_SCORE_THRESHOLD=%r, falling back to %d",
+            raw,
+            _RGA_DEFAULT_THRESHOLD,
+        )
+        return _RGA_DEFAULT_THRESHOLD
+
+
+def _rga_enabled() -> bool:
+    """Read PROVENIENZ_RGA_ENABLED env switch. Treats "0"/"false"/"no"
+    (case-insensitive) as disabled; everything else as enabled."""
+    raw = os.environ.get("PROVENIENZ_RGA_ENABLED", _RGA_DEFAULT_ENABLED).strip().lower()
+    return raw not in ("0", "false", "no")
+
+
+RGA_PLAUSIBLE_STEPS_SYSTEM = (
+    "Du bist ein Recherche-Planer in einem dokumenten-getriebenen "
+    "Provenienz-System. Deine Aufgabe ist NICHT, irgendeine Entscheidung zu "
+    "bewerten. Du siehst weder die Empfehlung eines Agenten noch den Wunsch "
+    "eines Experten. Du siehst einen Knoten + ein Sitzungs-Ziel + eine "
+    "Notiz zum Kontext.\n\n"
+    "Aufgabe: nenne die zwei bis drei plausibelsten Prozess-Schritte, die "
+    "jetzt — rein aus der Inhalts-Logik des Knotens und des Sitzungs-Ziels "
+    "heraus — sinnvoll wären. Reihenfolge = absteigende Plausibilität. Der "
+    "wahrscheinlichste Schritt steht an erster Stelle.\n\n"
+    "WICHTIG zur Hintergrund-Notiz: die Notiz dient NUR der Themen-"
+    "Orientierung. Sie ist KEINE Begründung, die du übernehmen sollst, und "
+    'sie ist KEIN Hinweis auf einen "richtigen" Schritt. Wenn sie einen '
+    "Schritt nahelegt, prüfe trotzdem unabhängig, ob dieser Schritt aus der "
+    "Inhalts-Logik selbst plausibel ist. Schritte, die nur durch die Notiz "
+    "motiviert sind und nicht durch den Knoten selbst, gehören NICHT in "
+    "deine Liste.\n\n"
+    "Wähle ausschließlich Schritte aus der unten genannten Step-Liste. "
+    "Nutze die Step-Namen exakt wie dort gelistet — keine Verkürzungen, "
+    "keine Synonyme.\n\n"
+    "Antworte AUSSCHLIESSLICH als JSON in genau dieser Form:\n\n"
+    "{\n"
+    '  "ranked_steps": ["<Step-Name-1>", "<Step-Name-2>", "<Step-Name-3>"],\n'
+    '  "rationale": "<ein bis zwei kurze deutsche Sätze pro Schritt: warum '
+    "dieser Schritt für DIESEN Knoten plausibel ist — bezogen auf den "
+    'Inhalt, nicht auf die Notiz>"\n'
+    "}\n\n"
+    "Liefere mindestens zwei und höchstens drei Schritte. Kein Vor- oder "
+    "Nachtext, keine Codeblöcke, keine zusätzlichen Felder.\n"
+)
+
+
+CLARIFICATION_TEMPLATE = (
+    "Sie haben statt »{agent_pick}« den Schritt »{intended_step}« gewählt "
+    "mit der Begründung: «{reason}». Aus dem Knoten allein lässt sich "
+    "»{intended_step}« nicht ableiten. Bitte erläutern Sie, was am Knoten-"
+    "Inhalt oder am Sitzungs-Ziel »{intended_step}« hier nahelegt — "
+    "was haben Sie gesehen, das der Agent nicht gesehen hat?"
+)
+
+
+def _llm_evaluate_plan_override(
+    anchor: Node,
+    session_goal: str,
+    reason_text: str,
+    intended_step: str,
+) -> dict:
+    """Phase-RGA Top-N inclusion evaluator. Asks the planner LLM to
+    enumerate the 2-3 most plausible next-steps for the anchor + reason
+    (as 'Hintergrund-Notiz', not as justification). The expert's
+    intended_step is matched mechanically against the ranked list;
+    rank → score: 0→5, 1→4, 2→3, absent→1. Score < threshold = gap.
+
+    The LLM NEVER sees the agent's pick or the expert's intended_step —
+    structural sycophancy resistance is the whole point of the Top-N
+    framing.
+
+    Returns dict with keys:
+      - ranked_steps_raw: list[str] of step names the LLM emitted (pre-alias)
+      - ranked_steps_canonical: list[str] post-alias-canonicalization
+        (Qwen3-8B hallucinates short forms like 'extract' that map to
+        'extract_claims' via _STEP_ALIASES)
+      - rank: int | None  (0/1/2 if intended_step appears in canonical,
+        else None)
+      - score: int (5/4/3 from rank, 1 if absent or LLM failure)
+      - rationale: str (the LLM's per-step justification, capped 400 chars)
+      - parse_error: bool (True on any JSON/LLM/validation failure)
+
+    Fail-soft: any failure path returns score=5 (= "obvious", no gap
+    detected, no clarification spawn) + parse_error=True so telemetry
+    can see how often this fires.
+    """
+    valid_steps = _VALID_STEPS_FOR_KIND.get(anchor.kind, [])
+    if not valid_steps:
+        # Anchor kind has no registered steps — evaluator can't do
+        # anything meaningful; treat as obvious (caller should never
+        # have reached here, but defensive).
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": "no valid steps for anchor kind",
+            "parse_error": False,
+        }
+
+    # User-prompt builder. Mirror the _llm_next_step framing for the
+    # anchor + session_goal block, then the reason as a "themen-notiz"
+    # block, then the valid steps for the anchor kind.
+    user = (
+        f"## Knoten\n"
+        f"kind={anchor.kind}, payload={json.dumps(anchor.payload, ensure_ascii=False)[:600]}\n\n"
+        f"## Sitzungs-Ziel\n{session_goal or '(nicht gesetzt)'}\n\n"
+        f"## Hintergrund-Notiz (NUR zur Themen-Orientierung, NICHT als Begründung bewerten)\n"
+        f"{reason_text[:400]}\n\n"
+        f"## Verfügbare Steps\n{', '.join(valid_steps)}\n\n"
+        f"Plausibelste Schritte (JSON):"
+    )
+
+    try:
+        client = get_llm_client()
+        completion = client.complete(
+            messages=[
+                Message(role="system", content=RGA_PLAUSIBLE_STEPS_SYSTEM + _NO_THINK),
+                Message(role="user", content=user),
+            ],
+            model=get_default_model(),
+            max_tokens=_MAX_TOKENS_STRUCTURED,
+        )
+    except Exception as exc:
+        _log.warning("rga: LLM call failed: %s", exc)
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": f"LLM call failed: {exc}",
+            "parse_error": True,
+        }
+
+    raw_text = _strip_json_fence(completion.text or "")
+    try:
+        parsed = json.loads(raw_text)
+        ranked_raw = parsed.get("ranked_steps", [])
+        rationale = str(parsed.get("rationale", ""))[:400]
+        if not isinstance(ranked_raw, list) or not (2 <= len(ranked_raw) <= 3):
+            raise ValueError(f"ranked_steps malformed: {ranked_raw!r}")
+        ranked_raw = [str(s).strip() for s in ranked_raw if str(s).strip()]
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        _log.warning("rga: parse failed for completion %r: %s", raw_text[:200], exc)
+        return {
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 5,
+            "rationale": f"parse failed: {exc}",
+            "parse_error": True,
+        }
+
+    # Alias canonicalization — Qwen3-8B hallucinates short forms.
+    # _STEP_ALIASES is structured as {alias: {anchor_kind: canonical}}.
+    # Drop any entry that doesn't canonicalize to a valid step for
+    # this anchor kind.
+    ranked_canonical: list[str] = []
+    for name in ranked_raw:
+        canon = _STEP_ALIASES.get(name, {}).get(anchor.kind, name)
+        if canon in valid_steps:
+            ranked_canonical.append(canon)
+
+    # Mechanical rank → score.
+    rank: int | None = None
+    if intended_step in ranked_canonical:
+        rank = ranked_canonical.index(intended_step)
+    score_table = {0: 5, 1: 4, 2: 3}
+    score = score_table.get(rank, 1) if rank is not None else 1
+
+    return {
+        "ranked_steps_raw": ranked_raw,
+        "ranked_steps_canonical": ranked_canonical,
+        "rank": rank,
+        "score": score,
+        "rationale": rationale,
+        "parse_error": False,
+    }
+
+
+def _emit_rga_telemetry(
+    data_root: Path,
+    *,
+    session_id: str,
+    proposal_node_id: str,
+    anchor_kind: str,
+    anchor_fingerprint: dict[str, Any],
+    agent_pick: str,
+    intended_step: str,
+    capture_source: str,
+    eval_result: dict,
+    threshold: int,
+    gap_detected: bool,
+    reason_text: str,
+    resolution: str | None = None,
+) -> None:
+    """Append one JSONL row to {data_root}/provenienz/rga_telemetry.jsonl
+    per evaluator call (and a second row per /clarify resolution in
+    Step 6 — same function, called with resolution="submitted"/"skipped").
+
+    Separate file (NOT events.jsonl) because events.jsonl is contractually
+    reserved for the Node/Edge replay log. Telemetry is calibration
+    corpus material — read in batch later to tune the score threshold
+    against the real distribution of evaluator outputs.
+
+    Failure to write telemetry MUST NEVER break /decide. All exceptions
+    are caught + logged at warning level.
+
+    Fields (per spec §Telemetry):
+      - ts, session_id, proposal_node_id, anchor_kind, anchor_fingerprint
+      - agent_pick, intended_step, capture_source
+      - ranked_steps_raw, ranked_steps_canonical, rank, score
+      - threshold, gap_detected
+      - rationale, reason_text[:200], parse_error, model
+      - resolution (None on the /decide eval row, "submitted" or
+        "skipped" on a /clarify follow-up row written from Step 6)
+    """
+    row: dict[str, Any] = {
+        "ts": _now(),
+        "session_id": session_id,
+        "proposal_node_id": proposal_node_id,
+        "anchor_kind": anchor_kind,
+        "anchor_fingerprint": anchor_fingerprint,
+        "agent_pick": agent_pick,
+        "intended_step": intended_step,
+        "capture_source": capture_source,
+        "ranked_steps_raw": eval_result.get("ranked_steps_raw", []),
+        "ranked_steps_canonical": eval_result.get("ranked_steps_canonical", []),
+        "rank": eval_result.get("rank"),
+        "score": eval_result.get("score", 5),
+        "threshold": threshold,
+        "gap_detected": gap_detected,
+        "rationale": eval_result.get("rationale", ""),
+        "reason_text": (reason_text or "")[:200],
+        "parse_error": eval_result.get("parse_error", False),
+        "model": get_default_model(),
+        "resolution": resolution,
+    }
+    try:
+        telemetry_dir = data_root / "provenienz"
+        telemetry_dir.mkdir(parents=True, exist_ok=True)
+        telemetry_path = telemetry_dir / "rga_telemetry.jsonl"
+        with telemetry_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as exc:  # telemetry must never break /decide
+        _log.warning("rga: failed to write telemetry row: %s", exc)
+
+
 def _llm_next_step(
     anchor: Node,
     session_goal: str,
@@ -5740,6 +6012,30 @@ class DecideRequest(BaseModel):
         return self
 
 
+class ClarifyRequest(BaseModel):
+    """Body for POST /sessions/{id}/clarify. Resolves a pending
+    Phase-RGA clarification from a prior /decide call. Exactly one of
+    (clarification non-empty, skipped=True) must be supplied.
+
+    The override_node_id is the node spawned by the gap-detected /decide
+    response (returned in response.clarification.override_node_id).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    override_node_id: str = Field(min_length=1)
+    clarification: str = Field(default="", max_length=4000)
+    skipped: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_of_submit_or_skip(self) -> ClarifyRequest:
+        has_text = bool(self.clarification.strip())
+        if has_text == self.skipped:  # both True or both False
+            raise ValueError(
+                "exactly one of {clarification (non-empty), skipped=True} must be supplied"
+            )
+        return self
+
+
 def _override_summary(body: DecideRequest) -> str:
     """One-line override summary capped at 200 chars."""
     s = (body.override or "").strip().replace("\n", " ")
@@ -5825,12 +6121,20 @@ def _record_plan_expert_correction(
     target_step_kind = str(proposal.payload.get("name", "")) or "unknown_step"
     is_unimplemented = ec_body.intended_step not in _KNOWN_STEPS
 
+    # Read the session goal for the RGA evaluator. Defensive default —
+    # the session can be active without a goal set (Phase-A.1
+    # /sessions/{id}/goal is optional).
+    meta = read_meta(sd)
+    session_goal = (meta.goal if meta is not None else "") or ""
+
     # Resolve the proposal's anchor so we can compute its fingerprint —
     # Phase-2 retrieval prioritises corrections that match by
     # (step_kind, anchor_fingerprint). Empty fingerprint when the anchor
     # can't be resolved (e.g. proposal payload missing anchor_node_id, or
-    # the anchor was tombstoned mid-session).
+    # the anchor was tombstoned mid-session). Hoist ``anchor_node`` out
+    # of the inner branch so the RGA gate (below) can guard on it.
     anchor_fingerprint: dict[str, Any] = {}
+    anchor_node: Node | None = None
     anchor_node_id = str(proposal.payload.get("anchor_node_id", "") or "")
     if anchor_node_id:
         sess_nodes, _ = read_session(sd)
@@ -5838,9 +6142,46 @@ def _record_plan_expert_correction(
         if anchor_node is not None:
             anchor_fingerprint = compute_anchor_fingerprint(anchor_node.kind, anchor_node.payload)
 
+    # ── Phase-RGA: gap-detection evaluator + telemetry ────────────────
+    # capture_source discriminates decision-time corrections (the live
+    # /decide flow) from post-hoc reflections (the Phase-2 drawer). The
+    # evaluator + clarification-state are scoped to the decision-time
+    # path; post-hoc reflections are by definition NOT open decisions, so
+    # interrogating them with a clarifying-state question would re-frame
+    # reflection as cross-examination.
+    capture_source = "post_hoc" if ec_body.post_hoc else "decision_time"
+    eval_result: dict | None = None
+    gap_detected = False
+    if _rga_enabled() and not ec_body.post_hoc and anchor_node is not None:
+        eval_result = _llm_evaluate_plan_override(
+            anchor_node,
+            session_goal,
+            ec_body.reason,
+            ec_body.intended_step,
+        )
+        threshold = _rga_threshold()
+        gap_detected = eval_result["score"] < threshold
+        _emit_rga_telemetry(
+            cfg.data_root,
+            session_id=session_id,
+            proposal_node_id=proposal.node_id,
+            anchor_kind=anchor_node.kind,
+            anchor_fingerprint=anchor_fingerprint,
+            agent_pick=target_step_kind,
+            intended_step=ec_body.intended_step,
+            capture_source=capture_source,
+            eval_result=eval_result,
+            threshold=threshold,
+            gap_detected=gap_detected,
+            reason_text=ec_body.reason,
+        )
+
     # ── 1) Audit Node — kind chosen by is_unimplemented ──────────────
     # Shared payload across both kinds. Drop the Phase-1
     # `is_unimplemented` flag — the Node.kind is the discriminator.
+    # Phase-RGA: capture_source + pending_clarification land on every
+    # override Node; the rga sub-dict is only present on the
+    # decision-time, evaluator-ran path.
     shared_payload: dict[str, Any] = {
         "intended_step": ec_body.intended_step,
         "intended_args": ec_body.intended_args,
@@ -5849,7 +6190,16 @@ def _record_plan_expert_correction(
         "target_step_kind": target_step_kind,
         "anchor_fingerprint": anchor_fingerprint,
         "post_hoc": ec_body.post_hoc,
+        "capture_source": capture_source,
+        "pending_clarification": gap_detected,
     }
+    if eval_result is not None:
+        shared_payload["rga"] = {
+            "ranked_steps_canonical": eval_result["ranked_steps_canonical"],
+            "rank": eval_result["rank"],
+            "score": eval_result["score"],
+            "threshold": _rga_threshold(),
+        }
     if is_unimplemented:
         # Fold the Phase-1 capability_request payload-fields directly
         # into the method-request Node so the /capability-requests
@@ -5883,6 +6233,11 @@ def _record_plan_expert_correction(
     # Purpose 1 (teach the agent) is always-on. step_kind = the
     # proposal's recommended step name so future plan_proposals of the
     # same kind surface this override via _gather_reason_guidance.
+    # Phase-RGA: write-now+pending semantics — the Reason lands
+    # immediately so the prompt-injector picks the raw expert reasoning
+    # up on the next /next-step. clarification="" is filled later by
+    # /clarify (Step 6); pending_clarification distinguishes
+    # gap-flagged-but-unresolved entries from finalized ones in audit.
     proposal_summary = (target_step_kind + " — " + str(proposal.payload.get("reasoning", "")))[:200]
     append_reason(
         cfg.data_root,
@@ -5897,6 +6252,9 @@ def _record_plan_expert_correction(
             actor="human",
             correction_origin="plan_proposal",
             anchor_fingerprint=anchor_fingerprint,
+            clarification="",
+            pending_clarification=gap_detected,
+            capture_source=capture_source,
         ),
     )
 
@@ -5914,9 +6272,22 @@ def _record_plan_expert_correction(
         ),
     )
 
+    clarification: dict | None = None
+    if gap_detected and eval_result is not None:
+        clarification = {
+            "question": CLARIFICATION_TEMPLATE.format(
+                agent_pick=target_step_kind,
+                intended_step=ec_body.intended_step,
+                reason=ec_body.reason,
+            ),
+            "score": eval_result["score"],
+            "override_node_id": override_node.node_id,
+        }
+
     return {
         "override_node": override_node.__dict__,
         "edges": [edge.__dict__],
+        "clarification": clarification,
     }
 
 
@@ -6628,6 +6999,13 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
             "decision_node": decision.__dict__,
             "spawned_nodes": spawned,
             "spawned_edges": [e_decided.__dict__, *captured["edges"]],
+            # Phase-RGA: surface the clarification block (None on
+            # obvious overrides / post_hoc / kill-switched paths;
+            # dict with {question, score, override_node_id} on
+            # gap-detected paths). The frontend transitions into
+            # clarifying-state when this is non-None and routes to
+            # POST /clarify (Step 6).
+            "clarification": captured.get("clarification"),
         }
 
     # ── action_proposal branch (unchanged) ─────────────────────────────
@@ -7593,3 +7971,217 @@ async def decide(session_id: str, body: DecideRequest, request: Request) -> dict
         }
 
     raise HTTPException(status_code=501, detail=f"step_kind not yet handled: {step_kind}")
+
+
+@router.post(
+    "/api/admin/provenienz/sessions/{session_id}/clarify",
+    status_code=201,
+)
+async def clarify(session_id: str, body: ClarifyRequest, request: Request) -> dict:
+    """Resolve a Phase-RGA pending clarification.
+
+    Submit-path (body.clarification non-empty):
+      - Update the override Node payload: pending_clarification=False,
+        clarification=<text>. Re-append the Node event (same node_id,
+        mutated payload) following the existing tombstone-style update
+        pattern used elsewhere in this module.
+      - Append-event the existing Reason to flip pending_clarification
+        and add the clarification text. The reason_id stays the same;
+        read_reasons' dedup keeps the latest record.
+      - Emit a /clarify telemetry row (resolution="submitted").
+
+    Skip-path (body.skipped=True):
+      - Spawn a new `clarification_skipped` annotation Node with payload
+        carrying the question + agent_pick + intended_step + back-ref
+        to the override.
+      - Spawn an edge `kind="annotates"` from skip-Node -> override-Node.
+      - Update the override Node payload: pending_clarification=False
+        (no clarification text). Re-append.
+      - Append-event the existing Reason to flip pending_clarification.
+      - Emit a /clarify telemetry row (resolution="skipped").
+
+    Returns: a dict with the updated override_node + any new spawned
+    nodes/edges + edges list, mirroring decide's shape.
+
+    Errors:
+      - 404 if override_node_id not found in the session.
+      - 409 if the override Node's payload already has
+        pending_clarification=False (double-resolve guard).
+      - 422 from the model_validator (FastAPI default) if neither/both
+        of clarification + skipped supplied — never reaches the handler.
+    """
+    cfg = request.app.state.config
+    sd = _find_session_dir(_request_tenant_root(request), session_id)
+    if sd is None:
+        raise HTTPException(status_code=404, detail=f"session not found: {session_id}")
+
+    nodes, _edges = read_session(sd)
+    override_node = next(
+        (n for n in nodes if n.node_id == body.override_node_id),
+        None,
+    )
+    if override_node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"override node not found: {body.override_node_id}",
+        )
+    if override_node.kind not in ("expert_step_override", "expert_method_request"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"node is not an expert override: kind={override_node.kind}",
+        )
+    if not override_node.payload.get("pending_clarification", False):
+        raise HTTPException(
+            status_code=409,
+            detail=f"override already resolved: {body.override_node_id}",
+        )
+
+    target_proposal_node_id = str(override_node.payload.get("target_proposal_node_id", "") or "")
+    target_step_kind = str(override_node.payload.get("target_step_kind", "") or "")
+    intended_step = str(override_node.payload.get("intended_step", "") or "")
+    reason_text = str(override_node.payload.get("reason", "") or "")
+    capture_source = str(
+        override_node.payload.get("capture_source", "decision_time") or "decision_time"
+    )
+    anchor_fingerprint = override_node.payload.get("anchor_fingerprint", {})
+
+    # Update the override Node's payload via re-append (same node_id,
+    # mutated payload). The read-time path always uses the latest record.
+    new_payload = dict(override_node.payload)
+    new_payload["pending_clarification"] = False
+    clarification_text = ""
+    if not body.skipped:
+        clarification_text = body.clarification.strip()
+        new_payload["clarification"] = clarification_text
+    updated_override = append_node(
+        sd,
+        Node(
+            node_id=override_node.node_id,
+            session_id=session_id,
+            kind=override_node.kind,
+            payload=new_payload,
+            actor=override_node.actor,
+        ),
+    )
+
+    # Re-write the Reason via append (read_reasons dedups latest-wins).
+    # The original reason_id was minted inside _record_plan_expert_correction;
+    # we don't have it directly. Look it up by matching the unique
+    # (step_kind, override_summary, reason_text, pending_clarification=True)
+    # tuple — read_reasons strips session_id/proposal_id (Skill round-trip
+    # is lossy on those), so we use the surviving fields. The pending=True
+    # flag distinguishes the not-yet-resolved Reason this clarify call is
+    # targeting from any prior resolved overrides on the same step_kind.
+    override_summary_key = intended_step[:200]
+    reason_text_key = reason_text[:200]
+    existing_reasons = [
+        r
+        for r in read_reasons(cfg.data_root, step_kind=target_step_kind, last_n=50)
+        if r.override_summary == override_summary_key
+        and r.reason_text == reason_text_key
+        and r.pending_clarification
+    ]
+    # If found, reuse its reason_id so the latest-wins dedup collapses
+    # both records into one entry. Otherwise mint a new one (defensive —
+    # shouldn't fire in practice unless the corpus lost the original
+    # Reason between /decide and /clarify).
+    reason_id = existing_reasons[-1].reason_id if existing_reasons else new_id()
+    proposal_summary = (
+        target_step_kind + " — " + str(override_node.payload.get("reason", "")[:0])
+    )[:200]
+    # Re-build the proposal_summary from the existing NOTE-skill if possible.
+    if existing_reasons:
+        proposal_summary = existing_reasons[-1].proposal_summary
+    append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id=reason_id,
+            step_kind=target_step_kind,
+            session_id=session_id,
+            proposal_id=target_proposal_node_id,
+            proposal_summary=proposal_summary,
+            override_summary=intended_step[:200],
+            reason_text=reason_text[:200],
+            actor="human",
+            correction_origin="plan_proposal",
+            anchor_fingerprint=anchor_fingerprint,
+            clarification=clarification_text,
+            pending_clarification=False,
+            capture_source=capture_source,
+        ),
+    )
+
+    spawned_nodes: list[dict] = []
+    spawned_edges: list[dict] = []
+
+    if body.skipped:
+        # Spawn the clarification_skipped annotation Node + "annotates" edge.
+        skip_node = append_node(
+            sd,
+            Node(
+                node_id=new_id(),
+                session_id=session_id,
+                kind="clarification_skipped",
+                payload={
+                    "target_override_node_id": override_node.node_id,
+                    "target_proposal_node_id": target_proposal_node_id,
+                    "agent_pick": target_step_kind,
+                    "intended_step": intended_step,
+                    # Re-build the question from the template — used for
+                    # telemetry "bad question vs rushed expert" analysis.
+                    "question": CLARIFICATION_TEMPLATE.format(
+                        agent_pick=target_step_kind,
+                        intended_step=intended_step,
+                        reason=reason_text,
+                    ),
+                },
+                actor="human",
+            ),
+        )
+        spawned_nodes.append(skip_node.__dict__)
+        ann_edge = append_edge(
+            sd,
+            Edge(
+                edge_id=new_id(),
+                session_id=session_id,
+                from_node=skip_node.node_id,
+                to_node=override_node.node_id,
+                kind="annotates",
+                reason="clarification skipped",
+                actor="human",
+            ),
+        )
+        spawned_edges.append(ann_edge.__dict__)
+
+    # Emit second telemetry row reflecting the resolution.
+    # eval_result is None (no new evaluator call); we still record the
+    # resolution flag so the calibration corpus can pair /decide rows
+    # with their resolution.
+    _emit_rga_telemetry(
+        cfg.data_root,
+        session_id=session_id,
+        proposal_node_id=target_proposal_node_id,
+        anchor_kind=str(override_node.payload.get("anchor_fingerprint", {}).get("anchor_kind", "")),
+        anchor_fingerprint=anchor_fingerprint,
+        agent_pick=target_step_kind,
+        intended_step=intended_step,
+        capture_source=capture_source,
+        eval_result={
+            "ranked_steps_raw": [],
+            "ranked_steps_canonical": [],
+            "rank": None,
+            "score": 0,  # post-resolution; the original /decide row holds the score
+            "rationale": "",
+            "parse_error": False,
+        },
+        threshold=_rga_threshold(),
+        gap_detected=True,  # by definition, if we're resolving, gap was detected
+        reason_text=reason_text,
+        resolution="skipped" if body.skipped else "submitted",
+    )
+
+    return {
+        "override_node": updated_override.__dict__,
+        "spawned_nodes": spawned_nodes,
+        "spawned_edges": spawned_edges,
+    }

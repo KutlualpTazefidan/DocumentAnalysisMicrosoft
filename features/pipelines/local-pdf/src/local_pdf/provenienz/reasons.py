@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 # three Empfehlung/Korrektur/Grund prefixes, so adding this is backward-
 # compatible for callers that still walk the old shape.
 _FINGERPRINT_LINE_PREFIX = "__fingerprint__: "
+# Phase-RGA: parallel marker lines for pending_clarification + capture_source.
+# Same convention as the fingerprint line — written only when non-default so
+# the free_text stays compact for the common decision_time + resolved case.
+_PENDING_LINE_PREFIX = "__pending__: "
+_CAPTURE_SOURCE_LINE_PREFIX = "__capture_source__: "
 
 
 def compute_anchor_fingerprint(anchor_kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -99,6 +104,18 @@ class Reason:
     # shape and the retrieval-time prioritisation logic in
     # _gather_reason_guidance.
     anchor_fingerprint: dict[str, Any] = field(default_factory=dict)
+    # Phase-RGA: substantive enrichment from the clarifying-state follow-up.
+    # Empty for legacy reasons + for "obvious" overrides (no gap detected).
+    clarification: str = ""
+    # Phase-RGA: True only between /decide (gap-detected) and /clarify resolve.
+    # The Phase-2 prompt-injector includes pending reasons (raw expert
+    # reasoning is still signal); the flag distinguishes them in audit.
+    pending_clarification: bool = False
+    # Phase-RGA: "decision_time" for plan_proposal-decide-time captures
+    # (the default); "post_hoc" for the Phase-2 post-hoc drawer path.
+    # Lets future calibration distinguish RGA-validated entries from
+    # unchecked post-hoc ones.
+    capture_source: str = "decision_time"
 
 
 def append_reason(data_root: Path, r: Reason) -> Reason:
@@ -146,12 +163,19 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
     parts: list[str] = []
     if r.anchor_fingerprint:
         parts.append(_FINGERPRINT_LINE_PREFIX + json.dumps(r.anchor_fingerprint, sort_keys=True))
+    if r.pending_clarification:
+        parts.append(_PENDING_LINE_PREFIX + json.dumps(True))
+    if r.capture_source and r.capture_source != "decision_time":
+        parts.append(_CAPTURE_SOURCE_LINE_PREFIX + json.dumps(r.capture_source))
     if proposal:
         parts.append(f"Empfehlung: {proposal}")
     if override:
         parts.append(f"  Korrektur:  {override}")
     if grund:
         parts.append(f"  Grund:      {grund}")
+    clarification = (r.clarification or "").strip()
+    if clarification:
+        parts.append(f"  Klarstellung:  {clarification}")
     free_text = "\n".join(parts) if parts else grund
 
     # Origin prefix in the skill name lets a downstream filter (Phase-2
@@ -178,18 +202,19 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
     append_skill_event(data_root, skill)
 
 
-def _unpack_free_text(free_text: str) -> tuple[str, str, str]:
-    """Inverse of the 3-line packing in _write_through_to_skills.
+def _unpack_free_text(free_text: str) -> tuple[str, str, str, str]:
+    """Inverse of the 4-line packing in _persist_reason_as_skill.
 
-    Returns ``(proposal_summary, override_summary, reason_text)``. If
-    free_text doesn't carry the legacy markers (e.g. a NOTE skill
-    authored directly through the skills API rather than via
-    ``append_reason``), proposal/override come back empty and the full
-    block is returned as ``reason_text``.
+    Returns ``(proposal_summary, override_summary, reason_text,
+    clarification)``. If free_text doesn't carry the legacy markers
+    (e.g. a NOTE skill authored directly through the skills API rather
+    than via ``append_reason``), proposal/override/clarification come
+    back empty and the full block is returned as ``reason_text``.
     """
     proposal = ""
     override = ""
     grund = ""
+    clarification = ""
     matched_any = False
     for raw in free_text.splitlines():
         line = raw.strip()
@@ -202,9 +227,12 @@ def _unpack_free_text(free_text: str) -> tuple[str, str, str]:
         elif line.startswith("Grund:"):
             grund = line[len("Grund:") :].strip()
             matched_any = True
+        elif line.startswith("Klarstellung:"):
+            clarification = line[len("Klarstellung:") :].strip()
+            matched_any = True
     if not matched_any:
-        return "", "", free_text
-    return proposal, override, grund
+        return "", "", free_text, ""
+    return proposal, override, grund, clarification
 
 
 def _skill_to_reason(s: Skill) -> Reason:
@@ -219,15 +247,28 @@ def _skill_to_reason(s: Skill) -> Reason:
     dict when the line is absent (legacy / action_proposal Reasons).
     """
     step_kind = s.fires_on[0] if s.fires_on else "evaluate"
-    proposal, override, grund = _unpack_free_text(s.prompt.free_text)
+    proposal, override, grund, clarification = _unpack_free_text(s.prompt.free_text)
     fingerprint: dict[str, Any] = {}
+    pending_clarification = False
+    capture_source = "decision_time"
     for raw in s.prompt.free_text.splitlines():
         if raw.startswith(_FINGERPRINT_LINE_PREFIX):
             try:
                 fingerprint = json.loads(raw[len(_FINGERPRINT_LINE_PREFIX) :])
             except json.JSONDecodeError:
                 fingerprint = {}
-            break
+        elif raw.startswith(_PENDING_LINE_PREFIX):
+            try:
+                value = json.loads(raw[len(_PENDING_LINE_PREFIX) :])
+            except json.JSONDecodeError:
+                value = False
+            pending_clarification = bool(value)
+        elif raw.startswith(_CAPTURE_SOURCE_LINE_PREFIX):
+            try:
+                value = json.loads(raw[len(_CAPTURE_SOURCE_LINE_PREFIX) :])
+            except json.JSONDecodeError:
+                value = "decision_time"
+            capture_source = value if isinstance(value, str) else "decision_time"
     return Reason(
         reason_id=s.skill_id,
         step_kind=step_kind,
@@ -239,6 +280,9 @@ def _skill_to_reason(s: Skill) -> Reason:
         actor="human",
         created_at=s.created_at,
         anchor_fingerprint=fingerprint,
+        clarification=clarification,
+        pending_clarification=pending_clarification,
+        capture_source=capture_source,
     )
 
 
@@ -258,17 +302,27 @@ def read_reasons(
     only second-level granularity — sorting by ``created_at`` would be
     unstable across fast bursts. File order is the canonical insertion
     order.
+
+    Phase-RGA dedup: write-now+pending semantics append the same
+    ``reason_id`` (skill_id) twice (pending → resolved). To keep the
+    Phase-2 retrieval corpus from seeing both, the function collapses
+    duplicates via a dict keyed by ``reason_id``: latest record wins,
+    insertion order preserved via Python 3.7+ dict semantics. A Reason
+    updated via append-event therefore surfaces once, in its latest
+    form.
     """
     from local_pdf.provenienz.skills import SkillKind, read_skill_events
 
     events = read_skill_events(data_root, kind=SkillKind.NOTE)
-    matched: list[Reason] = []
+    by_id: dict[str, Reason] = {}
     for s in events:
         if not s.enabled:
             continue
         if step_kind is not None and step_kind not in s.fires_on:
             continue
-        matched.append(_skill_to_reason(s))
+        r = _skill_to_reason(s)
+        by_id[r.reason_id] = r  # latest wins; dict preserves insertion order
+    matched = list(by_id.values())
     if last_n <= 0:
         return matched
     return matched[-last_n:]

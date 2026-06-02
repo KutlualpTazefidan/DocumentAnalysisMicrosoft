@@ -207,6 +207,167 @@ def test_evaluate_only_pulls_evaluate_step_kind_reasons(client, monkeypatch):
     assert "irrelevant — sollte nicht in evaluate auftauchen" not in sys_prompt
 
 
+def test_rga_pending_reason_surfaces_in_planner_prompt_then_clarification_lands(
+    client,
+    monkeypatch,
+):
+    """Phase-RGA write-now+pending: a gap-detected expert override
+    writes the Reason IMMEDIATELY with pending_clarification=True.
+    That pending Reason MUST surface in the planner's "Frühere
+    Korrekturen" block on the next /next-step run — pending raw
+    expert reasoning is still signal. After /clarify resolves, the
+    read-side dedup collapses the two append-events to exactly one
+    record, and the prompt-injector still emits the reason exactly
+    once (no double-render from the pending + resolved events).
+    """
+    from local_pdf.provenienz.reasons import read_reasons
+
+    cfg = client.app.state.config
+
+    # Enable RGA and force the evaluator to a deterministic gap verdict.
+    monkeypatch.setattr(router_mod, "_rga_enabled", lambda: True)
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_evaluate_plan_override",
+        lambda anchor, goal, reason, intended: {
+            "ranked_steps_raw": ["extract_claims", "propose_stop"],
+            "ranked_steps_canonical": ["extract_claims", "propose_stop"],
+            "rank": None,
+            "score": 1,  # < _RGA_DEFAULT_THRESHOLD (3) → gap_detected=True
+            "rationale": "intended_step absent from plausible list",
+            "parse_error": False,
+        },
+    )
+    # Planner LLM stub — survives all three /next-step calls. Bypasses
+    # get_llm_client entirely so we don't need a _FakeClient here.
+    monkeypatch.setattr(
+        router_mod,
+        "_llm_next_step",
+        lambda anchor, goal, available_steps, tools_summary, **kwargs: {
+            "kind": "executable_step",
+            "name": "extract_claims",
+            "description": "",
+            "reasoning": "planner stub",
+            "considered_alternatives": [],
+            "confidence": 0.8,
+            "tool": None,
+            "approach_id": None,
+            "goal_alignment": "",
+        },
+    )
+
+    # Bootstrap a session.
+    slug = _seed_doc(client)
+    sid = client.post(
+        "/api/admin/provenienz/sessions",
+        headers={"X-Auth-Token": "tok"},
+        json={"slug": slug, "root_chunk_id": "p1-b0"},
+    ).json()["session_id"]
+    detail = client.get(
+        f"/api/admin/provenienz/sessions/{sid}", headers={"X-Auth-Token": "tok"}
+    ).json()
+    chunk_id = next(n["node_id"] for n in detail["nodes"] if n["kind"] == "chunk")
+
+    # 1) /next-step → plan_proposal → /decide with a gap-detected override.
+    plan = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_id},
+    ).json()
+    plan_id = plan["node_id"]
+    decide = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/decide",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "proposal_node_id": plan_id,
+            "expert_correction": {
+                "intended_step": "formulate_task",
+                "reason": "Konstrukt-Definition, kein Faktum.",
+            },
+        },
+    ).json()
+    assert decide["clarification"] is not None
+    override_node_id = decide["clarification"]["override_node_id"]
+
+    # 2) Corpus contains exactly ONE Reason with pending=True.
+    pending_reasons = read_reasons(cfg.data_root, step_kind="extract_claims", last_n=10)
+    assert len(pending_reasons) == 1
+    assert pending_reasons[0].pending_clarification is True
+    assert pending_reasons[0].clarification == ""
+    assert pending_reasons[0].reason_text == "Konstrukt-Definition, kein Faktum."
+
+    # Install a capture wrapper around _gather_guidance_split BEFORE the
+    # second /next-step so we see the extra_system that the planner-prompt
+    # actually receives.
+    captured: dict = {}
+    real_gather = router_mod._gather_guidance_split
+
+    def _capture_gather(*args, **kwargs):
+        result = real_gather(*args, **kwargs)
+        captured["extra_system"] = result[0]
+        return result
+
+    monkeypatch.setattr(router_mod, "_gather_guidance_split", _capture_gather)
+
+    # 3) /next-step #2 — pending Reason MUST surface in "Frühere Korrekturen".
+    client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_id},
+    )
+    assert "extra_system" in captured
+    extra_system_pending = captured["extra_system"]
+    assert "Frühere Korrekturen" in extra_system_pending
+    assert "Konstrukt-Definition, kein Faktum" in extra_system_pending
+
+    # 4) Resolve via /clarify (submit-path).
+    resolve = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/clarify",
+        headers={"X-Auth-Token": "tok"},
+        json={
+            "override_node_id": override_node_id,
+            "clarification": (
+                "Der Term verweist auf eine Variable, nicht ein empirisches "
+                "Faktum — formulate_task ist passend."
+            ),
+        },
+    )
+    assert resolve.status_code == 201
+
+    # 5) read_reasons dedups (latest-wins, dict-by-reason_id):
+    #    pending + resolved append-events collapse to ONE record.
+    resolved_reasons = read_reasons(cfg.data_root, step_kind="extract_claims", last_n=10)
+    assert len(resolved_reasons) == 1, (
+        "Dedup must collapse pending + resolved append-events to one record; "
+        f"got {len(resolved_reasons)} entries."
+    )
+    assert resolved_reasons[0].pending_clarification is False
+    assert resolved_reasons[0].clarification.startswith("Der Term verweist")
+    assert resolved_reasons[0].reason_id == pending_reasons[0].reason_id
+
+    # 6) /next-step #3 — prompt-injector still emits the reason exactly
+    # ONCE (no double-count from the two append-events on the same
+    # reason_id). This is the load-bearing dedup-in-prompt invariant.
+    captured.clear()
+    client.post(
+        f"/api/admin/provenienz/sessions/{sid}/next-step",
+        headers={"X-Auth-Token": "tok"},
+        json={"anchor_node_id": chunk_id},
+    )
+    assert "extra_system" in captured
+    extra_system_resolved = captured["extra_system"]
+    assert "Frühere Korrekturen" in extra_system_resolved
+    assert "Konstrukt-Definition, kein Faktum" in extra_system_resolved
+    # Dedup invariant: the reason_text appears exactly ONCE in the
+    # rendered block (not twice from pending + resolved events).
+    assert extra_system_resolved.count("Konstrukt-Definition, kein Faktum") == 1
+    # After /clarify, the prompt-injector emits the Klarstellung line
+    # for the resolved Reason, so the planner sees the enriched
+    # reasoning on subsequent runs.
+    assert "Klarstellung:" in extra_system_resolved
+    assert "Der Term verweist" in extra_system_resolved
+
+
 def test_no_reasons_yields_empty_guidance_block(client, monkeypatch):
     fake = _FakeClient('["Aussage"]')
     monkeypatch.setattr(router_mod, "get_llm_client", lambda: fake)
