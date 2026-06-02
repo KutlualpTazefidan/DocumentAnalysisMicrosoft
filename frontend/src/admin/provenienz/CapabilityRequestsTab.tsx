@@ -17,6 +17,11 @@ interface Props {
 export function CapabilityRequestsTab({ token }: Props): JSX.Element {
   const { data, isLoading, error } = useCapabilityRequests(token);
   const agentOnlyDescId = useId();
+  const allAgentOnly =
+    !isLoading &&
+    data !== undefined &&
+    data.length > 0 &&
+    data.every((r) => r.count_by_actor.human === 0);
 
   return (
     <div className="p-4 space-y-3">
@@ -40,6 +45,14 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
       <span id={agentOnlyDescId} className="sr-only">
         Nur von Agenten angefragt, keine Experten-Vorgabe.
       </span>
+      {allAgentOnly && (
+        <p
+          className={`${T.tiny} text-amber-200 italic mb-2`}
+          role="note"
+        >
+          Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.
+        </p>
+      )}
       <ul className="space-y-2">
         {data?.map((req) => {
           const isAgentOnly = req.count_by_actor.human === 0;
