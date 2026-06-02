@@ -8064,34 +8064,37 @@ async def clarify(session_id: str, body: ClarifyRequest, request: Request) -> di
         ),
     )
 
-    # Re-write the Reason via append (read_reasons dedups latest-wins).
-    # The original reason_id was minted inside _record_plan_expert_correction;
-    # we don't have it directly. Look it up by matching the unique
-    # (step_kind, override_summary, reason_text, pending_clarification=True)
-    # tuple — read_reasons strips session_id/proposal_id (Skill round-trip
-    # is lossy on those), so we use the surviving fields. The pending=True
-    # flag distinguishes the not-yet-resolved Reason this clarify call is
-    # targeting from any prior resolved overrides on the same step_kind.
-    override_summary_key = intended_step[:200]
-    reason_text_key = reason_text[:200]
+    # Phase 6A: strict-(session, proposal, pending) lookup. Pre-Phase-6A
+    # fell through to a text-match because _skill_to_reason returned
+    # empty session_id/proposal_id from the lossy NOTE-skill packing.
+    # Step 1's round-trip fix now populates the IDs, so we can match
+    # unambiguously. last_n=0 means "return all" — targeted lookup has
+    # no reason to cap (only _gather_reason_guidance legitimately caps
+    # for prompt-budget).
     existing_reasons = [
         r
-        for r in read_reasons(cfg.data_root, step_kind=target_step_kind, last_n=50)
-        if r.override_summary == override_summary_key
-        and r.reason_text == reason_text_key
+        for r in read_reasons(cfg.data_root, step_kind=target_step_kind, last_n=0)
+        if r.session_id == session_id
+        and r.proposal_id == target_proposal_node_id
         and r.pending_clarification
     ]
-    # If found, reuse its reason_id so the latest-wins dedup collapses
-    # both records into one entry. Otherwise mint a new one (defensive —
-    # shouldn't fire in practice unless the corpus lost the original
-    # Reason between /decide and /clarify).
-    reason_id = existing_reasons[-1].reason_id if existing_reasons else new_id()
-    proposal_summary = (
-        target_step_kind + " — " + str(override_node.payload.get("reason", "")[:0])
-    )[:200]
-    # Re-build the proposal_summary from the existing NOTE-skill if possible.
-    if existing_reasons:
-        proposal_summary = existing_reasons[-1].proposal_summary
+    if not existing_reasons:
+        # Phase 6A: corpus-inconsistency. Under text-match the silent
+        # new_id() fallback orphaned the original pending Reason. Under
+        # strict-match, override-Node-says-pending + Reason-missing IS
+        # broken state, surface it loudly.
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"override Node {body.override_node_id} marks "
+                f"pending_clarification=True but no matching Reason found "
+                f"(step_kind={target_step_kind}, session={session_id}, "
+                f"proposal={target_proposal_node_id}) — corpus inconsistent, "
+                f"likely /decide write failure"
+            ),
+        )
+    reason_id = existing_reasons[-1].reason_id
+    proposal_summary = existing_reasons[-1].proposal_summary
     append_reason(
         cfg.data_root,
         Reason(
