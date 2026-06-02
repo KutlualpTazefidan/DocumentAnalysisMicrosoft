@@ -37,6 +37,13 @@ _FINGERPRINT_LINE_PREFIX = "__fingerprint__: "
 # the free_text stays compact for the common decision_time + resolved case.
 _PENDING_LINE_PREFIX = "__pending__: "
 _CAPTURE_SOURCE_LINE_PREFIX = "__capture_source__: "
+# Phase-6A: session_id + proposal_id markers. The Reason dataclass has
+# these fields but the NOTE-skill packing never persisted them — the
+# decoder returned empty strings, which made /clarify's strict-lookup
+# fall through to a fragile text-match. Phase-6A round-trips them via
+# the same parallel-line pattern as the other __marker__: lines.
+_SESSION_ID_LINE_PREFIX = "__session_id__: "
+_PROPOSAL_ID_LINE_PREFIX = "__proposal_id__: "
 
 
 def compute_anchor_fingerprint(anchor_kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -167,6 +174,10 @@ def _persist_reason_as_skill(data_root: Path, r: Reason) -> None:
         parts.append(_PENDING_LINE_PREFIX + json.dumps(True))
     if r.capture_source and r.capture_source != "decision_time":
         parts.append(_CAPTURE_SOURCE_LINE_PREFIX + json.dumps(r.capture_source))
+    if r.session_id:
+        parts.append(_SESSION_ID_LINE_PREFIX + json.dumps(r.session_id))
+    if r.proposal_id:
+        parts.append(_PROPOSAL_ID_LINE_PREFIX + json.dumps(r.proposal_id))
     if proposal:
         parts.append(f"Empfehlung: {proposal}")
     if override:
@@ -251,6 +262,8 @@ def _skill_to_reason(s: Skill) -> Reason:
     fingerprint: dict[str, Any] = {}
     pending_clarification = False
     capture_source = "decision_time"
+    session_id = ""
+    proposal_id = ""
     for raw in s.prompt.free_text.splitlines():
         if raw.startswith(_FINGERPRINT_LINE_PREFIX):
             try:
@@ -269,11 +282,21 @@ def _skill_to_reason(s: Skill) -> Reason:
             except json.JSONDecodeError:
                 value = "decision_time"
             capture_source = value if isinstance(value, str) else "decision_time"
+        elif raw.startswith(_SESSION_ID_LINE_PREFIX):
+            try:
+                session_id = json.loads(raw[len(_SESSION_ID_LINE_PREFIX) :])
+            except json.JSONDecodeError:
+                session_id = ""
+        elif raw.startswith(_PROPOSAL_ID_LINE_PREFIX):
+            try:
+                proposal_id = json.loads(raw[len(_PROPOSAL_ID_LINE_PREFIX) :])
+            except json.JSONDecodeError:
+                proposal_id = ""
     return Reason(
         reason_id=s.skill_id,
         step_kind=step_kind,
-        session_id="",
-        proposal_id="",
+        session_id=session_id,
+        proposal_id=proposal_id,
         proposal_summary=proposal,
         override_summary=override,
         reason_text=grund,

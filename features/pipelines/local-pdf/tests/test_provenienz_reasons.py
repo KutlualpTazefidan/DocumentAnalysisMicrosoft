@@ -255,3 +255,48 @@ def test_read_reasons_dedups_by_reason_id_latest_wins(tmp_path: Path):
     assert out[0].reason_id == rid
     assert out[0].pending_clarification is False
     assert out[0].clarification == "resolved text"
+
+
+def test_session_and_proposal_ids_round_trip_through_skill_store(tmp_path: Path):
+    """Phase-6A: session_id + proposal_id survive write -> read via the
+    new __session_id__ / __proposal_id__ marker lines."""
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="01TESTSESSION",
+            proposal_id="01TESTPROPOSAL",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+        ),
+    )
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.session_id == "01TESTSESSION"
+    assert loaded.proposal_id == "01TESTPROPOSAL"
+
+
+def test_legacy_reason_without_session_or_proposal_ids_round_trips_empty(tmp_path: Path):
+    """Phase-6A backward-compat: a Reason appended with empty session_id +
+    proposal_id (the pre-Phase-6A pattern) round-trips with both fields
+    still empty after read. Absent marker == empty default — legacy
+    NOTE-skills in production stay inert (cannot match strict-lookup
+    against real ULIDs)."""
+    append_reason(
+        tmp_path,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="",
+            proposal_id="",
+            proposal_summary="rec",
+            override_summary="ovr",
+            reason_text="weil",
+            actor="human",
+        ),
+    )
+    [loaded] = read_reasons(tmp_path)
+    assert loaded.session_id == ""
+    assert loaded.proposal_id == ""
