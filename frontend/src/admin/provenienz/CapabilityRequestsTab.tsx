@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Bot, TrendingUp, UserCog, Wrench } from "lucide-react";
 
 import { useCapabilityRequests } from "../hooks/useProvenienz";
@@ -15,6 +16,12 @@ interface Props {
  */
 export function CapabilityRequestsTab({ token }: Props): JSX.Element {
   const { data, isLoading, error } = useCapabilityRequests(token);
+  const agentOnlyDescId = useId();
+  const allAgentOnly =
+    !isLoading &&
+    data !== undefined &&
+    data.length > 0 &&
+    data.every((r) => r.count_by_actor.human === 0);
 
   return (
     <div className="p-4 space-y-3">
@@ -35,11 +42,28 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
         </p>
       )}
 
+      <span id={agentOnlyDescId} className="sr-only">
+        Nur von Agenten angefragt, keine Experten-Vorgabe.
+      </span>
+      {allAgentOnly && (
+        <p
+          className={`${T.tiny} text-amber-200 italic mb-2`}
+          role="note"
+        >
+          Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.
+        </p>
+      )}
       <ul className="space-y-2">
-        {data?.map((req) => (
+        {data?.map((req) => {
+          const isAgentOnly = req.count_by_actor.human === 0;
+          const fadeClasses = isAgentOnly
+            ? "opacity-50 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150"
+            : "";
+          return (
           <li
             key={req.name}
-            className="rounded border border-yellow-700/40 bg-yellow-900/15 p-3"
+            className={`rounded border border-yellow-700/40 bg-yellow-900/15 p-3 ${fadeClasses}`}
+            aria-describedby={isAgentOnly ? agentOnlyDescId : undefined}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
@@ -108,7 +132,8 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
               </details>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

@@ -216,3 +216,158 @@ describe("CapabilityRequestsTab — empty-state copy (F8)", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Phase-5 fade-treatment", () => {
+  it("applies fade classes when count_by_actor.human === 0", () => {
+    const fixture = [
+      {
+        name: "agent_only_method",
+        count: 3,
+        count_by_actor: { human: 0, agent: 3 },
+        examples: [],
+      },
+    ];
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: fixture,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    const row = screen.getByText("agent_only_method").closest("li");
+    expect(row).not.toBeNull();
+    expect(row?.className).toMatch(/opacity-50/);
+    expect(row?.className).toMatch(/hover:opacity-100/);
+    expect(row?.className).toMatch(/focus-within:opacity-100/);
+    expect(row?.className).toMatch(/transition-opacity/);
+  });
+
+  it("does NOT apply fade classes when count_by_actor.human >= 1", () => {
+    const fixture = [
+      {
+        name: "expert_demanded",
+        count: 3,
+        count_by_actor: { human: 3, agent: 0 },
+        examples: [],
+      },
+      {
+        name: "mixed",
+        count: 5,
+        count_by_actor: { human: 1, agent: 4 },
+        examples: [],
+      },
+    ];
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: fixture,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    const expertRow = screen.getByText("expert_demanded").closest("li");
+    const mixedRow = screen.getByText("mixed").closest("li");
+    expect(expertRow?.className).not.toMatch(/opacity-50/);
+    expect(mixedRow?.className).not.toMatch(/opacity-50/);
+  });
+
+  it("sets aria-describedby on faded rows pointing to a hidden span with the explanation text", () => {
+    const fixture = [
+      {
+        name: "agent_only_method",
+        count: 3,
+        count_by_actor: { human: 0, agent: 3 },
+        examples: [],
+      },
+    ];
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: fixture,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    const row = screen.getByText("agent_only_method").closest("li");
+    expect(row).not.toBeNull();
+    const describedByValue = row?.getAttribute("aria-describedby");
+    expect(describedByValue).toBeTruthy();
+    // The test reads aria-describedby VALUE and finds the hidden span
+    // via that ID, NOT a hardcoded string lookup. This way if the span
+    // is moved or its className changes, the test still works.
+    const hiddenSpan = describedByValue
+      ? document.getElementById(describedByValue)
+      : null;
+    expect(hiddenSpan).not.toBeNull();
+    expect(hiddenSpan?.textContent).toBe(
+      "Nur von Agenten angefragt, keine Experten-Vorgabe.",
+    );
+  });
+});
+
+describe("Phase-5 all-faded banner", () => {
+  it("renders the banner when every entry has count_by_actor.human === 0", () => {
+    const fixture = [
+      {
+        name: "parse_date_string",
+        count: 3,
+        count_by_actor: { human: 0, agent: 3 },
+        examples: [],
+      },
+      {
+        name: "TableComparator",
+        count: 5,
+        count_by_actor: { human: 0, agent: 5 },
+        examples: [],
+      },
+    ];
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: fixture,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    expect(
+      screen.getByText(
+        "Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does NOT render the banner when at least one entry has human >= 1", () => {
+    const fixture = [
+      {
+        name: "agent_only",
+        count: 3,
+        count_by_actor: { human: 0, agent: 3 },
+        examples: [],
+      },
+      {
+        name: "expert_demanded",
+        count: 2,
+        count_by_actor: { human: 2, agent: 0 },
+        examples: [],
+      },
+    ];
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: fixture,
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    expect(
+      screen.queryByText(
+        "Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does NOT render the banner when data is empty (existing empty-state takes over)", () => {
+    vi.mocked(useCapabilityRequests).mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+    } as never);
+    renderTab();
+    expect(
+      screen.queryByText(
+        "Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+});
