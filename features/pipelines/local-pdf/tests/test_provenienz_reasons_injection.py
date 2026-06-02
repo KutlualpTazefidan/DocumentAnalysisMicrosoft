@@ -368,6 +368,61 @@ def test_rga_pending_reason_surfaces_in_planner_prompt_then_clarification_lands(
     assert "Der Term verweist" in extra_system_resolved
 
 
+def test_legacy_reasons_with_empty_session_id_still_surface_in_guidance_block(
+    client,
+    monkeypatch,
+):
+    """Phase 6A: legacy NOTE-skills with empty session_id + proposal_id
+    (pre-Phase-6A records or those written with empty IDs) MUST still
+    surface in _gather_reason_guidance's "Frühere Korrekturen" block.
+    The read-path for the most-used consumer (prompt-injector) is
+    untouched by Phase 6A's strict-lookup change in /clarify."""
+    cfg = client.app.state.config
+
+    # Seed a legacy Reason with explicitly empty session_id/proposal_id
+    from local_pdf.provenienz.reasons import Reason, append_reason
+
+    append_reason(
+        cfg.data_root,
+        Reason(
+            reason_id="",
+            step_kind="extract_claims",
+            session_id="",  # legacy
+            proposal_id="",  # legacy
+            proposal_summary="Vorher: legacy proposal",
+            override_summary="legacy override",
+            reason_text="legacy reasoning that must still surface",
+            actor="human",
+        ),
+    )
+
+    fake = _FakeClient('["Aussage 1"]')
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda: fake)
+    monkeypatch.setattr(router_mod, "get_default_model", lambda: "test-model")
+    monkeypatch.setattr(router_mod, "_llm_pre_reason", lambda *a, **k: "")
+
+    slug = _seed_doc(client)
+    sid = client.post(
+        "/api/admin/provenienz/sessions",
+        headers={"X-Auth-Token": "tok"},
+        json={"slug": slug, "root_chunk_id": "p1-b0"},
+    ).json()["session_id"]
+    detail = client.get(
+        f"/api/admin/provenienz/sessions/{sid}", headers={"X-Auth-Token": "tok"}
+    ).json()
+    chunk_id = next(n["node_id"] for n in detail["nodes"] if n["kind"] == "chunk")
+    r = client.post(
+        f"/api/admin/provenienz/sessions/{sid}/extract-claims",
+        headers={"X-Auth-Token": "tok"},
+        json={"chunk_node_id": chunk_id},
+    )
+    assert r.status_code == 201
+    assert fake.captured_system is not None
+    # The legacy reason_text MUST appear in the planner's prompt
+    assert "legacy reasoning that must still surface" in fake.captured_system
+    assert "Frühere Korrekturen" in fake.captured_system
+
+
 def test_no_reasons_yields_empty_guidance_block(client, monkeypatch):
     fake = _FakeClient('["Aussage"]')
     monkeypatch.setattr(router_mod, "get_llm_client", lambda: fake)
