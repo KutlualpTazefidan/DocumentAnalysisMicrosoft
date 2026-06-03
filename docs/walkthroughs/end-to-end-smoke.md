@@ -16,6 +16,32 @@ Pair this with the automated suites (`pytest` + `vitest`). The suites catch
 contract breaks; this catches the visual, the cross-feature, and the
 anti-anchoring kind of regression that an isolated unit test cannot.
 
+### Schnellpfad — die zwei automatisierten Smokes statt manuell
+
+Wenn du nur prüfen willst, dass die Konturen halten (nicht jeden visuellen
+Schritt drücken), zwei Scripts erledigen das in ~30 Sekunden zusammen:
+
+```bash
+# 1. Backend-API-Kontrakt (14 Assertions, no browser)
+.venv/bin/python scripts/smoke/backend_e2e.py
+# → expects backend on $LOCAL_PDF_API_BASE (default :8000) with PR #51 code
+#   Pre-merge note: see the script's module docstring for PYTHONPATH override.
+
+# 2. Frontend UI-Kontrakt — anti-anchoring, stripes, tabs, auth-gate
+# Seed first (the spec needs a pre-existing question to vote on):
+.venv/bin/python scripts/smoke/backend_e2e.py --keep   # prints slug=smoke-…
+
+# Then run the Playwright tests:
+LOCAL_PDF_E2E=1 \
+LOCAL_PDF_TEST_TOKEN=$GOLDENS_API_TOKEN \
+LOCAL_PDF_TEST_SLUG=<slug from step above> \
+LOCAL_PDF_API_BASE=http://localhost:8000 \
+npm run e2e -- --grep "Statistik|Voting"
+```
+
+Manueller Walkthrough (unten) bleibt nötig wenn du die fancy charts visuell
+beurteilen willst, oder die zweite Browser-Session für cross-user Voting.
+
 ---
 
 ## 0. Vorbereitung
