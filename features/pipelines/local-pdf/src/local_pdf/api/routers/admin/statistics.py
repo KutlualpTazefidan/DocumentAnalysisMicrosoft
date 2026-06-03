@@ -14,12 +14,17 @@ from goldens.storage import GOLDEN_EVENTS_V1_FILENAME, iter_active_retrieval_ent
 from goldens.storage.log import read_events
 
 from local_pdf.api.models.statistics import (
+    CapabilityWish,
+    CapabilityWishes,
     DiagnosticCounts,
     ExtractStats,
+    ProvenienzStats,
     SyntheseStats,
     VoteDistributionRow,
 )
+from local_pdf.api.routers.admin.provenienz import list_capability_requests
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
+from local_pdf.provenienz.storage import read_session
 from local_pdf.storage.sidecar import doc_dir, read_mineru, read_segments
 
 router = APIRouter()
@@ -150,3 +155,68 @@ async def synthese_stats(slug: str, request: Request) -> SyntheseStats:
         vote_approval_rate=approval_rate,
         vote_distribution=rows,
     )
+
+
+_EXPERT_OVERRIDE_KINDS = {"expert_step_override", "expert_method_request"}
+
+
+@router.get("/api/admin/statistics/provenienz/{slug}", response_model=ProvenienzStats)
+async def provenienz_stats(slug: str, request: Request) -> ProvenienzStats:
+    data_root = _tr(request)
+    if not doc_dir(data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    prov_root = data_root / slug / "provenienz"
+    plan_proposals = 0
+    overrides = 0
+    if prov_root.exists():
+        for sd in sorted(prov_root.iterdir()):
+            if not sd.is_dir():
+                continue
+            try:
+                nodes, _ = read_session(sd)
+            except Exception:
+                continue
+            for n in nodes:
+                if n.kind == "plan_proposal":
+                    plan_proposals += 1
+                elif n.kind in _EXPERT_OVERRIDE_KINDS:
+                    overrides += 1
+    rate = (overrides / plan_proposals) if plan_proposals > 0 else None
+    return ProvenienzStats(
+        slug=slug,
+        plan_proposals=plan_proposals,
+        expert_overrides=overrides,
+        correction_rate=rate,
+    )
+
+
+def _skill_bucket(name: str) -> str:
+    """Heuristic: lowercased leading word (camelCase split on first uppercase).
+
+    Falls back to 'other' for empty / unrecognised names so the
+    Treemap always has a parent node.
+    """
+    name = name.strip()
+    if not name:
+        return "other"
+    head: list[str] = []
+    for i, ch in enumerate(name):
+        if i > 0 and ch.isupper():
+            break
+        head.append(ch)
+    return "".join(head).lower() or "other"
+
+
+@router.get("/api/admin/statistics/capability-wishes", response_model=CapabilityWishes)
+async def capability_wishes(request: Request) -> CapabilityWishes:
+    raw = await list_capability_requests(request)
+    wishes = [
+        CapabilityWish(
+            name=item["name"],
+            count=item["count"],
+            by_actor=item.get("count_by_actor") or {"human": 0, "agent": item["count"]},
+            skill_bucket=_skill_bucket(item["name"]),
+        )
+        for item in raw.get("requests", [])
+    ]
+    return CapabilityWishes(wishes=wishes)
