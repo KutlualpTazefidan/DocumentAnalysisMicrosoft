@@ -7,7 +7,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { Statistics } from "../Statistics";
 
-vi.mock("../../../auth/useAuth", () => ({ useAuth: () => ({ token: "tok" }) }));
+const authState = vi.hoisted(() => ({ token: "tok" as string | null }));
+vi.mock("../../../auth/useAuth", () => ({ useAuth: () => ({ token: authState.token }) }));
 
 const server = setupServer(
   http.get("*/api/admin/statistics/extract/:slug", () =>
@@ -43,6 +44,7 @@ afterAll(() => server.close());
 
 describe("Statistics page", () => {
   it("renders three section headings", async () => {
+    authState.token = "tok";
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
@@ -54,9 +56,32 @@ describe("Statistics page", () => {
       </QueryClientProvider>
     );
     await waitFor(() => {
-      expect(screen.getByText("Extrahieren")).toBeInTheDocument();
-      expect(screen.getByText("Synthese")).toBeInTheDocument();
-      expect(screen.getByText("Provenienz")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Extrahieren", level: 2 })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Synthese", level: 2 })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "Provenienz", level: 2 })
+      ).toBeInTheDocument();
     });
+  });
+
+  it("renders auth-gate prompt when token is null", () => {
+    authState.token = null;
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/admin/doc/doc-a/statistics"]}>
+          <Routes>
+            <Route path="/admin/doc/:slug/statistics" element={<Statistics />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(screen.getByText("Bitte zuerst anmelden.")).toBeInTheDocument();
+    expect(screen.queryByText("Extrahieren")).not.toBeInTheDocument();
+    authState.token = "tok";
   });
 });
