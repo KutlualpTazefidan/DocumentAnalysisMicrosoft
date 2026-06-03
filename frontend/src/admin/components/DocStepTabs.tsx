@@ -1,5 +1,5 @@
 // frontend/src/admin/components/DocStepTabs.tsx
-import { FileText, Folder, GitCompare, GitMerge, Sparkles } from "lucide-react";
+import { BarChart3, FileText, Folder, GitCompare, GitMerge, Sparkles } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { T } from "../styles/typography";
 
@@ -13,6 +13,7 @@ const TABS = [
   { key: "synthesise", label: "Synthese", icon: Sparkles, href: (slug: string) => `/admin/doc/${slug}/synthesise` },
   { key: "compare", label: "Vergleich", icon: GitCompare, href: (slug: string) => `/admin/doc/${slug}/compare` },
   { key: "provenienz", label: "Provenienz", icon: GitMerge, href: (slug: string) => `/admin/doc/${slug}/provenienz` },
+  { key: "statistics", label: "Statistik", icon: BarChart3, href: (slug: string) => `/admin/doc/${slug}/statistics` },
 ] as const;
 
 export function DocStepTabs({ slug }: Props): JSX.Element {
@@ -24,6 +25,7 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
     if (key === "synthesise") return pathname.endsWith("/synthesise");
     if (key === "compare") return pathname.endsWith("/compare");
     if (key === "provenienz") return pathname.endsWith("/provenienz");
+    if (key === "statistics") return pathname.endsWith("/statistics");
     return false;
   }
 

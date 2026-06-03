@@ -8,6 +8,7 @@ import { Extract } from "./admin/routes/extract";
 import { Synthesise } from "./admin/routes/Synthesise";
 import { Comparison } from "./admin/routes/Comparison";
 import { Provenienz } from "./admin/routes/Provenienz";
+import { Statistics } from "./admin/routes/Statistics";
 import { DocCurators } from "./admin/routes/DocCurators";
 import { Curators } from "./admin/routes/Curators";
 import { CuratorActivity } from "./admin/routes/CuratorActivity";
@@ -34,6 +35,7 @@ export function App() {
           <Route path="doc/:slug/synthesise" element={<Synthesise />} />
           <Route path="doc/:slug/compare" element={<Comparison />} />
           <Route path="doc/:slug/provenienz" element={<Provenienz />} />
+          <Route path="doc/:slug/statistics" element={<Statistics />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
           <Route path="curators" element={<Curators />} />
           <Route path="curators/:id/activity" element={<CuratorActivity />} />
