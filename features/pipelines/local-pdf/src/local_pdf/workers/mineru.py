@@ -594,7 +594,12 @@ def _normalize_text_subscripts(latex: str) -> str:
 # Token boundaries: not preceded by an alnum/underscore (so we don't grab
 # the trailing chars of a longer word) and followed by punctuation, an
 # HTML tag, or end-of-string (so "Foo3.0" or "version2.5" don't match).
-_UNIT_EXPONENT_RE = re.compile(r"(?<![A-Za-z\d_])([A-Za-zµμ°]{1,3})(-?\d{1,3})(?=[\s<,;:)\]/]|$)")
+# The "<(?!/(?:td|th)\b)" carve-out keeps literal table-cell contents like
+# "<td>col1</td>" verbatim — without it "col1" would become "col¹".
+_UNIT_EXPONENT_RE = re.compile(
+    r"(?<![A-Za-z\d_])([A-Za-zµμ°]{1,3})(-?\d{1,3})"
+    r"(?=[\s,;:)\]/]|<(?!/(?:td|th)\b)|$)"
+)
 _SUPERSCRIPT_DIGITS = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
 
 
