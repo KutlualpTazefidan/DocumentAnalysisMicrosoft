@@ -117,7 +117,7 @@ def actor_from_dict(d: dict) -> HumanActor | LLMActor:
     kind = d.get("kind")
     if kind not in ("human", "llm"):
         raise ValueError(f"unknown actor kind: {kind!r}")
-    return _actor_adapter.validate_python(d)  # type: ignore[no-any-return]  # TypeAdapter[HumanActor | LLMActor].validate_python inferred as Any by mypy; runtime type is correct
+    return _actor_adapter.validate_python(d)
 
 
 CreateAction = Literal["created_from_scratch", "synthesised", "imported_from_faq"]

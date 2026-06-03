@@ -38,7 +38,7 @@ def read_curators(data_root: Path) -> CuratorsFile:
     if not p.exists():
         return CuratorsFile(curators=[])
     raw = p.read_text(encoding="utf-8")
-    return CuratorsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+    return CuratorsFile.model_validate(json.loads(raw))
 
 
 def write_curators(data_root: Path, curators: CuratorsFile) -> None:

@@ -55,7 +55,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    cfg = ApiConfig()
+    cfg = ApiConfig()  # type: ignore[call-arg]  # populated via env validation_alias
     cfg.data_root.mkdir(parents=True, exist_ok=True)
 
     # Run skill-system migration at startup so the first request after
