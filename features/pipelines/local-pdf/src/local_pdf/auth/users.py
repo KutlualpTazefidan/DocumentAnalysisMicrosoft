@@ -41,6 +41,7 @@ from local_pdf.auth.pseudonyms import (
 from local_pdf.auth.tenants import get_tenant_by_slug
 
 Role = Literal["admin", "reviewer", "curator"]
+Level = Literal["expert", "phd", "masters", "bachelors", "other"]
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class User:
     active: bool
     created_at: str
     last_login_at: str | None
+    level: Level = "other"
 
 
 class AuthError(Exception):
@@ -113,6 +115,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
         active=bool(row["active"]),
         created_at=row["created_at"],
         last_login_at=row["last_login_at"],
+        level=row["level"] if "level" in row.keys() else "other",  # noqa: SIM118 sqlite3.Row needs .keys()
     )
 
 
@@ -124,6 +127,7 @@ def create_user(
     password: str,
     role: Role = "curator",
     pseudonym: str | None = None,
+    level: Level = "other",
 ) -> User:
     """Create a user inside an existing tenant.
 
@@ -156,8 +160,9 @@ def create_user(
         conn.execute(
             """
             INSERT INTO users
-              (user_id, tenant_id, username, password_hash, pseudonym, role, active, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+              (user_id, tenant_id, username, password_hash,
+               pseudonym, role, active, created_at, level)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
             (
                 user_id,
@@ -167,6 +172,7 @@ def create_user(
                 pseudonym_resolved,
                 role,
                 created_at,
+                level,
             ),
         )
     except sqlite3.IntegrityError as exc:
@@ -183,6 +189,7 @@ def create_user(
         active=True,
         created_at=created_at,
         last_login_at=None,
+        level=level,
     )
 
 
