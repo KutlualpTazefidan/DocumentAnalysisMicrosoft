@@ -18,6 +18,7 @@ import {
   useGenerateBox,
   useQuestions,
   useRefineQuestion,
+  useVoteQuestion,
   type StreamHandles,
   type StreamEvent,
 } from "../hooks/useSynthesise";
@@ -66,6 +67,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   const editAnswer = useEditAnswer(slug, token);
   const refine = useRefineQuestion(slug, token);
   const deprecate = useDeprecateQuestion(slug, token);
+  const voteMutation = useVoteQuestion(slug, token);
   const llmStream = useLlmStream(token);
   const { success, error } = useToast();
 
@@ -399,6 +401,13 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
                     success(text ? "Antwort aktualisiert" : "Antwort gelöscht");
                   } catch (e) {
                     error(e instanceof Error ? e.message : "Antwort speichern fehlgeschlagen");
+                  }
+                }}
+                onVote={async (entryId, action) => {
+                  try {
+                    await voteMutation.mutateAsync({ entryId, action });
+                  } catch (e) {
+                    error(e instanceof Error ? e.message : "Voting fehlgeschlagen");
                   }
                 }}
                 disabled={refine.isPending || deprecate.isPending || editAnswer.isPending}
