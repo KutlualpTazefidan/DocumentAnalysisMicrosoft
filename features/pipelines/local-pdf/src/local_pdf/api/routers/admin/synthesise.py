@@ -29,8 +29,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -48,6 +49,7 @@ from goldens.storage.log import append_events, read_events
 from goldens.storage.projection import build_state
 from pydantic import BaseModel
 
+from local_pdf.auth.db import open_auth_db
 from local_pdf.auth.tenant_root import tenant_data_root, tenant_slug_from_request
 from local_pdf.storage.sidecar import doc_dir, read_answers, write_answers
 from local_pdf.synthetic import MineruElementsLoader
@@ -95,11 +97,22 @@ class RefineQuestionRequest(BaseModel):
     text: str
 
 
+class VoteRequest(BaseModel):
+    action: Literal["approved", "rejected", "revoked"]
+
+
+class VoteSummary(BaseModel):
+    approved_count: int
+    rejected_count: int
+    my_vote: Literal["approved", "rejected"] | None = None
+
+
 class GeneratedQuestion(BaseModel):
     entry_id: str
     text: str
     box_id: str
     answer: str | None = None
+    vote_summary: VoteSummary | None = None
 
 
 class AnswerBoxResponse(BaseModel):
@@ -517,12 +530,21 @@ async def patch_answer(
 
 @router.get("/api/admin/docs/{slug}/questions")
 async def list_questions(slug: str, request: Request) -> dict[str, list[dict]]:
-    if not doc_dir(_tr(request), slug).exists():
+    data_root = _tr(request)
+    if not doc_dir(data_root, slug).exists():
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    questions = _list_questions(_tr(request), slug)
+    events_path = _events_path(data_root, slug)
+    events = read_events(events_path) if events_path.exists() else []
+    ident = getattr(request.state, "identity", None)
+    requesting_pseudonym = getattr(ident, "pseudonym", None) or getattr(ident, "name", None)
+    vote_summaries = _collapse_votes_for_entries(events, requesting_pseudonym)
+    questions = _list_questions(data_root, slug)
     by_box: dict[str, list[dict]] = {}
     for q in questions:
-        by_box.setdefault(q.box_id, []).append(q.model_dump(mode="json"))
+        summary = vote_summaries.get(q.entry_id, VoteSummary(approved_count=0, rejected_count=0))
+        dumped = q.model_dump(mode="json")
+        dumped["vote_summary"] = summary.model_dump(mode="json")
+        by_box.setdefault(q.box_id, []).append(dumped)
     return by_box
 
 
@@ -555,6 +577,120 @@ def _admin_actor(request: Request) -> HumanActor:
     ident = getattr(request.state, "identity", None)
     pseudonym = getattr(ident, "pseudonym", None) or getattr(ident, "name", None) or "admin"
     return HumanActor(pseudonym=pseudonym, level="expert")
+
+
+def _read_user_level(request: Request, pseudonym: str) -> str:
+    """Read users.level by pseudonym from the auth DB; default 'other'.
+
+    Uses ``cfg.data_root`` (the RAW base root) rather than ``_tr(request)``
+    because the auth DB always sits at ``{data_root}/_meta/auth.db`` —
+    tenant subdirs never carry their own auth DB. Matches the pattern
+    used throughout ``admin/auth_mgmt.py``.
+    """
+    cfg = request.app.state.config
+    try:
+        with open_auth_db(cfg.data_root) as conn:
+            row = conn.execute(
+                "SELECT level FROM users WHERE pseudonym = ?", (pseudonym,)
+            ).fetchone()
+            return row["level"] if row else "other"
+    except sqlite3.OperationalError:
+        # First-boot / fresh DB without ensure_schema yet → no users table.
+        return "other"
+
+
+def _admin_actor_with_level(request: Request) -> HumanActor:
+    """Like ``_admin_actor`` but resolves ``level`` from the auth DB.
+
+    Vote events carry the requesting user's level so downstream weighting
+    (Doktor Müller = expert > reviewer > other) is possible without a
+    secondary lookup. Falls back to ``"other"`` for legacy X-Auth-Token
+    callers that don't have a row in ``users``.
+    """
+    ident = getattr(request.state, "identity", None)
+    pseudonym = getattr(ident, "pseudonym", None) or getattr(ident, "name", None) or "admin"
+    level = _read_user_level(request, pseudonym)
+    return HumanActor(pseudonym=pseudonym, level=level)
+
+
+def _collapse_votes_for_entries(
+    events: list[Event],
+    requesting_pseudonym: str | None,
+) -> dict[str, VoteSummary]:
+    """Project ``reviewed`` events into per-entry vote summaries.
+
+    Each (entry_id, pseudonym) pair keeps only the latest action; ``revoked``
+    contributes no count (acts as a toggle-off). When the requesting user's
+    pseudonym matches and their latest action is approved/rejected, that
+    value lands in ``my_vote``.
+    """
+    latest: dict[tuple[str, str], tuple[str, str]] = {}
+    for ev in events:
+        if ev.event_type != "reviewed":
+            continue
+        action = ev.payload.get("action")
+        if action not in {"approved", "rejected", "revoked"}:
+            continue
+        actor = ev.payload.get("actor") or {}
+        pseudo = actor.get("pseudonym")
+        if not pseudo:
+            continue
+        key = (ev.entry_id, pseudo)
+        prev = latest.get(key)
+        if prev is None or ev.timestamp_utc >= prev[1]:
+            latest[key] = (action, ev.timestamp_utc)
+    per_entry: dict[str, VoteSummary] = {}
+    for (entry_id, pseudo), (action, _ts) in latest.items():
+        summary = per_entry.setdefault(entry_id, VoteSummary(approved_count=0, rejected_count=0))
+        if action == "approved":
+            summary = summary.model_copy(update={"approved_count": summary.approved_count + 1})
+        elif action == "rejected":
+            summary = summary.model_copy(update={"rejected_count": summary.rejected_count + 1})
+        # revoked → no count contribution
+        if (
+            requesting_pseudonym
+            and pseudo == requesting_pseudonym
+            and action in {"approved", "rejected"}
+        ):
+            summary = summary.model_copy(update={"my_vote": action})
+        per_entry[entry_id] = summary
+    return per_entry
+
+
+@router.post("/api/admin/docs/{slug}/questions/{question_id}/vote")
+async def vote_question(
+    slug: str,
+    question_id: str,
+    body: VoteRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Append a ``reviewed`` event for ``question_id`` carrying the vote.
+
+    URL stem matches the existing PATCH/DELETE ``/questions/{question_id}``
+    handlers; internally this is the goldens ``entry_id``. Toggle-off is
+    expressed by re-POSTing with ``action: "revoked"`` (the projection in
+    ``_collapse_votes_for_entries`` drops the previous count).
+    """
+    data_root = _tr(request)
+    if not doc_dir(data_root, slug).exists():
+        raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
+    events_path = _events_path(data_root, slug)
+    actor = _admin_actor_with_level(request)
+    ev = Event(
+        event_id=new_event_id(),
+        timestamp_utc=now_utc_iso(),
+        event_type="reviewed",
+        entry_id=question_id,
+        schema_version=1,
+        payload={
+            "action": body.action,
+            "actor": actor.model_dump(mode="json"),
+            "notes": None,
+        },
+    )
+    append_events(events_path, [ev])
+    dumped: dict[str, Any] = ev.model_dump(mode="json")
+    return dumped
 
 
 @router.patch("/api/admin/docs/{slug}/questions/{question_id}")
