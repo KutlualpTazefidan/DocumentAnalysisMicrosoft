@@ -31,8 +31,8 @@ if (typeof globalThis.ResizeObserver === "undefined") {
           {
             target,
             contentRect: { width: 600, height: 400, top: 0, left: 0, right: 600, bottom: 400, x: 0, y: 0, toJSON: () => ({}) } as DOMRectReadOnly,
-            borderBoxSize: [],
-            contentBoxSize: [],
+            borderBoxSize: [{ inlineSize: 600, blockSize: 400 }],
+            contentBoxSize: [{ inlineSize: 600, blockSize: 400 }],
             devicePixelContentBoxSize: [],
           } as ResizeObserverEntry,
         ],

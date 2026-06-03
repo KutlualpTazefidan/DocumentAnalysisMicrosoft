@@ -20,14 +20,14 @@ export interface NavyPalette {
 }
 
 export const DEFAULT_NAVY_PALETTE: NavyPalette = {
-  bg: "#1e293b",        // navy-800
-  text: "#cbd5e1",      // navy-200
-  accent: "#3b82f6",    // brand-500
-  success: "#10b981",   // emerald-500
-  danger: "#ef4444",    // red-500
-  warn: "#f59e0b",      // amber-500
-  grid: "#475569",      // navy-600
-  gradientStops: { from: "#3b82f6", to: "#1d4ed8" },
+  bg: "#031E31",        // navy-800 (ADMIN_THEME.chrome)
+  text: "#cfe6f5",      // navy-200
+  accent: "#1E7EB2",    // brand-500 (= navy-600)
+  success: "#10b981",   // emerald-500 (Tailwind default; project doesn't customize)
+  danger: "#AE1B25",    // danger-500 (project custom red, not stock Tailwind red)
+  warn: "#f59e0b",      // amber-500 (Tailwind default; project doesn't customize)
+  grid: "#0a2e47",      // navy-700 — subtle grid lines against navy-800 bg
+  gradientStops: { from: "#1E7EB2", to: "#154f72" },  // brand-500 → brand-700
 };
 
 const PaletteCtx = createContext<NavyPalette>(DEFAULT_NAVY_PALETTE);
@@ -43,12 +43,16 @@ interface Props {
 }
 
 /** Wraps a chart in a ResponsiveContainer + navy palette context. */
-export function RechartsNavyTheme({ children, height = 240, palette = DEFAULT_NAVY_PALETTE }: Props): JSX.Element {
+export function RechartsNavyTheme({
+  children,
+  height = 240,  // matches the chart-card row baseline used across Statistik sections
+  palette = DEFAULT_NAVY_PALETTE,
+}: Props): JSX.Element {
   return (
     <PaletteCtx.Provider value={palette}>
       <div className="rounded bg-navy-800 p-3">
         <ResponsiveContainer width="100%" height={height}>
-          {children as any}
+          {children}
         </ResponsiveContainer>
       </div>
     </PaletteCtx.Provider>

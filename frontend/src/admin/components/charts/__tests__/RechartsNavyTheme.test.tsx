@@ -4,7 +4,7 @@ import { BarChart, Bar } from "recharts";
 import { RechartsNavyTheme, useChartPalette, DEFAULT_NAVY_PALETTE } from "../RechartsNavyTheme";
 
 describe("RechartsNavyTheme", () => {
-  it("renders children inside a ResponsiveContainer", () => {
+  it("mounts chart children inside the wrapper", () => {
     const { container } = render(
       <RechartsNavyTheme height={200}>
         <BarChart data={[{ x: 1, y: 2 }]}>
@@ -13,6 +13,8 @@ describe("RechartsNavyTheme", () => {
       </RechartsNavyTheme>
     );
     expect(container.querySelector(".recharts-responsive-container")).not.toBeNull();
+    // Strong assertion: an actual recharts surface SVG is in the DOM.
+    expect(container.querySelector("svg.recharts-surface")).not.toBeNull();
   });
 
   it("exposes the palette via useChartPalette", () => {
