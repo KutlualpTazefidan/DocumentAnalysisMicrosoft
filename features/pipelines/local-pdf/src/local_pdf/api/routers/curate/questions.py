@@ -65,7 +65,7 @@ async def post_question(slug: str, body: CuratorQuestionRequest, request: Reques
         slug,
         existing.model_copy(update={"questions": [*existing.questions, q]}),
     )
-    return q.model_dump(mode="json")  # type: ignore[no-any-return]
+    return q.model_dump(mode="json")
 
 
 @router.get("/api/curate/docs/{slug}/questions")
@@ -102,7 +102,7 @@ async def refine_question(
         raise HTTPException(status_code=404, detail=f"question not found: {question_id}")
 
     updated = next(q for q in result.questions if q.question_id == question_id)
-    return updated.model_dump(mode="json")  # type: ignore[no-any-return]
+    return updated.model_dump(mode="json")
 
 
 @router.post("/api/curate/docs/{slug}/questions/{question_id}/deprecate")
@@ -123,4 +123,4 @@ async def deprecate_question(
         raise HTTPException(status_code=404, detail=f"question not found: {question_id}")
 
     updated = next(q for q in result.questions if q.question_id == question_id)
-    return updated.model_dump(mode="json")  # type: ignore[no-any-return]
+    return updated.model_dump(mode="json")

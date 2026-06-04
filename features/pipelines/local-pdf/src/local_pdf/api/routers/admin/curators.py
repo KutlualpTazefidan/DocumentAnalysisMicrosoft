@@ -33,7 +33,7 @@ def _now() -> str:
 def _public_view(c: Curator) -> dict:
     d = c.model_dump(mode="json")
     d.pop("token_sha256", None)
-    return d  # type: ignore[no-any-return]
+    return d
 
 
 @router.get("/api/admin/curators")

@@ -86,7 +86,7 @@ def read_meta(data_root: Path, slug: str) -> DocMeta | None:
     raw = _read_text_or_none(_meta_path(data_root, slug))
     if raw is None:
         return None
-    return DocMeta.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+    return DocMeta.model_validate(json.loads(raw))
 
 
 def write_segments(data_root: Path, slug: str, segments: SegmentsFile) -> None:
@@ -115,7 +115,7 @@ def read_segments(data_root: Path, slug: str) -> SegmentsFile | None:
     if raw is None:
         return None
     data = _migrate_segments_data(json.loads(raw))
-    return SegmentsFile.model_validate(data)  # type: ignore[no-any-return]
+    return SegmentsFile.model_validate(data)
 
 
 def write_html(data_root: Path, slug: str, html: str) -> None:
@@ -174,7 +174,7 @@ def read_curator_questions(data_root: Path, slug: str) -> CuratorQuestionsFile |
     raw = _read_text_or_none(_questions_path(data_root, slug))
     if raw is None:
         return None
-    return CuratorQuestionsFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+    return CuratorQuestionsFile.model_validate(json.loads(raw))
 
 
 def _page_status_path(data_root: Path, slug: str) -> Path:
@@ -185,7 +185,7 @@ def read_page_status(data_root: Path, slug: str) -> PageStatusFile | None:
     raw = _read_text_or_none(_page_status_path(data_root, slug))
     if raw is None:
         return None
-    return PageStatusFile.model_validate(json.loads(raw))  # type: ignore[no-any-return]
+    return PageStatusFile.model_validate(json.loads(raw))
 
 
 def write_page_status(data_root: Path, slug: str, payload: PageStatusFile) -> None:

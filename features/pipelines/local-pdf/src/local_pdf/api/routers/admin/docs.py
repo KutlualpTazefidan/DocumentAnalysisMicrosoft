@@ -106,7 +106,7 @@ async def get_doc(slug: str, request: Request) -> dict[str, object]:
     meta = read_meta(_tr(request), slug)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
-    return meta.model_dump(mode="json")  # type: ignore[no-any-return]
+    return meta.model_dump(mode="json")
 
 
 @router.get("/api/admin/docs/{slug}/source.pdf")
@@ -129,7 +129,7 @@ async def publish_doc(slug: str, request: Request) -> dict[str, object]:
         }
     )
     write_meta(_tr(request), slug, new)
-    return new.model_dump(mode="json")  # type: ignore[no-any-return]
+    return new.model_dump(mode="json")
 
 
 @router.post("/api/admin/docs/{slug}/archive")
@@ -144,7 +144,7 @@ async def archive_doc(slug: str, request: Request) -> dict[str, object]:
         }
     )
     write_meta(_tr(request), slug, new)
-    return new.model_dump(mode="json")  # type: ignore[no-any-return]
+    return new.model_dump(mode="json")
 
 
 @router.get("/api/admin/docs/{slug}/pages/status")
@@ -158,7 +158,7 @@ async def get_page_status(slug: str, request: Request) -> dict[str, object]:
     if meta is None:
         raise HTTPException(status_code=404, detail=f"doc not found: {slug}")
     payload = read_page_status(_tr(request), slug) or PageStatusFile(slug=slug, done_pages=[])
-    return payload.model_dump(mode="json")  # type: ignore[no-any-return]
+    return payload.model_dump(mode="json")
 
 
 @router.patch("/api/admin/docs/{slug}/pages/{page}/status")

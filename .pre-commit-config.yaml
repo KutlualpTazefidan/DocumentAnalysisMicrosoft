@@ -19,6 +19,8 @@ repos:
     rev: v1.20.2
     hooks:
       - id: mypy
-        additional_dependencies: []
+        additional_dependencies:
+          - pydantic>=2,<3
+          - pydantic-settings>=2,<3
         args: [--config-file=pyproject.toml]
         exclude: ^(archive/|features/.*/tests/)
