@@ -85,11 +85,28 @@ def _seed_doc(data_root: Path, slug: str) -> str:
     doc.mkdir(parents=True, exist_ok=True)
     (doc / "datasets").mkdir(parents=True, exist_ok=True)
 
-    # Mineru output with a couple diagnostics so DiagnosticBar has data.
+    # The synthesised question is keyed by the backend under
+    # ``p{page}-{element_id}`` (see GET /questions). The voting e2e clicks the
+    # preview box whose data-source-box matches this key to reveal the card.
+    seed_page = 1
+    seed_element_id = "b2"
+    seed_box_key = f"p{seed_page}-{seed_element_id}"  # "p1-b2"
+
+    # Mineru output. Each element carries a box_id + html_snippet so the
+    # Synthesise tab's totalPages/highlightMeta memos don't crash on the
+    # synthetic seed; the element count (10) + diagnostics drive the
+    # Extract-stats assertions below.
     (doc / "mineru-out.json").write_text(
         json.dumps(
             {
-                "elements": [{"id": f"e{i}"} for i in range(10)],
+                "elements": [
+                    {
+                        "id": f"e{i}",
+                        "box_id": f"p{seed_page}-b{i}",
+                        "html_snippet": f'<p data-x="0" data-y="{i * 40}">seed element {i}</p>',
+                    }
+                    for i in range(10)
+                ],
                 "diagnostics": [
                     {"kind": "split"},
                     {"kind": "no_decomposition"},
@@ -132,6 +149,21 @@ def _seed_doc(data_root: Path, slug: str) -> str:
     ]
     (doc / "segments.json").write_text(json.dumps({"slug": slug, "boxes": boxes}))
 
+    # Read-only HTML the Synthesise tab renders in its preview iframe. The
+    # voting e2e clicks data-source-box="{seed_box_key}" to reveal the
+    # QuestionList; without html.html, GET /html 404s and the vote UI never
+    # mounts. The <section data-page> wrapper matches the frontend's
+    # sliceHtmlByPage contract.
+    (doc / "html.html").write_text(
+        "<!DOCTYPE html>\n"
+        "<html><head><style>body{font-family:sans-serif}</style></head><body>\n"
+        f'<section data-page="{seed_page}">\n'
+        "<h1>Seed-Dokument</h1>\n"
+        f'<p data-source-box="{seed_box_key}">Was ist der Registersatz? (seed box)</p>\n'
+        "</section>\n"
+        "</body></html>\n"
+    )
+
     # One synthesised retrieval entry — gives the vote endpoint something
     # to address. The entry_id is what becomes the {question_id} URL param.
     entry_id = f"r-smoke-{int(time.time() * 1000)}"
@@ -155,8 +187,8 @@ def _seed_doc(data_root: Path, slug: str) -> str:
                 "chunk_hashes": {},
                 "source_element": {
                     "document_id": slug,
-                    "page_number": 1,
-                    "element_id": "b2",
+                    "page_number": seed_page,
+                    "element_id": seed_element_id,
                     "element_type": "paragraph",
                 },
             },
