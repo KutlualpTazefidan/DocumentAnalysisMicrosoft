@@ -1,6 +1,6 @@
 # Phasenübersicht — Goldset-System
 
-> **Letzte Aktualisierung:** 2026-05-03 (A.1.0 Coherence + Roles + Extract-Pipeline-Hardening als PR offen — bündelt Admin/Curator-Shells, role-prefixed Backend-Routes, VLM-getriebenen Extract-Pfad mit Per-Sub-Block-Boxen, MathML-Rendering, Aux-Row-Layout, Footnote-Heuristiken, Segment-Route-Entfernung. Davor: A.0 Local PDF Pipeline via PR #26 + Model-Lifecycle/Progress via PR #27. Phase A: A.0 → A.8 + A-Plus.1/.2 alle merged. Phase B/C/D als nächstes.)
+> **Letzte Aktualisierung:** 2026-06-04 (Phase D angefangen: Statistik-Tab + Reviewer-Voting-MVP via PR #51 merged — Level-Gewichtung, Element-Signale, DuckDB-Layer und Vote-History-UI noch offen. Davor: A.1.0 Coherence + Roles + Extract-Pipeline-Hardening als PR offen — bündelt Admin/Curator-Shells, role-prefixed Backend-Routes, VLM-getriebenen Extract-Pfad mit Per-Sub-Block-Boxen, MathML-Rendering, Aux-Row-Layout, Footnote-Heuristiken, Segment-Route-Entfernung. A.0 Local PDF Pipeline via PR #26 + Model-Lifecycle/Progress via PR #27. Phase A: A.0 → A.8 + A-Plus.1/.2 alle merged. B/C als nächstes.)
 > **Detail-Specs:** [`docs/superpowers/specs/`](superpowers/specs/) — vollständige Design-Dokumente pro Phase
 > **Pläne:** [`docs/superpowers/plans/`](superpowers/plans/) — granulare Implementations-Pläne
 
@@ -59,7 +59,7 @@ features/
 | A.1.0 | Coherence + roles + UI polish + extract-pipeline hardening (admin/curator shells, role-prefixed routes, MinerU VLM-driven extract, MathML, footnote heuristics, segment-route removal) | 🚧 PR open | (TBD) | [coherence-and-roles-design.md](superpowers/specs/2026-05-01-coherence-and-roles-design.md) |
 | B | Answer-Quality + LLM-Judge | 📅 später | — | (in Restructure-Spec §7 skizziert) |
 | C | Klassifikation + Multi-Agent | 📅 später | — | (in Restructure-Spec §7 skizziert) |
-| D | User-Signale auf Chunks und Test-Fragen | 💭 Idee, Brainstorming offen | — | (Skizze unten) |
+| D | User-Signale auf Chunks und Test-Fragen | 🚧 in Arbeit | [#51](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/51) | [statistics-and-voting-design.md](superpowers/specs/2026-06-03-statistics-and-voting-design.md) |
 | E | Pipeline-agnostische Bewertung (`span_match`) | 💭 Idee, Brainstorming offen | — | (Skizze unten) |
 | F | Query-Decomposition-Agent | 💭 Idee, Brainstorming offen | — | (Skizze unten) |
 
@@ -249,9 +249,9 @@ In einer Session kann der User **sowohl bewerten als auch erstellen**:
 
 **Warum:** Manche Eval-Aufgaben haben mehr Varianz (subjektive Quality-Calls). Mehrere LLM-Judges + Aggregation reduziert Bias und gibt Konfidenz-Intervalle.
 
-### Phase D — User-Signale auf Chunks und Test-Fragen 💭
+### Phase D — User-Signale auf Chunks und Test-Fragen 🚧
 
-> **Status:** Konzept entschieden (2026-04-29), Detail-Spec steht aus. Brainstorming-Runde wird nach A-Plus stattfinden, wenn Frontend-Realität klarer ist.
+> **Status:** In Arbeit. Konzept entschieden (2026-04-29), Detail-Spec steht ([statistics-and-voting-design.md](superpowers/specs/2026-06-03-statistics-and-voting-design.md)). Statistik-Tab + Reviewer-Voting-MVP merged via [#51](https://github.com/KutlualpTazefidan/DocumentAnalysisMicrosoft/pull/51). Noch offen: Level-gewichtete Aggregation, Element-Signale, DuckDB-Query-Layer, Vote-History-UI.
 
 **Was:** Ein zweiter Bewertungs-Pfad parallel zu den Kurator-Operationen (refine/deprecate aus A.6) — diesmal getrieben von **User-Signalen aus dem Frontend**. Reviewer öffnen einen Chunk im Browser, sehen den Chunk-Inhalt selbst plus alle Test-Fragen, die ihn als erwartete Antwort haben, und können beides bewerten.
 
