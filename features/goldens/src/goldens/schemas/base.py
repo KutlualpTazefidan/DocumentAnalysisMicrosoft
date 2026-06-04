@@ -121,7 +121,7 @@ def actor_from_dict(d: dict) -> HumanActor | LLMActor:
 
 
 CreateAction = Literal["created_from_scratch", "synthesised", "imported_from_faq"]
-ReviewAction = Literal["accepted_unchanged", "approved", "rejected"]
+ReviewAction = Literal["accepted_unchanged", "approved", "rejected", "revoked"]
 
 
 _REVIEW_ACTIONS = (
@@ -131,6 +131,7 @@ _REVIEW_ACTIONS = (
     "accepted_unchanged",
     "approved",
     "rejected",
+    "revoked",
     "deprecated",
 )
 
@@ -146,6 +147,7 @@ class Review(BaseModel):
         "accepted_unchanged",
         "approved",
         "rejected",
+        "revoked",
         "deprecated",
     ]
     actor: Actor

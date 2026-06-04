@@ -14,12 +14,19 @@ import { apiBase } from "../api/adminClient";
  *   DELETE /api/admin/docs/{slug}/questions/{question_id}
  */
 
+export interface VoteSummary {
+  approved_count: number;
+  rejected_count: number;
+  my_vote: "approved" | "rejected" | null;
+}
+
 export interface Question {
   entry_id: string;
   text: string;
   box_id: string;
   /** LLM-generated reference answer; null until ⟨📝 Antworten⟩ runs. */
   answer?: string | null;
+  vote_summary?: VoteSummary;
 }
 
 export type QuestionsByBox = Record<string, Question[]>;
@@ -173,6 +180,31 @@ export function useDeprecateQuestion(slug: string, token: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["questions", slug] });
+    },
+  });
+}
+
+export function useVoteQuestion(slug: string, token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      entryId: string;
+      action: "approved" | "rejected" | "revoked";
+    }) => {
+      const r = await fetchOk(
+        `${apiBase()}/api/admin/docs/${encodeURIComponent(slug)}/questions/${encodeURIComponent(params.entryId)}/vote`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: params.action }),
+        },
+        token,
+      );
+      return r.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["questions", slug] });
+      qc.invalidateQueries({ queryKey: ["stats", "synthese", slug] });
     },
   });
 }

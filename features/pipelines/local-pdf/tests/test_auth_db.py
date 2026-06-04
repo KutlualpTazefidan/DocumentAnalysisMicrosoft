@@ -39,7 +39,7 @@ def test_ensure_schema_idempotent(tmp_path: Path) -> None:
         ensure_schema(conn)
         ensure_schema(conn)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 1
+    assert version == 2
 
 
 def test_foreign_keys_enabled(tmp_path: Path) -> None:

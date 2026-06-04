@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Edit3, Trash2 } from "../../shared/icons";
+import { CheckCircle2, Edit3, Trash2, XCircle } from "../../shared/icons";
 import { T } from "../styles/typography";
 import type { Question } from "../hooks/useSynthesise";
 
@@ -23,6 +23,10 @@ interface Props {
   onRefine: (entryId: string, newText: string) => Promise<void> | void;
   onDeprecate: (entryId: string) => Promise<void> | void;
   onEditAnswer?: (entryId: string, newText: string) => Promise<void> | void;
+  onVote?: (
+    entryId: string,
+    action: "approved" | "rejected" | "revoked",
+  ) => Promise<void> | void;
   /** Disable interactions while a global mutation is pending. */
   disabled?: boolean;
 }
@@ -32,6 +36,7 @@ export function QuestionList({
   onRefine,
   onDeprecate,
   onEditAnswer,
+  onVote,
   disabled,
 }: Props): JSX.Element {
   const [editing, setEditing] = useState<EditTarget | null>(null);
@@ -62,10 +67,17 @@ export function QuestionList({
           editing?.kind === "question" && editing.id === q.entry_id;
         const editingAnswer =
           editing?.kind === "answer" && editing.id === q.entry_id;
+        const my = q.vote_summary?.my_vote ?? null;
+        const stripeClass =
+          my === "approved"
+            ? "border-l-emerald-500"
+            : my === "rejected"
+              ? "border-l-red-500"
+              : "border-l-transparent";
         return (
           <li
             key={q.entry_id}
-            className="rounded border border-slate-200 bg-white p-2 flex flex-col gap-1"
+            className={`rounded border border-slate-200 bg-white p-2 flex flex-col gap-1 border-l-[3px] ${stripeClass}`}
             data-testid={`question-${q.entry_id}`}
           >
             {editingQuestion ? (
@@ -209,7 +221,47 @@ export function QuestionList({
                   >
                     <Trash2 size={14} aria-hidden="true" />
                   </button>
+                  {onVote && (
+                    <>
+                      <button
+                        type="button"
+                        title="Einverstanden"
+                        aria-label="Einverstanden"
+                        className={`p-1 rounded ${my === "approved" ? "text-emerald-700 bg-emerald-50" : "text-emerald-600 hover:bg-emerald-50"} disabled:opacity-40`}
+                        disabled={disabled}
+                        onClick={() =>
+                          void onVote(
+                            q.entry_id,
+                            my === "approved" ? "revoked" : "approved",
+                          )
+                        }
+                      >
+                        <CheckCircle2 size={14} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Disqualifizieren"
+                        aria-label="Disqualifizieren"
+                        className={`p-1 rounded ${my === "rejected" ? "text-red-700 bg-red-50" : "text-red-600 hover:bg-red-50"} disabled:opacity-40`}
+                        disabled={disabled}
+                        onClick={() =>
+                          void onVote(
+                            q.entry_id,
+                            my === "rejected" ? "revoked" : "rejected",
+                          )
+                        }
+                      >
+                        <XCircle size={14} aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
                 </div>
+                {my != null && q.vote_summary && (
+                  <div className="text-[11px] text-slate-500 mt-1 text-right">
+                    {q.vote_summary.approved_count} ✓ ·{" "}
+                    {q.vote_summary.rejected_count} ✗
+                  </div>
+                )}
               </>
             )}
           </li>

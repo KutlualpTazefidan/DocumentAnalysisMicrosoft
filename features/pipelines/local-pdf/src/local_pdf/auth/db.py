@@ -20,7 +20,7 @@ from pathlib import Path  # noqa: TC003
 
 # Bumped on every schema change. ``ensure_schema`` no-ops when the DB
 # is already at this version; future versions add migrations here.
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 def auth_db_path(data_root: Path) -> Path:
@@ -81,6 +81,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         return
     if current < 1:
         _migrate_to_v1(conn)
+    if current < 2:
+        _migrate_to_v2(conn)
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
 
@@ -137,6 +139,25 @@ def _migrate_to_v1(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (tenant_id, username)
         );
 
+        COMMIT;
+        """
+    )
+
+
+def _migrate_to_v2(conn: sqlite3.Connection) -> None:
+    """Add users.level column.
+
+    Additive ALTER TABLE; existing rows backfill to 'other' via
+    the NOT NULL DEFAULT clause at statement time. SQLite CHECK
+    enforces on new INSERTs — existing rows are valid against
+    the default and stay valid.
+    """
+    conn.executescript(
+        """
+        BEGIN;
+        ALTER TABLE users
+          ADD COLUMN level TEXT NOT NULL DEFAULT 'other'
+          CHECK (level IN ('expert', 'phd', 'masters', 'bachelors', 'other'));
         COMMIT;
         """
     )
