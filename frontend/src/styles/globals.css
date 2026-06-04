@@ -63,4 +63,14 @@
   .bam-td {
     @apply p-2 align-middle;
   }
+
+  /* Provenienz graph — light tiles + panels on the light canvas (was dark
+     slate tiles on a chrome2-900 canvas). Node-kind accent hues are applied
+     per-tile on top of these; only the chrome lives here. */
+  .prov-tile {
+    @apply rounded-lg border border-line bg-white text-ink shadow-sm;
+  }
+  .prov-tile-head {
+    @apply text-[10px] uppercase tracking-wide text-ink-muted;
+  }
 }
