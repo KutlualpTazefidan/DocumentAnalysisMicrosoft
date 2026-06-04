@@ -6,7 +6,8 @@ import { App } from "../src/App";
 describe("App route shell", () => {
   it("renders Login at /login", () => {
     render(<MemoryRouter initialEntries={["/login"]}><App /></MemoryRouter>);
-    expect(screen.getByText(/Anmeldung/i)).toBeInTheDocument();
+    // BAM login: the card is headed by the GOLDENS lockup (was "Anmeldung").
+    expect(screen.getByRole("heading", { name: /goldens/i })).toBeInTheDocument();
   });
 
   it("renders 404 for unknown path", () => {
