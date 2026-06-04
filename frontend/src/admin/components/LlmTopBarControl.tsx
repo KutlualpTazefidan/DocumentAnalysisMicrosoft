@@ -71,14 +71,14 @@ export function LlmTopBarControl({ token }: Props): JSX.Element {
 
   return (
     <div
-      className="relative flex items-center gap-2 text-slate-100"
+      className="relative flex items-center gap-2 text-ink"
       data-testid="llm-topbar"
     >
       {/* Status pill (clickable → popover) */}
       <button
         type="button"
         onClick={() => setPopoverOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
+        className="flex items-center gap-1.5 px-2 py-1 rounded border border-line bg-canvas hover:bg-line text-xs"
         title="Logs / Details anzeigen"
       >
         <span
@@ -86,7 +86,7 @@ export function LlmTopBarControl({ token }: Props): JSX.Element {
           aria-hidden
         />
         <span className="font-medium">vLLM</span>
-        <span className="text-white/70">{STATE_LABEL[state]}</span>
+        <span className="text-ink-muted">{STATE_LABEL[state]}</span>
         {hasError && <AlertCircle className="w-3.5 h-3.5 text-red-300" aria-hidden />}
       </button>
 
@@ -250,7 +250,7 @@ function ModelPicker({
         type="button"
         onClick={() => setOpen((o) => !o)}
         disabled={disabled || models.length === 0}
-        className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-xs flex items-center gap-1 disabled:opacity-50 max-w-[200px]"
+        className="px-2 py-1 rounded border border-line bg-canvas hover:bg-line text-xs flex items-center gap-1 disabled:opacity-50 max-w-[200px]"
         title="Modell auswählen — wirkt erst beim nächsten Start"
       >
         <span className="truncate">{currentLabel}</span>
