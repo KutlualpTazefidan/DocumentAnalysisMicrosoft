@@ -7,10 +7,12 @@ export const ADMIN_THEME = {
   label: "ADMIN",
 } as const;
 
+// CURATOR shares the BAM light chrome; the role pill uses a distinct teal
+// accent so admin (cyan) and curator (teal) read apart at a glance.
 export const CURATOR_THEME = {
-  chrome: "#065f46",
-  chromeFg: "#ffffff",
-  accent: "#6ee7b7",
+  chrome: "#ffffff",
+  chromeFg: "#002832",
+  accent: "#34a186",
   label: "CURATOR",
 } as const;
 

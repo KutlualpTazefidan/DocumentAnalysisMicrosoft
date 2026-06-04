@@ -34,14 +34,19 @@ export function Landing() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-canvas flex flex-col">
       <main className="flex-1 flex items-center">
         <div className="w-full max-w-5xl mx-auto px-6 py-16">
           <section className="text-center space-y-6 mb-20">
-            <h1 className="text-6xl font-bold tracking-tight text-navy-800">
-              GOLDENS
+            <img
+              src="/brand/bam-logo.png"
+              alt="BAM"
+              className="h-12 w-auto mx-auto mb-2"
+            />
+            <h1 className="text-6xl font-bold uppercase tracking-[0.1em] text-bam-navy">
+              Goldens
             </h1>
-            <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+            <p className="text-lg text-ink-muted max-w-2xl mx-auto">
               KI-gestützte Datenextraktion und digitale Abbilder für
               Engineering-Workflows.
             </p>
@@ -60,36 +65,35 @@ export function Landing() {
             {FEATURES.map(({ icon: Icon, title, body }) => (
               <article
                 key={title}
-                className="bg-white border border-slate-200 rounded-lg p-6 space-y-3 hover:border-brand-500 transition-colors"
+                className="card p-6 space-y-3 hover:border-bam-cyan transition-colors"
               >
-                <Icon className="w-8 h-8 text-brand-500" aria-hidden />
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {title}
-                </h2>
-                <p className="text-sm text-slate-600 leading-relaxed">{body}</p>
+                <Icon className="w-8 h-8 text-bam-cyan" aria-hidden />
+                <h2 className="text-lg font-semibold text-bam-navy">{title}</h2>
+                <p className="text-sm text-ink-muted leading-relaxed">{body}</p>
               </article>
             ))}
           </section>
         </div>
       </main>
-      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-line py-6 text-center text-xs text-ink-muted">
         GOLDENS — interne Anwendung. Audit-Logs verwenden Pseudonyme.
       </footer>
 
       <Dialog.Root open={loginOpen} onOpenChange={setLoginOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-40" />
           <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-8 w-full max-w-sm z-50">
-            <div className="flex items-center justify-between mb-4">
-              <Dialog.Title className="text-xl font-semibold">
-                Anmeldung
+            <Dialog.Close
+              className="absolute right-3 top-3 p-1 text-ink-muted hover:text-bam-navy"
+              aria-label="Schließen"
+            >
+              <X className="w-4 h-4" />
+            </Dialog.Close>
+            <div className="flex flex-col items-center gap-3 mb-5">
+              <img src="/brand/bam-logo.png" alt="BAM" className="h-9 w-auto" />
+              <Dialog.Title className="text-lg font-bold uppercase tracking-[0.18em] text-bam-navy">
+                Goldens
               </Dialog.Title>
-              <Dialog.Close
-                className="text-slate-500 hover:text-slate-700"
-                aria-label="Schließen"
-              >
-                <X className="w-4 h-4" />
-              </Dialog.Close>
             </div>
             <Dialog.Description className="sr-only">
               Mit Fachbereich, Benutzername und Passwort anmelden. Schließen mit

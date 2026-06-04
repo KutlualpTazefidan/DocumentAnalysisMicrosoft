@@ -51,4 +51,16 @@
   .bam-title {
     @apply text-[11px] font-semibold uppercase tracking-wide text-ink-muted;
   }
+
+  /* BAM data-grid — dense zebra rows under a small-caps header, à la the
+     reference Prüfmuster tables. Header cell / body row / body cell. */
+  .bam-th {
+    @apply p-2 text-left bg-rail border-b border-line text-[11px] font-semibold uppercase tracking-wide text-ink-muted;
+  }
+  .bam-row {
+    @apply border-b border-line odd:bg-white even:bg-[#f6f8fa] hover:bg-rowsel;
+  }
+  .bam-td {
+    @apply p-2 align-middle;
+  }
 }
