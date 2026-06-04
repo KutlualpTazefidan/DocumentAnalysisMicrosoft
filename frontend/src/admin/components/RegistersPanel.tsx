@@ -68,13 +68,13 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
       <div
         role="dialog"
         aria-modal="true"
-        className="bg-navy-900 border border-navy-600 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-navy-700">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div>
-            <h2 className={`${T.heading} text-white`}>Verzeichnisse</h2>
-            <p className={`${T.tiny} text-slate-400`}>
+            <h2 className={`${T.heading} text-bam-navy`}>Verzeichnisse</h2>
+            <p className={`${T.tiny} text-ink-muted`}>
               Strukturierte Inhalts-, Tabellen-, Abbildungs- und
               Literaturverzeichnisse — gleiche Daten wie der zukünftige
               RegisterLookup-Agent-Tool.
@@ -83,7 +83,7 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -91,19 +91,19 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
         </header>
 
         {isPending && (
-          <div className={`${T.body} flex-1 flex items-center justify-center text-slate-400`}>
+          <div className={`${T.body} flex-1 flex items-center justify-center text-ink-muted`}>
             Lade Verzeichnisse…
           </div>
         )}
 
         {isError && (
-          <div className={`${T.body} flex-1 flex items-center justify-center text-rose-300`}>
+          <div className={`${T.body} flex-1 flex items-center justify-center text-bam-red`}>
             {error instanceof Error ? error.message : "Fehler beim Laden"}
           </div>
         )}
 
         {!isPending && !isError && registers.length === 0 && (
-          <div className={`${T.body} flex-1 flex flex-col items-center justify-center text-slate-400 gap-2`}>
+          <div className={`${T.body} flex-1 flex flex-col items-center justify-center text-ink-muted gap-2`}>
             <p>Keine Verzeichnisse erkannt.</p>
             <p className={T.tiny}>
               „📑 Verzeichnisse" oben in der Top-Bar drückt die
@@ -114,7 +114,7 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
 
         {!isPending && !isError && registers.length > 0 && active && (
           <>
-            <nav className="flex border-b border-navy-700" role="tablist">
+            <nav className="flex border-b border-line" role="tablist">
               {registers.map((r) => (
                 <button
                   key={r.kind}
@@ -124,8 +124,8 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
                   onClick={() => setActiveKind(r.kind)}
                   className={`px-4 py-2 ${T.body} flex items-center gap-2 border-b-2 transition-colors ${
                     r.kind === activeKind
-                      ? "text-white border-current"
-                      : "text-slate-400 border-transparent hover:text-slate-200"
+                      ? "text-ink border-current"
+                      : "text-ink-muted border-transparent hover:text-ink"
                   }`}
                   style={r.kind === activeKind ? { color: _KIND_COLOR[r.kind] } : undefined}
                 >
@@ -135,7 +135,7 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
                     style={{ background: _KIND_COLOR[r.kind] }}
                   />
                   <span>{r.title}</span>
-                  <span className={`${T.tiny} text-slate-500`}>{r.entries.length}</span>
+                  <span className={`${T.tiny} text-ink-muted`}>{r.entries.length}</span>
                 </button>
               ))}
             </nav>
@@ -144,15 +144,15 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
               <RegisterTable register={active} />
             </div>
 
-            <footer className="px-4 py-3 border-t border-navy-700 flex items-center justify-between">
-              <span className={`${T.tiny} text-slate-500`}>
+            <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+              <span className={`${T.tiny} text-ink-muted`}>
                 {active.entries.length} Einträge · {active.source_box_ids.length}{" "}
                 Quellboxen · Esc zum Schließen
               </span>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(active.markdown)}
-                className={`px-3 py-1 rounded bg-navy-800 hover:bg-navy-700 text-slate-200 ${T.body}`}
+                className={`btn-secondary ${T.body}`}
                 title="Markdown-Tabelle in Zwischenablage kopieren"
               >
                 Markdown kopieren
@@ -168,21 +168,21 @@ export function RegistersPanel({ open, slug, token, onClose }: Props): JSX.Eleme
 function RegisterTable({ register }: { register: Register }): JSX.Element {
   const isBib = register.kind === "bibliography";
   return (
-    <table className={`${T.body} w-full text-slate-200 border-collapse`}>
+    <table className={`${T.body} w-full text-ink border-collapse`}>
       <thead>
-        <tr className="border-b border-navy-600 text-slate-400 text-left">
-          <th className="py-2 px-3 w-20 font-semibold">Nr.</th>
-          <th className="py-2 px-3 font-semibold">{isBib ? "Quelle" : "Eintrag"}</th>
-          {!isBib && <th className="py-2 px-3 w-20 font-semibold text-right">Seite</th>}
+        <tr>
+          <th className="bam-th w-20">Nr.</th>
+          <th className="bam-th">{isBib ? "Quelle" : "Eintrag"}</th>
+          {!isBib && <th className="bam-th w-20 text-right">Seite</th>}
         </tr>
       </thead>
       <tbody>
         {register.entries.map((e, i) => (
-          <tr key={i} className="border-b border-navy-800 hover:bg-navy-800/40">
-            <td className="py-1.5 px-3 text-slate-400 align-top">{e.number || "—"}</td>
-            <td className="py-1.5 px-3 align-top">{e.title || "—"}</td>
+          <tr key={i} className="bam-row">
+            <td className="bam-td text-ink-muted align-top">{e.number || "—"}</td>
+            <td className="bam-td align-top">{e.title || "—"}</td>
             {!isBib && (
-              <td className="py-1.5 px-3 text-slate-400 align-top text-right">
+              <td className="bam-td text-ink-muted align-top text-right">
                 {e.page || "—"}
               </td>
             )}

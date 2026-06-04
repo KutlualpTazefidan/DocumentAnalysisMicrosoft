@@ -43,7 +43,7 @@ import { T } from "../styles/typography";
 
 function comparePageBtnClasses(hasQuestions: boolean, isActive: boolean): string {
   const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center`;
-  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  const ring = isActive ? " ring-2 ring-bam-cyan" : "";
   return hasQuestions
     ? `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`
     : `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
@@ -337,7 +337,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* Top bar — same chrome as Extract / Synthesise. */}
-      <div className="flex items-center px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
+      <div className="px-4 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
 
@@ -361,8 +361,8 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                   <li
                     key={q.entry_id}
                     onClick={() => setSelectedEntry(q.entry_id)}
-                    className={`px-3 py-2 cursor-pointer border-b border-slate-100 hover:bg-blue-50 transition-colors ${
-                      active ? "bg-blue-50 border-l-4 border-l-blue-500" : "border-l-4 border-l-transparent"
+                    className={`px-3 py-2 cursor-pointer border-b border-slate-100 hover:bg-rowsel transition-colors ${
+                      active ? "bg-rowsel border-l-4 border-l-bam-cyan" : "border-l-4 border-l-transparent"
                     }`}
                     data-testid={`compare-question-${q.entry_id}`}
                   >
@@ -384,7 +384,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
         {/* ── Pane 2: NEW — Detail / similar + their chunks. ──── */}
         <div
-          className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50 overflow-y-auto min-w-0"
+          className="flex-1 flex flex-col border-r border-slate-200 bg-white overflow-y-auto min-w-0"
           data-testid="compare-detail"
         >
           {!selected ? (
@@ -396,12 +396,12 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
           ) : (
             <div className="flex flex-col gap-3 px-4 py-4">
               {/* Selected question card */}
-              <section className="rounded-lg border-2 border-blue-300 bg-white shadow-sm overflow-hidden">
-                <header className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center gap-2">
-                  <span className={`${T.tinyBold} text-blue-900 uppercase tracking-wide`}>
+              <section className="rounded-lg border-2 border-bam-cyan bg-white shadow-sm overflow-hidden">
+                <header className="px-4 py-2 bg-rowsel border-b border-bam-cyan flex items-center gap-2">
+                  <span className={`${T.tinyBold} text-bam-navy uppercase tracking-wide`}>
                     Ausgewählte Frage
                   </span>
-                  <span className={`${T.tiny} font-mono text-blue-700 ml-auto`}>
+                  <span className={`${T.tiny} font-mono text-bam-cyan-700 ml-auto`}>
                     {selected.box_id}
                   </span>
                 </header>
@@ -481,7 +481,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                 (pipelineName === "microsoft" && !selectedSource)
               }
               onClick={handleSearch}
-              className={`ml-auto px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
+              className={`ml-auto px-3 py-1.5 rounded bg-bam-cyan text-white ${T.bodyMedium} hover:bg-bam-cyan-600 disabled:bg-slate-300 disabled:cursor-not-allowed`}
               data-testid="compare-search"
             >
               {search.isPending ? "Suche…" : "🔍 Suchen"}
@@ -532,7 +532,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setAllChunks(true)}
-                          className="text-blue-600 hover:underline"
+                          className="text-bam-cyan-700 hover:underline"
                           data-testid="chunks-select-all"
                         >
                           Alle
@@ -541,7 +541,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                         <button
                           type="button"
                           onClick={() => setAllChunks(false)}
-                          className="text-blue-600 hover:underline"
+                          className="text-bam-cyan-700 hover:underline"
                           data-testid="chunks-select-none"
                         >
                           Keine
@@ -583,7 +583,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
                     searchChunks.every((c) => chunkSelection[c.chunk_id] === false)
                   }
                   onClick={handleAnswer}
-                  className={`px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed self-start`}
+                  className={`px-3 py-1.5 rounded bg-bam-cyan text-white ${T.bodyMedium} hover:bg-bam-cyan-600 disabled:bg-slate-300 disabled:cursor-not-allowed self-start`}
                   data-testid="compare-answer"
                 >
                   {answer.isPending
@@ -743,7 +743,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
             onClick={handleToggleApprove}
             className={
               approvedPages.has(page)
-                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200`
+                ? `${T.body} px-3 py-1.5 rounded border border-bam-cyan bg-rowsel text-bam-cyan-700 hover:bg-rowsel`
                 : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`
             }
             data-testid="compare-page-lock"
@@ -843,7 +843,7 @@ function MicrosoftSourcesPanel({
           type="button"
           onClick={onRefresh}
           disabled={refreshPending}
-          className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+          className="p-1 rounded text-slate-500 hover:text-bam-cyan-700 hover:bg-rowsel disabled:opacity-40"
           title="Mit Azure abgleichen"
           aria-label="Wissensquellen aktualisieren"
           data-testid="ms-sources-refresh"
@@ -864,7 +864,7 @@ function MicrosoftSourcesPanel({
               <li
                 key={s.slug}
                 className={`rounded border ${
-                  active ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
+                  active ? "border-bam-cyan bg-rowsel" : "border-slate-200 bg-white"
                 } px-2 py-1.5 flex flex-col gap-0.5`}
               >
                 <button
@@ -911,7 +911,7 @@ function MicrosoftSourcesPanel({
       )}
 
       <label
-        className={`${T.body} text-center px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 cursor-pointer ${
+        className={`${T.body} text-center px-3 py-1.5 rounded border border-bam-cyan bg-rowsel text-bam-cyan-700 hover:bg-rowsel cursor-pointer ${
           uploadPending ? "opacity-40 cursor-wait" : ""
         }`}
         data-testid="ms-upload"
@@ -1059,7 +1059,7 @@ function ChunkCard({
   return (
     <li
       className={`rounded border ${
-        checked ? "border-blue-300 bg-blue-50/40" : "border-slate-200 bg-slate-50"
+        checked ? "border-bam-cyan bg-rowsel" : "border-slate-200 bg-slate-50"
       } px-2 py-1.5 flex flex-col gap-1`}
     >
       <div className="flex items-start gap-2">

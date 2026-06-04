@@ -43,7 +43,7 @@ export function StageIndicator({ state }: Props): JSX.Element | null {
       <button
         data-testid="stage-toggle"
         onClick={() => setOpen((p) => !p)}
-        className={`flex items-center gap-2 bg-white border rounded px-3 py-1 ${T.body} shadow`}
+        className={`flex items-center gap-2 bg-white border border-line rounded px-3 py-1 ${T.body} shadow`}
       >
         <span data-testid="stage-dot" className={`inline-block w-2 h-2 rounded-full ${DOT_CLASS[state.stage] ?? "bg-gray-400"}`} />
         <span className="font-medium">{state.model ?? "—"}</span>
@@ -56,7 +56,7 @@ export function StageIndicator({ state }: Props): JSX.Element | null {
         {state.vram_mb > 0 ? <span>• {state.vram_mb}MB</span> : null}
       </button>
       {open ? (
-        <div className="mb-1 bg-white border rounded shadow w-96 max-h-80 overflow-auto">
+        <div className="mb-1 bg-white border border-line rounded shadow w-96 max-h-80 overflow-auto">
           <StageTimeline events={state.timeline} />
         </div>
       ) : null}

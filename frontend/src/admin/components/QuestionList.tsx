@@ -77,13 +77,13 @@ export function QuestionList({
         return (
           <li
             key={q.entry_id}
-            className={`rounded border border-slate-200 bg-white p-2 flex flex-col gap-1 border-l-[3px] ${stripeClass}`}
+            className={`card p-2 flex flex-col gap-1 border-l-[3px] ${stripeClass}`}
             data-testid={`question-${q.entry_id}`}
           >
             {editingQuestion ? (
               <>
                 <textarea
-                  className="text-[14px] leading-snug w-full border border-slate-300 rounded p-1 resize-y"
+                  className="input text-[14px] leading-snug resize-y"
                   rows={3}
                   value={editing!.draft}
                   onChange={(e) =>
@@ -95,7 +95,7 @@ export function QuestionList({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-40"
+                    className="btn-primary px-2 py-0.5 text-xs disabled:opacity-40"
                     disabled={disabled || !editing!.draft.trim()}
                     onClick={() => void commitEdit(editing!, q)}
                   >
@@ -103,7 +103,7 @@ export function QuestionList({
                   </button>
                   <button
                     type="button"
-                    className="px-2 py-0.5 rounded border border-slate-300 text-slate-700 text-xs hover:bg-slate-50"
+                    className="btn-secondary text-slate-900 px-2 py-0.5 text-xs"
                     onClick={() => setEditing(null)}
                   >
                     Abbrechen
@@ -113,7 +113,7 @@ export function QuestionList({
             ) : (
               <>
                 <p
-                  className="text-[14px] leading-snug text-slate-800 whitespace-pre-wrap cursor-text select-text"
+                  className="text-[14px] leading-snug text-ink whitespace-pre-wrap cursor-text select-text"
                   title="Doppelklick zum Bearbeiten"
                   onDoubleClick={() => {
                     if (disabled) return;
@@ -148,7 +148,7 @@ export function QuestionList({
                       </button>
                       <button
                         type="button"
-                        className="px-2 py-0.5 rounded border border-slate-300 text-slate-700 text-xs hover:bg-slate-50"
+                        className="btn-secondary text-slate-900 px-2 py-0.5 text-xs"
                         onClick={() => setEditing(null)}
                       >
                         Abbrechen
@@ -257,7 +257,7 @@ export function QuestionList({
                   )}
                 </div>
                 {my != null && q.vote_summary && (
-                  <div className="text-[11px] text-slate-500 mt-1 text-right">
+                  <div className="text-[11px] text-ink-muted mt-1 text-right">
                     {q.vote_summary.approved_count} ✓ ·{" "}
                     {q.vote_summary.rejected_count} ✗
                   </div>
