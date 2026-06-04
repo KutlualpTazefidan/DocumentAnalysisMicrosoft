@@ -37,7 +37,7 @@ function Inner({ data }: Props): JSX.Element {
 export function DiagnosticBar({ data }: Props): JSX.Element {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <div className={`${T.heading} text-navy-200 mb-1`}>Diagnose-Flags</div>
+      <div className={`${T.heading} text-bam-navy mb-1`}>Diagnose-Flags</div>
       <RechartsNavyTheme height={120}>
         <Inner data={data} />
       </RechartsNavyTheme>

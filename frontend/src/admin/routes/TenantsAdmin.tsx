@@ -90,13 +90,13 @@ export function TenantsAdmin(): JSX.Element {
 
   return (
     <div className="flex h-full">
-      <aside className="w-80 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-4 overflow-y-auto">
+      <aside className="w-80 border-r border-line p-4 flex flex-col gap-4 overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Fachbereiche</h1>
+          <h1 className="text-xl font-semibold text-bam-navy">Fachbereiche</h1>
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="p-1.5 rounded hover:bg-slate-200 text-slate-700"
+            className="p-1.5 rounded hover:bg-rowsel text-ink-muted"
             title="Neuen Fachbereich anlegen"
             aria-label="Neuen Fachbereich anlegen"
           >
@@ -114,7 +114,7 @@ export function TenantsAdmin(): JSX.Element {
         {selectedSlug ? (
           <TenantDetail slug={selectedSlug} />
         ) : (
-          <p className="text-slate-500 italic">
+          <p className="text-ink-muted italic">
             Fachbereich aus der Liste links wählen, um Benutzer zu sehen oder neue
             anzulegen.
           </p>
@@ -168,16 +168,16 @@ function TenantList({
     }
   }, [selectedSlug, tenants, onSelect]);
 
-  if (q.isLoading) return <p className="text-sm text-slate-500">Lade…</p>;
+  if (q.isLoading) return <p className="text-sm text-ink-muted">Lade…</p>;
   if (q.error)
     return (
-      <p className="text-sm text-red-600">
+      <p className="text-sm text-bam-red">
         Fehler: {(q.error as Error).message}
       </p>
     );
   if (tenants.length === 0) {
     return (
-      <p className="text-sm text-slate-500 italic">
+      <p className="text-sm text-ink-muted italic">
         Noch kein Fachbereich. Erst einen anlegen.
       </p>
     );
@@ -190,17 +190,17 @@ function TenantList({
           <li
             key={t.tenant_id}
             className={`group relative rounded ${
-              active ? "bg-blue-100" : "hover:bg-slate-200"
+              active ? "bg-rowsel" : "hover:bg-rowsel"
             }`}
           >
             <button
               type="button"
               onClick={() => onSelect(t.slug)}
               className={`w-full text-left px-3 py-2 pr-16 rounded text-sm ${
-                active ? "text-blue-900 font-semibold" : ""
+                active ? "text-bam-cyan font-semibold" : ""
               }`}
             >
-              <div className="font-mono text-xs text-slate-600">{t.slug}</div>
+              <div className="font-mono text-xs text-ink-muted">{t.slug}</div>
               <div>{t.name}</div>
             </button>
             <div
@@ -214,7 +214,7 @@ function TenantList({
                   e.stopPropagation();
                   onEdit(t);
                 }}
-                className="p-1 rounded hover:bg-slate-300 text-slate-600"
+                className="p-1 rounded hover:bg-rowsel text-ink-muted"
                 title={`Fachbereich „${t.slug}" bearbeiten`}
                 aria-label={`Fachbereich ${t.slug} bearbeiten`}
               >
@@ -226,7 +226,7 @@ function TenantList({
                   e.stopPropagation();
                   onDelete(t);
                 }}
-                className="p-1 rounded hover:bg-rose-100 text-slate-600 hover:text-rose-700"
+                className="p-1 rounded hover:bg-bam-red/10 text-ink-muted hover:text-bam-red"
                 title={`Fachbereich „${t.slug}" löschen`}
                 aria-label={`Fachbereich ${t.slug} löschen`}
               >
@@ -292,11 +292,11 @@ function CreateTenantModal({
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
           <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-semibold">
+            <Dialog.Title className="text-lg font-semibold text-bam-navy">
               Neuer Fachbereich
             </Dialog.Title>
             <Dialog.Close
-              className="text-slate-500 hover:text-slate-700"
+              className="text-ink-muted hover:text-ink"
               aria-label="Schließen"
             >
               <X className="w-4 h-4" />
@@ -308,7 +308,7 @@ function CreateTenantModal({
           </Dialog.Description>
           <form onSubmit={handle} className="space-y-3">
             <label className="block">
-              <span className="text-sm text-slate-700">Slug</span>
+              <span className="text-sm text-ink">Slug</span>
               <input
                 type="text"
                 value={slug}
@@ -318,12 +318,12 @@ function CreateTenantModal({
                 autoFocus
                 aria-label="Slug"
               />
-              <span className="text-xs text-slate-500 mt-1 block">
+              <span className="text-xs text-ink-muted mt-1 block">
                 Kurz-ID — Kleinbuchstaben, Zahlen, Bindestriche.
               </span>
             </label>
             <label className="block">
-              <span className="text-sm text-slate-700">Anzeigename</span>
+              <span className="text-sm text-ink">Anzeigename</span>
               <input
                 type="text"
                 value={name}
@@ -334,7 +334,7 @@ function CreateTenantModal({
               />
             </label>
             {error && (
-              <div role="alert" className="text-sm text-red-600">
+              <div role="alert" className="text-sm text-bam-red">
                 {error}
               </div>
             )}
@@ -414,11 +414,11 @@ function EditTenantModal({
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 w-full max-w-md z-50">
           <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-semibold">
+            <Dialog.Title className="text-lg font-semibold text-bam-navy">
               Fachbereich bearbeiten
             </Dialog.Title>
             <Dialog.Close
-              className="text-slate-500 hover:text-slate-700"
+              className="text-ink-muted hover:text-ink"
               aria-label="Schließen"
             >
               <X className="w-4 h-4" />
@@ -430,17 +430,17 @@ function EditTenantModal({
           {tenant && (
             <form onSubmit={handle} className="space-y-3">
               <div>
-                <span className="text-sm text-slate-700 block">Slug</span>
-                <code className="block mt-1 px-3 py-1.5 bg-slate-100 rounded text-sm">
+                <span className="text-sm text-ink block">Slug</span>
+                <code className="block mt-1 px-3 py-1.5 bg-rail rounded text-sm">
                   {tenant.slug}
                 </code>
-                <span className="text-xs text-slate-500 mt-1 block">
+                <span className="text-xs text-ink-muted mt-1 block">
                   Unveränderlich — Slug partitioniert die Daten unter
                   data_root.
                 </span>
               </div>
               <label className="block">
-                <span className="text-sm text-slate-700">Anzeigename</span>
+                <span className="text-sm text-ink">Anzeigename</span>
                 <input
                   type="text"
                   value={name}
@@ -451,7 +451,7 @@ function EditTenantModal({
                 />
               </label>
               {err && (
-                <div role="alert" className="text-sm text-red-600">
+                <div role="alert" className="text-sm text-bam-red">
                   {err}
                 </div>
               )}
@@ -493,9 +493,9 @@ function TenantDetail({ slug }: { slug: string }): JSX.Element {
   return (
     <div className="space-y-6 max-w-3xl">
       <header>
-        <h2 className="text-xl font-semibold">
+        <h2 className="text-xl font-semibold text-bam-navy">
           Fachbereich{" "}
-          <code className="text-base px-2 py-0.5 bg-slate-100 rounded">
+          <code className="text-base px-2 py-0.5 bg-rail rounded">
             {slug}
           </code>
         </h2>
@@ -504,10 +504,10 @@ function TenantDetail({ slug }: { slug: string }): JSX.Element {
       <CreateUserForm slug={slug} />
 
       <section>
-        <h3 className="text-base font-semibold mb-2">Benutzer</h3>
-        {q.isLoading && <p className="text-sm text-slate-500">Lade…</p>}
+        <h3 className="text-base font-semibold mb-2 text-bam-navy">Benutzer</h3>
+        {q.isLoading && <p className="text-sm text-ink-muted">Lade…</p>}
         {q.error && (
-          <p className="text-sm text-red-600">
+          <p className="text-sm text-bam-red">
             Fehler: {(q.error as Error).message}
           </p>
         )}
@@ -542,42 +542,42 @@ function UserTable({
   });
   if (users.length === 0) {
     return (
-      <p className="text-sm text-slate-500 italic">
+      <p className="text-sm text-ink-muted italic">
         Noch keine Benutzer in diesem Fachbereich.
       </p>
     );
   }
   return (
-    <table className="w-full text-sm border border-slate-200">
-      <thead className="bg-slate-50 text-slate-600">
+    <table className="w-full text-sm border border-line">
+      <thead>
         <tr>
-          <th className="text-left px-3 py-2">Benutzername</th>
-          <th className="text-left px-3 py-2">Pseudonym</th>
-          <th className="text-left px-3 py-2">Rolle</th>
-          <th className="text-left px-3 py-2">Aktiv</th>
-          <th className="text-left px-3 py-2">Letzte Anmeldung</th>
-          <th>
+          <th className="bam-th">Benutzername</th>
+          <th className="bam-th">Pseudonym</th>
+          <th className="bam-th">Rolle</th>
+          <th className="bam-th">Aktiv</th>
+          <th className="bam-th">Letzte Anmeldung</th>
+          <th className="bam-th">
             <span className="sr-only">Aktionen</span>
           </th>
         </tr>
       </thead>
       <tbody>
         {users.map((u) => (
-          <tr key={u.user_id} className="border-t border-slate-200">
-            <td className="px-3 py-2 font-mono">{u.username}</td>
-            <td className="px-3 py-2">{u.pseudonym}</td>
-            <td className="px-3 py-2">{u.role}</td>
-            <td className="px-3 py-2">
+          <tr key={u.user_id} className="bam-row">
+            <td className="bam-td font-mono">{u.username}</td>
+            <td className="bam-td">{u.pseudonym}</td>
+            <td className="bam-td">{u.role}</td>
+            <td className="bam-td">
               {u.active ? (
                 <StatusBadge tone="success" label="aktiv" icon={CheckCircle2} />
               ) : (
                 <StatusBadge tone="muted" label="deaktiviert" icon={XCircle} />
               )}
             </td>
-            <td className="px-3 py-2 text-slate-500 text-xs">
+            <td className="bam-td text-ink-muted text-xs">
               {u.last_login_at ?? "noch nie"}
             </td>
-            <td className="px-3 py-2">
+            <td className="bam-td">
               {u.active && (
                 <button
                   type="button"
@@ -662,12 +662,12 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
   return (
     <form
       onSubmit={handle}
-      className="bg-slate-50 border border-slate-200 rounded p-4 space-y-3"
+      className="card p-4 space-y-3"
     >
-      <h3 className="text-base font-semibold">Neuer Benutzer</h3>
+      <h3 className="text-base font-semibold text-bam-navy">Neuer Benutzer</h3>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
-          <span className="text-xs text-slate-600">Benutzername</span>
+          <span className="text-xs text-ink-muted">Benutzername</span>
           <input
             type="text"
             value={username}
@@ -677,7 +677,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
           />
         </label>
         <label className="block">
-          <span className="text-xs text-slate-600">Passwort</span>
+          <span className="text-xs text-ink-muted">Passwort</span>
           <input
             type="password"
             value={password}
@@ -687,7 +687,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
           />
         </label>
         <label className="block">
-          <span className="text-xs text-slate-600">Rolle</span>
+          <span className="text-xs text-ink-muted">Rolle</span>
           <select
             value={role}
             onChange={(e) =>
@@ -701,7 +701,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-slate-600">
+          <span className="text-xs text-ink-muted">
             Pseudonym (leer = wird beim Anlegen automatisch erzeugt)
           </span>
           <div className="flex gap-1 mt-0.5">
@@ -716,7 +716,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
               type="button"
               onClick={() => suggest.mutate()}
               disabled={suggest.isPending}
-              className="text-xs px-2 py-1 border border-slate-300 rounded hover:bg-slate-100"
+              className="text-xs px-2 py-1 border border-line2 rounded hover:bg-rowsel"
               title="Server schlägt ein freies Pseudonym vor (Adjektiv + Tier)"
             >
               {suggest.isPending ? "…" : "Vorschlagen"}
@@ -724,7 +724,7 @@ function CreateUserForm({ slug }: { slug: string }): JSX.Element {
           </div>
         </label>
       </div>
-      {error && <div className="text-xs text-red-600">{error}</div>}
+      {error && <div className="text-xs text-bam-red">{error}</div>}
       <button
         type="submit"
         disabled={create.isPending || !username.trim() || !password}

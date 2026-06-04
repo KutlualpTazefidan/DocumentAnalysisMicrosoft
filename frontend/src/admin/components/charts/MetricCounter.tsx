@@ -20,15 +20,15 @@ export function MetricCounter({ value, label, suffix }: Props): JSX.Element {
 
   return (
     <motion.div
-      className="rounded bg-navy-800 p-4 flex flex-col items-start"
+      className="card p-4 flex flex-col items-start"
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.25 }}
     >
-      <div className={`${T.tinyBold} text-navy-300`}>{label}</div>
-      <div className="text-3xl font-semibold text-white tabular-nums mt-1">
+      <div className={`${T.tinyBold} text-ink-muted`}>{label}</div>
+      <div className="text-3xl font-semibold text-bam-navy tabular-nums mt-1">
         <motion.span>{rounded}</motion.span>
-        {suffix && <span className="text-navy-200 ml-1 text-base">{suffix}</span>}
+        {suffix && <span className="text-ink-muted ml-1 text-base">{suffix}</span>}
       </div>
     </motion.div>
   );

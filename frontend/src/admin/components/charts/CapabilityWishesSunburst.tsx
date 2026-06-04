@@ -60,10 +60,10 @@ function Inner({ wishes }: Props): JSX.Element {
 export function CapabilityWishesSunburst({ wishes }: Props): JSX.Element {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
-      <div className={`${T.heading} text-navy-200 mb-1`}>Capability-Wünsche (Über alle Dokumente)</div>
+      <div className={`${T.heading} text-bam-navy mb-1`}>Capability-Wünsche (Über alle Dokumente)</div>
       <RechartsNavyTheme height={320}>
         {wishes.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-navy-200">Noch keine Wünsche</div>
+          <div className="flex items-center justify-center h-full text-ink-muted">Noch keine Wünsche</div>
         ) : (
           <Inner wishes={wishes} />
         )}

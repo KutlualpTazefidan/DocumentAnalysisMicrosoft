@@ -23,10 +23,10 @@ function SectionStatus({
   isError: boolean;
 }): JSX.Element | null {
   if (isLoading) {
-    return <div className="text-slate-400 text-sm">Lädt…</div>;
+    return <div className="text-ink-muted text-sm">Lädt…</div>;
   }
   if (isError) {
-    return <div className="text-slate-400 text-sm">Konnte nicht laden</div>;
+    return <div className="text-ink-muted text-sm">Konnte nicht laden</div>;
   }
   return null;
 }
@@ -41,18 +41,18 @@ export function Statistics(): JSX.Element {
   const wishes = useCapabilityWishes(tokenStr);
 
   if (token === null) {
-    return <div className="p-6 text-slate-300">Bitte zuerst anmelden.</div>;
+    return <div className="p-6 text-ink">Bitte zuerst anmelden.</div>;
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
+      <div className="px-4 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
 
       <div className="p-4 space-y-6">
         <section>
-          <h2 className={`${T.cardTitle} text-navy-100 mb-3`}>Extrahieren</h2>
+          <h2 className={`${T.cardTitle} text-bam-navy mb-3`}>Extrahieren</h2>
           <SectionStatus isLoading={extract.isLoading} isError={extract.isError} />
           {extract.data && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -67,7 +67,7 @@ export function Statistics(): JSX.Element {
         </section>
 
         <section>
-          <h2 className={`${T.cardTitle} text-navy-100 mb-3`}>Synthese</h2>
+          <h2 className={`${T.cardTitle} text-bam-navy mb-3`}>Synthese</h2>
           <SectionStatus isLoading={synthese.isLoading} isError={synthese.isError} />
           {synthese.data && (
             <div className="space-y-4">
@@ -89,7 +89,7 @@ export function Statistics(): JSX.Element {
         </section>
 
         <section>
-          <h2 className={`${T.cardTitle} text-navy-100 mb-3`}>Provenienz</h2>
+          <h2 className={`${T.cardTitle} text-bam-navy mb-3`}>Provenienz</h2>
           <SectionStatus
             isLoading={provenienz.isLoading || wishes.isLoading}
             isError={provenienz.isError || wishes.isError}
