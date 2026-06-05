@@ -27,7 +27,7 @@ export function CuratorShell() {
       <BamHeader
         theme={CURATOR_THEME}
         name={name ?? "curator"}
-        tenantSlug={tenantSlug}
+        tenantName={tenantSlug}
         onSettings={() => info("Einstellungen folgen in Kürze.")}
         onLogout={handleLogout}
       />

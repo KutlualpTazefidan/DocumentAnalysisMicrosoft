@@ -12,25 +12,25 @@ import { RoleMenu } from "./shared/RoleMenu";
 export function BamHeader({
   theme,
   name,
-  tenantSlug,
+  tenantName,
   onSettings,
   onLogout,
   centerSlot,
 }: {
   theme: RoleTheme;
   name: string;
-  tenantSlug?: string | null;
+  tenantName?: string | null;
   onSettings: () => void;
   onLogout: () => void;
   centerSlot?: ReactNode;
 }): JSX.Element {
   return (
     <header className="flex-shrink-0">
-      <div className="h-12 bg-white flex items-center gap-4 px-4">
-        {/* Brand lockup: BAM mark+wordmark · GOLDENS */}
-        <div className="flex items-center gap-2.5">
-          <img src="/brand/bam-logo.png" alt="BAM" className="h-6 w-auto" />
-          <span className="text-[15px] font-bold uppercase tracking-[0.12em] text-bam-navy">
+      <div className="h-12 bg-[#d6d6d6] flex items-center gap-4 px-4">
+        {/* Brand lockup: BAM mark stacked over the GOLDENS wordmark */}
+        <div className="flex flex-col items-start justify-center leading-none">
+          <img src="/brand/bam-logo-tight.png" alt="BAM" className="h-6 w-auto" />
+          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-bam-navy mt-0.5">
             Goldens
           </span>
         </div>
@@ -38,14 +38,6 @@ export function BamHeader({
         <div className="flex-1 flex justify-center">{centerSlot}</div>
 
         <div className="flex items-center gap-3">
-          {tenantSlug && (
-            <span
-              className="px-2 py-0.5 rounded text-xs font-mono border border-line text-ink-muted"
-              title="Aktiver Fachbereich"
-            >
-              {tenantSlug}
-            </span>
-          )}
           <button
             type="button"
             title="Benachrichtigungen"
@@ -54,16 +46,17 @@ export function BamHeader({
           >
             <Bell className="w-4 h-4" aria-hidden />
           </button>
+          {/* Vertical separator between the bell and the account control. */}
+          <span aria-hidden className="h-6 w-px bg-line" />
           <RoleMenu
             theme={theme}
             name={name}
+            tenantName={tenantName}
             onSettings={onSettings}
             onLogout={onLogout}
           />
         </div>
       </div>
-      {/* BAM cyan accent hairline under the header. */}
-      <div className="h-[2px] bg-bam-cyan" />
     </header>
   );
 }
