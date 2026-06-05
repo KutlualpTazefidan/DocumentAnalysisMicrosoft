@@ -58,7 +58,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 bg-white flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
       <div className="p-6 overflow-auto flex-1">
