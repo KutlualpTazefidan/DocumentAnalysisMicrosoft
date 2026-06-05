@@ -1,0 +1,193 @@
+{
+  "name": "curator-journey",
+  "startedAt": "2026-06-05T07:13:10.966Z",
+  "endedAt": "2026-06-05T07:15:29.797Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Kurator-Login: Liste „Meine zugewiesenen Dokumente“",
+      "startedAtMs": 1780643593302,
+      "endedAtMs": 1780643595329,
+      "actions": [
+        "set sessionStorage goldens.role=curator",
+        "goto /#/curate"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Zugewiesene Dokumente",
+              "selector": "h1:has-text(\"Meine zugewiesenen Dokumente\")",
+              "box": {
+                "x": 72,
+                "y": 74,
+                "width": 1304,
+                "height": 28
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Doc öffnen",
+              "selector": "a:has-text(\"öffnen\")"
+            },
+            {
+              "kind": "highlight",
+              "text": "Icon-Schiene (Meine Dokumente)",
+              "selector": "nav[aria-label=\"Hauptnavigation\"]",
+              "box": {
+                "x": 0,
+                "y": 50,
+                "width": 48,
+                "height": 850
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Rollen-Gate: CuratorShell rendert nur bei role===\"curator\" — sonst Redirect nach /login. Das Token allein reicht nicht, die Rolle muss passen.",
+        "BAM-Reskin: helle Canvas, weißer Header mit BAM-Mark + GOLDENS-Lockup und Cyan-Hairline; links die schmale Icon-Schiene (nur „Meine Dokumente“ für Kuratoren).",
+        "Der Kurator sieht ausschließlich Dokumente, die ein Admin via POST /api/admin/docs/{slug}/curators zugewiesen hat — hier genau das eine Test-Doc."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Doc geöffnet — Quell-Element lesen",
+      "startedAtMs": 1780643627739,
+      "endedAtMs": 1780643630790,
+      "actions": [
+        "click a:has-text(\"öffnen\")",
+        "goto /#/curate/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Aktuelles Quell-Element",
+              "selector": "article.card"
+            },
+            {
+              "kind": "highlight",
+              "text": "Frage-Eingabe",
+              "selector": "input[aria-label=\"Frage zu diesem Element\"]"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die Doc-Page zeigt jeweils EIN Quell-Element (data-Konvention: element-basiert, ein Element nach dem anderen) in einer hellen card: Seitenzahl, element_id (monospace) und der Element-Text.",
+        "Quelle ist read_source_elements (die Source-Paragraphen aus der Extraktion), nicht die Chunks — Kurator-Fragen referenzieren stabile Quell-Elemente.",
+        "Unten die Eingabe „Neue Frage“ mit Cyan-„Senden“-Button — hier formuliert der Kurator eine eigene Frage zum gezeigten Element."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Durch die Elemente blättern — „Next“ (oder Taste j/k)",
+      "startedAtMs": 1780643661692,
+      "endedAtMs": 1780643664757,
+      "actions": [
+        "click button:has-text(\"Next\")"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Nächstes Element",
+              "selector": "button:has-text(\"Next\")"
+            },
+            {
+              "kind": "highlight",
+              "text": "Vorheriges Element",
+              "selector": "button:has-text(\"Prev\")"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„Prev“ / „Next“ (btn-secondary) blättern durch die Element-Liste; die URL wird zu /curate/doc/{slug}/element/{element_id}, sodass jedes Element eine eigene Adresse hat.",
+        "Tastatur-Shortcuts: j = nächstes Element, k = vorheriges (außer der Fokus liegt in einem Eingabefeld). Schnelles Durchsehen ohne Maus.",
+        "Am Listenrand sind die Buttons disabled (kein Prev am ersten, kein Next am letzten Element)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Kuratieren: eigene Frage formulieren",
+      "startedAtMs": 1780643695158,
+      "endedAtMs": 1780643698201,
+      "actions": [
+        "goto /#/curate/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/element/undefined",
+        "fill input[aria-label=\"Frage zu diesem Element\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Frage eingegeben",
+              "selector": "input[aria-label=\"Frage zu diesem Element\"]"
+            },
+            {
+              "kind": "highlight",
+              "text": "Senden (jetzt aktiv)",
+              "selector": "button:has-text(\"Senden\")"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Ziel-Element: ? (Seite ?, Typ ?).",
+        "Eingetippte Frage: „Worin unterscheiden sich Cross-Validation und Bootstrap bei der Fehlerschätzung?“",
+        "Der „Senden“-Button (btn-primary, BAM-Cyan) ist disabled, solange das Feld leer ist — sobald Text drinsteht, wird er aktiv."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Frage absenden → gespeichert (POST /curate/.../questions)",
+      "startedAtMs": 1780643729709,
+      "endedAtMs": 1780643729769,
+      "actions": [
+        "click button:has-text(\"Senden\")",
+        "POST /api/curate/docs/1997-ronkohavi-standford-accuracy-estimation-model-selection/questions"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Toast „Frage gespeichert“ — Eingabe geleert, bereit fürs nächste Element"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf „Senden“ feuert POST /api/curate/docs/{slug}/questions mit { element_id, query }; der Server vergibt eine question_id und legt sie im Kurator-Bucket ab (getrennt von den Admin-/LLM-Fragen).",
+        "Bei Erfolg erscheint der Toast „Frage gespeichert“, das Eingabefeld wird geleert und die Element-Liste neu geladen.",
+        "question_id für Cleanup nicht aufgelöst."
+      ],
+      "status": "ok"
+    }
+  ]
+}

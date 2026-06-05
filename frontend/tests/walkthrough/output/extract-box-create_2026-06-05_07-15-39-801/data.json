@@ -1,0 +1,107 @@
+{
+  "name": "extract-box-create",
+  "startedAt": "2026-06-05T07:15:39.801Z",
+  "endedAt": "2026-06-05T07:16:18.326Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Rechte Seitenleiste: „+ Neue Box“",
+      "startedAtMs": 1780643742784,
+      "endedAtMs": 1780643742923,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Aktiviert Crosshair / Box-Drawing-Mode",
+              "selector": "button[aria-label=\"New box\"]",
+              "box": {
+                "x": 1137,
+                "y": 467,
+                "width": 120,
+                "height": 34
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Wenn die MinerU-Erkennung eine Box übersieht (z.B. eine Fußnote), legt der Kurator manuell eine neue an.",
+        "Eintrittspunkt: „+ Neue Box“-Button im rechten Panel — aktiviert den Crosshair-Modus auf dem PDF-Render.",
+        "Im Crosshair-Modus: Mousedown → Drag → Mouseup definiert das Bounding-Box-Rechteck in PDF-Koordinaten."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Neue Box angelegt — bbox [50,720,350,760] auf Seite 1",
+      "startedAtMs": 1780643777522,
+      "endedAtMs": 1780643777647,
+      "actions": [
+        "POST /api/admin/docs/{slug}/segments  body={page, bbox, kind:'paragraph'}",
+        "page.reload() to fetch fresh segments"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Neu angelegte Box auf dem PDF-Render",
+              "selector": "[data-testid=\"box-p1-u6429fb\"]",
+              "box": {
+                "x": -53,
+                "y": 319,
+                "width": 90,
+                "height": 12
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Server vergibt die box_id (sequentiell innerhalb der Seite, Format: p<page>-b<n>).",
+        "Default-Kind ist „paragraph“ — kann anschließend per Eigenschaften-Panel-Dropdown geändert werden.",
+        "Die Box ist sofort im SegmentsFile + html.html sichtbar (write_segments läuft synchron im POST-Handler).",
+        "Neue box_id: p1-u6429fb"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Box-Eigenschaften-Panel zeigt Typ + Aktiv-Toggle",
+      "startedAtMs": 1780643778164,
+      "endedAtMs": 1780643778285,
+      "actions": [
+        "click [data-testid=\"box-p1-u6429fb\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Panel zeigt Eigenschaften für p1-u6429fb"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Auswahl füllt das Eigenschaften-Panel mit der Box-ID, dem Typ-Dropdown (heading/paragraph/table/figure/…), dem Aktiv-Toggle und Diagnose-Infos.",
+        "Hier wird der initial vergebene Typ verfeinert — z.B. von „paragraph“ auf „caption“ oder „auxiliary“."
+      ],
+      "status": "ok"
+    }
+  ]
+}
