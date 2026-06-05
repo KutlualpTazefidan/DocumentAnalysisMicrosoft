@@ -46,26 +46,6 @@ export default {
           500: "#d2001f",
           700: "#a80019",
         },
-        // ── Legacy dark-chrome scales — retained for surfaces not yet
-        // migrated to the BAM light theme (charts, extract/provenienz
-        // reader panes). Removed once those waves land. ──
-        navy: {
-          200: "#cfe6f5",
-          300: "#8fbfdb",
-          500: "#5a9ec9",
-          600: "#1E7EB2",
-          700: "#0a2e47",
-          800: "#031E31",
-          900: "#021727",
-        },
-        chrome2: {
-          DEFAULT: "#576977",
-          500: "#6d7f8d",
-          600: "#576977",
-          700: "#455563",
-          800: "#3a4753",
-          900: "#2b3640",
-        },
       },
     },
   },
