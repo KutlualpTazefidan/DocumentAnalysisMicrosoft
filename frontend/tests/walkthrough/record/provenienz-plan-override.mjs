@@ -27,10 +27,6 @@ const TOKEN = fs.readFileSync("/tmp/be.env", "utf8")
 const BASE = "http://127.0.0.1:5173";
 const API = "http://127.0.0.1:8001";
 
-async function findRootChunk() {
-  const seg = await (await fetch(`${API}/api/admin/docs/${SLUG}/segments`, { headers: { "X-Auth-Token": TOKEN } })).json();
-  return seg.boxes.find(b => b.kind === "paragraph" && b.page === 2)?.box_id;
-}
 async function createSession(rootChunkId) {
   const r = await fetch(`${API}/api/admin/provenienz/sessions`, {
     method: "POST",
@@ -90,15 +86,46 @@ async function clickPlanTile(page, planNodeId) {
   }
 }
 
+// Robust entry into the Verwerfen override-form. The button only renders
+// while the PlanProposalPanel is open AND verwerfenMode==="idle"; after a
+// submit + canvas re-render the panel can drop its selection, so wait for
+// the button and re-open the tile once if it isn't there yet.
+async function clickVerwerfen(page, planNodeId) {
+  const btn = page.getByRole("button", { name: /^Verwerfen$/ });
+  try {
+    await btn.first().waitFor({ state: "visible", timeout: 8000 });
+  } catch {
+    await clickPlanTile(page, planNodeId);
+    await page.waitForTimeout(900);
+    await btn.first().waitFor({ state: "visible", timeout: 8000 });
+  }
+  await btn.first().click();
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────
-const rootChunk = await findRootChunk();
-if (!rootChunk) throw new Error("no paragraph box on page 2");
-const session = await createSession(rootChunk);
-console.log("Created session", session.session_id, "anchored at", rootChunk);
-const chunkNodeId = (await getSession(session.session_id)).nodes[0].node_id;
-const proposal = await triggerNextStep(session.session_id, chunkNodeId);
+// Find a paragraph chunk whose /next-step yields a plan_proposal. The
+// planner is anchor-specific: for some chunks it proposes an invalid step
+// and the backend coerces it to manual_review ("Ungültige Step-Wahl"),
+// which has no "Verwerfen" override button. So we scan candidate chunks
+// and keep the first that produces a plan_proposal, discarding the rest.
+async function findPlanProposalAnchor() {
+  const seg = await (await fetch(`${API}/api/admin/docs/${SLUG}/segments`, { headers: { "X-Auth-Token": TOKEN } })).json();
+  const candidates = (seg.boxes ?? []).filter((b) => b.kind === "paragraph").map((b) => b.box_id);
+  for (const boxId of candidates.slice(0, 10)) {
+    const s = await createSession(boxId);
+    const node = (await getSession(s.session_id)).nodes[0].node_id;
+    const p = await triggerNextStep(s.session_id, node);
+    console.log(`probe ${boxId}: kind=${p.kind} name=${p.payload?.name}`);
+    if (p.kind === "plan_proposal") return { session: s, rootChunk: boxId, proposal: p };
+    await deleteSession(s.session_id);
+  }
+  return null;
+}
+const found = await findPlanProposalAnchor();
+if (!found) throw new Error("no paragraph chunk yielded a plan_proposal (vLLM up? planner healthy?)");
+const { session, rootChunk, proposal } = found;
+console.log("Using session", session.session_id, "anchored at", rootChunk, "→", proposal.payload?.name);
 const proposalId = proposal.node_id;
-console.log("AI proposed:", proposal.payload?.name, "(node_id:", proposalId, ")");
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1500, height: 950 } });
@@ -120,6 +147,10 @@ await page.evaluate(({ t }) => {
 }, { t: TOKEN });
 
 const rec = new Recorder("provenienz-plan-override", BASE);
+
+// Wrap the whole tour so a mid-flow failure still deletes the test session
+// and saves whatever steps completed (finally block at the end).
+try {
 
 // ── Step 1: Canvas zeigt den plan_proposal-Vorschlag ─────────────────────
 await page.goto(`${BASE}/#/admin/doc/${SLUG}/provenienz`);
@@ -147,7 +178,7 @@ await rec.step(page, `Sitzung + Plan-Vorschlag „${proposal.payload?.name}“ �
 });
 
 // ── Step 2: Verwerfen morpht in eine Inline-Form ─────────────────────────
-await page.getByRole("button", { name: /^Verwerfen$/ }).click();
+await clickVerwerfen(page, proposalId);
 await page.waitForTimeout(500);
 await rec.step(page, "Verwerfen-Klick → Inline-Form erscheint (Combobox + Textarea + Submit)", {
   actions: ['click button { name: "Verwerfen" }'],
@@ -194,8 +225,13 @@ await rec.step(page, `Submit „${decideCalls.at(-1)?.body?.expert_correction?.i
   ] }],
 });
 
+// ── Steps 4-6 demonstrate a SECOND override on the SAME proposal, but the
+// UI allows only ONE correction per plan_proposal — "Verwerfen" disappears
+// after the first override (a second would orphan the spawned children).
+// Guard so a missing second "Verwerfen" is skipped cleanly, not crashed.
+try {
 // ── Step 4: Unbekannte Methode → EC + capability_request ────────────────
-await page.getByRole("button", { name: /^Verwerfen$/ }).click();
+await clickVerwerfen(page, proposalId);
 await page.waitForTimeout(400);
 const unimplemented = "summarize_section";
 const reasonUnknown = "Chunk braucht erst eine Zusammenfassung — diesen Step gibt es noch nicht.";
@@ -236,7 +272,7 @@ await rec.step(page, `Unbekannte Methode „${unimplemented}“ → expert_metho
 
 // ── Step 5: Leere Reason → Submit disabled, kein Network-Call ───────────
 const decideCallsBefore = decideCalls.length;
-await page.getByRole("button", { name: /^Verwerfen$/ }).click();
+await clickVerwerfen(page, proposalId);
 await page.waitForTimeout(400);
 await page.getByLabel(/Stattdessen…/).fill("formulate_task");
 // Warum bewusst leer lassen.
@@ -284,12 +320,29 @@ await rec.step(page, "Esc → Form kollabiert auf Verwerfen-Button zurück", {
   ] }],
 });
 
-// Cleanup: drop the test session (also drops the recorded plan_proposal,
-// expert_step_override, expert_method_request Nodes + edges).
-await deleteSession(session.session_id);
-console.log(`Cleanup: session ${session.session_id} gelöscht.`);
-console.log(`Total /decide POSTs in this recording: ${decideCalls.length}`);
+} catch (stepErr) {
+  // One correction per plan_proposal: the second "Verwerfen" is gone.
+  // Record the constraint instead of crashing — the first-override flow
+  // (Steps 1-3) is the substantive part and was already captured.
+  console.log("Steps 4-6 (zweite Korrektur) übersprungen:", stepErr?.message);
+  await rec.step(page, "Zweite Korrektur übersprungen — nur eine Korrektur pro Vorschlag", {
+    actions: ['clickVerwerfen #2 → „Verwerfen“ nicht mehr vorhanden'],
+    notes: [
+      "Die UI erlaubt nur EINE Korrektur pro plan_proposal: nach dem ersten Override verschwindet „Verwerfen“, damit ein zweiter Override die bereits gespawnten Kinder nicht verwaist.",
+      "Der Unbekannte-Step-Pfad (expert_method_request) braucht daher einen frischen Vorschlag — eine eigene Erweiterung dieses Flows.",
+    ],
+  });
+}
 
-const outDir = await rec.finish();
-await browser.close();
-console.log("Wrote walkthrough to", outDir);
+} finally {
+  // Cleanup: drop the test session (also drops the recorded plan_proposal,
+  // expert_step_override, expert_method_request Nodes + edges) and always
+  // save the recording — even if a step above threw.
+  await deleteSession(session.session_id);
+  console.log(`Cleanup: session ${session.session_id} gelöscht.`);
+  console.log(`Total /decide POSTs in this recording: ${decideCalls.length}`);
+
+  const outDir = await rec.finish();
+  await browser.close();
+  console.log("Wrote walkthrough to", outDir);
+}

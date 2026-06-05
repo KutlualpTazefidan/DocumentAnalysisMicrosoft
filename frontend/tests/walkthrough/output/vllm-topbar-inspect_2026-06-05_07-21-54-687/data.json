@@ -1,0 +1,169 @@
+{
+  "name": "vllm-topbar-inspect",
+  "startedAt": "2026-06-05T07:21:54.687Z",
+  "endedAt": "2026-06-05T07:22:00.849Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "vLLM-Pille in der BAM-Topbar (centerSlot)",
+      "startedAtMs": 1780644117272,
+      "endedAtMs": 1780644117391,
+      "actions": [
+        "goto /admin/inbox"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Topbar-Steuerung: Pille · Modell-Picker · Start/Stop",
+              "selector": "[data-testid=\"llm-topbar\"]",
+              "box": {
+                "x": 475,
+                "y": 11,
+                "width": 405,
+                "height": 26
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Status-Pille: vLLM startet",
+              "selector": "[data-testid=\"llm-topbar\"] button[title=\"Logs / Details anzeigen\"]",
+              "box": {
+                "x": 475,
+                "y": 11,
+                "width": 101,
+                "height": 26
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die vLLM-Steuerung sitzt mittig in der weißen BAM-Topbar (BamHeader centerSlot) und ist von jeder /admin/*-Seite aus erreichbar — AdminShell mountet sie einmal global.",
+        "Die anklickbare Status-Pille zeigt einen farbigen Punkt (grau=gestoppt, gelb-pulsierend=startet, grün=läuft, rot=Fehler), das Label „vLLM“ und den Zustandstext.",
+        "Live-Zustand jetzt: „vLLM startet“."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Pille anklicken → Popover mit Details + Log-Tail",
+      "startedAtMs": 1780644117949,
+      "endedAtMs": 1780644118021,
+      "actions": [
+        "click [title=\"Logs / Details anzeigen\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Popover: Modell · Fehler · Log-Tail",
+              "selector": "[data-testid=\"llm-topbar-popover\"]",
+              "box": {
+                "x": 400,
+                "y": 45,
+                "width": 480,
+                "height": 354
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Aufklappbares „Logs (N)“",
+              "selector": "[data-testid=\"llm-topbar-popover\"] summary",
+              "box": {
+                "x": 413,
+                "y": 110,
+                "width": 454,
+                "height": 16
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf die Pille öffnet ein Popover („vLLM-Server-Details“), rechtsbündig unter der Steuerung.",
+        "Inhalt: aktuelles Modell, ggf. eine rote Fehlerbox, ein amber CLI-Warnhinweis falls die vllm-CLI fehlt, sowie ein aufklappbares „Logs (N)“-<details> mit dem Log-Tail.",
+        "Das Logs-<details> klappt bei state „startet“/„Fehler“ automatisch auf, damit man die Transition sofort sieht."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Modell-Picker öffnen — kuratierte Modell-Liste",
+      "startedAtMs": 1780644118909,
+      "endedAtMs": 1780644118981,
+      "actions": [
+        "click [title=\"Modell auswählen — wirkt erst beim nächsten Start\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Aktuelles Modell",
+              "selector": "button[title=\"Modell auswählen — wirkt erst beim nächsten Start\"]",
+              "box": {
+                "x": 590,
+                "y": 11,
+                "width": 200,
+                "height": 26
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Auswahl wirkt erst beim nächsten Start — wird hier nur angeschaut, nicht geklickt."
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Picker-Button zeigt das aktuell gewählte Modell; bei laufendem Server kommt ein amber Hinweis „Modellwechsel wirkt erst nach Stop + Start“.",
+        "Die Liste ist kuratiert (useLlmModels): pro Eintrag Name (monospace), Label, Parameter-Größe, VRAM-bf16-Bedarf und Lizenz; das aktive Modell trägt einen blauen „aktiv“-Tag, Modelle ohne 24-GB-bf16-Fit ein amber „braucht Quantisierung“.",
+        "Beispiele aus der Live-Liste: 1. Qwen3 8B Instruct ⭐ neuere Generation (8.2B, ~16 GB bf16); 3. Qwen3.5 9B (multimodal) (9B, ~18 GB bf16); 2. Gemma 3 27B IT (FP8) ⭐ empfohlen (27B, ~16 GB bf16)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Start/Stop — ein zustandsabhängiger Button",
+      "startedAtMs": 1780644119302,
+      "endedAtMs": 1780644120849,
+      "actions": [
+        "highlight action button (kein Klick — read-only Tour)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Action-Button: ⟳ „Startet…“ (deaktiviert, pollt Status)",
+              "selector": "button[aria-label=\"vLLM startet\"]"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Rechts in der Steuerung: ein einziger Button, dessen Aussehen und Aktion vom Zustand abhängen — gestoppt→grüner ▶ Start (/llm/start), startet→⟳ „Startet…“ (disabled), läuft→roter ■ Stop (/llm/stop), Fehler→oranger ⟲ „Neustart“.",
+        "Fehlt die vllm-CLI, ist der Button deaktiviert („nicht installiert“) und verweist auf vllm-server/README.md.",
+        "Live: Action-Button: ⟳ „Startet…“ (deaktiviert, pollt Status).",
+        "Bewusst nicht geklickt — Start würde einen echten vLLM-Subprozess starten; diese Tour bleibt zustandsneutral."
+      ],
+      "status": "ok"
+    }
+  ]
+}

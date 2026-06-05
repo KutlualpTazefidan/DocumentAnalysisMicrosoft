@@ -1,0 +1,92 @@
+{
+  "name": "synthese-edit-answer",
+  "startedAt": "2026-06-05T07:19:33.558Z",
+  "endedAt": "2026-06-05T07:19:39.669Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Synthese-Liste mit generierten Fragen — Ziel: da0c4fa8ab9c4bf2840872fbdb6a0b7b",
+      "startedAtMs": 1780643976731,
+      "endedAtMs": 1780643976794,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/synthesise"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Ziel-Eintrag: da0c4fa8ab9c4bf2840872fbdb6a0b7b"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Pro Frage zeigt der Eintrag: Frage-Text, generierte Antwort, Box-Pin (springt zur Quelle), Bearbeiten/Verfeinern/Löschen-Aktionen.",
+        "Antworten kommen vom LLM auf Basis der Quell-Box. Der Admin kann sie hier durch eigene Texte ersetzen.",
+        "Original-Antwort: „…“"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Eigene Antwort einsetzen → PATCH /answers/{entry_id}",
+      "startedAtMs": 1780643979539,
+      "endedAtMs": 1780643979602,
+      "actions": [
+        "PATCH /api/admin/docs/1997-ronkohavi-standford-accuracy-estimation-model-selection/answers/da0c4fa8ab9c4bf2840872fbdb6a0b7b body={text: own-text}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Neue Antwort: „Eine vom Admin überschriebene Antwort — gilt als finale Wahr…“"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Im echten UI: Klick in das Antwort-Feld → tippen → Blur löst PATCH automatisch aus.",
+        "Server schreibt die neue Antwort in den answers-Sidecar. /questions invalidiert react-query → Liste rendert die neue Antwort sofort.",
+        "Die ursprüngliche LLM-Antwort wird überschrieben — nicht versioniert (für Audit-Trail siehe Provenienz-Sitzung)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Reload bestätigt: eigene Antwort in der Liste",
+      "startedAtMs": 1780643979607,
+      "endedAtMs": 1780643979669,
+      "actions": [
+        "GET /questions",
+        "compare answer field"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "PATCH ✓ persistiert"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die Antwort steht jetzt im Server-State. Beim nächsten Export-Lauf landet sie in den Goldens-Daten.",
+        "Live answer in /questions: „Eine vom Admin überschriebene Antwort — gilt als finale Wahrheit für diesen Eint…“"
+      ],
+      "status": "ok"
+    }
+  ]
+}
