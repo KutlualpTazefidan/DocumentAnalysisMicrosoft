@@ -55,7 +55,7 @@ export function SubStatementPanel({
         onClose={() => onSelectView(null)}
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <p className={`text-fuchsia-100 ${T.body} italic whitespace-pre-wrap`}>
+        <p className={`text-fuchsia-900 ${T.body} italic whitespace-pre-wrap`}>
           „{text}"
         </p>
         <LiveRunPanel
@@ -64,7 +64,7 @@ export function SubStatementPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void stream.start(sub.node_id)}
@@ -74,8 +74,8 @@ export function SubStatementPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
-          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+        <details className="rounded border border-line bg-canvas">
+          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}>
             Manuell wählen
           </summary>
           <div className="p-2">
@@ -93,7 +93,7 @@ export function SubStatementPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50 flex items-center justify-center gap-2`}
+          className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50 flex items-center justify-center gap-2`}
         >
           <Trash2 className="w-3.5 h-3.5" />
           {del.isPending ? "…" : "Tile löschen"}

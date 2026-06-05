@@ -36,28 +36,28 @@ export function ChunkPicker({
   }, [elements, query]);
 
   return (
-    <div className="flex flex-col h-full bg-chrome2-900">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+    <div className="flex flex-col h-full bg-white">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-line">
         <div>
-          <h2 className={`${T.heading} text-white`}>Wurzel-Chunk wählen</h2>
-          <p className={`${T.body} text-slate-400`}>
+          <h2 className={`${T.heading} text-ink`}>Wurzel-Chunk wählen</h2>
+          <p className={`${T.body} text-ink-muted`}>
             Eine Sitzung beginnt an einem Chunk. Such oder scroll, dann klicken.
           </p>
         </div>
         <button
           type="button"
           onClick={onCancel}
-          className="text-slate-400 hover:text-white p-1"
+          className="text-ink-muted hover:text-ink p-1"
           aria-label="Abbrechen"
         >
           <X className="w-4 h-4" />
         </button>
       </header>
 
-      <div className="px-4 py-3 border-b border-chrome2-500">
+      <div className="px-4 py-3 border-b border-line">
         <div className="relative">
           <Search
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted"
             aria-hidden
           />
           <input
@@ -65,39 +65,39 @@ export function ChunkPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Suche nach box_id (z.B. p16) oder Text…"
-            className={`w-full pl-8 pr-3 py-2 rounded bg-chrome2-800 border border-chrome2-500 text-white ${T.body} focus:outline-none focus:border-blue-500`}
+            className={`w-full pl-8 pr-3 py-2 rounded bg-white border border-line text-ink ${T.body} focus:outline-none focus:border-blue-500`}
             autoFocus
             disabled={pending}
           />
         </div>
         {elements && (
-          <p className={`${T.tiny} text-slate-500 mt-2`}>
+          <p className={`${T.tiny} text-ink-muted mt-2`}>
             {filtered.length} von {elements.length} Chunks
           </p>
         )}
       </div>
 
       {errorMessage && (
-        <div className="px-4 py-2 bg-red-900/30 border-b border-red-700">
-          <p className={`${T.body} text-red-300`}>{errorMessage}</p>
+        <div className="px-4 py-2 bg-red-50 border-b border-red-200">
+          <p className={`${T.body} text-red-700`}>{errorMessage}</p>
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
-          <p className={`px-4 py-3 ${T.body} text-slate-400`}>Lade Chunks…</p>
+          <p className={`px-4 py-3 ${T.body} text-ink-muted`}>Lade Chunks…</p>
         )}
         {error && (
-          <p className={`px-4 py-3 ${T.body} text-red-400`}>
+          <p className={`px-4 py-3 ${T.body} text-red-600`}>
             Konnte Chunks nicht laden: {error.message}
           </p>
         )}
         {filtered.length === 0 && !isLoading && elements && (
-          <p className={`px-4 py-3 ${T.body} text-slate-500 italic`}>
+          <p className={`px-4 py-3 ${T.body} text-ink-muted italic`}>
             Keine Treffer für „{query}".
           </p>
         )}
-        <ul className="divide-y divide-chrome2-500">
+        <ul className="divide-y divide-line">
           {filtered.map((el) => (
             <ChunkRow
               key={el.box_id}
@@ -127,20 +127,20 @@ function ChunkRow({
         type="button"
         onClick={onPick}
         disabled={disabled}
-        className="w-full text-left px-4 py-3 hover:bg-chrome2-800/60 disabled:opacity-50 disabled:cursor-wait flex items-start gap-3"
+        className="w-full text-left px-4 py-3 hover:bg-rowsel disabled:opacity-50 disabled:cursor-wait flex items-start gap-3"
       >
         <span
-          className={`${T.tiny} font-mono text-blue-300 bg-chrome2-800 px-1.5 py-0.5 rounded shrink-0`}
+          className={`${T.tiny} font-mono text-blue-700 bg-canvas px-1.5 py-0.5 rounded shrink-0`}
         >
           S.{el.page}
         </span>
         <div className="min-w-0 flex-1">
-          <p className={`${T.tiny} font-mono text-slate-400 mb-0.5`}>
+          <p className={`${T.tiny} font-mono text-ink-muted mb-0.5`}>
             {el.box_id}
           </p>
-          <p className={`${T.body} text-slate-200 line-clamp-2`}>
+          <p className={`${T.body} text-ink line-clamp-2`}>
             {el.text_preview || (
-              <span className="italic text-slate-500">
+              <span className="italic text-ink-muted">
                 (kein Textinhalt — Bild / Tabelle / Layout)
               </span>
             )}

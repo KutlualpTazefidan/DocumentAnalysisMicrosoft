@@ -104,17 +104,17 @@ export function TaskPanel({
       <PanelHeader title="Aufgabe" onClose={() => onSelectView(null)} />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
         {(claimGoal || claimText) && (
-          <div className="rounded border border-pink-700/40 bg-pink-950/20 px-3 py-2 space-y-1">
+          <div className="rounded border border-pink-200 bg-pink-50 px-3 py-2 space-y-1">
             {claimGoal && (
               <>
-                <p className={`${T.tinyBold} text-pink-300`}>
+                <p className={`${T.tinyBold} text-pink-700`}>
                   Recherche-Frage zur Aussage
                 </p>
-                <p className={`text-pink-100 ${T.body}`}>{claimGoal}</p>
+                <p className={`text-pink-900 ${T.body}`}>{claimGoal}</p>
               </>
             )}
             {claimText && (
-              <p className={`${T.tiny} text-pink-300/80 italic mt-1`}>
+              <p className={`${T.tiny} text-pink-700 italic mt-1`}>
                 Aussage: „{claimText}"
               </p>
             )}
@@ -123,16 +123,16 @@ export function TaskPanel({
         <div>
           <p className={T.tinyBold}>
             Suchanfrage{" "}
-            <span className={`${T.tiny} font-normal text-slate-500`}>
+            <span className={`${T.tiny} font-normal text-ink-muted`}>
               (BM25-Keywords für den Searcher)
             </span>
           </p>
-          <p className={`text-cyan-200 italic ${T.body} whitespace-pre-wrap`}>
+          <p className={`text-cyan-800 italic ${T.body} whitespace-pre-wrap`}>
             {queryText}
           </p>
         </div>
         {view.hasResults && (
-          <p className={`${T.body} text-emerald-300 italic`}>
+          <p className={`${T.body} text-emerald-700 italic`}>
             Suchtreffer-Bag liegt im nächsten Schritt.
           </p>
         )}
@@ -145,7 +145,7 @@ export function TaskPanel({
           />
         )}
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         {!view.hasResults && (
           <button
             type="button"
@@ -158,13 +158,13 @@ export function TaskPanel({
           </button>
         )}
         {!view.hasResults && (
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
-            <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+          <details className="rounded border border-line bg-canvas">
+            <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}>
               Manuell suchen
             </summary>
             <div className="p-2 space-y-2">
               <div className="flex items-center gap-2">
-                <label className={`${T.tiny} text-slate-300`}>top_k</label>
+                <label className={`${T.tiny} text-ink-muted`}>top_k</label>
                 <input
                   type="number"
                   min={1}
@@ -173,7 +173,7 @@ export function TaskPanel({
                   onChange={(e) =>
                     setTopK(Math.max(1, Math.min(20, Number(e.target.value))))
                   }
-                  className={`w-16 px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.tiny}`}
+                  className={`w-16 px-2 py-1 rounded bg-white border border-line text-ink ${T.tiny}`}
                 />
               </div>
               <button
@@ -185,7 +185,7 @@ export function TaskPanel({
                 {search.isPending ? "Suche…" : "Suchen"}
               </button>
               {registerHint && (
-                <p className={`${T.tiny} text-amber-300`}>
+                <p className={`${T.tiny} text-amber-700`}>
                   Verweis erkannt: <span className="font-mono">{registerHint}</span>
                 </p>
               )}
@@ -205,12 +205,12 @@ export function TaskPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
         {(search.error || del.error) && (
-          <p className={`text-red-400 ${T.tiny}`}>
+          <p className={`text-bam-red ${T.tiny}`}>
             {(search.error ?? del.error)?.message}
           </p>
         )}

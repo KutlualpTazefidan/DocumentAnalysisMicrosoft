@@ -19,9 +19,9 @@ const VERDICT_LABEL: Record<string, string> = {
 };
 
 const TAG_STYLE: Record<string, string> = {
-  STÜTZT: "bg-emerald-900/40 border-emerald-600 text-emerald-100",
-  WIDERSPRICHT: "bg-rose-900/40 border-rose-600 text-rose-100",
-  "NICHT-RELEVANT": "bg-slate-800/60 border-slate-600 text-slate-300",
+  STÜTZT: "bg-emerald-50 border-emerald-200 text-emerald-900",
+  WIDERSPRICHT: "bg-rose-50 border-rose-200 text-rose-900",
+  "NICHT-RELEVANT": "bg-canvas border-line text-ink-muted",
 };
 
 /**
@@ -124,23 +124,23 @@ export function EvaluationPanel({
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div className={`flex items-baseline gap-2 ${T.body}`}>
-          <span className="font-mono uppercase font-semibold text-slate-100">
+          <span className="font-mono uppercase font-semibold text-ink">
             {verdict}
           </span>
           {confidence !== null && (
-            <span className="text-slate-400">{confidence}% Konfidenz</span>
+            <span className="text-ink-muted">{confidence}% Konfidenz</span>
           )}
         </div>
         {reasoning && (
           <div>
             <p className={T.tinyBold}>Begründung</p>
-            <p className={`text-slate-200 ${T.body} italic mt-1`}>{reasoning}</p>
+            <p className={`text-ink ${T.body} italic mt-1`}>{reasoning}</p>
           </div>
         )}
         {toolCalls.length > 0 && (
-          <details className="rounded border border-cyan-700/40 bg-cyan-950/10" open>
+          <details className="rounded border border-cyan-200 bg-cyan-50" open>
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-300 flex items-center gap-2`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-700 flex items-center gap-2`}
             >
               🛠 Werkzeug-Ergebnisse: {toolCalls.length}{" "}
               {toolCalls.length === 1 ? "Werkzeug" : "Werkzeuge"} ausgeführt
@@ -172,29 +172,29 @@ export function EvaluationPanel({
                 return (
                   <li
                     key={idx}
-                    className="rounded px-2 py-1.5 bg-cyan-900/20 border border-cyan-700/30"
+                    className="rounded px-2 py-1.5 bg-cyan-50 border border-cyan-200"
                   >
                     <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className={`font-mono ${T.body} text-cyan-200`}>
+                      <span className={`font-mono ${T.body} text-cyan-800`}>
                         🛠 {tc.tool}
                       </span>
-                      <span className={`${T.tiny} text-cyan-400/80 font-mono`}>
+                      <span className={`${T.tiny} text-cyan-700 font-mono`}>
                         op={tc.operation}
                       </span>
                       {typeof inp.rel_tolerance === "number" && (
-                        <span className={`${T.tiny} text-cyan-400/60`}>
+                        <span className={`${T.tiny} text-cyan-700`}>
                           Toleranz {(inp.rel_tolerance * 100).toFixed(2)}%
                         </span>
                       )}
                       {typeof out.n_rows === "number" &&
                         typeof out.n_cols === "number" && (
-                          <span className={`${T.tiny} text-cyan-400/60`}>
+                          <span className={`${T.tiny} text-cyan-700`}>
                             {out.n_rows}×{out.n_cols} Zellen
                           </span>
                         )}
                     </div>
                     {out.reasoning && (
-                      <p className={`${T.tiny} text-cyan-100/90 mt-1`}>
+                      <p className={`${T.tiny} text-cyan-800 mt-1`}>
                         {out.reasoning}
                       </p>
                     )}
@@ -212,7 +212,7 @@ export function EvaluationPanel({
                                 {out.headers.map((h, hi) => (
                                   <th
                                     key={hi}
-                                    className="border border-cyan-700/40 px-2 py-0.5 text-cyan-100 bg-cyan-800/30 text-left"
+                                    className="border border-cyan-200 px-2 py-0.5 text-cyan-900 bg-cyan-100 text-left"
                                   >
                                     {h}
                                   </th>
@@ -222,13 +222,13 @@ export function EvaluationPanel({
                             <tbody>
                               {out.rows.map((r, ri) => (
                                 <tr key={ri}>
-                                  <td className="border border-cyan-700/40 px-2 py-0.5 text-cyan-200 font-mono">
+                                  <td className="border border-cyan-200 px-2 py-0.5 text-cyan-800 font-mono">
                                     {r.label ?? ""}
                                   </td>
                                   {(out.headers ?? []).slice(1).map((h, hi) => (
                                     <td
                                       key={hi}
-                                      className="border border-cyan-700/40 px-2 py-0.5 text-cyan-100"
+                                      className="border border-cyan-200 px-2 py-0.5 text-cyan-900"
                                     >
                                       {r.cells?.[h] ?? ""}
                                     </td>
@@ -246,8 +246,8 @@ export function EvaluationPanel({
                             key={ri}
                             className={
                               r.match
-                                ? "text-emerald-200"
-                                : "text-rose-200/80"
+                                ? "text-emerald-700"
+                                : "text-rose-700"
                             }
                           >
                             · {r.reasoning ?? ""}
@@ -263,17 +263,17 @@ export function EvaluationPanel({
         )}
         {capScan.length > 0 && (
           <details
-            className="rounded border border-orange-700/40 bg-orange-950/10"
+            className="rounded border border-orange-200 bg-orange-50"
             open={capMatched > 0}
           >
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-orange-300 flex items-center gap-2`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-orange-700 flex items-center gap-2`}
             >
               🔧 Fähigkeiten-Scan: {capMatched}/{capScan.length}{" "}
               {capScan.length === 1 ? "Fähigkeit" : "Fähigkeiten"}{" "}
               getriggert
               {capMatched > 0 && (
-                <span className="ml-auto text-emerald-300">
+                <span className="ml-auto text-emerald-700">
                   → Gate erstellt
                 </span>
               )}
@@ -284,21 +284,21 @@ export function EvaluationPanel({
                   key={c.approach_id}
                   className={`rounded px-2 py-1.5 ${
                     c.matched
-                      ? "bg-emerald-900/30 border border-emerald-700/50"
-                      : "bg-chrome2-900/50 border border-chrome2-500"
+                      ? "bg-emerald-50 border border-emerald-200"
+                      : "bg-canvas border border-line"
                   }`}
                 >
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span
                       className={`font-mono ${T.body} ${
-                        c.matched ? "text-emerald-200" : "text-slate-400"
+                        c.matched ? "text-emerald-800" : "text-ink-muted"
                       }`}
                     >
                       {c.matched ? "✓" : "○"} {c.name}
                     </span>
                     {c.parent_capability && (
                       <span
-                        className={`${T.tiny} font-mono text-orange-300/80`}
+                        className={`${T.tiny} font-mono text-orange-700`}
                       >
                         ↳ {c.parent_capability}
                       </span>
@@ -307,7 +307,7 @@ export function EvaluationPanel({
                   {c.reasons && c.reasons.length > 0 && (
                     <ul
                       className={`mt-1 space-y-0.5 ${T.tiny} ${
-                        c.matched ? "text-emerald-200/80" : "text-slate-500"
+                        c.matched ? "text-emerald-700" : "text-ink-muted"
                       }`}
                     >
                       {c.reasons.map((r, i) => (
@@ -316,7 +316,7 @@ export function EvaluationPanel({
                     </ul>
                   )}
                   {!c.matched && (!c.reasons || c.reasons.length === 0) && (
-                    <p className={`${T.tiny} text-slate-500 italic mt-1`}>
+                    <p className={`${T.tiny} text-ink-muted italic mt-1`}>
                       Keine Trigger konfiguriert.
                     </p>
                   )}
@@ -332,7 +332,7 @@ export function EvaluationPanel({
               {sentences.map((s, i) => {
                 const tag = String(s.tag ?? "").toUpperCase();
                 const tagStyle =
-                  TAG_STYLE[tag] ?? "bg-zinc-800 border-zinc-600 text-zinc-200";
+                  TAG_STYLE[tag] ?? "bg-canvas border-line text-ink-muted";
                 return (
                   <li
                     key={i}
@@ -354,29 +354,29 @@ export function EvaluationPanel({
           </div>
         )}
         {hasPromptAudit ? (
-          <details className="rounded border border-purple-700/40 bg-purple-950/10">
+          <details className="rounded border border-purple-200 bg-purple-50">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-purple-300 flex items-center gap-2`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-purple-700 flex items-center gap-2`}
             >
               👁 Was hat das LLM gesehen? · System + User-Prompt
             </summary>
             <div className="px-3 pb-3 pt-1 space-y-2">
               {userPromptUsed && (
                 <div>
-                  <p className={`${T.tinyBold} text-purple-200/90`}>
+                  <p className={`${T.tinyBold} text-purple-800`}>
                     User-Prompt (Aussage + Kandidat + Werkzeug-Ergebnisse)
                   </p>
-                  <pre className="mt-1 text-[11px] text-purple-100/90 whitespace-pre-wrap break-words font-mono bg-purple-900/30 rounded p-2 max-h-96 overflow-y-auto">
+                  <pre className="mt-1 text-[11px] text-purple-900 whitespace-pre-wrap break-words font-mono bg-purple-100 rounded p-2 max-h-96 overflow-y-auto">
                     {userPromptUsed}
                   </pre>
                 </div>
               )}
               {systemPromptUsed && (
                 <div>
-                  <p className={`${T.tinyBold} text-purple-200/90`}>
+                  <p className={`${T.tinyBold} text-purple-800`}>
                     System-Prompt (mit aktiven Skills + Domain-Block)
                   </p>
-                  <pre className="mt-1 text-[11px] text-purple-100/90 whitespace-pre-wrap break-words font-mono bg-purple-900/30 rounded p-2 max-h-96 overflow-y-auto">
+                  <pre className="mt-1 text-[11px] text-purple-900 whitespace-pre-wrap break-words font-mono bg-purple-100 rounded p-2 max-h-96 overflow-y-auto">
                     {systemPromptUsed}
                   </pre>
                 </div>
@@ -384,13 +384,13 @@ export function EvaluationPanel({
             </div>
           </details>
         ) : (
-          <p className={`${T.tiny} text-slate-500 italic`}>
+          <p className={`${T.tiny} text-ink-muted italic`}>
             Diese Bewertung wurde vor dem Prompt-Audit erzeugt — re-eval, um
             das vollständige LLM-Transkript zu sehen.
           </p>
         )}
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <LiveRunPanel
           run={stream}
           anchorPreview={reasoning.slice(0, 120)}
@@ -406,7 +406,7 @@ export function EvaluationPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <p className={`${T.tiny} text-slate-500 italic`}>
+        <p className={`${T.tiny} text-ink-muted italic`}>
           Bewertung ist immutable — re-evaluate erzeugt eine neue Bewertung
           als Folge-Knoten. „Was als nächstes?" arbeitet auf dem
           übergeordneten Suchtreffer (z.B. dekomponieren wenn er selbst
@@ -416,7 +416,7 @@ export function EvaluationPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-rose-700 text-rose-300 hover:bg-rose-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-rose-500 text-rose-700 hover:bg-rose-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Bewertung verwerfen"}
         </button>

@@ -18,23 +18,23 @@ export function CapabilityRequestTile({
     reasoning?: string;
   };
   return (
-    <div className="rounded-lg border-2 border-yellow-400 bg-yellow-900/30 px-3 py-2 text-white shadow-md w-72">
+    <div className="prov-tile border-yellow-500 px-3 py-2 w-72">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-yellow-200">
+      <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-yellow-800">
         <Wrench className="w-3 h-3" aria-hidden /> Fehlende Capability
       </header>
       {p.name && (
-        <p className="text-sm font-semibold text-yellow-50 mt-0.5">
+        <p className="text-sm font-semibold text-yellow-900 mt-0.5">
           {p.name}
         </p>
       )}
       {p.description && (
-        <p className="text-[11px] text-yellow-100 mt-1 line-clamp-3">
+        <p className="text-[11px] text-yellow-800 mt-1 line-clamp-3">
           {p.description}
         </p>
       )}
       {p.reasoning && (
-        <p className="text-[10px] text-yellow-200/70 italic mt-1 line-clamp-2">
+        <p className="text-[10px] text-yellow-700 italic mt-1 line-clamp-2">
           Warum: {p.reasoning}
         </p>
       )}

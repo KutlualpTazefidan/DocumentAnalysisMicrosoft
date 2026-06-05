@@ -382,15 +382,15 @@ export function CustomForm({
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(880px,92vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate`}>
+            <h2 className={`${T.heading} text-ink truncate`}>
               {isEdit ? "Fähigkeit bearbeiten" : "Eigene Fähigkeit"}
             </h2>
-            <p className={`${T.tiny} text-slate-400`}>
+            <p className={`${T.tiny} text-ink-muted`}>
               {isEdit
                 ? `${initialSkill?.name} · v${initialSkill?.version} · ${initialSkill?.skill_kind}`
                 : "Volle Kontrolle — alle Felder sichtbar. Backend validiert kind-spezifisch."}
@@ -399,7 +399,7 @@ export function CustomForm({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -422,10 +422,10 @@ export function CustomForm({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="z.B. mein-skill"
-                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
                 autoFocus
               />
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 Eindeutiger Bezeichner — gleicher Name bumpt die Version beim
                 Speichern.
               </p>
@@ -444,7 +444,7 @@ export function CustomForm({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Einzeiler — wofür ist diese Fähigkeit da?"
-                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               />
             </div>
 
@@ -457,7 +457,7 @@ export function CustomForm({
                   onChange={(e) => setEnabled(e.target.checked)}
                   className="accent-blue-500"
                 />
-                <span className={`${T.body} text-slate-300`}>
+                <span className={`${T.body} text-ink-muted`}>
                   {enabled ? "aktiv" : "inaktiv"}
                 </span>
               </label>
@@ -474,7 +474,7 @@ export function CustomForm({
                 id="custom-skill-kind"
                 value={skillKind}
                 onChange={(e) => setSkillKind(e.target.value as SkillKind)}
-                className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 ${T.body} font-mono`}
+                className={`w-full px-3 py-2 rounded bg-white border border-line text-ink ${T.body} font-mono`}
               >
                 {SKILL_KIND_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -482,7 +482,7 @@ export function CustomForm({
                   </option>
                 ))}
               </select>
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 {SKILL_KIND_OPTIONS.find((o) => o.value === skillKind)
                   ?.description ?? ""}
               </p>
@@ -504,7 +504,7 @@ export function CustomForm({
                       className={`px-3 py-1.5 rounded cursor-pointer ${T.body} font-mono ${
                         checked
                           ? "bg-brand-500 text-white"
-                          : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
+                          : "bg-canvas text-ink-muted border border-line"
                       }`}
                     >
                       <input
@@ -520,7 +520,7 @@ export function CustomForm({
                   );
                 })}
               </div>
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 Mindestens einen Schritt wählen — sonst feuert die Fähigkeit nie.
               </p>
             </div>
@@ -535,12 +535,12 @@ export function CustomForm({
                   className={`${T.tinyBold}`}
                 >
                   free_text{" "}
-                  <span className="font-normal text-slate-500">
+                  <span className="font-normal text-ink-muted">
                     (System-Prompt-Erweiterung — primär für prompt-overlay /
                     subagent / note)
                   </span>
                 </label>
-                <span className={`${T.tiny} text-slate-500`}>
+                <span className={`${T.tiny} text-ink-muted`}>
                   {freeText.length} Zeichen
                 </span>
               </div>
@@ -556,7 +556,7 @@ export function CustomForm({
                   "2. Mit Sitzungs-Ziel abgleichen.\n" +
                   "..."
                 }
-                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} font-mono resize-y`}
               />
             </div>
 
@@ -566,7 +566,7 @@ export function CustomForm({
                 className={`${T.tinyBold} block mb-1`}
               >
                 questions{" "}
-                <span className="font-normal text-slate-500">
+                <span className="font-normal text-ink-muted">
                   (eine Frage pro Zeile — nur relevant für enrichment)
                 </span>
               </label>
@@ -580,9 +580,9 @@ export function CustomForm({
                   "Welche Werte-Klasse ist anwendbar?\n" +
                   "Standort / Anlage?"
                 }
-                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} font-mono resize-y`}
               />
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 {questions.length} Frage(n) erkannt.
               </p>
             </div>
@@ -593,7 +593,7 @@ export function CustomForm({
                 className={`${T.tinyBold} block mb-1`}
               >
                 domain_rules{" "}
-                <span className="font-normal text-slate-500">
+                <span className="font-normal text-ink-muted">
                   (in re_evaluate-Prompt injiziert — nur relevant für
                   reactive)
                 </span>
@@ -608,15 +608,15 @@ export function CustomForm({
                   "- Aufrundung der angegebenen Zahl ist OFT KONSERVATIV\n" +
                   "- Beispiel: angegeben 5,6 kW, tatsächlich 5,597 kW → STÜTZT"
                 }
-                className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+                className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} font-mono resize-y`}
               />
             </div>
           </Section>
 
           {/* ----- Bedingungen (TriggerConditions) -------------------- */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-700`}
             >
               Bedingungen (TriggerConditions) — UND zwischen Feldern, ODER
               innerhalb einer Liste
@@ -626,7 +626,7 @@ export function CustomForm({
               <div>
                 <label className={`${T.tinyBold} block mb-1`}>
                   verdicts{" "}
-                  <span className="font-normal text-slate-500">
+                  <span className="font-normal text-ink-muted">
                     (nur relevant für reactive)
                   </span>
                 </label>
@@ -638,8 +638,8 @@ export function CustomForm({
                         key={v}
                         className={`px-2.5 py-1 rounded cursor-pointer ${T.tiny} font-mono ${
                           checked
-                            ? "bg-orange-700 text-white"
-                            : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
+                            ? "bg-orange-100 text-orange-800 border border-orange-500"
+                            : "bg-canvas text-ink-muted border border-line"
                         }`}
                       >
                         <input
@@ -664,7 +664,7 @@ export function CustomForm({
                   className={`${T.tinyBold} block mb-1`}
                 >
                   sentence_regex{" "}
-                  <span className="font-normal text-slate-500">
+                  <span className="font-normal text-ink-muted">
                     (eine Regex pro Zeile — Kommas erlaubt)
                   </span>
                 </label>
@@ -674,7 +674,7 @@ export function CustomForm({
                   onChange={(e) => setSentenceRegexText(e.target.value)}
                   rows={2}
                   placeholder={String.raw`\d+[,.]\d+\s*(kW|MW|MPa)`}
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body} resize-y`}
                 />
               </div>
 
@@ -685,7 +685,7 @@ export function CustomForm({
                   className={`${T.tinyBold} block mb-1`}
                 >
                   claim_regex{" "}
-                  <span className="font-normal text-slate-500">
+                  <span className="font-normal text-ink-muted">
                     (eine Regex pro Zeile)
                   </span>
                 </label>
@@ -695,7 +695,7 @@ export function CustomForm({
                   onChange={(e) => setClaimRegexText(e.target.value)}
                   rows={2}
                   placeholder={"Wärmeleistung\nNachzerfall"}
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body} resize-y`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body} resize-y`}
                 />
               </div>
 
@@ -713,7 +713,7 @@ export function CustomForm({
                   value={topicKeywords}
                   onChange={(e) => setTopicKeywords(e.target.value)}
                   placeholder="z.B. Nachzerfallsleistung, Wärmeleistung, thermisch"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted ${T.body}`}
                 />
               </div>
 
@@ -730,8 +730,8 @@ export function CustomForm({
                         key={k}
                         className={`px-2.5 py-1 rounded cursor-pointer ${T.tiny} font-mono ${
                           checked
-                            ? "bg-amber-700 text-white"
-                            : "bg-chrome2-800 text-slate-300 border border-chrome2-500"
+                            ? "bg-amber-100 text-amber-800 border border-amber-500"
+                            : "bg-canvas text-ink-muted border border-line"
                         }`}
                       >
                         <input
@@ -763,7 +763,7 @@ export function CustomForm({
                   value={goalContains}
                   onChange={(e) => setGoalContains(e.target.value)}
                   placeholder="z.B. Beleg, prüfen, verifizieren"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted ${T.body}`}
                 />
               </div>
 
@@ -781,19 +781,19 @@ export function CustomForm({
                   value={textContains}
                   onChange={(e) => setTextContains(e.target.value)}
                   placeholder="z.B. kW, MW, °C"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted ${T.body}`}
                 />
               </div>
             </div>
           </details>
 
           {/* ----- Output (Annotation) -------------------------------- */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-300`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-cyan-700`}
             >
               Output (Annotation){" "}
-              <span className="font-normal text-slate-500">
+              <span className="font-normal text-ink-muted">
                 — nur relevant für enrichment
               </span>
             </summary>
@@ -811,7 +811,7 @@ export function CustomForm({
                   value={annotationKind}
                   onChange={(e) => setAnnotationKind(e.target.value)}
                   placeholder="z.B. claim_background"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body}`}
                 />
               </div>
 
@@ -828,7 +828,7 @@ export function CustomForm({
                   value={attachesTo}
                   onChange={(e) => setAttachesTo(e.target.value)}
                   placeholder="z.B. claim"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body}`}
                 />
               </div>
 
@@ -845,7 +845,7 @@ export function CustomForm({
                   value={consumedBy}
                   onChange={(e) => setConsumedBy(e.target.value)}
                   placeholder="z.B. formulate_task, evaluate"
-                  className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                  className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body}`}
                 />
               </div>
             </div>
@@ -866,9 +866,9 @@ export function CustomForm({
                 value={parentSkill}
                 onChange={(e) => setParentSkill(e.target.value)}
                 placeholder="z.B. compare-numbers"
-                className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 font-mono ${T.body}`}
+                className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted font-mono ${T.body}`}
               />
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 Sub-Fähigkeit: wird nur geladen wenn der genannte Parent feuert UND
                 die eigenen Trigger matchen. Leer = top-level.
               </p>
@@ -876,40 +876,40 @@ export function CustomForm({
           </Section>
 
           {/* ----- Roh-Daten ----------------------------------------- */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Roh-Daten anzeigen
             </summary>
             <pre
-              className={`px-3 pb-3 pt-1 ${T.tiny} text-slate-300 font-mono whitespace-pre-wrap break-all`}
+              className={`px-3 pb-3 pt-1 ${T.tiny} text-ink-muted font-mono whitespace-pre-wrap break-all`}
             >
               {JSON.stringify(previewSkill, null, 2)}
             </pre>
           </details>
 
           {!canSubmit && (name.trim() || firesOn.length > 0) && (
-            <p className={`${T.tiny} text-amber-300`}>
+            <p className={`${T.tiny} text-amber-700`}>
               {!name.trim() && "Name ist Pflicht. "}
               {firesOn.length === 0 && "Mindestens ein fires_on-Schritt wählen."}
             </p>
           )}
 
           {submitError && (
-            <p className={`${T.body} text-red-400`}>{submitError.message}</p>
+            <p className={`${T.body} text-bam-red`}>{submitError.message}</p>
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
-          <span className={`${T.tiny} text-slate-500`}>
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+          <span className={`${T.tiny} text-ink-muted`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-ink-muted hover:bg-canvas ${T.body}`}
             >
               Abbrechen
             </button>
@@ -947,8 +947,8 @@ function Section({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <fieldset className="rounded border border-chrome2-500 bg-chrome2-900/30 px-3 pt-2 pb-3 space-y-3">
-      <legend className={`${T.tinyBold} text-slate-200 px-1`}>{title}</legend>
+    <fieldset className="rounded border border-line bg-canvas px-3 pt-2 pb-3 space-y-3">
+      <legend className={`${T.tinyBold} text-ink px-1`}>{title}</legend>
       {children}
     </fieldset>
   );

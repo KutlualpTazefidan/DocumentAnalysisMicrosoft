@@ -129,19 +129,19 @@ export function ClaimPanel({
       <PanelHeader title="Aussage" onClose={() => onSelectView(null)} />
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
         {sessionGoal && (
-          <div className="rounded border border-amber-700/40 bg-amber-950/20 px-3 py-2">
-            <p className={`${T.tinyBold} text-amber-300`}>Sitzungs-Ziel</p>
-            <p className={`text-amber-100 ${T.body} mt-0.5`}>{sessionGoal}</p>
+          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+            <p className={`${T.tinyBold} text-amber-700`}>Sitzungs-Ziel</p>
+            <p className={`text-amber-900 ${T.body} mt-0.5`}>{sessionGoal}</p>
           </div>
         )}
         <div>
           <p className={T.tinyBold}>Text</p>
-          <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+          <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
             {claimText}
           </p>
           {depth > 0 && (
             <p
-              className={`${T.mono} ${T.tiny} text-cyan-300 mt-1`}
+              className={`${T.mono} ${T.tiny} text-cyan-700 mt-1`}
               title={`Aus einem ${depth}× abgeleiteten Chunk extrahiert.`}
             >
               ↳ Ebene {depth}
@@ -153,18 +153,18 @@ export function ClaimPanel({
         ))}
         {showSourceChunk && (
           <details
-            className="rounded border border-chrome2-500 bg-chrome2-900/40"
+            className="rounded border border-line bg-canvas"
           >
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-300`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Quell-Textabschnitt{" "}
-              <span className="font-normal text-slate-500">
+              <span className="font-normal text-ink-muted">
                 ({sourceChunkText.length} Zeichen)
               </span>
             </summary>
             <p
-              className={`px-3 pb-3 pt-1 text-slate-300 ${T.tiny} whitespace-pre-wrap italic`}
+              className={`px-3 pb-3 pt-1 text-ink-muted ${T.tiny} whitespace-pre-wrap italic`}
             >
               {sourceChunkText.length > 1500
                 ? sourceChunkText.slice(0, 1500) + " […]"
@@ -173,14 +173,14 @@ export function ClaimPanel({
             <button
               type="button"
               onClick={() => onSelectView(`view:${sourceNodeId}`)}
-              className={`mx-3 mb-3 px-2 py-1 rounded bg-chrome2-800 hover:bg-chrome2-700 text-slate-300 ${T.tiny}`}
+              className={`mx-3 mb-3 px-2 py-1 rounded bg-canvas hover:bg-white border border-line text-ink-muted ${T.tiny}`}
             >
               Chunk-Tile öffnen →
             </button>
           </details>
         )}
-        <div className="pt-2 border-t border-chrome2-500">
-          <p className={`${T.tinyBold} text-pink-300`}>
+        <div className="pt-2 border-t border-line">
+          <p className={`${T.tinyBold} text-pink-700`}>
             Recherche-Frage zu dieser Aussage
           </p>
           {editingGoal ? (
@@ -189,7 +189,7 @@ export function ClaimPanel({
                 value={goalDraft}
                 onChange={(e) => setGoalDraft(e.target.value)}
                 rows={3}
-                className={`w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
+                className={`w-full px-2 py-1 rounded bg-white border border-line text-ink ${T.body}`}
                 placeholder="z.B. Wo steht im Korpus, dass die Wärmeleistung 5.6 kW beträgt?"
                 autoFocus
               />
@@ -208,7 +208,7 @@ export function ClaimPanel({
                     setGoalDraft(initialGoal);
                     setEditingGoal(false);
                   }}
-                  className={`px-2 py-1 rounded text-slate-300 hover:bg-chrome2-700 ${T.tiny}`}
+                  className={`px-2 py-1 rounded text-ink-muted hover:bg-canvas ${T.tiny}`}
                 >
                   Abbrechen
                 </button>
@@ -219,8 +219,8 @@ export function ClaimPanel({
               type="button"
               onClick={() => setEditingGoal(true)}
               className={`mt-1 text-left w-full ${T.body} ${
-                initialGoal ? "text-pink-100 italic" : "text-slate-500 italic"
-              } hover:text-pink-200`}
+                initialGoal ? "text-pink-900 italic" : "text-ink-muted italic"
+              } hover:text-pink-700`}
               title="Klick zum Bearbeiten"
             >
               {initialGoal || "(noch nicht gesetzt — klick zum Setzen)"}
@@ -228,7 +228,7 @@ export function ClaimPanel({
           )}
         </div>
         {closed && (
-          <p className={`${T.body} text-amber-300 italic`}>
+          <p className={`${T.body} text-amber-700 italic`}>
             Diese Untersuchung wurde abgeschlossen.
           </p>
         )}
@@ -240,7 +240,7 @@ export function ClaimPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
@@ -250,8 +250,8 @@ export function ClaimPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
-          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+        <details className="rounded border border-line bg-canvas">
+          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}>
             Manuell wählen
           </summary>
           <div className="p-2 space-y-2">
@@ -277,12 +277,12 @@ export function ClaimPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
         {(formulate.error || stop.error || del.error) && (
-          <p className={`text-red-400 ${T.tiny}`}>
+          <p className={`text-bam-red ${T.tiny}`}>
             {(formulate.error ?? stop.error ?? del.error)?.message}
           </p>
         )}

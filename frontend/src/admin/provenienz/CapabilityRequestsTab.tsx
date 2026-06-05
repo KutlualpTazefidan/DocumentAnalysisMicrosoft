@@ -26,18 +26,18 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
   return (
     <div className="p-4 space-y-3">
       <header>
-        <h3 className={`${T.heading} text-white flex items-center gap-2`}>
+        <h3 className={`${T.heading} text-ink flex items-center gap-2`}>
           <TrendingUp className="w-4 h-4" aria-hidden /> Capability-Wünsche
         </h3>
-        <p className={`${T.body} text-slate-400`}>
+        <p className={`${T.body} text-ink-muted`}>
           Was beim Recherchieren fehlt — vom Agent angefragt oder vom Experten vorgegeben. Sortiert nach Häufigkeit; eine datengestützte TODO-Liste für Tool-/Skill-Entwicklung.
         </p>
       </header>
 
-      {isLoading && <p className={`${T.body} text-slate-400`}>Lade…</p>}
-      {error && <p className={`${T.body} text-red-400`}>{error.message}</p>}
+      {isLoading && <p className={`${T.body} text-ink-muted`}>Lade…</p>}
+      {error && <p className={`${T.body} text-red-600`}>{error.message}</p>}
       {data && data.length === 0 && !isLoading && (
-        <p className={`${T.body} text-slate-500 italic`}>
+        <p className={`${T.body} text-ink-muted italic`}>
           Noch keine Capability-Wünsche. Sobald der Agent eine fehlende Fähigkeit meldet oder ein Experte eine Capability vorgibt, erscheint sie hier aggregiert.
         </p>
       )}
@@ -47,7 +47,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
       </span>
       {allAgentOnly && (
         <p
-          className={`${T.tiny} text-amber-200 italic mb-2`}
+          className={`${T.tiny} text-amber-800 italic mb-2`}
           role="note"
         >
           Noch keine Experten-Vorgaben — Liste zeigt nur Agent-Selbstmeldungen.
@@ -62,17 +62,17 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
           return (
           <li
             key={req.name}
-            className={`rounded border border-yellow-700/40 bg-yellow-900/15 p-3 ${fadeClasses}`}
+            className={`rounded border border-yellow-200 bg-yellow-50 p-3 ${fadeClasses}`}
             aria-describedby={isAgentOnly ? agentOnlyDescId : undefined}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <Wrench className="w-4 h-4 text-yellow-300 shrink-0" aria-hidden />
-                <p className="text-yellow-50 font-semibold font-mono truncate">
+                <Wrench className="w-4 h-4 text-yellow-700 shrink-0" aria-hidden />
+                <p className="text-yellow-900 font-semibold font-mono truncate">
                   {req.name}
                 </p>
               </div>
-              <span className="text-[10px] uppercase tracking-wide bg-yellow-700 text-yellow-50 px-2 py-0.5 rounded shrink-0">
+              <span className="text-[10px] uppercase tracking-wide bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded shrink-0">
                 {req.count}× · {req.count_by_actor.human}E / {req.count_by_actor.agent}A
               </span>
             </div>
@@ -80,7 +80,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
             {req.examples.length > 0 && (
               <details className="mt-2">
                 <summary
-                  className={`${T.tiny} text-yellow-300/80 cursor-pointer`}
+                  className={`${T.tiny} text-yellow-700 cursor-pointer`}
                 >
                   Beispiele ({req.examples.length})
                 </summary>
@@ -88,14 +88,14 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                   {req.examples.map((ex) => (
                     <li
                       key={ex.node_id}
-                      className="rounded bg-chrome2-900/60 p-2 border border-chrome2-500"
+                      className="rounded bg-canvas p-2 border border-line"
                     >
                       <p
-                        className={`${T.tiny} text-slate-400 font-mono flex items-center gap-1.5 flex-wrap`}
+                        className={`${T.tiny} text-ink-muted font-mono flex items-center gap-1.5 flex-wrap`}
                       >
                         {ex.actor === "human" ? (
                           <span
-                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-violet-900/40 text-violet-200 border border-violet-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-violet-50 text-violet-800 border border-violet-200 px-1.5 py-0.5 rounded shrink-0"
                             aria-label="Quelle: Experten-Vorgabe"
                             title="Von einem Experten als Capability vorgegeben"
                           >
@@ -103,7 +103,7 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                           </span>
                         ) : (
                           <span
-                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-sky-900/40 text-sky-200 border border-sky-700/50 px-1.5 py-0.5 rounded shrink-0"
+                            className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-sky-50 text-sky-800 border border-sky-200 px-1.5 py-0.5 rounded shrink-0"
                             aria-label="Quelle: Agent-Anfrage"
                             title="Vom Agent während einer Recherche als fehlend gemeldet"
                           >
@@ -115,13 +115,13 @@ export function CapabilityRequestsTab({ token }: Props): JSX.Element {
                         </span>
                       </p>
                       {ex.description && (
-                        <p className={`${T.body} text-yellow-100 mt-0.5`}>
+                        <p className={`${T.body} text-yellow-900 mt-0.5`}>
                           {ex.description}
                         </p>
                       )}
                       {ex.reasoning && (
                         <p
-                          className={`${T.tiny} text-slate-400 italic mt-0.5`}
+                          className={`${T.tiny} text-ink-muted italic mt-0.5`}
                         >
                           Begründung: {ex.reasoning}
                         </p>

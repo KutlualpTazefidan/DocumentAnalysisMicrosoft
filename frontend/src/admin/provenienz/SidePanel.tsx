@@ -50,7 +50,7 @@ export function SidePanel({
 }: Props): JSX.Element {
   if (!selectedViewId) {
     return (
-      <div className={`p-4 ${T.body} text-slate-500 italic`}>
+      <div className={`p-4 ${T.body} text-ink-muted italic`}>
         Tile auf dem Canvas auswählen, um Details und Aktionen zu sehen.
       </div>
     );
@@ -58,7 +58,7 @@ export function SidePanel({
   const view = viewIndex.get(selectedViewId);
   if (!view) {
     return (
-      <div className={`p-4 ${T.body} text-slate-500 italic`}>
+      <div className={`p-4 ${T.body} text-ink-muted italic`}>
         Tile nicht gefunden.
       </div>
     );
@@ -123,17 +123,17 @@ export function PanelHeader({
   onClose: () => void;
 }): JSX.Element {
   return (
-    <header className="px-4 py-3 border-b border-chrome2-500 flex items-start justify-between gap-2">
+    <header className="px-4 py-3 border-b border-line flex items-start justify-between gap-2">
       <div className="min-w-0">
         <p className={T.tinyBold}>{title}</p>
         {subtitle && (
-          <p className={`text-slate-400 ${T.body} truncate`}>{subtitle}</p>
+          <p className={`text-ink-muted ${T.body} truncate`}>{subtitle}</p>
         )}
       </div>
       <button
         type="button"
         onClick={onClose}
-        className={`text-slate-400 hover:text-white ${T.body}`}
+        className={`text-ink-muted hover:text-ink ${T.body}`}
         aria-label="Schließen"
       >
         ✕

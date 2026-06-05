@@ -108,14 +108,14 @@ export function SkillDetailPanel({
         role="dialog"
         aria-modal="true"
         aria-label={`Fähigkeit ${skill.name}`}
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(900px,95vw)] h-[min(800px,90vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(900px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate flex items-center gap-2`}>
+            <h2 className={`${T.heading} text-ink truncate flex items-center gap-2`}>
               {skill.name}
-              <span className={`${T.tiny} text-slate-400 font-normal`}>
+              <span className={`${T.tiny} text-ink-muted font-normal`}>
                 v{skill.version}
               </span>
               <span
@@ -125,13 +125,13 @@ export function SkillDetailPanel({
                 {skill.skill_kind}
               </span>
               {!skill.enabled && (
-                <span className="px-1.5 py-px rounded text-[10px] font-semibold bg-zinc-800 text-slate-400">
+                <span className="px-1.5 py-px rounded text-[10px] font-semibold bg-zinc-100 text-zinc-600">
                   inaktiv
                 </span>
               )}
             </h2>
             {skill.description && (
-              <p className={`${T.tiny} text-slate-400 mt-0.5`}>
+              <p className={`${T.tiny} text-ink-muted mt-0.5`}>
                 {skill.description}
               </p>
             )}
@@ -139,7 +139,7 @@ export function SkillDetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded shrink-0"
+            className="text-ink-muted hover:text-ink p-1 rounded shrink-0"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -153,14 +153,14 @@ export function SkillDetailPanel({
                 {skill.fires_on.map((step) => (
                   <span
                     key={step}
-                    className={`px-2 py-0.5 rounded bg-blue-900/40 text-blue-200 ${T.tiny} font-mono`}
+                    className={`px-2 py-0.5 rounded bg-blue-50 text-blue-800 ${T.tiny} font-mono`}
                   >
                     {step}
                   </span>
                 ))}
               </div>
             ) : (
-              <p className={`${T.tiny} text-slate-500 italic`}>
+              <p className={`${T.tiny} text-ink-muted italic`}>
                 Keine Schritte konfiguriert — Fähigkeit feuert nie.
               </p>
             )}
@@ -173,7 +173,7 @@ export function SkillDetailPanel({
               {prompt.free_text && (
                 <Field label="free_text">
                   <pre
-                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-chrome2-900/50 rounded px-2 py-1.5`}
+                    className={`${T.tiny} text-ink font-mono whitespace-pre-wrap break-words bg-white border border-line rounded px-2 py-1.5`}
                   >
                     {prompt.free_text}
                   </pre>
@@ -181,7 +181,7 @@ export function SkillDetailPanel({
               )}
               {prompt.questions.length > 0 && (
                 <Field label={`questions (${prompt.questions.length})`}>
-                  <ul className={`${T.tiny} text-slate-200 list-disc pl-5 space-y-0.5`}>
+                  <ul className={`${T.tiny} text-ink list-disc pl-5 space-y-0.5`}>
                     {prompt.questions.map((q, i) => (
                       <li key={i}>{q}</li>
                     ))}
@@ -191,7 +191,7 @@ export function SkillDetailPanel({
               {prompt.domain_rules && (
                 <Field label="domain_rules">
                   <pre
-                    className={`${T.tiny} text-slate-200 font-mono whitespace-pre-wrap break-words bg-chrome2-900/50 rounded px-2 py-1.5`}
+                    className={`${T.tiny} text-ink font-mono whitespace-pre-wrap break-words bg-white border border-line rounded px-2 py-1.5`}
                   >
                     {prompt.domain_rules}
                   </pre>
@@ -247,7 +247,7 @@ export function SkillDetailPanel({
               {output.annotation_kind && (
                 <Field label="annotation_kind">
                   <code
-                    className={`${T.tiny} font-mono text-cyan-200 bg-chrome2-900/50 rounded px-1.5 py-0.5`}
+                    className={`${T.tiny} font-mono text-cyan-800 bg-cyan-50 rounded px-1.5 py-0.5`}
                   >
                     {output.annotation_kind}
                   </code>
@@ -256,7 +256,7 @@ export function SkillDetailPanel({
               {output.attaches_to && (
                 <Field label="attaches_to">
                   <code
-                    className={`${T.tiny} font-mono text-cyan-200 bg-chrome2-900/50 rounded px-1.5 py-0.5`}
+                    className={`${T.tiny} font-mono text-cyan-800 bg-cyan-50 rounded px-1.5 py-0.5`}
                   >
                     {output.attaches_to}
                   </code>
@@ -274,7 +274,7 @@ export function SkillDetailPanel({
             <DetailSection title="Hierarchie">
               <Field label="parent_skill">
                 <code
-                  className={`${T.tiny} font-mono text-orange-200 bg-orange-950/30 rounded px-1.5 py-0.5`}
+                  className={`${T.tiny} font-mono text-orange-800 bg-orange-50 rounded px-1.5 py-0.5`}
                 >
                   {skill.parent_skill}
                 </code>
@@ -284,10 +284,10 @@ export function SkillDetailPanel({
 
           <DetailSection title="Aktivität">
             {runs.isLoading ? (
-              <p className={`${T.tiny} text-slate-500 italic`}>Lade …</p>
+              <p className={`${T.tiny} text-ink-muted italic`}>Lade …</p>
             ) : runs.data && runs.data.length > 0 ? (
               <>
-                <p className={`${T.tiny} text-slate-400 mb-2`}>
+                <p className={`${T.tiny} text-ink-muted mb-2`}>
                   Letzte {Math.min(runs.data.length, 10)} Läufe
                   {runs.data.length > 10 ? ` (von ${runs.data.length})` : ""}
                 </p>
@@ -299,16 +299,16 @@ export function SkillDetailPanel({
                     >
                       <span
                         className={
-                          r.success ? "text-emerald-300" : "text-red-300"
+                          r.success ? "text-emerald-700" : "text-red-700"
                         }
                         aria-label={r.success ? "erfolgreich" : "fehlgeschlagen"}
                       >
                         {r.success ? "✓" : "✗"}
                       </span>
-                      <span className="text-slate-400 font-mono">
+                      <span className="text-ink-muted font-mono">
                         {new Date(r.ts).toLocaleString()}
                       </span>
-                      <span className="text-slate-300">
+                      <span className="text-ink">
                         {r.n_outputs}/{r.n_inputs} verarbeitet
                       </span>
                     </li>
@@ -316,38 +316,38 @@ export function SkillDetailPanel({
                 </ul>
               </>
             ) : (
-              <p className={`${T.tiny} text-slate-500 italic`}>
+              <p className={`${T.tiny} text-ink-muted italic`}>
                 Noch keine Aktivität.
               </p>
             )}
           </DetailSection>
 
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Roh-Daten anzeigen
             </summary>
             <pre
-              className={`px-3 pb-3 pt-1 ${T.tiny} text-slate-300 font-mono whitespace-pre-wrap break-all`}
+              className={`px-3 pb-3 pt-1 ${T.tiny} text-ink-muted font-mono whitespace-pre-wrap break-all`}
             >
               {JSON.stringify(skill, null, 2)}
             </pre>
           </details>
 
           {(update.error || del.error) && (
-            <p className={`${T.body} text-red-400`}>
+            <p className={`${T.body} text-bam-red`}>
               {(update.error ?? del.error)?.message}
             </p>
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between gap-2">
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => void handleDelete()}
             disabled={del.isPending}
-            className={`px-3 py-1.5 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} flex items-center gap-1 disabled:opacity-50`}
+            className={`px-3 py-1.5 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} flex items-center gap-1 disabled:opacity-50`}
           >
             <Trash2 className="w-4 h-4" />
             {del.isPending ? "…" : "Löschen"}
@@ -407,8 +407,8 @@ function DetailSection({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <fieldset className="rounded border border-chrome2-500 bg-chrome2-900/30 px-3 pt-2 pb-3 space-y-2">
-      <legend className={`${T.tinyBold} text-slate-200 px-1`}>{title}</legend>
+    <fieldset className="rounded border border-line bg-canvas px-3 pt-2 pb-3 space-y-2">
+      <legend className={`${T.tinyBold} text-ink px-1`}>{title}</legend>
       {children}
     </fieldset>
   );
@@ -423,17 +423,17 @@ function Field({
 }): JSX.Element {
   return (
     <div>
-      <p className={`${T.tinyBold} text-slate-300 mb-0.5`}>{label}</p>
+      <p className={`${T.tinyBold} text-ink-muted mb-0.5`}>{label}</p>
       {children}
     </div>
   );
 }
 
 const CHIP_TONES: Record<string, string> = {
-  slate: "bg-chrome2-800 text-slate-200 border border-chrome2-500",
-  amber: "bg-amber-900/40 text-amber-200",
-  orange: "bg-orange-900/40 text-orange-200",
-  cyan: "bg-cyan-900/40 text-cyan-200",
+  slate: "bg-canvas text-ink border border-line",
+  amber: "bg-amber-50 text-amber-800",
+  orange: "bg-orange-50 text-orange-800",
+  cyan: "bg-cyan-50 text-cyan-800",
 };
 
 function Chips({

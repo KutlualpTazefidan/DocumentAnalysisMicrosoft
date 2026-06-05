@@ -53,30 +53,30 @@ export function ExpertCorrectionTile({
 
   const accent = isMethodRequest
     ? {
-        border: "border-amber-500/80",
-        bg: "bg-amber-900/40",
-        headerText: "text-amber-200",
+        border: "border-amber-500",
+        bg: "bg-amber-50",
+        headerText: "text-amber-800",
         title: "Neue Methode",
-        stepText: "text-amber-50",
-        subText: "text-amber-300/80",
-        bodyText: "text-amber-100",
+        stepText: "text-amber-900",
+        subText: "text-amber-700/80",
+        bodyText: "text-amber-900",
         Icon: AlertTriangle,
       }
     : {
-        border: "border-rose-500/80",
-        bg: "bg-rose-900/40",
-        headerText: "text-rose-200",
+        border: "border-rose-500",
+        bg: "bg-rose-50",
+        headerText: "text-rose-800",
         title: "Korrektur",
-        stepText: "text-rose-50",
-        subText: "text-rose-300/80",
-        bodyText: "text-rose-100",
+        stepText: "text-rose-900",
+        subText: "text-rose-700/80",
+        bodyText: "text-rose-900",
         Icon: UserCog,
       };
   const Icon = accent.Icon;
 
   return (
     <div
-      className={`rounded-lg border-2 ${accent.border} ${accent.bg} px-3 py-2 text-white shadow-md w-[272px]`}
+      className={`prov-tile border-2 ${accent.border} ${accent.bg} px-3 py-2 text-ink w-[272px]`}
     >
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header
@@ -102,7 +102,7 @@ export function ExpertCorrectionTile({
         </p>
       )}
       {isMethodRequest && (
-        <p className="text-[10px] text-amber-300 italic mt-1">
+        <p className="text-[10px] text-amber-700 italic mt-1">
           landet auf der Capability-Wunschliste
         </p>
       )}

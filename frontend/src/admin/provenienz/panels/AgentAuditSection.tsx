@@ -30,24 +30,24 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
   if (!audit) return null;
   const inp = audit.input_summary ?? {};
   return (
-    <section className="rounded border border-slate-700 bg-chrome2-900/60 p-3 space-y-2">
+    <section className="rounded border border-line bg-canvas p-3 space-y-2">
       <header className="flex items-center gap-1.5">
-        <Bot className="w-3.5 h-3.5 text-slate-300" aria-hidden />
-        <p className={`${T.tinyBold} text-slate-300`}>Quelle (Agent-Reasoning)</p>
+        <Bot className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
+        <p className={`${T.tinyBold} text-ink-muted`}>Quelle (Agent-Reasoning)</p>
       </header>
       {audit.source_label && (
-        <p className={`${T.tiny} text-slate-400 italic`}>{audit.source_label}</p>
+        <p className={`${T.tiny} text-ink-muted italic`}>{audit.source_label}</p>
       )}
       {(inp.anchor_kind || inp.anchor_text_preview) && (
         <div>
           <p className={T.tinyBold}>Eingabe-Knoten</p>
           {inp.anchor_kind && (
-            <p className={`${T.tiny} text-slate-300 font-mono`}>
+            <p className={`${T.tiny} text-ink-muted font-mono`}>
               kind = {inp.anchor_kind}
             </p>
           )}
           {inp.anchor_text_preview && (
-            <p className={`${T.tiny} text-slate-200 italic line-clamp-3 mt-0.5`}>
+            <p className={`${T.tiny} text-ink italic line-clamp-3 mt-0.5`}>
               „{inp.anchor_text_preview}"
             </p>
           )}
@@ -56,7 +56,7 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
       {inp.session_goal !== undefined && (
         <div>
           <p className={T.tinyBold}>Sitzungs-Ziel</p>
-          <p className={`${T.tiny} text-slate-300 italic`}>
+          <p className={`${T.tiny} text-ink-muted italic`}>
             {inp.session_goal || "(nicht gesetzt)"}
           </p>
         </div>
@@ -64,17 +64,17 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
       {inp.available_steps && inp.available_steps.length > 0 && (
         <div>
           <p className={T.tinyBold}>Verfügbare Steps für diesen Knoten</p>
-          <p className={`${T.tiny} text-slate-300 font-mono`}>
+          <p className={`${T.tiny} text-ink-muted font-mono`}>
             {inp.available_steps.join(" · ")}
           </p>
         </div>
       )}
       {inp.tools_summary && (
-        <details className="rounded bg-chrome2-900 border border-chrome2-500">
+        <details className="rounded bg-canvas border border-line">
           <summary className={`${T.tinyBold} cursor-pointer px-2 py-1`}>
             Tool-Liste die der Agent gesehen hat
           </summary>
-          <pre className="px-2 pb-2 text-[10px] text-slate-300 whitespace-pre-wrap break-words font-mono">
+          <pre className="px-2 pb-2 text-[10px] text-ink-muted whitespace-pre-wrap break-words font-mono">
             {inp.tools_summary}
           </pre>
         </details>
@@ -84,12 +84,12 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
           <p className={T.tinyBold}>Konsultierte Hinweise</p>
           <ul className="mt-1 space-y-0.5">
             {audit.guidance_consulted.map((g, i) => (
-              <li key={i} className={`${T.tiny} text-slate-300`}>
+              <li key={i} className={`${T.tiny} text-ink-muted`}>
                 <span
                   className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide ${
                     g.kind === "approach"
-                      ? "bg-purple-900/60 text-purple-200"
-                      : "bg-amber-900/60 text-amber-200"
+                      ? "bg-purple-100 text-purple-800"
+                      : "bg-amber-100 text-amber-800"
                   }`}
                 >
                   {g.kind}
@@ -101,11 +101,11 @@ export function AgentAuditSection({ audit }: Props): JSX.Element | null {
         </div>
       )}
       {audit.system_prompt_used && (
-        <details className="rounded bg-chrome2-900 border border-chrome2-500">
+        <details className="rounded bg-canvas border border-line">
           <summary className={`${T.tinyBold} cursor-pointer px-2 py-1`}>
             System-Prompt (mit Heuristik-Overlays)
           </summary>
-          <pre className="px-2 pb-2 text-[10px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+          <pre className="px-2 pb-2 text-[10px] text-ink whitespace-pre-wrap break-words font-mono">
             {audit.system_prompt_used}
           </pre>
         </details>

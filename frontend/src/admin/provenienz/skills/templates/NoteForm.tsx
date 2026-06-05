@@ -138,20 +138,20 @@ export function NoteForm({
         role="dialog"
         aria-modal="true"
         aria-label="Lehr-Notiz"
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(720px,95vw)] h-[min(640px,90vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(720px,95vw)] h-[min(640px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate`}>📌 Lehr-Notiz</h2>
-            <p className={`${T.tiny} text-slate-400`}>
+            <h2 className={`${T.heading} text-ink truncate`}>📌 Lehr-Notiz</h2>
+            <p className={`${T.tiny} text-ink-muted`}>
               Kurze Regel, die in alle Prompts eines Step-Typs aufgenommen wird.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -170,7 +170,7 @@ export function NoteForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. einheiten-immer-prüfen"
-              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               autoFocus
             />
           </div>
@@ -184,7 +184,7 @@ export function NoteForm({
               {STEP_OPTIONS.map((opt) => (
                 <label
                   key={opt.value}
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-chrome2-800/40 ${T.body}`}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-canvas ${T.body}`}
                 >
                   <input
                     type="radio"
@@ -194,8 +194,8 @@ export function NoteForm({
                     onChange={() => setStep(opt.value)}
                     className="accent-blue-500"
                   />
-                  <span className="text-slate-200">{opt.label}</span>
-                  <span className={`${T.tiny} text-slate-500 ml-auto font-mono`}>
+                  <span className="text-ink">{opt.label}</span>
+                  <span className={`${T.tiny} text-ink-muted ml-auto font-mono`}>
                     {opt.value === "all" ? "alle 4" : opt.value}
                   </span>
                 </label>
@@ -220,44 +220,44 @@ export function NoteForm({
                 "z.B. Always check unit conversion before declaring " +
                 "two values equivalent. Beware MW vs MWth vs MWel."
               }
-              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
+              className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} resize-y`}
             />
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               Die Notiz wird als zusätzlicher Hinweis in den jeweiligen
               System-Prompt eingespielt.
             </p>
           </div>
 
           {/* Raw-data accordion */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Roh-Daten anzeigen
             </summary>
             <pre
-              className={`px-3 pb-3 pt-1 ${T.tiny} text-slate-300 font-mono whitespace-pre-wrap break-all`}
+              className={`px-3 pb-3 pt-1 ${T.tiny} text-ink-muted font-mono whitespace-pre-wrap break-all`}
             >
               {JSON.stringify(previewSkill, null, 2)}
             </pre>
           </details>
 
           {createMutation.error && (
-            <p className={`${T.body} text-red-400`}>
+            <p className={`${T.body} text-bam-red`}>
               {createMutation.error.message}
             </p>
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
-          <span className={`${T.tiny} text-slate-500`}>
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+          <span className={`${T.tiny} text-ink-muted`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-ink-muted hover:bg-canvas ${T.body}`}
             >
               Abbrechen
             </button>

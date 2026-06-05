@@ -127,22 +127,22 @@ export function AgentRuleForm({
         role="dialog"
         aria-modal="true"
         aria-label="Agent-Denkregel"
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(800px,95vw)] h-[min(720px,90vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(800px,95vw)] h-[min(720px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate`}>
+            <h2 className={`${T.heading} text-ink truncate`}>
               🧠 Agent-Denkregel
             </h2>
-            <p className={`${T.tiny} text-slate-400`}>
+            <p className={`${T.tiny} text-ink-muted`}>
               Beeinflusst, WIE der Agent den nächsten Schritt wählt.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -161,7 +161,7 @@ export function AgentRuleForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. immer-suche-vor-stop"
-              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               autoFocus
             />
           </div>
@@ -185,9 +185,9 @@ export function AgentRuleForm({
                 "enthält, schlage NIE 'propose_stop' vor — wähle stattdessen " +
                 "'formulate_task' für die nächste offene Aussage."
               }
-              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
+              className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} resize-y`}
             />
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               Wird als zusätzlicher System-Prompt-Block in den next_step-Schritt
               eingespielt, wenn die Fähigkeit feuert.
             </p>
@@ -195,11 +195,11 @@ export function AgentRuleForm({
 
           {/* Optional: selection criteria */}
           <details
-            className="rounded border border-chrome2-500 bg-chrome2-900/40"
+            className="rounded border border-line bg-canvas"
             open={goalContains.trim().length > 0}
           >
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-700`}
             >
               Optional: Auswahl-Kriterien (selection_criteria)
             </summary>
@@ -216,44 +216,44 @@ export function AgentRuleForm({
                 value={goalContains}
                 onChange={(e) => setGoalContains(e.target.value)}
                 placeholder="z.B. nachzerfallswärme, prüfen"
-                className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               />
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 Leer = die Fähigkeit feuert bei jeder next_step-Aktion.
               </p>
             </div>
           </details>
 
           {/* Raw-data accordion */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Roh-Daten anzeigen
             </summary>
             <pre
-              className={`px-3 pb-3 pt-1 ${T.tiny} text-slate-300 font-mono whitespace-pre-wrap break-all`}
+              className={`px-3 pb-3 pt-1 ${T.tiny} text-ink-muted font-mono whitespace-pre-wrap break-all`}
             >
               {JSON.stringify(previewSkill, null, 2)}
             </pre>
           </details>
 
           {createMutation.error && (
-            <p className={`${T.body} text-red-400`}>
+            <p className={`${T.body} text-bam-red`}>
               {createMutation.error.message}
             </p>
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
-          <span className={`${T.tiny} text-slate-500`}>
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+          <span className={`${T.tiny} text-ink-muted`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-ink-muted hover:bg-canvas ${T.body}`}
             >
               Abbrechen
             </button>

@@ -8,20 +8,20 @@ const ASSESSMENT_STYLE: Record<
   { border: string; bg: string; icon: typeof CheckCircle2; tag: string }
 > = {
   vollständig: {
-    border: "border-emerald-600",
-    bg: "bg-emerald-900/30",
+    border: "border-emerald-500",
+    bg: "bg-emerald-50",
     icon: CheckCircle2,
     tag: "vollständig",
   },
   lückenhaft: {
     border: "border-amber-500",
-    bg: "bg-amber-900/30",
+    bg: "bg-amber-50",
     icon: AlertTriangle,
     tag: "lückenhaft",
   },
   fehlerhaft: {
-    border: "border-rose-600",
-    bg: "bg-rose-900/30",
+    border: "border-rose-500",
+    bg: "bg-rose-50",
     icon: XCircle,
     tag: "fehlerhaft",
   },
@@ -52,26 +52,26 @@ export function ReflectionTile({
   const recommendation = String(p.recommendation ?? "accept");
   return (
     <div
-      className={`rounded-lg border-2 ${style.border} ${style.bg} px-3 py-2 text-white shadow-md w-72`}
+      className={`prov-tile border-2 ${style.border} ${style.bg} px-3 py-2 w-72`}
     >
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-violet-200">
+      <header className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-violet-700">
         <Icon className="w-3 h-3" aria-hidden /> Reflektion
-        <span className="ml-auto px-1.5 py-px rounded text-[10px] font-semibold bg-violet-700 text-white">
+        <span className="ml-auto px-1.5 py-px rounded text-[10px] font-semibold bg-violet-100 text-violet-800">
           {style.tag}
         </span>
       </header>
-      <p className="text-[11px] text-slate-200 mt-1">
+      <p className="text-[11px] text-ink mt-1">
         Empfehlung:{" "}
-        <span className="font-mono text-violet-200">{recommendation}</span>
+        <span className="font-mono text-violet-700">{recommendation}</span>
       </p>
       {missedCount > 0 && (
-        <p className="text-[10px] text-amber-200 mt-1">
+        <p className="text-[10px] text-amber-800 mt-1">
           {missedCount} übersehene{missedCount === 1 ? "r" : ""} Satz
           {missedCount === 1 ? "" : "/Sätze"}
         </p>
       )}
-      <p className="text-[10px] italic text-slate-500 mt-1">
+      <p className="text-[10px] italic text-ink-muted mt-1">
         Klicken für Details
       </p>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />

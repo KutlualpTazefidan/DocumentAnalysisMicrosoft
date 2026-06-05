@@ -38,57 +38,57 @@ export function ActionProposalTile({
   const tool = p.tool_used ?? null;
 
   const containerClass = data.decision
-    ? "rounded-lg border border-amber-700/60 bg-amber-900/40 px-3 py-2 text-white shadow w-72 opacity-80"
-    : "rounded-lg border-2 border-amber-400 bg-amber-700 px-3 py-2 text-white shadow-lg w-72 animate-pulse-slow";
+    ? "prov-tile border border-amber-200 bg-amber-50 px-3 py-2 w-72 opacity-80"
+    : "prov-tile border-2 border-amber-500 bg-amber-50 px-3 py-2 w-72 animate-pulse-slow";
 
   return (
     <div className={containerClass}>
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-wide text-amber-100">
+      <header className="flex items-center justify-between gap-1 text-[10px] uppercase tracking-wide text-amber-700">
         <span className="flex items-center gap-1">
           <Lightbulb className="w-3 h-3" aria-hidden />
           {STEP_LABEL[stepKind] ?? stepKind}
         </span>
         {data.decision ? (
-          <span className="flex items-center gap-1 text-amber-200/80 normal-case">
+          <span className="flex items-center gap-1 text-amber-800/80 normal-case">
             <CheckCircle2 className="w-3 h-3" aria-hidden /> entschieden
           </span>
         ) : null}
       </header>
       {preReasoning && (
-        <div className="mt-1.5 rounded bg-amber-900/30 border border-amber-500/40 px-1.5 py-1">
-          <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-amber-200">
+        <div className="mt-1.5 rounded bg-amber-100 border border-amber-200 px-1.5 py-1">
+          <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-amber-800">
             <Brain className="w-3 h-3" aria-hidden /> Vor-Reasoning
           </p>
-          <p className="text-[11px] text-amber-50 italic line-clamp-2 mt-0.5">
+          <p className="text-[11px] text-amber-900 italic line-clamp-2 mt-0.5">
             {preReasoning}
           </p>
         </div>
       )}
       {recommended?.label && (
-        <div className="mt-1.5 pt-1.5 border-t border-amber-400/40">
-          <p className="text-[9px] uppercase tracking-wide text-amber-100">
+        <div className="mt-1.5 pt-1.5 border-t border-amber-200">
+          <p className="text-[9px] uppercase tracking-wide text-amber-800">
             Empfehlung
           </p>
-          <p className="text-xs text-amber-50 line-clamp-2 mt-0.5">
+          <p className="text-xs text-amber-900 line-clamp-2 mt-0.5">
             {recommended.label}
           </p>
         </div>
       )}
       <div className="flex flex-wrap gap-1 mt-1.5">
         {tool && (
-          <span className="text-[9px] uppercase tracking-wide bg-emerald-700 text-emerald-50 px-1.5 py-0.5 rounded">
+          <span className="text-[9px] uppercase tracking-wide bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
             🔧 {tool}
           </span>
         )}
         {altCount > 0 && (
-          <span className="text-[9px] text-amber-100/85">{altCount} Alt.</span>
+          <span className="text-[9px] text-amber-800/85">{altCount} Alt.</span>
         )}
         {guidanceCount > 0 && (
-          <span className="text-[9px] text-amber-100/85">🛡 {guidanceCount}</span>
+          <span className="text-[9px] text-amber-800/85">🛡 {guidanceCount}</span>
         )}
       </div>
-      <p className="text-[10px] italic text-amber-200 mt-1">
+      <p className="text-[10px] italic text-amber-800 mt-1">
         {data.decision
           ? "→ Klicken für Audit"
           : "→ Klicken für Skill-Prompt + Entscheidung"}

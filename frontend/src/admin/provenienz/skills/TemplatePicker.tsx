@@ -101,15 +101,15 @@ export function TemplatePicker({
         role="dialog"
         aria-modal="true"
         aria-label="Fähigkeits-Template wählen"
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
-          <h2 className={`${T.heading} text-white`}>Was soll deine Fähigkeit tun?</h2>
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
+          <h2 className={`${T.heading} text-ink`}>Was soll deine Fähigkeit tun?</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -123,18 +123,18 @@ export function TemplatePicker({
                 key={tpl.kind}
                 type="button"
                 onClick={() => onSelect(tpl.kind)}
-                className="group text-left border border-chrome2-500 hover:border-blue-400 hover:bg-chrome2-800/60 rounded-lg p-4 transition-colors flex flex-col gap-1"
+                className="group text-left border border-line hover:border-blue-500 hover:bg-canvas rounded-lg p-4 transition-colors flex flex-col gap-1"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-2xl leading-none">{tpl.emoji}</span>
-                  <span className="text-slate-500 group-hover:text-blue-300 text-lg leading-none">
+                  <span className="text-ink-muted group-hover:text-blue-700 text-lg leading-none">
                     →
                   </span>
                 </div>
-                <p className={`${T.body} font-semibold text-white mt-1`}>
+                <p className={`${T.body} font-semibold text-ink mt-1`}>
                   {tpl.title}
                 </p>
-                <p className={`${T.tiny} text-slate-400`}>{tpl.description}</p>
+                <p className={`${T.tiny} text-ink-muted`}>{tpl.description}</p>
               </button>
             ))}
           </div>

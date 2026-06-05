@@ -436,8 +436,8 @@ export function PlanProposalPanel({
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div>
           <p className={T.tinyBold}>Empfohlener Schritt</p>
-          <p className={`text-amber-300 ${T.body} font-mono`}>
-            {p.name} <span className="text-amber-400">· {conf}%</span>
+          <p className={`text-amber-800 ${T.body} font-mono`}>
+            {p.name} <span className="text-amber-700">· {conf}%</span>
           </p>
         </div>
         {(p.tool || p.approach_id) && (
@@ -445,13 +445,13 @@ export function PlanProposalPanel({
             {p.tool && (
               <div className="flex-1">
                 <p className={T.tinyBold}>Tool</p>
-                <p className={`text-emerald-300 ${T.body}`}>{p.tool}</p>
+                <p className={`text-emerald-700 ${T.body}`}>{p.tool}</p>
               </div>
             )}
             {p.approach_id && (
               <div className="flex-1">
                 <p className={T.tinyBold}>Approach</p>
-                <p className={`text-purple-300 ${T.body}`}>{p.approach_id}</p>
+                <p className={`text-purple-700 ${T.body}`}>{p.approach_id}</p>
               </div>
             )}
           </div>
@@ -459,7 +459,7 @@ export function PlanProposalPanel({
         {p.reasoning && (
           <div>
             <p className={T.tinyBold}>Begründung</p>
-            <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+            <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
               {p.reasoning}
             </p>
           </div>
@@ -472,14 +472,14 @@ export function PlanProposalPanel({
               {p.considered_alternatives.map((a, i) => (
                 <li
                   key={i}
-                  className="rounded border border-chrome2-500 bg-chrome2-900/50 px-2 py-1.5"
+                  className="rounded border border-line bg-canvas px-2 py-1.5"
                 >
-                  <p className={`${T.body} text-slate-200`}>
-                    <span className="font-mono text-amber-300">{a.name}</span>{" "}
-                    <span className="text-slate-500">({a.kind})</span>
+                  <p className={`${T.body} text-ink`}>
+                    <span className="font-mono text-amber-800">{a.name}</span>{" "}
+                    <span className="text-ink-muted">({a.kind})</span>
                   </p>
                   {a.why_not && (
-                    <p className={`${T.tiny} text-slate-400 italic mt-0.5`}>
+                    <p className={`${T.tiny} text-ink-muted italic mt-0.5`}>
                       Nicht gewählt weil: {a.why_not}
                     </p>
                   )}
@@ -506,7 +506,7 @@ export function PlanProposalPanel({
        *  that already has children would orphan them. The post-hoc
        *  drawer below remains the only meaningful action in that state. */}
       {!view.consumed && (
-        <footer className="p-3 border-t border-chrome2-500 space-y-2">
+        <footer className="p-3 border-t border-line space-y-2">
           <button
             type="button"
             onClick={() => void handleAccept()}
@@ -520,7 +520,7 @@ export function PlanProposalPanel({
               type="button"
               onClick={() => setVerwerfenMode("form")}
               disabled={isPending}
-              className={`w-full px-3 py-2 rounded border border-amber-700 text-amber-300 hover:bg-amber-900/30 ${T.body} disabled:opacity-50`}
+              className={`w-full px-3 py-2 rounded border border-amber-500 text-amber-700 hover:bg-amber-50 ${T.body} disabled:opacity-50`}
             >
               Verwerfen
             </button>
@@ -562,21 +562,21 @@ export function PlanProposalPanel({
        *  it (or the user dismisses, which still emits a skip). */}
       {verwerfenMode === "clarifying" && (
         <div
-          className="p-3 space-y-3 border-t border-chrome2-500"
+          className="p-3 space-y-3 border-t border-line"
           data-testid="plan-clarifying-section"
         >
           {/* Readonly summary of what's being clarified — keeps the
            *  expert's answer grounded in their own committed override. */}
-          <div className="space-y-1 text-[12px] text-slate-300">
+          <div className="space-y-1 text-[12px] text-ink-muted">
             <div>
-              <span className="text-slate-500">Stattdessen:</span>{" "}
-              <span className="font-mono text-amber-300">
+              <span className="text-ink-muted">Stattdessen:</span>{" "}
+              <span className="font-mono text-amber-800">
                 {intendedStep.trim()}
               </span>
             </div>
             <div>
-              <span className="text-slate-500">Begründung:</span>{" "}
-              <span className="text-slate-200">{reason.trim()}</span>
+              <span className="text-ink-muted">Begründung:</span>{" "}
+              <span className="text-ink">{reason.trim()}</span>
             </div>
           </div>
           {/* Agent's clarification question — aria-live="polite" so SRs
@@ -586,12 +586,12 @@ export function PlanProposalPanel({
           <div
             role="status"
             aria-live="polite"
-            className="rounded border border-violet-700/60 bg-violet-900/30 p-2.5 text-[12px] text-violet-100 space-y-1"
+            className="rounded border border-violet-200 bg-violet-50 p-2.5 text-[12px] text-violet-900 space-y-1"
           >
-            <p className="text-violet-300 font-medium text-[11px] uppercase tracking-wide">
+            <p className="text-violet-700 font-medium text-[11px] uppercase tracking-wide">
               Frage vom Agenten
               {clarificationScore !== null && (
-                <span className="ml-1 text-violet-400/80 normal-case font-normal">
+                <span className="ml-1 text-violet-700 normal-case font-normal">
                   · Score {clarificationScore}
                 </span>
               )}
@@ -599,12 +599,12 @@ export function PlanProposalPanel({
             <p className="whitespace-pre-wrap">{clarificationQuestion}</p>
           </div>
           <label className="block">
-            <span className="text-[11px] text-slate-400">Ihre Klarstellung</span>
+            <span className="text-[11px] text-ink-muted">Ihre Klarstellung</span>
             <textarea
               ref={clarificationTextareaRef}
               value={clarificationAnswer}
               onChange={(e) => setClarificationAnswer(e.target.value)}
-              className="mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-200 text-sm resize-none"
+              className="mt-1 w-full px-2 py-1.5 rounded bg-white border border-line text-ink text-sm resize-none"
               rows={4}
               placeholder="Was haben Sie gesehen, das der Agent nicht gesehen hat?"
             />
@@ -622,7 +622,7 @@ export function PlanProposalPanel({
               type="button"
               onClick={() => void handleSkipClarification()}
               disabled={clarify.isPending}
-              className="px-3 py-1.5 rounded border border-slate-600 hover:bg-slate-800/40 text-slate-300 text-sm"
+              className="px-3 py-1.5 rounded border border-line hover:bg-canvas text-ink-muted text-sm"
             >
               Ohne Antwort schließen
             </button>
@@ -635,7 +635,7 @@ export function PlanProposalPanel({
        *  after-the-fact corrections apart. Rendered regardless of
        *  consumed; becomes the only available action once consumed. */}
       <section
-        className="p-3 border-t border-chrome2-500"
+        className="p-3 border-t border-line"
         data-testid="plan-posthoc-drawer"
       >
         {postHocMode === "idle" ? (
@@ -644,7 +644,7 @@ export function PlanProposalPanel({
             onClick={() => setPostHocMode("form")}
             disabled={isPending}
             data-testid="plan-posthoc-toggle"
-            className={`w-full px-3 py-2 rounded border border-slate-600 text-slate-300 hover:bg-slate-800/40 ${T.tiny} disabled:opacity-50 text-left`}
+            className={`w-full px-3 py-2 rounded border border-line text-ink-muted hover:bg-canvas ${T.tiny} disabled:opacity-50 text-left`}
           >
             Im Nachhinein: Korrektur erfassen…
           </button>
@@ -706,16 +706,16 @@ function CorrectionFormBody({
   const styles =
     accent === "amber"
       ? {
-          wrapper: "border-amber-700/60 bg-amber-900/20",
-          inputText: "text-amber-200",
+          wrapper: "border-amber-200 bg-amber-50",
+          inputText: "text-amber-800",
           submitBtn: "bg-amber-500 hover:bg-amber-400 text-amber-950",
-          hint: "text-amber-300",
+          hint: "text-amber-700",
         }
       : {
-          wrapper: "border-slate-600/60 bg-slate-800/40",
-          inputText: "text-slate-200",
+          wrapper: "border-line bg-canvas",
+          inputText: "text-ink",
           submitBtn: "bg-slate-500 hover:bg-slate-400 text-slate-950",
-          hint: "text-slate-300",
+          hint: "text-ink-muted",
         };
   return (
     <div className={`space-y-2 rounded border p-2 ${styles.wrapper}`}>
@@ -728,7 +728,7 @@ function CorrectionFormBody({
           onChange={(e) => onStepChange(e.target.value)}
           placeholder="extract_claims, formulate_task, … oder neue Methode"
           autoFocus
-          className={`mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 font-mono text-sm ${styles.inputText}`}
+          className={`mt-1 w-full px-2 py-1.5 rounded bg-white border border-line font-mono text-sm ${styles.inputText}`}
         />
       </label>
       {isUnknownStep && (
@@ -744,7 +744,7 @@ function CorrectionFormBody({
           rows={2}
           placeholder="Was hat der Agent übersehen?"
           required
-          className="mt-1 w-full px-2 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-200 text-sm resize-none"
+          className="mt-1 w-full px-2 py-1.5 rounded bg-white border border-line text-ink text-sm resize-none"
         />
       </label>
       <button
@@ -762,7 +762,7 @@ function CorrectionFormBody({
           type="button"
           onClick={onCancel}
           disabled={isPending}
-          className={`${T.tiny} text-slate-400 hover:text-slate-200 underline disabled:opacity-50`}
+          className={`${T.tiny} text-ink-muted hover:text-ink underline disabled:opacity-50`}
         >
           Abbrechen
         </button>
@@ -771,7 +771,7 @@ function CorrectionFormBody({
             type="button"
             onClick={deleteAction.onClick}
             disabled={isPending}
-            className={`${T.tiny} text-rose-400 hover:text-rose-300 underline disabled:opacity-50`}
+            className={`${T.tiny} text-rose-700 hover:text-rose-600 underline disabled:opacity-50`}
           >
             {deleteAction.label}
           </button>

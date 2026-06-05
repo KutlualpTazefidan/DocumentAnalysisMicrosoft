@@ -69,20 +69,20 @@ export function FullscreenTextEditor({
       <div
         role="dialog"
         aria-modal="true"
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(1100px,95vw)] h-[min(800px,90vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate`}>{title}</h2>
+            <h2 className={`${T.heading} text-ink truncate`}>{title}</h2>
             {subtitle && (
-              <p className={`${T.tiny} text-slate-400 truncate`}>{subtitle}</p>
+              <p className={`${T.tiny} text-ink-muted truncate`}>{subtitle}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -93,12 +93,12 @@ export function FullscreenTextEditor({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={placeholder}
-            className="w-full h-full p-4 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 text-[14px] leading-relaxed font-mono resize-none"
+            className="w-full h-full p-4 rounded bg-canvas border border-line text-ink placeholder:text-ink-muted caret-blue-700 text-[14px] leading-relaxed font-mono resize-none"
             autoFocus
           />
         </div>
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
-          <span className={`${T.tiny} text-slate-500`}>
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+          <span className={`${T.tiny} text-ink-muted`}>
             {text.length} Zeichen · Cmd/Ctrl-Enter zum Speichern · Esc zum
             Abbrechen
           </span>
@@ -106,7 +106,7 @@ export function FullscreenTextEditor({
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-ink-muted hover:bg-rail ${T.body}`}
             >
               Abbrechen
             </button>

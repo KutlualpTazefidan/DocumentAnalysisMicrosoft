@@ -33,12 +33,12 @@ export function SearchResultTile({
   const score = Number(p.score ?? 0);
   const text = String(p.text ?? "");
   return (
-    <div className="rounded-lg border-2 border-cyan-500/70 bg-chrome2-800 px-3 py-2 text-white shadow-md w-72">
+    <div className="prov-tile border-cyan-500 px-3 py-2 w-72">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-cyan-200">
+      <header className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-cyan-800">
         <CornerDownRight className="w-3 h-3" aria-hidden />
-        <span className="font-mono text-cyan-300">{boxId}</span>
-        <span className="text-cyan-400/80">Score {score.toFixed(2)}</span>
+        <span className="font-mono text-cyan-700">{boxId}</span>
+        <span className="text-cyan-700">Score {score.toFixed(2)}</span>
         {verdict && (
           <span
             className={`ml-auto px-1.5 py-0.5 rounded text-[10px] uppercase ${
@@ -49,8 +49,8 @@ export function SearchResultTile({
           </span>
         )}
       </header>
-      <p className="text-[12px] text-slate-200 mt-1 line-clamp-3">{text}</p>
-      <p className="text-[10px] italic text-slate-500 mt-1">
+      <p className="text-[12px] text-ink mt-1 line-clamp-3">{text}</p>
+      <p className="text-[10px] italic text-ink-muted mt-1">
         Klicken für Details + nächsten Schritt
       </p>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />

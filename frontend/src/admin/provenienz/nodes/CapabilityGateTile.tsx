@@ -9,24 +9,24 @@ const STATUS_STYLE: Record<
 > = {
   pending: {
     border: "border-orange-500",
-    bg: "bg-orange-950/40",
+    bg: "bg-orange-50",
     icon: Wrench,
     tag: "pending",
-    tagBg: "bg-orange-700",
+    tagBg: "bg-orange-100 text-orange-800",
   },
   accepted: {
-    border: "border-emerald-600/70",
-    bg: "bg-emerald-950/30",
+    border: "border-emerald-500",
+    bg: "bg-emerald-50",
     icon: CheckCircle2,
     tag: "accepted",
-    tagBg: "bg-emerald-700",
+    tagBg: "bg-emerald-100 text-emerald-800",
   },
   dismissed: {
-    border: "border-zinc-600/60",
-    bg: "bg-zinc-900/40",
+    border: "border-zinc-300",
+    bg: "bg-zinc-50",
     icon: X,
     tag: "verworfen",
-    tagBg: "bg-zinc-700",
+    tagBg: "bg-zinc-100 text-zinc-700",
   },
 };
 
@@ -49,37 +49,37 @@ export function CapabilityGateTile({
   const topCount = detected.filter((d) => d.kind === "top").length;
   const subCount = detected.filter((d) => d.kind === "sub").length;
   return (
-    <div className={`rounded-lg border-2 ${style.border} ${style.bg} px-3 py-2 text-white shadow-md w-72`}>
+    <div className={`prov-tile border-2 ${style.border} ${style.bg} px-3 py-2 w-72`}>
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-orange-200">
+      <header className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-orange-700">
         <Icon className="w-3 h-3" aria-hidden /> Capability-Gate
-        <span className={`ml-auto px-1.5 py-px rounded text-[10px] font-semibold ${style.tagBg} text-white`}>
+        <span className={`ml-auto px-1.5 py-px rounded text-[10px] font-semibold ${style.tagBg}`}>
           {style.tag}
         </span>
       </header>
-      <p className="text-[12px] text-slate-100 mt-1 font-medium">
+      <p className="text-[12px] text-ink mt-1 font-medium">
         🔧 {detected.length} Capabilities erkannt
       </p>
       {(topCount > 0 || subCount > 0) && (
-        <p className="text-[11px] text-slate-300 mt-0.5">
+        <p className="text-[11px] text-ink-muted mt-0.5">
           {topCount} top-level
           {subCount > 0 && `, ${subCount} sub-skill${subCount === 1 ? "" : "s"}`}
         </p>
       )}
       <ul className="mt-1 space-y-0.5 max-h-20 overflow-hidden">
         {detected.slice(0, 3).map((d, i) => (
-          <li key={i} className="text-[10px] text-orange-200 font-mono truncate">
+          <li key={i} className="text-[10px] text-orange-800 font-mono truncate">
             {d.kind === "sub" ? "└ " : ""}
             {d.name}
           </li>
         ))}
         {detected.length > 3 && (
-          <li className="text-[10px] text-slate-500 italic">
+          <li className="text-[10px] text-ink-muted italic">
             + {detected.length - 3} weitere
           </li>
         )}
       </ul>
-      <p className="text-[10px] italic text-slate-500 mt-1">
+      <p className="text-[10px] italic text-ink-muted mt-1">
         Klicken {status === "pending" ? "→ Re-evaluieren" : "für Audit"}
       </p>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />

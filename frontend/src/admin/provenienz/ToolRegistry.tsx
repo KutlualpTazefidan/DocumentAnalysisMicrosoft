@@ -15,12 +15,12 @@ interface Props {
  */
 export function ToolRegistry({ tools, onSelect }: Props): JSX.Element {
   return (
-    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-4 mb-4">
+    <div className="border border-line rounded-lg bg-white p-4 mb-4">
       <header className="mb-2">
-        <h3 className={`${T.heading} text-white flex items-center gap-2`}>
+        <h3 className={`${T.heading} text-ink flex items-center gap-2`}>
           <Wrench className="w-4 h-4" aria-hidden /> Verfügbare Werkzeuge
         </h3>
-        <p className={`${T.body} text-slate-400`}>
+        <p className={`${T.body} text-ink-muted`}>
           Skills, die der Planner einem Schritt zuordnen kann. Deaktivierte
           Einträge sind dokumentiert, aber nicht implementiert.
         </p>
@@ -33,27 +33,27 @@ export function ToolRegistry({ tools, onSelect }: Props): JSX.Element {
               onClick={() => onSelect(`tool:${tool.name}`)}
               className={`w-full text-left rounded border px-3 py-2 transition-colors ${
                 tool.enabled
-                  ? "border-emerald-600 bg-emerald-900/30 hover:bg-emerald-900/50"
-                  : "border-zinc-700 bg-zinc-900/30 hover:bg-zinc-900/50 opacity-80"
+                  ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
+                  : "border-line bg-canvas hover:bg-white opacity-80"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <p className="text-white font-semibold">{tool.label}</p>
+                <p className="text-ink font-semibold">{tool.label}</p>
                 <span
                   className={`text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
                     tool.enabled
-                      ? "bg-emerald-700 text-emerald-100"
-                      : "bg-zinc-700 text-zinc-300"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-zinc-100 text-zinc-700"
                   }`}
                 >
                   {tool.enabled ? "aktiv" : "stub"}
                 </span>
               </div>
-              <p className={`${T.tiny} text-slate-300 mt-0.5`}>
+              <p className={`${T.tiny} text-ink-muted mt-0.5`}>
                 {tool.scope} · {tool.cost_hint} · für{" "}
                 {tool.used_by.join(", ") || "—"}
               </p>
-              <p className={`${T.tiny} text-slate-400 mt-1 line-clamp-2`}>
+              <p className={`${T.tiny} text-ink-muted mt-1 line-clamp-2`}>
                 {tool.description}
               </p>
             </button>
