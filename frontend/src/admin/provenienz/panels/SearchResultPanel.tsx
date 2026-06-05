@@ -183,22 +183,22 @@ export function SearchResultPanel({
             <span
               className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${
                 p.box_kind === "table"
-                  ? "bg-purple-700/50 text-purple-100 border border-purple-600/50"
+                  ? "bg-purple-100 text-purple-800 border border-purple-200"
                   : p.box_kind === "figure"
-                    ? "bg-amber-700/50 text-amber-100 border border-amber-600/50"
+                    ? "bg-amber-100 text-amber-800 border border-amber-200"
                     : p.box_kind === "caption"
-                      ? "bg-cyan-700/50 text-cyan-100 border border-cyan-600/50"
+                      ? "bg-cyan-100 text-cyan-800 border border-cyan-200"
                       : p.box_kind === "formula"
-                        ? "bg-emerald-700/50 text-emerald-100 border border-emerald-600/50"
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                         : p.box_kind === "toc"
-                          ? "bg-indigo-700/50 text-indigo-100 border border-indigo-600/50"
+                          ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
                           : p.box_kind === "list_of_tables"
-                            ? "bg-purple-800/50 text-purple-100 border border-purple-700/50"
+                            ? "bg-purple-100 text-purple-900 border border-purple-300"
                             : p.box_kind === "list_of_figures"
-                              ? "bg-amber-800/50 text-amber-100 border border-amber-700/50"
+                              ? "bg-amber-100 text-amber-900 border border-amber-300"
                               : p.box_kind === "bibliography"
-                                ? "bg-emerald-800/50 text-emerald-100 border border-emerald-700/50"
-                                : "bg-slate-700/50 text-slate-100 border border-slate-600/50"
+                                ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                : "bg-slate-100 text-slate-700 border border-slate-200"
               }`}
               title={`Box-Typ: ${p.box_kind}`}
             >
