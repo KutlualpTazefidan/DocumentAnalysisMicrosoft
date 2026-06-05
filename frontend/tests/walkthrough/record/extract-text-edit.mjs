@@ -60,7 +60,7 @@ await rec.step(page, "HTML-Editor: pro MinerU-Element ein editierbares Shadow-DO
   notes: [
     "Der HTML-Editor lebt komplett im Shadow-DOM — schützt die App vor CSS-Konflikten mit dem extrahierten Inhalt.",
     "Jedes MinerU-Element trägt data-source-box=<box_id> und ist eigenständig anklickbar.",
-    "Doppelklick-Schema: erster Klick selektiert (das Pendant im PDF-Render blinkt auf), zweiter Klick innerhalb ~500 ms macht das Element contentEditable.",
+    "Doppelklick-Schema: erster Klick selektiert (das Pendant im PDF-Render blinkt auf), zweiter Klick innerhalb ~800 ms macht das Element contentEditable.",
   ],
   shots: [{ annotations: [
     { kind: "highlight", selector: `[data-source-box="${targetBoxId}"]`, text: "Ziel-Element für die Bearbeitung" },

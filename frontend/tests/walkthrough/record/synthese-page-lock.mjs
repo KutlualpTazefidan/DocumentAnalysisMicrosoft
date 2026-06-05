@@ -50,7 +50,7 @@ await page.waitForTimeout(500);
 await rec.step(page, "Seite gesperrt → Button-Label + Stil wechselt", {
   actions: ['click [data-testid="synth-page-lock"]'],
   notes: [
-    "Button wechselt: 🔒 „Diese Seite sperren“ → 🔓 „Diese Seite entsperren“ (Blau-Variant).",
+    "Button wechselt: 🔒 „Diese Seite sperren“ → 🔓 „Diese Seite entsperren“ (BAM-Cyan-Variant, btn-primary).",
     "approvedPages-Set (localStorage) bekommt die aktuelle Page-Nummer dazu.",
     "Generate-Buttons darunter werden disabled — UI-Hinweis verhindert versehentliche Re-Generate-Klicks.",
   ],
