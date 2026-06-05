@@ -43,7 +43,7 @@ export function ManualReviewPanel({
         {p.description && (
           <div>
             <p className={T.tinyBold}>Was zu tun ist</p>
-            <p className={`text-rose-100 ${T.body} whitespace-pre-wrap`}>
+            <p className={`text-rose-900 ${T.body} whitespace-pre-wrap`}>
               {p.description}
             </p>
           </div>
@@ -51,23 +51,23 @@ export function ManualReviewPanel({
         {p.reasoning && (
           <div>
             <p className={T.tinyBold}>Warum Mensch-only</p>
-            <p className={`text-slate-200 ${T.body} italic whitespace-pre-wrap`}>
+            <p className={`text-ink ${T.body} italic whitespace-pre-wrap`}>
               {p.reasoning}
             </p>
           </div>
         )}
         <AgentAuditSection audit={p.audit} />
-        <p className={`${T.tiny} text-slate-500 italic`}>
+        <p className={`${T.tiny} text-ink-muted italic`}>
           Der Agent hat eskaliert. Erledige die Aufgabe manuell und
           markiere sie unten als erledigt.
         </p>
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void handleDismiss()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-rose-700 text-rose-300 hover:bg-rose-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-rose-500 text-rose-700 hover:bg-rose-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Als erledigt markieren"}
         </button>

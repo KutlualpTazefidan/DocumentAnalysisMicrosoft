@@ -29,13 +29,13 @@ export function DocStepTabs({ slug }: Props): JSX.Element {
     return false;
   }
 
-  const activeTabClass = "text-white border-b-2 border-white";
-  const inactiveTabClass = "text-navy-200 hover:text-white hover:bg-navy-700/40";
-  const disabledTabClass = "text-navy-300 cursor-not-allowed";
+  const activeTabClass = "text-bam-cyan border-b-2 border-bam-cyan";
+  const inactiveTabClass = "text-ink-muted border-b-2 border-transparent hover:text-bam-navy hover:bg-canvas";
+  const disabledTabClass = "text-line2 border-b-2 border-transparent cursor-not-allowed";
   const baseTabClass = `flex items-center gap-2 px-4 py-2 ${T.body} font-medium transition-colors`;
 
   return (
-    <nav role="tablist" className="flex items-center border-b border-chrome2-700 -mb-px">
+    <nav role="tablist" className="flex items-center border-b border-line -mb-px">
       {TABS.map((tab) => {
         const active = isActive(tab.key);
         const Icon = tab.icon;

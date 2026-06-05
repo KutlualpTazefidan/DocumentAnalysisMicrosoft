@@ -21,13 +21,13 @@ export function Settings(): JSX.Element {
         <h1 className={`${T.cardTitle} mb-1`}>Einstellungen</h1>
         <p className={`${T.cardSubtle} mb-5`}>Dein Konto in diesem Fachbereich.</p>
 
-        <section className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <h2 className={`px-4 py-2.5 border-b border-slate-200 bg-slate-50 ${T.tinyBold}`}>
+        <section className="card overflow-hidden">
+          <h2 className={`px-4 py-2.5 border-b border-line bam-title`}>
             Konto
           </h2>
           <Row label="Pseudonym">{name ?? "—"}</Row>
           <Row label="Rolle">
-            <span className={`inline-block rounded-full bg-brand-500/10 text-brand-700 px-2.5 py-0.5 font-medium ${T.body}`}>
+            <span className={`inline-block rounded-full bg-rowsel text-bam-cyan-700 px-2.5 py-0.5 font-medium ${T.body}`}>
               {roleLabel}
             </span>
           </Row>
@@ -36,9 +36,9 @@ export function Settings(): JSX.Element {
           </Row>
         </section>
 
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex items-start gap-2.5">
-          <Info className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" aria-hidden />
-          <p className={`${T.body} text-slate-600`}>
+        <div className="mt-4 card px-4 py-3 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-ink-muted mt-0.5 shrink-0" aria-hidden />
+          <p className={`${T.body} text-ink-muted`}>
             Benutzername und Passwort werden zentral von der Administration
             verwaltet und können hier nicht geändert werden.
           </p>
@@ -56,9 +56,9 @@ export function Settings(): JSX.Element {
 
 function Row({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b border-slate-100 last:border-b-0">
-      <div className={`w-40 shrink-0 ${T.body} text-slate-500`}>{label}</div>
-      <div className={`${T.body} text-slate-800`}>{children}</div>
+    <div className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0">
+      <div className={`w-40 shrink-0 ${T.body} text-ink-muted`}>{label}</div>
+      <div className={`${T.body} text-ink`}>{children}</div>
     </div>
   );
 }

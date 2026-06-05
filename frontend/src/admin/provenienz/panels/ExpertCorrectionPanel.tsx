@@ -49,7 +49,7 @@ export function ExpertCorrectionPanel({
 
   const title = isMethodRequest ? "Methoden-Wunsch" : "Korrektur";
   const subtitle = p.target_step_kind ? `statt ${p.target_step_kind}` : "—";
-  const stepAccent = isMethodRequest ? "text-amber-300" : "text-rose-300";
+  const stepAccent = isMethodRequest ? "text-amber-700" : "text-rose-700";
 
   return (
     <div className="flex flex-col h-full">
@@ -67,7 +67,7 @@ export function ExpertCorrectionPanel({
             {p.intended_step || "—"}
           </p>
           {isMethodRequest && (
-            <p className={`${T.tiny} text-amber-300 italic mt-1`}>
+            <p className={`${T.tiny} text-amber-700 italic mt-1`}>
               Diese Methode existiert noch nicht — sie landet in der
               Capability-Wunschliste, sodass das Team sie bauen kann.
             </p>
@@ -76,7 +76,7 @@ export function ExpertCorrectionPanel({
         {p.reason && (
           <div>
             <p className={T.tinyBold}>Begründung</p>
-            <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+            <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
               {p.reason}
             </p>
           </div>
@@ -84,12 +84,12 @@ export function ExpertCorrectionPanel({
         {argsAsJson && (
           <div>
             <p className={T.tinyBold}>Argumente</p>
-            <pre className="text-[11px] text-slate-300 bg-chrome2-900 border border-chrome2-500 rounded px-2 py-1.5 overflow-x-auto">
+            <pre className="text-[11px] text-ink-muted bg-canvas border border-line rounded px-2 py-1.5 overflow-x-auto">
               {argsAsJson}
             </pre>
           </div>
         )}
-        <p className={`${T.tiny} text-slate-500 italic`}>
+        <p className={`${T.tiny} text-ink-muted italic`}>
           {isMethodRequest
             ? `Erfasst über „Verwerfen → Lieber so“ mit einer Methode, die noch nicht im Registry steht. Der Wunsch landet zentral auf der Capability-Wunschliste.`
             : `Erfasst über „Verwerfen → Lieber so“ am ursprünglichen Agent-Vorschlag. Die Korrektur landet als NOTE-Skill im Korpus und steht beim nächsten /next-step-Lauf als „Frühere Korrektur“ zur Verfügung.`}

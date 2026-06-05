@@ -135,7 +135,7 @@ test.describe("Statistik route structure", () => {
     await page.goto(`/#/admin/doc/${PROVIDED_SLUG}/statistics`);
 
     await expect(page).toHaveURL(/#\/login/);
-    await expect(page.getByRole("heading", { name: "Anmeldung" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /goldens/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Extrahieren", level: 2 })).toHaveCount(0);
   });
 });

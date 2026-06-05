@@ -4,19 +4,11 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    @apply bg-canvas text-ink font-sans antialiased;
   }
 
   :focus-visible {
     @apply outline-none ring-2 ring-brand-500 ring-offset-2;
-  }
-
-  /* Focus-visible on chrome-area elements (the navy header). The default
-     ring-brand-500 is the same blue as the chrome and disappears against
-     it; switch to amber on chrome descendants so tab-focus stays visible. */
-  .bg-navy-800 :focus-visible,
-  .bg-navy-900 :focus-visible {
-    @apply ring-amber-400;
   }
 }
 
@@ -38,6 +30,39 @@
   }
 
   .input {
-    @apply w-full rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded border border-line2 bg-white px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  }
+
+  /* BAM card surface — white panel on the light-gray canvas. */
+  .card {
+    @apply rounded border border-line bg-white;
+  }
+
+  /* Small-caps gray section title, à la the reference cards
+     ("MESS- UND PRÜFMITTELSTATUS"). */
+  .bam-title {
+    @apply text-[11px] font-semibold uppercase tracking-wide text-ink-muted;
+  }
+
+  /* BAM data-grid — dense zebra rows under a small-caps header, à la the
+     reference Prüfmuster tables. Header cell / body row / body cell. */
+  .bam-th {
+    @apply p-2 text-left bg-rail border-b border-line text-[11px] font-semibold uppercase tracking-wide text-ink-muted;
+  }
+  .bam-row {
+    @apply border-b border-line odd:bg-white even:bg-[#f6f8fa] hover:bg-rowsel;
+  }
+  .bam-td {
+    @apply p-2 align-middle;
+  }
+
+  /* Provenienz graph — light tiles + panels on the light canvas (was dark
+     slate tiles on a chrome2-900 canvas). Node-kind accent hues are applied
+     per-tile on top of these; only the chrome lives here. */
+  .prov-tile {
+    @apply rounded-lg border border-line bg-white text-ink shadow-sm;
+  }
+  .prov-tile-head {
+    @apply text-[10px] uppercase tracking-wide text-ink-muted;
   }
 }

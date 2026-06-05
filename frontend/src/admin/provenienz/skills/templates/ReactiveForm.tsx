@@ -186,22 +186,22 @@ export function ReactiveForm({
         role="dialog"
         aria-modal="true"
         aria-label="Bewertung neu fassen"
-        className="bg-chrome2-900 border border-chrome2-500 rounded-lg shadow-2xl w-[min(820px,95vw)] h-[min(820px,92vh)] flex flex-col"
+        className="bg-white border border-line rounded-lg shadow-2xl w-[min(820px,95vw)] h-[min(820px,92vh)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between px-4 py-3 border-b border-chrome2-500">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-line">
           <div className="min-w-0">
-            <h2 className={`${T.heading} text-white truncate`}>
+            <h2 className={`${T.heading} text-ink truncate`}>
               ⚖ Bewertung neu fassen
             </h2>
-            <p className={`${T.tiny} text-slate-400`}>
+            <p className={`${T.tiny} text-ink-muted`}>
               Reagiert auf bestimmte Verdicts und wendet Domain-Wissen an.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded"
             aria-label="Schließen"
           >
             <X className="w-5 h-5" />
@@ -220,7 +220,7 @@ export function ReactiveForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="z.B. compare-numbers"
-              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               autoFocus
             />
           </div>
@@ -240,8 +240,8 @@ export function ReactiveForm({
                     onClick={() => toggleVerdict(opt.value)}
                     className={`px-2.5 py-1 rounded ${T.tiny} border transition-colors ${
                       selected
-                        ? "bg-orange-700 border-orange-500 text-white"
-                        : "bg-chrome2-900 border-chrome2-500 text-slate-300 hover:border-orange-400"
+                        ? "bg-orange-100 border-orange-500 text-orange-800"
+                        : "bg-white border-line text-ink-muted hover:border-orange-500"
                     }`}
                   >
                     {opt.label}
@@ -249,7 +249,7 @@ export function ReactiveForm({
                 );
               })}
             </div>
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               Mehrfach-Auswahl möglich. Leer = Verdict ist kein Trigger.
             </p>
           </div>
@@ -268,9 +268,9 @@ export function ReactiveForm({
               onChange={(e) => setClaimRegexText(e.target.value)}
               rows={3}
               placeholder={"\\d+\\s*MW\n(?i)nachzerfallsleistung"}
-              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+              className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} font-mono resize-y`}
             />
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               {claimRegex.length} Regex(es) erkannt.
             </p>
           </div>
@@ -289,9 +289,9 @@ export function ReactiveForm({
               onChange={(e) => setSentenceRegexText(e.target.value)}
               rows={3}
               placeholder={"\\d+\\s*MW\n(?i)\\babklingen\\b"}
-              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} font-mono resize-y`}
+              className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} font-mono resize-y`}
             />
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               {sentenceRegex.length} Regex(es) erkannt.
             </p>
           </div>
@@ -310,7 +310,7 @@ export function ReactiveForm({
               value={topicKeywords}
               onChange={(e) => setTopicKeywords(e.target.value)}
               placeholder="z.B. nachzerfallswärme, restwärme"
-              className={`w-full px-3 py-2 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+              className={`w-full px-3 py-2 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
             />
           </div>
 
@@ -333,20 +333,20 @@ export function ReactiveForm({
                 "Einheiten enthalten, prüfe explizit die Umrechnung. " +
                 "Toleranz ±2% bei MW-zu-MW-Vergleichen."
               }
-              className={`w-full p-3 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body} resize-y`}
+              className={`w-full p-3 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body} resize-y`}
             />
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               Pflicht — die Regel, die der Agent bei der Re-Evaluation anwendet.
             </p>
           </div>
 
           {/* Parent skill (optional, collapsed) */}
           <details
-            className="rounded border border-chrome2-500 bg-chrome2-900/40"
+            className="rounded border border-line bg-canvas"
             open={parentSkill.trim().length > 0}
           >
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-300`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-amber-700`}
             >
               Optional: Übergeordnete Fähigkeit
             </summary>
@@ -363,30 +363,30 @@ export function ReactiveForm({
                 value={parentSkill}
                 onChange={(e) => setParentSkill(e.target.value)}
                 placeholder="z.B. compare-numbers"
-                className={`w-full px-3 py-1.5 rounded bg-chrome2-900 border border-chrome2-500 text-slate-50 placeholder:text-slate-500 caret-blue-300 ${T.body}`}
+                className={`w-full px-3 py-1.5 rounded bg-white border border-line text-ink placeholder:text-ink-muted caret-blue-700 ${T.body}`}
               />
-              <p className={`${T.tiny} text-slate-500 mt-1`}>
+              <p className={`${T.tiny} text-ink-muted mt-1`}>
                 Leer lassen, wenn diese Fähigkeit eigenständig ist.
               </p>
             </div>
           </details>
 
           {/* Raw-data accordion */}
-          <details className="rounded border border-chrome2-500 bg-chrome2-900/30">
+          <details className="rounded border border-line bg-canvas">
             <summary
-              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-slate-400`}
+              className={`${T.tinyBold} cursor-pointer px-3 py-2 text-ink-muted`}
             >
               Roh-Daten anzeigen
             </summary>
             <pre
-              className={`px-3 pb-3 pt-1 ${T.tiny} text-slate-300 font-mono whitespace-pre-wrap break-all`}
+              className={`px-3 pb-3 pt-1 ${T.tiny} text-ink-muted font-mono whitespace-pre-wrap break-all`}
             >
               {JSON.stringify(previewSkill, null, 2)}
             </pre>
           </details>
 
           {!canSubmit && (name.trim() || domainRules.trim()) && (
-            <p className={`${T.tiny} text-amber-300`}>
+            <p className={`${T.tiny} text-amber-700`}>
               {!hasTrigger &&
                 "Mindestens eine Trigger-Bedingung (Verdict / Regex / Topic) wählen. "}
               {!domainRules.trim() && "Domain-Regel ist Pflicht."}
@@ -394,21 +394,21 @@ export function ReactiveForm({
           )}
 
           {createMutation.error && (
-            <p className={`${T.body} text-red-400`}>
+            <p className={`${T.body} text-bam-red`}>
               {createMutation.error.message}
             </p>
           )}
         </div>
 
-        <footer className="px-4 py-3 border-t border-chrome2-500 flex items-center justify-between">
-          <span className={`${T.tiny} text-slate-500`}>
+        <footer className="px-4 py-3 border-t border-line flex items-center justify-between">
+          <span className={`${T.tiny} text-ink-muted`}>
             Cmd/Ctrl-Enter zum Speichern · Esc zum Abbrechen
           </span>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className={`px-3 py-1.5 rounded text-slate-300 hover:bg-chrome2-700 ${T.body}`}
+              className={`px-3 py-1.5 rounded text-ink-muted hover:bg-canvas ${T.body}`}
             >
               Abbrechen
             </button>

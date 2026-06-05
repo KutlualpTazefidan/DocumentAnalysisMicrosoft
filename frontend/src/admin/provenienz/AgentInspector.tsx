@@ -21,7 +21,7 @@ interface Props {
 export function AgentInspector({ info, selectedId, onClose }: Props): JSX.Element {
   if (!selectedId) {
     return (
-      <div className={`p-4 ${T.body} text-slate-500 italic`}>
+      <div className={`p-4 ${T.body} text-ink-muted italic`}>
         Tile auswählen, um Modell, Prompt, Tool und Regeln zu sehen.
       </div>
     );
@@ -78,20 +78,20 @@ function RuleView({
       <Header title={name} subtitle="Skill / Regel" onClose={onClose} />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <Section title="Zusammenfassung">
-          <p className={`text-slate-200 ${T.body}`}>{rule.summary}</p>
+          <p className={`text-ink ${T.body}`}>{rule.summary}</p>
         </Section>
         <Section title="Wann sie greift">
-          <p className={`text-slate-200 ${T.body}`}>{rule.trigger}</p>
+          <p className={`text-ink ${T.body}`}>{rule.trigger}</p>
         </Section>
         <Section title="Wo sie liegt">
-          <p className={`text-slate-200 ${T.body}`}>{rule.storage}</p>
+          <p className={`text-ink ${T.body}`}>{rule.storage}</p>
         </Section>
         <Section title="Wie sie verkabelt ist">
-          <p className={`text-slate-200 ${T.body}`}>{rule.injection}</p>
+          <p className={`text-ink ${T.body}`}>{rule.injection}</p>
         </Section>
         {usedBy.length > 0 && (
           <Section title={`Aktiv bei ${usedBy.length} Sub-Agent(en)`}>
-            <ul className={`text-slate-200 ${T.body} space-y-0.5`}>
+            <ul className={`text-ink ${T.body} space-y-0.5`}>
               {usedBy.map((label) => (
                 <li key={label}>· {label}</li>
               ))}
@@ -104,7 +104,7 @@ function RuleView({
               {rule.applies_to.map((k) => (
                 <code
                   key={k}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-chrome2-900 border border-chrome2-500 text-blue-300"
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-canvas border border-line text-blue-700"
                 >
                   {k}
                 </code>
@@ -131,25 +131,25 @@ function StepView({
       <Header title={step.label} subtitle={step.kind} onClose={onClose} />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <Section title="Daten-Fluss">
-          <p className={`text-slate-200 ${T.body}`}>
-            <code className="text-blue-300">{step.input_kind}</code>
+          <p className={`text-ink ${T.body}`}>
+            <code className="text-blue-700">{step.input_kind}</code>
             {" → "}
-            <code className="text-blue-300">{step.output_kind}</code>
+            <code className="text-blue-700">{step.output_kind}</code>
           </p>
         </Section>
 
         {step.uses_llm && (
           <Section title="LLM">
-            <p className={`text-slate-200 ${T.body}`}>
-              <span className="text-slate-400">Backend:</span>{" "}
-              <code className="text-amber-300">{info.llm.backend}</code>
+            <p className={`text-ink ${T.body}`}>
+              <span className="text-ink-muted">Backend:</span>{" "}
+              <code className="text-amber-700">{info.llm.backend}</code>
             </p>
-            <p className={`text-slate-200 ${T.body} mt-0.5`}>
-              <span className="text-slate-400">Modell:</span>{" "}
-              <code className="text-amber-300">{info.llm.model || "–"}</code>
+            <p className={`text-ink ${T.body} mt-0.5`}>
+              <span className="text-ink-muted">Modell:</span>{" "}
+              <code className="text-amber-700">{info.llm.model || "–"}</code>
             </p>
             {info.llm.base_url && (
-              <p className={`text-slate-400 ${T.tiny} mt-0.5 break-all`}>
+              <p className={`text-ink-muted ${T.tiny} mt-0.5 break-all`}>
                 {info.llm.base_url}
               </p>
             )}
@@ -158,15 +158,15 @@ function StepView({
 
         {step.uses_tool && (
           <Section title="Tool">
-            <p className={`text-slate-200 ${T.body}`}>
-              <code className="text-emerald-300">{step.uses_tool}</code>
+            <p className={`text-ink ${T.body}`}>
+              <code className="text-emerald-700">{step.uses_tool}</code>
             </p>
           </Section>
         )}
 
         {step.system_prompt && (
           <Section title="System-Prompt">
-            <pre className="bg-chrome2-900 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+            <pre className="bg-canvas rounded p-2 text-[11px] text-ink whitespace-pre-wrap break-words font-mono">
               {step.system_prompt}
             </pre>
           </Section>
@@ -174,14 +174,14 @@ function StepView({
 
         {step.user_template && (
           <Section title="User-Template">
-            <pre className="bg-chrome2-900 rounded p-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+            <pre className="bg-canvas rounded p-2 text-[11px] text-ink whitespace-pre-wrap break-words font-mono">
               {step.user_template}
             </pre>
           </Section>
         )}
 
         <Section title="Erwartete Ausgabe">
-          <p className={`text-slate-200 ${T.body}`}>{step.expected_output}</p>
+          <p className={`text-ink ${T.body}`}>{step.expected_output}</p>
         </Section>
 
         {step.rules.length > 0 && (
@@ -191,7 +191,7 @@ function StepView({
                 const rule = info.rules[r];
                 if (!rule) {
                   return (
-                    <li key={r} className={`${T.tiny} text-slate-300`}>
+                    <li key={r} className={`${T.tiny} text-ink-muted`}>
                       <code>{r}</code>
                     </li>
                   );
@@ -225,39 +225,39 @@ function ToolView({
           <span
             className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide ${
               tool.enabled
-                ? "bg-emerald-700 text-emerald-100"
-                : "bg-zinc-700 text-zinc-300"
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-zinc-100 text-zinc-600"
             }`}
           >
             {tool.enabled ? "aktiv" : "deaktiviert (Stub)"}
           </span>
         </Section>
         <Section title="Beschreibung">
-          <p className={`text-slate-200 ${T.body}`}>{tool.description}</p>
+          <p className={`text-ink ${T.body}`}>{tool.description}</p>
         </Section>
         <Section title="Wann auswählen">
-          <p className={`text-slate-200 ${T.body} italic`}>{tool.when_to_use}</p>
+          <p className={`text-ink ${T.body} italic`}>{tool.when_to_use}</p>
         </Section>
         {tool.agent_hint && (
           <Section title="Agent-Hinweis (Trigger-Heuristik)">
-            <p className={`text-emerald-200 ${T.body} italic`}>
+            <p className={`text-emerald-800 ${T.body} italic`}>
               {tool.agent_hint}
             </p>
-            <p className={`${T.tiny} text-slate-500 mt-1`}>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>
               Dieser Hinweis fließt in den Planner-Prompt ein, damit der Agent
               das Tool beim richtigen Namen anfragt.
             </p>
           </Section>
         )}
         <Section title="Verwendung">
-          <p className={`text-slate-200 ${T.body}`}>
+          <p className={`text-ink ${T.body}`}>
             Wird gerufen von:{" "}
             {tool.used_by.length === 0 ? (
-              <span className="text-slate-500 italic">– (kein Step)</span>
+              <span className="text-ink-muted italic">– (kein Step)</span>
             ) : (
               tool.used_by.map((s, i) => (
                 <span key={s}>
-                  <code className="text-blue-300">{s}</code>
+                  <code className="text-blue-700">{s}</code>
                   {i < tool.used_by.length - 1 ? ", " : ""}
                 </span>
               ))
@@ -286,12 +286,12 @@ function DataView({
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <Section title="Produziert von">
           {producedBy.length === 0 ? (
-            <p className={`${T.body} text-slate-500 italic`}>– (Wurzel-Knoten)</p>
+            <p className={`${T.body} text-ink-muted italic`}>– (Wurzel-Knoten)</p>
           ) : (
             <ul className="space-y-1">
               {producedBy.map((s) => (
-                <li key={s.kind} className={`${T.body} text-slate-200`}>
-                  <code className="text-blue-300">{s.kind}</code> · {s.label}
+                <li key={s.kind} className={`${T.body} text-ink`}>
+                  <code className="text-blue-700">{s.kind}</code> · {s.label}
                 </li>
               ))}
             </ul>
@@ -299,12 +299,12 @@ function DataView({
         </Section>
         <Section title="Konsumiert von">
           {consumedBy.length === 0 ? (
-            <p className={`${T.body} text-slate-500 italic`}>– (Endknoten)</p>
+            <p className={`${T.body} text-ink-muted italic`}>– (Endknoten)</p>
           ) : (
             <ul className="space-y-1">
               {consumedBy.map((s) => (
-                <li key={s.kind} className={`${T.body} text-slate-200`}>
-                  <code className="text-blue-300">{s.kind}</code> · {s.label}
+                <li key={s.kind} className={`${T.body} text-ink`}>
+                  <code className="text-blue-700">{s.kind}</code> · {s.label}
                 </li>
               ))}
             </ul>
@@ -317,18 +317,18 @@ function DataView({
 
 function RulePill({ name, rule }: { name: string; rule: AgentRuleInfo }): JSX.Element {
   return (
-    <li className="rounded border border-chrome2-500 bg-chrome2-800/50 p-2">
-      <p className={`${T.tinyBold} text-blue-300`}>{name}</p>
-      <p className={`${T.body} text-slate-200 mt-0.5`}>{rule.summary}</p>
-      <p className={`${T.tiny} text-slate-400 mt-1`}>
-        <span className="text-slate-500">Auslöser:</span> {rule.trigger}
+    <li className="rounded border border-line bg-canvas p-2">
+      <p className={`${T.tinyBold} text-blue-700`}>{name}</p>
+      <p className={`${T.body} text-ink mt-0.5`}>{rule.summary}</p>
+      <p className={`${T.tiny} text-ink-muted mt-1`}>
+        <span className="text-ink-muted">Auslöser:</span> {rule.trigger}
       </p>
-      <p className={`${T.tiny} text-slate-400`}>
-        <span className="text-slate-500">Speicher:</span>{" "}
-        <code className="text-slate-300">{rule.storage}</code>
+      <p className={`${T.tiny} text-ink-muted`}>
+        <span className="text-ink-muted">Speicher:</span>{" "}
+        <code className="text-ink-muted">{rule.storage}</code>
       </p>
-      <p className={`${T.tiny} text-slate-400`}>
-        <span className="text-slate-500">Injektion:</span> {rule.injection}
+      <p className={`${T.tiny} text-ink-muted`}>
+        <span className="text-ink-muted">Injektion:</span> {rule.injection}
       </p>
     </li>
   );
@@ -359,15 +359,15 @@ function Header({
   onClose: () => void;
 }): JSX.Element {
   return (
-    <header className="px-4 py-3 border-b border-chrome2-500 flex items-start justify-between gap-2">
+    <header className="px-4 py-3 border-b border-line flex items-start justify-between gap-2">
       <div className="min-w-0">
         <p className={T.tinyBold}>{subtitle}</p>
-        <p className="text-white text-sm font-semibold truncate">{title}</p>
+        <p className="text-ink text-sm font-semibold truncate">{title}</p>
       </div>
       <button
         type="button"
         onClick={onClose}
-        className={`text-slate-400 hover:text-white ${T.body}`}
+        className={`text-ink-muted hover:text-ink ${T.body}`}
         aria-label="Schließen"
       >
         ✕
@@ -381,7 +381,7 @@ function NotFound({ onClose }: { onClose: () => void }): JSX.Element {
     <div className="flex flex-col h-full">
       <Header title="–" subtitle="unbekannt" onClose={onClose} />
       <div className="p-4">
-        <p className={`${T.body} text-slate-500 italic`}>Nicht gefunden.</p>
+        <p className={`${T.body} text-ink-muted italic`}>Nicht gefunden.</p>
       </div>
     </div>
   );

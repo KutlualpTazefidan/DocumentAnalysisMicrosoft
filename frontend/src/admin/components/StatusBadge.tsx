@@ -18,14 +18,17 @@ export type StatusTone =
   | "danger" // error / inactive
   | "muted"; // archived / disabled
 
+// BAM semantic fills — success/danger sampled from the reference
+// dashboard (green #006d00 on #ceeccc, red #a80019 on #ffdad1); info uses
+// the cyan row-tint; warning a light amber.
 const TONE_CLASS: Record<StatusTone, string> = {
-  neutral: "bg-slate-200 text-slate-800",
-  info: "bg-sky-100 text-sky-900",
-  progress: "bg-amber-100 text-amber-900",
-  success: "bg-emerald-100 text-emerald-900",
-  warning: "bg-yellow-100 text-yellow-900",
-  danger: "bg-rose-100 text-rose-900",
-  muted: "bg-slate-100 text-slate-500",
+  neutral: "bg-[#ededed] text-ink",
+  info: "bg-rowsel text-[#0072a3]",
+  progress: "bg-[#fff3d6] text-warn",
+  success: "bg-ok-fill text-ok",
+  warning: "bg-[#fff3d6] text-warn",
+  danger: "bg-bad-fill text-bad",
+  muted: "bg-[#f0f0f0] text-ink-muted",
 };
 
 interface Props {

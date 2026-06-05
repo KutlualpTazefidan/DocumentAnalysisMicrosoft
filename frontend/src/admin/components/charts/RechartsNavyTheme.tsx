@@ -19,15 +19,17 @@ export interface NavyPalette {
   gradientStops: { from: string; to: string };
 }
 
+// BAM light palette — charts now sit on white cards (was the dark navy
+// theme). Values sampled from the reference dashboard.
 export const DEFAULT_NAVY_PALETTE: NavyPalette = {
-  bg: "#031E31",        // navy-800 (ADMIN_THEME.chrome)
-  text: "#cfe6f5",      // navy-200
-  accent: "#1E7EB2",    // brand-500 (= navy-600)
-  success: "#10b981",   // emerald-500 (Tailwind default; project doesn't customize)
-  danger: "#AE1B25",    // danger-500 (project custom red, not stock Tailwind red)
-  warn: "#f59e0b",      // amber-500 (Tailwind default; project doesn't customize)
-  grid: "#0a2e47",      // navy-700 — subtle grid lines against navy-800 bg
-  gradientStops: { from: "#1E7EB2", to: "#154f72" },  // brand-500 → brand-700
+  bg: "#ffffff",        // white card
+  text: "#333333",      // ink
+  accent: "#00aff0",    // BAM cyan
+  success: "#006d00",   // BAM dashboard green
+  danger: "#d2001f",    // BAM red
+  warn: "#ffcb46",      // BAM amber
+  grid: "#dbdbdb",      // line — subtle grid on white
+  gradientStops: { from: "#00aff0", to: "#0082b8" },  // cyan → cyan-700
 };
 
 const PaletteCtx = createContext<NavyPalette>(DEFAULT_NAVY_PALETTE);
@@ -50,7 +52,7 @@ export function RechartsNavyTheme({
 }: Props): JSX.Element {
   return (
     <PaletteCtx.Provider value={palette}>
-      <div className="rounded bg-navy-800 p-3">
+      <div className="card p-3">
         <ResponsiveContainer width="100%" height={height}>
           {children}
         </ResponsiveContainer>

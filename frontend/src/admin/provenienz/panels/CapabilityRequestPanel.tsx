@@ -55,13 +55,13 @@ export function CapabilityRequestPanel({
         {conf !== null && (
           <div>
             <p className={T.tinyBold}>Konfidenz</p>
-            <p className={`text-yellow-300 ${T.body} font-mono`}>{conf}%</p>
+            <p className={`text-yellow-700 ${T.body} font-mono`}>{conf}%</p>
           </div>
         )}
         {p.description && (
           <div>
             <p className={T.tinyBold}>Was fehlt</p>
-            <p className={`text-yellow-100 ${T.body} whitespace-pre-wrap`}>
+            <p className={`text-yellow-900 ${T.body} whitespace-pre-wrap`}>
               {p.description}
             </p>
           </div>
@@ -69,7 +69,7 @@ export function CapabilityRequestPanel({
         {p.reasoning && (
           <div>
             <p className={T.tinyBold}>Begründung des Agenten</p>
-            <p className={`text-slate-200 ${T.body} italic whitespace-pre-wrap`}>
+            <p className={`text-ink ${T.body} italic whitespace-pre-wrap`}>
               {p.reasoning}
             </p>
           </div>
@@ -81,14 +81,14 @@ export function CapabilityRequestPanel({
               {alts.map((a, i) => (
                 <li
                   key={i}
-                  className="rounded border border-chrome2-500 bg-chrome2-900/50 px-2 py-1.5"
+                  className="rounded border border-line bg-canvas px-2 py-1.5"
                 >
-                  <p className={`${T.body} text-slate-200`}>
-                    <span className="font-mono text-yellow-300">{a.name}</span>{" "}
-                    <span className="text-slate-500">({a.kind})</span>
+                  <p className={`${T.body} text-ink`}>
+                    <span className="font-mono text-yellow-700">{a.name}</span>{" "}
+                    <span className="text-ink-muted">({a.kind})</span>
                   </p>
                   {a.why_not && (
-                    <p className={`${T.tiny} text-slate-400 italic mt-0.5`}>
+                    <p className={`${T.tiny} text-ink-muted italic mt-0.5`}>
                       Nicht gewählt weil: {a.why_not}
                     </p>
                   )}
@@ -98,18 +98,18 @@ export function CapabilityRequestPanel({
           </div>
         )}
         <AgentAuditSection audit={p.audit} />
-        <p className={`${T.tiny} text-slate-500 italic`}>
+        <p className={`${T.tiny} text-ink-muted italic`}>
           Capability-Vermerke sammeln sich als TODO-Liste für künftige
           Tool-/Skill-Entwicklung. Verwerfen löscht den Eintrag aus dem
           Canvas (bleibt im Audit-Log).
         </p>
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void handleDismiss()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-yellow-700 text-yellow-300 hover:bg-yellow-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-yellow-500 text-yellow-700 hover:bg-yellow-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Vermerk verwerfen"}
         </button>

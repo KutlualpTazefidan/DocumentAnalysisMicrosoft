@@ -41,7 +41,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 bg-chrome2 text-white flex-shrink-0">
+      <div className="px-4 bg-white flex-shrink-0">
         <DocStepTabs />
       </div>
       <div className="p-6 flex-1 overflow-auto">
@@ -59,34 +59,35 @@ export function InboxRoute({ token }: Props): JSX.Element {
         </button>
         <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={handleFile} />
       </div>
+      <div className="card overflow-hidden">
       <table className={`w-full ${T.body}`}>
         <thead>
-          <tr className="text-left border-b">
-            <th className="p-2">Dateiname</th>
-            <th className="p-2">Seiten</th>
-            <th className="p-2">Status</th>
-            <th className="p-2">Elemente</th>
-            <th className="p-2">Zuletzt geändert</th>
-            <th className="p-2">Aktion</th>
+          <tr className="text-left bg-rail border-b border-line">
+            <th className="p-2 bam-title">Dateiname</th>
+            <th className="p-2 bam-title">Seiten</th>
+            <th className="p-2 bam-title">Status</th>
+            <th className="p-2 bam-title">Elemente</th>
+            <th className="p-2 bam-title">Zuletzt geändert</th>
+            <th className="p-2 bam-title">Aktion</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((d) => (
-            <tr key={d.slug} className="border-b">
-              <td className="p-2">{d.filename}</td>
+            <tr key={d.slug} className="border-b border-line odd:bg-white even:bg-[#f6f8fa] hover:bg-rowsel">
+              <td className="p-2 font-medium text-bam-navy">{d.filename}</td>
               <td className="p-2">{d.pages}</td>
               <td className="p-2">
                 <DocStatusBadge status={d.status} />
               </td>
               <td className="p-2">{d.box_count}</td>
-              <td className={`p-2 ${T.body} text-gray-500`}>{d.last_touched_utc}</td>
+              <td className={`p-2 ${T.body} text-ink-muted`}>{d.last_touched_utc}</td>
               <td className="p-2 flex items-center gap-2">
-                <Link className="text-blue-600 underline" to={`/admin/doc/${d.slug}/extract`}>
+                <Link className="text-bam-cyan-700 font-medium hover:underline" to={`/admin/doc/${d.slug}/extract`}>
                   {d.status === "raw" ? "starten" : d.status === "done" ? "ansehen" : "fortsetzen"}
                 </Link>
                 {(d.status === "extracted" || d.status === "synthesised") && (
                   <button
-                    className={`${T.body} bg-green-600 text-white px-2 py-0.5 rounded`}
+                    className={`${T.body} bg-ok text-white px-2 py-0.5 rounded hover:opacity-90`}
                     onClick={() => publish.mutate(d.slug, {
                       onSuccess: () => success(`${d.slug} veröffentlicht`),
                       onError: (err) => error(`Veröffentlichen fehlgeschlagen: ${(err as Error).message}`),
@@ -98,7 +99,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
                 <button
                   aria-label={`${d.slug} löschen`}
                   title="Dokument und alle erzeugten Dateien löschen"
-                  className={`${T.body} ml-auto p-1 text-slate-400 hover:text-red-600 disabled:opacity-40`}
+                  className={`${T.body} ml-auto p-1 text-ink-muted hover:text-bam-red disabled:opacity-40`}
                   disabled={del.isPending}
                   onClick={() => {
                     if (!window.confirm(`Wirklich „${d.filename}" und alle erzeugten Dateien löschen? Das kann nicht rückgängig gemacht werden.`)) return;
@@ -115,6 +116,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
           ))}
         </tbody>
       </table>
+      </div>
       <p className={`${T.body} text-gray-400 mt-4`}>PDFs auf dem Server unter <code>data/raw-pdfs/</code> ablegen oder „PDF hinzufügen" oben rechts nutzen.</p>
     </div>
     </div>

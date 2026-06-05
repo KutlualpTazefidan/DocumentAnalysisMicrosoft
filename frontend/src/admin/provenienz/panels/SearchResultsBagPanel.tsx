@@ -14,7 +14,7 @@ import { PanelHeader, type PanelCommonProps } from "../SidePanel";
 const VERDICT_STYLE: Record<string, string> = {
   "likely-source": "bg-emerald-700 text-emerald-100",
   "partial-support": "bg-amber-600 text-amber-50",
-  unrelated: "bg-slate-600 text-slate-200",
+  unrelated: "bg-canvas text-ink-muted",
   contradicts: "bg-rose-700 text-rose-100",
   manual: "bg-purple-600 text-purple-100",
 };
@@ -116,7 +116,7 @@ export function SearchResultsBagPanel({
             type="button"
             onClick={() => void handleDeleteBag()}
             disabled={del.isPending}
-            className={`w-full px-2 py-1.5 rounded border border-red-700/40 bg-red-900/20 text-red-300 hover:bg-red-900/40 ${T.tiny} flex items-center justify-center gap-1 disabled:opacity-50`}
+            className={`w-full px-2 py-1.5 rounded border border-red-200 bg-red-50 text-red-800 hover:bg-red-100 ${T.tiny} flex items-center justify-center gap-1 disabled:opacity-50`}
             title="Diese Suche und alle ihre Treffer + Bewertungen löschen"
           >
             <Trash2 className="w-3 h-3" aria-hidden />
@@ -152,17 +152,17 @@ export function SearchResultsBagPanel({
           return (
             <div
               key={result.node_id}
-              className="rounded border border-chrome2-500 bg-chrome2-800/60 p-2"
+              className="card p-2"
             >
               <div className={`flex items-center gap-2 ${T.tiny}`}>
-                <span className="font-mono text-blue-300">{boxId}</span>
-                <span className="text-slate-400">
+                <span className="font-mono text-blue-700">{boxId}</span>
+                <span className="text-ink-muted">
                   Score {score.toFixed(2)}
                 </span>
                 {verdict && (
                   <span
                     className={`ml-auto px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${
-                      VERDICT_STYLE[verdict] ?? "bg-slate-600 text-slate-200"
+                      VERDICT_STYLE[verdict] ?? "bg-canvas text-ink-muted"
                     }`}
                   >
                     {verdict}
@@ -170,11 +170,11 @@ export function SearchResultsBagPanel({
                   </span>
                 )}
               </div>
-              <p className={`text-slate-200 ${T.body} mt-1 line-clamp-3`}>
+              <p className={`text-ink ${T.body} mt-1 line-clamp-3`}>
                 {text}
               </p>
               {reasoning && (
-                <p className={`text-slate-400 ${T.tiny} italic mt-1`}>
+                <p className={`text-ink-muted ${T.tiny} italic mt-1`}>
                   „{reasoning}"
                 </p>
               )}
@@ -191,9 +191,9 @@ export function SearchResultsBagPanel({
                   <Sparkles className="w-3 h-3" aria-hidden />
                   {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
                 </button>
-                <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
+                <details className="rounded border border-line bg-canvas">
                   <summary
-                    className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}
+                    className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}
                   >
                     Manuell wählen
                   </summary>
@@ -222,7 +222,7 @@ export function SearchResultsBagPanel({
                       type="button"
                       onClick={() => void handleDeleteRow(result.node_id)}
                       disabled={del.isPending}
-                      className={`px-2 py-1 rounded text-red-400 hover:bg-red-900/30 ${T.tiny} disabled:opacity-50`}
+                      className={`px-2 py-1 rounded text-red-600 hover:bg-red-50 ${T.tiny} disabled:opacity-50`}
                       title="Treffer entfernen"
                       aria-label="Treffer entfernen"
                     >
@@ -236,7 +236,7 @@ export function SearchResultsBagPanel({
         })}
       </div>
       {evaluate.error && (
-        <p className={`text-red-400 ${T.tiny} px-3 pb-2`}>
+        <p className={`text-bam-red ${T.tiny} px-3 pb-2`}>
           {evaluate.error.message}
         </p>
       )}

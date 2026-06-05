@@ -339,7 +339,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         <FolderTree className="w-3.5 h-3.5" aria-hidden />
         {detectRegistersMut.isPending ? "Scanne…" : "Verzeichnisse erkennen"}
       </button>
-      <span aria-hidden className="self-stretch w-px bg-white/25 mx-1" />
+      <span aria-hidden className="self-stretch w-px bg-line mx-1" />
       <button
         aria-label="Re-extract all"
         className={`${T.body} px-3 py-1 btn-primary gap-1.5`}
@@ -350,7 +350,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
         Alle Seiten extrahieren
       </button>
       <label
-        className={`${T.body} flex items-center gap-1.5 text-navy-100 cursor-pointer select-none`}
+        className={`${T.body} flex items-center gap-1.5 text-ink-muted cursor-pointer select-none`}
         title="Bereits abgeschlossene Seiten bei „Alle Seiten extrahieren“ überspringen."
       >
         <input
@@ -358,7 +358,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
           aria-label="Abgeschlossene Seiten schützen"
           checked={protectDone}
           onChange={(e) => setProtectDone(e.target.checked)}
-          className="accent-blue-600"
+          className="accent-bam-cyan"
         />
         Abgeschlossene Seiten schützen
       </label>
@@ -374,14 +374,14 @@ export function ExtractRoute({ token }: Props): JSX.Element {
       {/* Save-state indicator (HTML editor). Extraction progress lives in the
           StageIndicator pill at bottom-left, not duplicated here. */}
       {!running && savingStatus && (
-        <span className={`${T.body} text-navy-200 ml-1`}>{savingStatus}</span>
+        <span className={`${T.body} text-ink-muted ml-1`}>{savingStatus}</span>
       )}
     </div>
   );
 
   // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
-    <div className="flex items-center justify-between px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
+    <div className="flex items-center justify-between px-4 bg-white border-b border-line flex-shrink-0">
       <DocStepTabs slug={slug!} />
       {actionButtons}
     </div>

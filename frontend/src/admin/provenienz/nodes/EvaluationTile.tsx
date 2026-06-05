@@ -4,12 +4,12 @@ import { Handle, Position, type NodeProps } from "reactflow";
 import type { EvaluationView } from "../layout";
 
 const VERDICT_STYLE: Record<string, string> = {
-  "likely-source": "bg-emerald-700 text-emerald-100 border-emerald-500/70",
-  "partial-support": "bg-amber-700 text-amber-50 border-amber-500/70",
-  unrelated: "bg-slate-700 text-slate-200 border-slate-500/70",
-  contradicts: "bg-rose-700 text-rose-100 border-rose-500/70",
-  manual: "bg-purple-700 text-purple-100 border-purple-500/70",
-  unknown: "bg-zinc-700 text-zinc-200 border-zinc-500/70",
+  "likely-source": "bg-emerald-50 text-emerald-800 border-emerald-500",
+  "partial-support": "bg-amber-50 text-amber-800 border-amber-500",
+  unrelated: "bg-slate-100 text-slate-700 border-slate-300",
+  contradicts: "bg-rose-50 text-rose-800 border-rose-500",
+  manual: "bg-purple-50 text-purple-800 border-purple-500",
+  unknown: "bg-zinc-100 text-zinc-700 border-zinc-300",
 };
 
 /**
@@ -33,7 +33,7 @@ export function EvaluationTile({
   const sentenceCount = Array.isArray(p.sentences) ? p.sentences.length : 0;
   const style = VERDICT_STYLE[verdict] ?? VERDICT_STYLE.unknown;
   return (
-    <div className={`rounded-lg border-2 ${style} px-3 py-2 shadow-md w-72`}>
+    <div className={`prov-tile border-2 ${style} px-3 py-2 w-72`}>
       <Handle type="target" position={Position.Top} className="opacity-0" />
       <header className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide opacity-90">
         <Gavel className="w-3 h-3" aria-hidden /> Bewertung

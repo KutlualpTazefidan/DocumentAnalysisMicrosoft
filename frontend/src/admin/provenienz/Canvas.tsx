@@ -191,7 +191,7 @@ export function Canvas({
   }, [laid.viewNodes, onViewIndex]);
 
   return (
-    <div className="w-full h-full bg-chrome2-900 relative">
+    <div className="w-full h-full bg-canvas relative">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -217,11 +217,11 @@ export function Canvas({
         <Background
           variant={BackgroundVariant.Lines}
           gap={16}
-          color="#334155"
+          color="#dbdbdb"
           lineWidth={0.5}
         />
         <Controls />
-        <MiniMap pannable zoomable nodeColor={() => "#334155"} />
+        <MiniMap pannable zoomable nodeColor={() => "#9aa7ad"} />
         <Toolbar
           direction={direction}
           onToggleDirection={() =>
@@ -272,7 +272,7 @@ function Toolbar({
 }): JSX.Element {
   const rf = useReactFlow();
   return (
-    <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 bg-chrome2-800/95 border border-chrome2-500 rounded shadow-md p-1">
+    <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 bg-white border border-line rounded shadow-md p-1">
       <ToolbarButton
         title="Layout neu berechnen (alle Positionen verwerfen)"
         onClick={() => {
@@ -356,7 +356,7 @@ function ToolbarButton({
       className={`p-1.5 rounded transition-colors ${
         active
           ? "bg-brand-500 text-white"
-          : "text-slate-300 hover:bg-chrome2-700 hover:text-white"
+          : "text-ink-muted hover:bg-canvas hover:text-bam-navy"
       }`}
     >
       {children}

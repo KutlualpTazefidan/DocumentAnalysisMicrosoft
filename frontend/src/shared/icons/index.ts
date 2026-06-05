@@ -4,4 +4,5 @@ export {
   Circle, CheckCircle2, XCircle, Clock, AlertTriangle,
   HelpCircle, X, ChevronLeft, ChevronRight,
   FileSearch, Sparkles, Workflow,
+  User, Lock, Eye, EyeOff, Bell, Settings,
 } from "lucide-react";

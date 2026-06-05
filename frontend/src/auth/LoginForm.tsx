@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./useAuth";
 import { checkToken, loginWithCredentials } from "./api";
+import { Building2, User, Lock, Eye, EyeOff } from "../shared/icons";
 
 type Mode = "credentials" | "token";
 
@@ -38,6 +39,8 @@ export function LoginForm({ legacyVisible = false, onSuccess }: Props): JSX.Elem
 
   // Token mode state (legacy).
   const [token, setToken] = useState("");
+
+  const [showPw, setShowPw] = useState(false);
 
   async function handleCredentialsSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
@@ -141,41 +144,58 @@ export function LoginForm({ legacyVisible = false, onSuccess }: Props): JSX.Elem
       {mode === "credentials" ? (
         <form onSubmit={handleCredentialsSubmit} className="space-y-3">
           <label className="block">
-            <span className="text-sm text-slate-700">Fachbereich</span>
-            <input
-              className="input mt-1"
-              type="text"
-              value={tenantSlug}
-              onChange={(e) => setTenantSlug(e.target.value)}
-              placeholder="z.B. default"
-              autoComplete="organization"
-              aria-label="Fachbereich"
-            />
-            <span className="text-xs text-slate-500 mt-1 block">
+            <span className="text-sm text-ink">Fachbereich</span>
+            <div className="relative mt-1">
+              <Building2 className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" aria-hidden />
+              <input
+                className="input pl-9"
+                type="text"
+                value={tenantSlug}
+                onChange={(e) => setTenantSlug(e.target.value)}
+                placeholder="z.B. default"
+                autoComplete="organization"
+                aria-label="Fachbereich"
+              />
+            </div>
+            <span className="text-xs text-ink-muted mt-1 block">
               Leer lassen oder „default", falls dir niemand etwas anderes gesagt hat.
             </span>
           </label>
           <label className="block">
-            <span className="text-sm text-slate-700">Benutzername</span>
-            <input
-              className="input mt-1"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              aria-label="Benutzername"
-            />
+            <span className="text-sm text-ink">Benutzername</span>
+            <div className="relative mt-1">
+              <User className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" aria-hidden />
+              <input
+                className="input pl-9"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                aria-label="Benutzername"
+              />
+            </div>
           </label>
           <label className="block">
-            <span className="text-sm text-slate-700">Passwort</span>
-            <input
-              className="input mt-1"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              aria-label="Passwort"
-            />
+            <span className="text-sm text-ink">Passwort</span>
+            <div className="relative mt-1">
+              <Lock className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" aria-hidden />
+              <input
+                className="input pl-9 pr-9"
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                aria-label="Passwort"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                aria-label={showPw ? "Passwort verbergen" : "Passwort anzeigen"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-muted hover:text-bam-navy"
+              >
+                {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </label>
           {error && (
             <div role="alert" className="text-sm text-red-600">

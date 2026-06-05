@@ -49,16 +49,16 @@ export function GoalPanel({
             onChange={(e) => setDraft(e.target.value)}
             rows={5}
             placeholder="z.B. Welche Quelle belegt die Wärmeleistung von 5.6 kW?"
-            className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
+            className={`mt-1 w-full px-2 py-1 rounded bg-white border border-line text-ink ${T.body}`}
             autoFocus={empty}
           />
-          <p className={`${T.tiny} text-slate-500 mt-1`}>
+          <p className={`${T.tiny} text-ink-muted mt-1`}>
             Auto-extrahiert nach erster Aussage. Manuell überschreibbar; der
             Planer nutzt diesen Text als oberste Eingabe.
           </p>
         </div>
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void handleSave()}
@@ -70,7 +70,7 @@ export function GoalPanel({
           {setGoal.isPending ? "Speichere…" : "Ziel speichern"}
         </button>
         {setGoal.error && (
-          <p className={`text-red-400 ${T.tiny}`}>{setGoal.error.message}</p>
+          <p className={`text-bam-red ${T.tiny}`}>{setGoal.error.message}</p>
         )}
       </footer>
     </div>

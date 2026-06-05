@@ -37,18 +37,22 @@ export function MetricGauge({ value, label, subtitle }: Props): JSX.Element {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <div className={`${T.heading} text-navy-200 mb-1`}>{label}</div>
-      <RechartsNavyTheme height={160}>
-        {value === null ? (
-          <div className="flex items-center justify-center h-full text-navy-200 text-2xl">–</div>
-        ) : (
-          <Inner value={value} />
-        )}
-      </RechartsNavyTheme>
-      <div className={`${T.body} text-navy-200 mt-1`}>
+      <div className={`${T.heading} text-bam-navy mb-1`}>{label}</div>
+      {/* Explicit width: the parent is `items-center`, which would otherwise
+          shrink the chart wrapper to ~0 and collapse the ResponsiveContainer. */}
+      <div className="w-full max-w-[200px]">
+        <RechartsNavyTheme height={160}>
+          {value === null ? (
+            <div className="flex items-center justify-center h-full text-ink-muted text-2xl">–</div>
+          ) : (
+            <Inner value={value} />
+          )}
+        </RechartsNavyTheme>
+      </div>
+      <div className={`${T.body} text-ink mt-1`}>
         {value === null ? "Keine Daten" : `${Math.round(value * 100)} %`}
       </div>
-      {subtitle && <div className={`${T.tiny} text-navy-300`}>{subtitle}</div>}
+      {subtitle && <div className={`${T.tiny} text-ink-muted`}>{subtitle}</div>}
     </motion.div>
   );
 }

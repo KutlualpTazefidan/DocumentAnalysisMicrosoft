@@ -170,11 +170,11 @@ export function SearchResultPanel({
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <div className={`flex items-center gap-2 flex-wrap ${T.tiny}`}>
-          <span className="text-slate-400">
+          <span className="text-ink-muted">
             Score {Number(p.score ?? 0).toFixed(2)}
           </span>
           {typeof p.page === "number" && (
-            <span className="text-slate-500 font-mono">
+            <span className="text-ink-muted font-mono">
               Seite {p.page}
               {typeof p.reading_order === "number" ? ` · #${p.reading_order}` : ""}
             </span>
@@ -183,22 +183,22 @@ export function SearchResultPanel({
             <span
               className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide ${
                 p.box_kind === "table"
-                  ? "bg-purple-700/50 text-purple-100 border border-purple-600/50"
+                  ? "bg-purple-100 text-purple-800 border border-purple-200"
                   : p.box_kind === "figure"
-                    ? "bg-amber-700/50 text-amber-100 border border-amber-600/50"
+                    ? "bg-amber-100 text-amber-800 border border-amber-200"
                     : p.box_kind === "caption"
-                      ? "bg-cyan-700/50 text-cyan-100 border border-cyan-600/50"
+                      ? "bg-cyan-100 text-cyan-800 border border-cyan-200"
                       : p.box_kind === "formula"
-                        ? "bg-emerald-700/50 text-emerald-100 border border-emerald-600/50"
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                         : p.box_kind === "toc"
-                          ? "bg-indigo-700/50 text-indigo-100 border border-indigo-600/50"
+                          ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
                           : p.box_kind === "list_of_tables"
-                            ? "bg-purple-800/50 text-purple-100 border border-purple-700/50"
+                            ? "bg-purple-100 text-purple-900 border border-purple-300"
                             : p.box_kind === "list_of_figures"
-                              ? "bg-amber-800/50 text-amber-100 border border-amber-700/50"
+                              ? "bg-amber-100 text-amber-900 border border-amber-300"
                               : p.box_kind === "bibliography"
-                                ? "bg-emerald-800/50 text-emerald-100 border border-emerald-700/50"
-                                : "bg-chrome2-700 text-slate-300 border border-chrome2-500"
+                                ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                : "bg-slate-100 text-slate-700 border border-slate-200"
               }`}
               title={`Box-Typ: ${p.box_kind}`}
             >
@@ -216,7 +216,7 @@ export function SearchResultPanel({
             </span>
           )}
         </div>
-        <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+        <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
           {String(p.text ?? "")}
         </p>
         <CaptionCard
@@ -225,14 +225,14 @@ export function SearchResultPanel({
         />
         <PreReasoningSection nodes={nodes} anchorId={result.node_id} />
         {p.corpus_match && (
-          <div className="rounded border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 space-y-1">
-            <p className={`${T.tinyBold} text-emerald-300`}>
+          <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 space-y-1">
+            <p className={`${T.tinyBold} text-emerald-700`}>
               📁 Im Korpus gefunden
             </p>
-            <p className={`text-emerald-100 ${T.body}`}>
+            <p className={`text-emerald-800 ${T.body}`}>
               Diese Quelle entspricht <span className="font-mono">{p.corpus_match.filename}</span>
             </p>
-            <p className={`${T.tiny} text-emerald-400/70`}>
+            <p className={`${T.tiny} text-emerald-700`}>
               Match-Score {p.corpus_match.score} · Token-Treffer:{" "}
               <span className="font-mono">{p.corpus_match.matched_tokens.join(", ")}</span>
             </p>
@@ -261,7 +261,7 @@ export function SearchResultPanel({
             persisted tool annotation (if any) + the run/re-run knob.
             Full per-call audit lives in the Bewertung tile, not here. */}
         {toolAnnotations.length > 0 && (
-          <p className={`${T.tiny} text-cyan-300/80 font-mono`}>
+          <p className={`${T.tiny} text-cyan-700 font-mono`}>
             🛠 Calculator: {toolAnnotations.length} Lauf
             {toolAnnotations.length === 1 ? "" : "e"} — Details im
             Bewertungs-Tile.
@@ -283,7 +283,7 @@ export function SearchResultPanel({
         </button>
         <LiveRunPanel run={stream} onClose={() => stream.reset()} />
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void stream.start(result.node_id)}
@@ -293,8 +293,8 @@ export function SearchResultPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
-          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+        <details className="rounded border border-line bg-canvas">
+          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}>
             Manuell wählen
           </summary>
           <div className="p-2 flex gap-2">
@@ -324,7 +324,7 @@ export function SearchResultPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50 flex items-center justify-center gap-2`}
+          className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50 flex items-center justify-center gap-2`}
         >
           <Trash2 className="w-3.5 h-3.5" />
           {del.isPending ? "…" : "Tile löschen"}

@@ -47,7 +47,7 @@ import { T } from "../styles/typography";
 
 function synthPageBtnClasses(hasQuestions: boolean, isActive: boolean): string {
   const base = `w-10 h-10 rounded ${T.body} font-medium flex items-center justify-center`;
-  const ring = isActive ? " ring-2 ring-blue-500" : "";
+  const ring = isActive ? " ring-2 ring-bam-cyan" : "";
   return hasQuestions
     ? `${base} bg-green-100 hover:bg-green-200 text-green-800${ring}`
     : `${base} bg-red-100 hover:bg-red-200 text-red-800${ring}`;
@@ -305,7 +305,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar: DocStepTabs left, page/file Generate actions right ── */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
+      <div className="flex items-center gap-2 px-4 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
         <div className="ml-auto flex items-center gap-2">
           {docDuplicateIds.length > 0 && (
@@ -323,7 +323,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             type="button"
             disabled={streaming !== null || generateBox.isPending}
             onClick={() => startStream("page")}
-            className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={`${T.bodyMedium} px-3 py-1.5 btn-primary`}
           >
             ⚡ Fragen für die Seite generieren
           </button>
@@ -335,7 +335,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
                 startStream("doc");
               }
             }}
-            className={`px-3 py-1.5 rounded border border-navy-600 bg-navy-700 text-white ${T.bodyMedium} hover:bg-navy-600 disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={`${T.bodyMedium} px-3 py-1.5 btn-primary`}
           >
             ⚡ Fragen für die ganze Datei generieren
           </button>
@@ -347,7 +347,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
         {/* Left: HTML preview pane — read-only. Page nav lives in the
             right controls strip; no toolbar here so the preview gets
             maximum vertical space. */}
-        <div className="flex-1 flex flex-col border-r border-slate-200 min-w-0">
+        <div className="flex-1 flex flex-col border-r border-line min-w-0">
           <div className="flex-1 bg-white">
             <HtmlPreview
               html={visibleHtml}
@@ -359,13 +359,13 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
         {/* Middle: Questions pane — full size, mirrors Extract's HTML pane */}
         <div
-          className="flex-1 flex flex-col border-r border-slate-200 min-w-0 bg-white"
+          className="flex-1 flex flex-col border-r border-line min-w-0 bg-white"
           data-testid="synthesise-questions"
         >
-          <div className="flex items-center gap-2 px-8 py-2 border-b border-slate-200 bg-slate-50">
+          <div className="flex items-center gap-2 px-8 py-2 border-b border-line bg-white">
             <span className={T.tinyBold}>Ausgewählte Box:</span>
             <span className={`${T.body} font-mono`}>
-              {highlight ?? <em className="text-slate-400">keine</em>}
+              {highlight ?? <em className="text-ink-muted">keine</em>}
             </span>
             <span className={`${T.bodyMuted} ml-auto`}>
               {highlight ? `${questionsForBox.length} Frage(n)` : ""}
@@ -426,7 +426,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               of every page coloured by whether it already has any
               generated questions. */}
           <div className="flex flex-col gap-2">
-            <div className={`flex items-center justify-between gap-2 ${T.tiny} text-slate-600 whitespace-nowrap`}>
+            <div className={`flex items-center justify-between gap-2 ${T.tiny} text-ink-muted whitespace-nowrap`}>
               <span className="flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded bg-red-200 shrink-0" aria-hidden="true" />
                 Keine Fragen
@@ -526,25 +526,25 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             onClick={handleToggleApprove}
             className={
               approvedPages.has(page)
-                ? `${T.body} px-3 py-1.5 rounded border border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200`
-                : `${T.body} px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`
+                ? `${T.body} px-3 py-1.5 btn-primary`
+                : `${T.body} px-3 py-1.5 btn-secondary text-slate-900`
             }
             data-testid="synth-page-lock"
           >
             {approvedPages.has(page) ? "🔓 Diese Seite entsperren" : "🔒 Diese Seite sperren"}
           </button>
 
-          <hr className="border-slate-200" />
+          <hr className="border-line" />
 
           {/* Box metadata — what "diese Box" refers to. */}
-          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 flex flex-col gap-1">
+          <div className="card px-3 py-2 flex flex-col gap-1">
             <span className={T.tinyBold}>Ausgewählte Box</span>
             {highlightMeta ? (
               <>
                 <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 ${T.body}`}>
-                  <span className="font-mono text-slate-800">{highlight}</span>
+                  <span className="font-mono text-ink">{highlight}</span>
                   {highlightMeta.tag && (
-                    <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] uppercase tracking-wide">
+                    <span className="px-1.5 py-0.5 rounded bg-rail text-ink-muted text-[10px] uppercase tracking-wide">
                       {highlightMeta.tag}
                     </span>
                   )}
@@ -574,7 +574,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
             aria-label="Fragen für diese Box generieren"
             disabled={!highlight || generateBox.isPending || streaming !== null}
             onClick={handleGenerateBox}
-            className={`w-full px-3 py-1.5 rounded bg-blue-600 text-white ${T.bodyMedium} hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
+            className={`w-full ${T.bodyMedium} px-3 py-1.5 btn-primary`}
           >
             {generateBox.isPending ? "…" : "⚡ Fragen für diese Box generieren"}
           </button>
@@ -589,7 +589,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
               questionsForBox.length === 0
             }
             onClick={handleAnswerBox}
-            className={`w-full px-3 py-1.5 rounded bg-emerald-600 text-white ${T.bodyMedium} hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed`}
+            className={`w-full ${T.bodyMedium} px-3 py-1.5 btn-secondary text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed`}
             data-testid="synthesise-answer-box"
           >
             {answerBox.isPending ? "…" : "📝 Antworten für diese Box generieren"}
@@ -626,7 +626,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
           )}
 
           {streaming && (
-            <div className="rounded border border-blue-200 bg-blue-50 p-2 flex flex-col gap-1">
+            <div className="card p-2 flex flex-col gap-1">
               <span className={T.tinyBold}>
                 {streaming.scope === "page"
                   ? `Generiere Seite ${page}…`
@@ -639,7 +639,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
                 type="button"
                 aria-label="Generierung abbrechen"
                 onClick={cancelStream}
-                className="px-2 py-1 rounded bg-red-600 text-white text-xs hover:bg-red-700"
+                className="btn-danger px-2 py-1 text-xs"
                 data-testid="synthesise-cancel"
               >
                 Abbrechen

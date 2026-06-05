@@ -27,14 +27,14 @@ function Inner({ rows }: Props): JSX.Element {
 export function VoteDistributionBar({ rows }: Props): JSX.Element {
   if (rows.length === 0) {
     return (
-      <div className="rounded bg-navy-800 p-4 text-navy-200">
+      <div className="card p-4 text-ink-muted">
         Noch keine Reviewer-Stimmen vorhanden.
       </div>
     );
   }
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <div className={`${T.heading} text-navy-200 mb-1`}>Stimmen pro Frage (Top 20)</div>
+      <div className={`${T.heading} text-bam-navy mb-1`}>Stimmen pro Frage (Top 20)</div>
       <RechartsNavyTheme height={Math.max(rows.length * 28, 200)}>
         <Inner rows={rows} />
       </RechartsNavyTheme>

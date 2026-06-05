@@ -103,7 +103,7 @@ export function CapabilityGatePanel({
       />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {!isPending && p.re_evaluate_proposal_id && (
-          <p className={`${T.body} text-emerald-300`}>
+          <p className={`${T.body} text-emerald-700`}>
             Re-Evaluation läuft als Folge-Knoten — siehe Chain.
           </p>
         )}
@@ -118,8 +118,8 @@ export function CapabilityGatePanel({
                   key={i}
                   className={`rounded border px-2 py-1.5 ${
                     isSelected
-                      ? "border-orange-500 bg-orange-950/40"
-                      : "border-chrome2-500 bg-chrome2-900/40 opacity-70"
+                      ? "border-orange-500 bg-orange-50"
+                      : "border-line bg-canvas opacity-70"
                   } ${isSub ? "ml-4" : ""}`}
                 >
                   <label className="flex items-start gap-2 cursor-pointer">
@@ -131,12 +131,12 @@ export function CapabilityGatePanel({
                       className="mt-1"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={`${T.body} text-slate-100`}>
-                        <span className="font-mono text-orange-200">
+                      <p className={`${T.body} text-ink`}>
+                        <span className="font-mono text-orange-800">
                           {d.name}
                         </span>
                         {isSub && d.parent && (
-                          <span className="text-slate-500 text-[11px]">
+                          <span className="text-ink-muted text-[11px]">
                             {" "}
                             · sub von {d.parent}
                           </span>
@@ -147,7 +147,7 @@ export function CapabilityGatePanel({
                           {d.reasons.map((r, j) => (
                             <li
                               key={j}
-                              className="text-[11px] text-orange-200/80 italic before:content-['→_']"
+                              className="text-[11px] text-orange-700 italic before:content-['→_']"
                             >
                               {r}
                             </li>
@@ -163,19 +163,19 @@ export function CapabilityGatePanel({
         </div>
         {p.loaded_rules_preview && (
           <details>
-            <summary className={`${T.tiny} cursor-pointer text-slate-400`}>
+            <summary className={`${T.tiny} cursor-pointer text-ink-muted`}>
               Domain-Rules-Vorschau ({p.loaded_rules_preview.length} Zeichen)
             </summary>
-            <pre className="mt-1 p-2 rounded bg-chrome2-900 text-[11px] text-slate-300 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+            <pre className="mt-1 p-2 rounded bg-canvas text-[11px] text-ink-muted whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
               {p.loaded_rules_preview}
             </pre>
           </details>
         )}
         {reEval.error && (
-          <p className={`${T.body} text-red-400`}>{reEval.error.message}</p>
+          <p className={`${T.body} text-bam-red`}>{reEval.error.message}</p>
         )}
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         {isPending && (
           <>
             <button
@@ -193,7 +193,7 @@ export function CapabilityGatePanel({
               type="button"
               onClick={() => void handleDismiss()}
               disabled={del.isPending}
-              className={`w-full px-3 py-2 rounded border border-zinc-600 text-zinc-300 hover:bg-zinc-800/40 ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
+              className={`w-full px-3 py-2 rounded border border-line text-ink hover:bg-canvas ${T.body} flex items-center justify-center gap-2 disabled:opacity-50`}
             >
               <X className="w-4 h-4" aria-hidden />
               {del.isPending ? "…" : "Gate verwerfen"}

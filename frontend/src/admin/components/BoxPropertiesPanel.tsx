@@ -228,7 +228,7 @@ export function BoxPropertiesPanel({
                   </pre>
                   <button
                     type="button"
-                    className="mt-1 text-xs text-blue-600 hover:underline disabled:text-slate-400"
+                    className="mt-1 text-xs text-bam-cyan-700 hover:underline disabled:text-slate-400"
                     disabled={!rawSnippet}
                     onClick={() => {
                       if (rawSnippet) navigator.clipboard?.writeText(rawSnippet);

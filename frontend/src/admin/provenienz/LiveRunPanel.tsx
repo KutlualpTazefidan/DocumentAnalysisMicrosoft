@@ -47,26 +47,26 @@ export function LiveRunPanel({ run, anchorPreview, goal, onClose }: Props): JSX.
       : tickMs;
 
   return (
-    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-3 space-y-2.5">
+    <div className="border border-line rounded-lg bg-white p-3 space-y-2.5">
       <header className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className={`${T.heading} text-white flex items-center gap-2`}>
+          <p className={`${T.heading} text-ink flex items-center gap-2`}>
             {run.isRunning ? (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
             ) : run.error ? (
-              <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <XCircle className="w-4 h-4 text-red-600 shrink-0" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             )}
             Live-Lauf · &laquo;Was als nächstes?&raquo;
           </p>
           {anchorPreview && (
-            <p className={`${T.tiny} text-slate-400 truncate mt-0.5`} title={anchorPreview}>
+            <p className={`${T.tiny} text-ink-muted truncate mt-0.5`} title={anchorPreview}>
               Anker: {anchorPreview}
             </p>
           )}
           {goal && (
-            <p className={`${T.tiny} text-slate-400 truncate`} title={goal}>
+            <p className={`${T.tiny} text-ink-muted truncate`} title={goal}>
               Ziel: {goal}
             </p>
           )}
@@ -75,7 +75,7 @@ export function LiveRunPanel({ run, anchorPreview, goal, onClose }: Props): JSX.
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-0.5 rounded shrink-0"
+            className="text-ink-muted hover:text-ink p-0.5 rounded shrink-0"
             aria-label="Schließen"
           >
             <X className="w-4 h-4" />
@@ -92,19 +92,19 @@ export function LiveRunPanel({ run, anchorPreview, goal, onClose }: Props): JSX.
       </ol>
 
       {run.error && (
-        <div className="rounded border border-red-700 bg-red-950/30 p-2">
-          <p className={`${T.tinyBold} text-red-300`}>Fehler</p>
-          <p className={`${T.body} text-red-200`}>{run.error}</p>
+        <div className="rounded border border-red-200 bg-red-50 p-2">
+          <p className={`${T.tinyBold} text-red-700`}>Fehler</p>
+          <p className={`${T.body} text-red-800`}>{run.error}</p>
         </div>
       )}
 
-      <footer className={`${T.tiny} text-slate-500 flex items-center justify-between`}>
+      <footer className={`${T.tiny} text-ink-muted flex items-center justify-between`}>
         <span>
           {run.phases.length} Phase{run.phases.length === 1 ? "" : "n"}
           {run.result && (
             <>
               {" · "}
-              <span className="text-emerald-400">
+              <span className="text-emerald-700">
                 Ergebnis: {String(run.result.payload.kind)}
               </span>
             </>
@@ -174,12 +174,12 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
 
   const tone =
     finalKind === "executable_step" || finalKind === "plan_proposal"
-      ? "border-emerald-700/60 bg-emerald-950/20"
+      ? "border-emerald-200 bg-emerald-50"
       : finalKind === "capability_request"
-        ? "border-amber-700/60 bg-amber-950/20"
+        ? "border-amber-200 bg-amber-50"
         : finalKind === "manual_review"
-          ? "border-rose-700/60 bg-rose-950/20"
-          : "border-chrome2-500 bg-chrome2-900/40";
+          ? "border-rose-200 bg-rose-50"
+          : "border-line bg-canvas";
 
   const reasoningHasPollution = hasPlaceholderPollution(finalReasoning);
   const goalHasPollution = hasPlaceholderPollution(finalGoalAlignment);
@@ -189,7 +189,7 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <p className={T.tinyBold}>Entscheidung</p>
         {demotedFrom && (
-          <span className={`${T.tiny} text-amber-300`}>
+          <span className={`${T.tiny} text-amber-700`}>
             ursprünglich <span className="font-mono">{demotedFrom}</span>{" "}
             herabgestuft
           </span>
@@ -197,37 +197,37 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
       </div>
       {finalKind && (
         <p className={`${T.heading}`}>
-          <span className="font-mono text-slate-50">{finalKind}</span>
+          <span className="font-mono text-ink">{finalKind}</span>
           {finalName && (
             <>
-              <span className="text-slate-500"> / </span>
-              <span className="font-mono text-blue-300">{finalName}</span>
+              <span className="text-ink-muted"> / </span>
+              <span className="font-mono text-blue-700">{finalName}</span>
             </>
           )}
         </p>
       )}
       {finalReasoning && (
         <div>
-          <p className={`${T.body} text-slate-100`}>{finalReasoning}</p>
+          <p className={`${T.body} text-ink`}>{finalReasoning}</p>
           {reasoningHasPollution && <PlaceholderWarning />}
         </div>
       )}
       {finalDescription && (
-        <div className="rounded bg-chrome2-900/60 px-2 py-1.5 mt-1">
-          <p className={`${T.tiny} text-slate-500 uppercase tracking-wide`}>
+        <div className="rounded bg-canvas px-2 py-1.5 mt-1">
+          <p className={`${T.tiny} text-ink-muted uppercase tracking-wide`}>
             Detail
           </p>
-          <p className={`${T.body} text-slate-200 whitespace-pre-wrap break-words`}>
+          <p className={`${T.body} text-ink whitespace-pre-wrap break-words`}>
             {finalDescription}
           </p>
         </div>
       )}
       {finalGoalAlignment && (
-        <div className="border-l-2 border-pink-700/60 pl-2">
-          <p className={`${T.tiny} text-pink-300/80 uppercase tracking-wide`}>
+        <div className="border-l-2 border-pink-500 pl-2">
+          <p className={`${T.tiny} text-pink-700 uppercase tracking-wide`}>
             Ziel-Bezug
           </p>
-          <p className={`${T.body} text-pink-100`}>{finalGoalAlignment}</p>
+          <p className={`${T.body} text-pink-900`}>{finalGoalAlignment}</p>
           {goalHasPollution && <PlaceholderWarning />}
         </div>
       )}
@@ -237,7 +237,7 @@ function RunSummary({ run }: { run: UseNextStepStream }): JSX.Element | null {
 
 function PlaceholderWarning(): JSX.Element {
   return (
-    <p className={`${T.tiny} text-amber-300/90 italic mt-1`}>
+    <p className={`${T.tiny} text-amber-700 italic mt-1`}>
       ⚠ Modell hat Template-Platzhalter (<code>{"<...>"}</code>) wörtlich stehen
       lassen — der Skill- oder Prompt-Text ist für Qwen-3B zu komplex. Ersetze
       Platzhalter durch ein konkretes Beispiel.
@@ -267,14 +267,14 @@ function PhaseCard({
   // a glance: blue (running) → emerald (L2 done) → purple (L3 done).
   const borderClass =
     phase.status === "running"
-      ? "border-blue-700 bg-blue-950/30"
+      ? "border-blue-200 bg-blue-50"
       : phase.status === "failed"
-        ? "border-red-700 bg-red-950/30"
+        ? "border-red-200 bg-red-50"
         : isLayer2
-          ? "border-emerald-700/60 bg-emerald-950/20"
+          ? "border-emerald-200 bg-emerald-50"
           : isLayer3
-            ? "border-purple-700/60 bg-purple-950/20"
-            : "border-chrome2-500 bg-chrome2-900/40";
+            ? "border-purple-200 bg-purple-50"
+            : "border-line bg-canvas";
 
   // Indent L2 cards under their L1 trunk visually.
   const indentClass = isLayer2 ? "ml-3" : "";
@@ -287,21 +287,21 @@ function PhaseCard({
         className="w-full flex items-center gap-2 text-left"
       >
         <StatusIcon status={phase.status} />
-        <span className={`${T.body} font-medium text-slate-100 truncate`}>{phase.label}</span>
-        <span className={`${T.tiny} text-slate-400 ml-auto shrink-0 tabular-nums`}>
+        <span className={`${T.body} font-medium text-ink truncate`}>{phase.label}</span>
+        <span className={`${T.tiny} text-ink-muted ml-auto shrink-0 tabular-nums`}>
           {(liveMs / 1000).toFixed(1)}s
         </span>
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <ChevronDown className="w-3.5 h-3.5 text-ink-muted shrink-0" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <ChevronRight className="w-3.5 h-3.5 text-ink-muted shrink-0" />
         )}
       </button>
       {expanded && (
         <div className="mt-1.5 ml-6">
           <PhasePayload phase={phase} />
           {phase.error && (
-            <p className={`${T.tiny} text-red-300 mt-1 italic`}>{phase.error}</p>
+            <p className={`${T.tiny} text-red-700 mt-1 italic`}>{phase.error}</p>
           )}
         </div>
       )}
@@ -311,12 +311,12 @@ function PhaseCard({
 
 function StatusIcon({ status }: { status: LiveRunPhase["status"] }): JSX.Element {
   if (status === "running") {
-    return <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />;
+    return <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />;
   }
   if (status === "failed") {
-    return <XCircle className="w-4 h-4 text-red-400 shrink-0" />;
+    return <XCircle className="w-4 h-4 text-red-600 shrink-0" />;
   }
-  return <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />;
+  return <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />;
 }
 
 /**
@@ -347,16 +347,16 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       ).length;
       const reasonCount = guidance.filter((g) => g.kind === "reason").length;
       return (
-        <div className={`${T.tiny} text-slate-300 space-y-1`}>
+        <div className={`${T.tiny} text-ink-muted space-y-1`}>
           {guidance.length === 0 ? (
-            <p className="italic text-slate-500">Keine Heuristiken aktiv für next_step</p>
+            <p className="italic text-ink-muted">Keine Heuristiken aktiv für next_step</p>
           ) : (
             <>
-              <p className="text-slate-400">
+              <p className="text-ink-muted">
                 {pinnedCount > 0 && <>{pinnedCount} gepinnt · </>}
                 {autoCount > 0 && (
                   <>
-                    <span className="text-emerald-300">{autoCount} auto-gewählt</span>{" "}
+                    <span className="text-emerald-700">{autoCount} auto-gewählt</span>{" "}
                     ·{" "}
                   </>
                 )}
@@ -370,25 +370,25 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
                   return (
                     <li
                       key={`${g.kind}:${g.id}`}
-                      className="rounded bg-chrome2-900/60 px-2 py-1"
+                      className="rounded bg-canvas px-2 py-1"
                     >
                       <div className="flex items-center gap-2 flex-wrap">
                         {isApproach ? (
                           <span
                             className={`px-1.5 py-px rounded text-[10px] font-semibold ${
                               isAuto
-                                ? "bg-emerald-700 text-white"
-                                : "bg-blue-700 text-white"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-blue-100 text-blue-800"
                             }`}
                           >
                             {isAuto ? "auto" : "pinned"}
                           </span>
                         ) : (
-                          <span className="px-1.5 py-px rounded text-[10px] font-semibold bg-amber-700 text-white">
+                          <span className="px-1.5 py-px rounded text-[10px] font-semibold bg-amber-100 text-amber-800">
                             reason
                           </span>
                         )}
-                        <span className="font-mono text-slate-200">
+                        <span className="font-mono text-ink">
                           {g.summary || g.id}
                         </span>
                       </div>
@@ -399,7 +399,7 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
                             {g.selection_reasons.map((r, i) => (
                               <li
                                 key={i}
-                                className="text-emerald-200/80 italic before:content-['→_']"
+                                className="text-emerald-700 italic before:content-['→_']"
                               >
                                 {r}
                               </li>
@@ -426,16 +426,16 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       const count = (p.count ?? summaries.length) as number;
       return (
         <div
-          className={`${T.tiny} text-emerald-100 space-y-1 rounded border border-emerald-700/60 bg-emerald-900/30 p-2`}
+          className={`${T.tiny} text-emerald-900 space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2`}
         >
-          <p className="text-emerald-200 font-medium">
+          <p className="text-emerald-800 font-medium">
             💡 Agent berücksichtigt {count} frühere{" "}
             {count === 1 ? "Korrektur" : "Korrekturen"}
           </p>
           {summaries.length > 0 && (
             <ul className="space-y-0.5">
               {summaries.map((s) => (
-                <li key={s.id} className="font-mono text-emerald-100/80">
+                <li key={s.id} className="font-mono text-emerald-800">
                   „{s.summary || s.id}"
                 </li>
               ))}
@@ -448,19 +448,19 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       const steps = (p.available_steps ?? []) as string[];
       const anchorKind = String(p.anchor_kind ?? "?");
       return (
-        <div className={`${T.tiny} text-slate-300 space-y-0.5`}>
+        <div className={`${T.tiny} text-ink-muted space-y-0.5`}>
           <p>
-            Anker: <span className="font-mono text-amber-300">{anchorKind}</span>
+            Anker: <span className="font-mono text-amber-700">{anchorKind}</span>
           </p>
           <p>
             Mögliche Steps:{" "}
             {steps.length === 0 ? (
-              <span className="italic text-slate-500">(keine)</span>
+              <span className="italic text-ink-muted">(keine)</span>
             ) : (
               steps.map((s, i) => (
                 <span key={s}>
-                  <span className="font-mono text-blue-300">{s}</span>
-                  {i < steps.length - 1 && <span className="text-slate-500"> · </span>}
+                  <span className="font-mono text-blue-700">{s}</span>
+                  {i < steps.length - 1 && <span className="text-ink-muted"> · </span>}
                 </span>
               ))
             )}
@@ -480,10 +480,10 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       const confidence =
         typeof p.confidence === "number" ? (p.confidence as number) : null;
       return (
-        <div className={`${T.tiny} text-slate-300 space-y-1`}>
+        <div className={`${T.tiny} text-ink-muted space-y-1`}>
           {model && (
             <p>
-              Modell: <span className="font-mono text-amber-300">{model}</span>
+              Modell: <span className="font-mono text-amber-700">{model}</span>
               {sysChars > 0 && (
                 <>
                   {" · "}System-Prompt: {sysChars} Zeichen
@@ -493,16 +493,16 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
           )}
           {kind && (
             <p>
-              <span className="text-slate-500">L1-Vorschlag:</span>{" "}
-              <span className="font-mono text-emerald-300">{kind}</span>
+              <span className="text-ink-muted">L1-Vorschlag:</span>{" "}
+              <span className="font-mono text-emerald-700">{kind}</span>
               {name && (
                 <>
                   {" / "}
-                  <span className="font-mono text-blue-300">{name}</span>
+                  <span className="font-mono text-blue-700">{name}</span>
                 </>
               )}
               {confidence !== null && (
-                <span className="text-slate-500">
+                <span className="text-ink-muted">
                   {" · "}
                   {(confidence * 100).toFixed(0)}%
                 </span>
@@ -511,10 +511,10 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
           )}
           {sysPreview && (
             <details>
-              <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
+              <summary className="cursor-pointer text-ink-muted hover:text-ink">
                 System-Prompt-Vorschau
               </summary>
-              <pre className="mt-1 p-1.5 rounded bg-chrome2-900 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+              <pre className="mt-1 p-1.5 rounded bg-canvas text-[10px] text-ink-muted whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
                 {sysPreview}
               </pre>
             </details>
@@ -528,9 +528,9 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       const finalKind = p.final_kind ? String(p.final_kind) : null;
       const finalName = p.final_name ? String(p.final_name) : null;
       return (
-        <div className={`${T.tiny} text-slate-300 space-y-0.5`}>
+        <div className={`${T.tiny} text-ink-muted space-y-0.5`}>
           {ok ? (
-            <p className="text-emerald-300">Step-Wahl in Whitelist ·{" "}
+            <p className="text-emerald-700">Step-Wahl in Whitelist ·{" "}
               {finalKind && <span className="font-mono">{finalKind}</span>}
               {finalName && (
                 <>
@@ -540,7 +540,7 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
               )}
             </p>
           ) : demoted ? (
-            <p className="text-amber-300">
+            <p className="text-amber-700">
               <span className="font-mono">{demoted}</span> nicht in Whitelist - auf{" "}
               <span className="font-mono">manual_review</span> herabgestuft.
             </p>
@@ -560,33 +560,33 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
         typeof p.confidence === "number" ? (p.confidence as number) : null;
       const kind = p.kind ? String(p.kind) : null;
       return (
-        <div className={`${T.tiny} text-slate-300 space-y-0.5`}>
+        <div className={`${T.tiny} text-ink-muted space-y-0.5`}>
           {metaPick && (
             <p>
-              <span className="text-slate-500">Meta-Plan:</span>{" "}
-              <span className="font-mono text-blue-300">{metaPick}</span>
+              <span className="text-ink-muted">Meta-Plan:</span>{" "}
+              <span className="font-mono text-blue-700">{metaPick}</span>
             </p>
           )}
           {skillPicks.length > 0 && (
             <p>
-              <span className="text-slate-500">Spezialisten:</span>{" "}
-              <span className="font-mono text-emerald-300">
+              <span className="text-ink-muted">Spezialisten:</span>{" "}
+              <span className="font-mono text-emerald-700">
                 {skillPicks.join(" · ")}
               </span>
             </p>
           )}
           {kind && confidence !== null && (
             <p>
-              <span className="text-slate-500">Synthese:</span>{" "}
-              <span className="font-mono text-purple-300">{kind}</span>
-              <span className="text-slate-500">
+              <span className="text-ink-muted">Synthese:</span>{" "}
+              <span className="font-mono text-purple-700">{kind}</span>
+              <span className="text-ink-muted">
                 {" · "}
                 {(confidence * 100).toFixed(0)}% Konfidenz
               </span>
             </p>
           )}
           {!kind && skillCount > 0 && (
-            <p className="text-slate-500 italic">
+            <p className="text-ink-muted italic">
               Synthesisiere {skillCount} Spezialisten-Stimme(n)...
             </p>
           )}
@@ -597,14 +597,14 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
       const nodeId = p.node_id ? String(p.node_id) : null;
       const nodeKind = p.node_kind ? String(p.node_kind) : null;
       return (
-        <div className={`${T.tiny} text-slate-300`}>
+        <div className={`${T.tiny} text-ink-muted`}>
           {nodeId && (
             <p>
-              Knoten: <span className="font-mono text-blue-300">{nodeId.slice(0, 12)}...</span>
+              Knoten: <span className="font-mono text-blue-700">{nodeId.slice(0, 12)}...</span>
               {nodeKind && (
                 <>
                   {" · "}
-                  <span className="font-mono text-amber-300">{nodeKind}</span>
+                  <span className="font-mono text-amber-700">{nodeKind}</span>
                 </>
               )}
             </p>
@@ -614,7 +614,7 @@ function PhasePayload({ phase }: { phase: LiveRunPhase }): JSX.Element {
     }
     default:
       return (
-        <pre className={`${T.tiny} text-slate-400 whitespace-pre-wrap`}>
+        <pre className={`${T.tiny} text-ink-muted whitespace-pre-wrap`}>
           {JSON.stringify(p, null, 2)}
         </pre>
       );
@@ -635,20 +635,20 @@ function SkillCallPayload({
   const confidence =
     typeof payload.confidence === "number" ? (payload.confidence as number) : null;
   return (
-    <div className={`${T.tiny} text-slate-300 space-y-1`}>
+    <div className={`${T.tiny} text-ink-muted space-y-1`}>
       <p>
-        <span className="text-slate-500">Spezialist:</span>{" "}
-        <span className="font-mono text-emerald-300">{approachName}</span>
+        <span className="text-ink-muted">Spezialist:</span>{" "}
+        <span className="font-mono text-emerald-700">{approachName}</span>
       </p>
       {reasoning ? (
-        <div className="rounded bg-chrome2-900/60 p-1.5 space-y-1">
-          <p className="italic text-slate-200">{reasoning}</p>
+        <div className="rounded bg-canvas p-1.5 space-y-1">
+          <p className="italic text-ink">{reasoning}</p>
           {suggested && (
             <p>
-              <span className="text-slate-500">Empfehlung:</span>{" "}
-              <span className="font-mono text-blue-300">{suggested}</span>
+              <span className="text-ink-muted">Empfehlung:</span>{" "}
+              <span className="font-mono text-blue-700">{suggested}</span>
               {confidence !== null && (
-                <span className="text-slate-500">
+                <span className="text-ink-muted">
                   {" · "}
                   {(confidence * 100).toFixed(0)}%
                 </span>
@@ -658,10 +658,10 @@ function SkillCallPayload({
         </div>
       ) : preview ? (
         <details>
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-300">
+          <summary className="cursor-pointer text-ink-muted hover:text-ink">
             Spezialwissen-Vorschau
           </summary>
-          <pre className="mt-1 p-1.5 rounded bg-chrome2-900 text-[10px] text-slate-300 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+          <pre className="mt-1 p-1.5 rounded bg-canvas text-[10px] text-ink-muted whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
             {preview}
           </pre>
         </details>

@@ -1,6 +1,6 @@
 export function Spinner({ label = "Lade…" }: { label?: string }) {
   return (
-    <div role="status" aria-label={label} className="flex items-center gap-2 text-slate-500">
+    <div role="status" aria-label={label} className="flex items-center gap-2 text-ink-muted">
       <svg
         className="h-4 w-4 animate-spin"
         viewBox="0 0 24 24"

@@ -58,7 +58,7 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
     [info, onPillClick],
   );
   return (
-    <div className="w-full h-full bg-chrome2-900 relative">
+    <div className="w-full h-full bg-canvas relative">
       <ReactFlow
         nodes={nodes.map((n) => ({ ...n, selected: n.id === selectedId }))}
         edges={edges}
@@ -77,11 +77,11 @@ export function AgentCanvas({ info, selectedId, onSelect }: Props): JSX.Element 
         <Background
           variant={BackgroundVariant.Dots}
           gap={16}
-          color="#334155"
+          color="#dbdbdb"
           size={1}
         />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor={() => "#475569"} />
+        <MiniMap pannable zoomable nodeColor={() => "#9aa7ad"} />
       </ReactFlow>
     </div>
   );

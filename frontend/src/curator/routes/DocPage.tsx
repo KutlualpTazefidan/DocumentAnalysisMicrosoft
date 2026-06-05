@@ -49,12 +49,12 @@ export function CuratorDocPage() {
   }, [slug, next, prev, navigate]);
 
   if (els.isLoading) return <div className="p-6">Lade…</div>;
-  if (!current) return <div className="p-6 text-slate-500">Keine Elemente.</div>;
+  if (!current) return <div className="p-6 text-ink-muted">Keine Elemente.</div>;
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-semibold">{slug}</h1>
+        <h1 className="text-lg font-semibold text-bam-navy">{slug}</h1>
         <div className="flex gap-2">
           <button
             className="btn-secondary inline-flex items-center gap-1 px-3 py-2"
@@ -74,15 +74,15 @@ export function CuratorDocPage() {
           </button>
         </div>
       </div>
-      <article className="border rounded p-4 mb-4">
-        <div className="text-xs text-slate-500 mb-2">
+      <article className="card p-4 mb-4">
+        <div className="text-xs text-ink-muted mb-2">
           Seite {current.page_number} · <span className="font-mono">{current.element_id}</span>
         </div>
         <p className="whitespace-pre-wrap">{current.content}</p>
       </article>
       <div className="flex items-end gap-2">
         <label className="flex-1">
-          <span className="text-sm text-slate-700">Neue Frage</span>
+          <span className="text-sm text-ink-muted">Neue Frage</span>
           <input
             className="input mt-1 w-full"
             placeholder="Frage zu diesem Element…"

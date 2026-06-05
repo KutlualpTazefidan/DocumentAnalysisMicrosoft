@@ -104,7 +104,7 @@ export function ChunkPanel({
         <PreReasoningSection nodes={nodes} anchorId={chunk.node_id} />
         <div>
           <p className={T.tinyBold}>Text</p>
-          <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+          <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
             {text}
           </p>
         </div>
@@ -116,7 +116,7 @@ export function ChunkPanel({
             onClick={() => void handleRefresh()}
             disabled={refresh.isPending}
             title="Mit aktueller segments.json abgleichen. Bei Abweichung entsteht ein neuer Chunk; der alte bleibt für den Audit."
-            className={`shrink-0 px-2 py-1 rounded border border-orange-700/60 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center gap-1 disabled:opacity-50`}
+            className={`shrink-0 px-2 py-1 rounded border border-orange-500 text-orange-700 hover:bg-orange-50 ${T.tiny} flex items-center gap-1 disabled:opacity-50`}
           >
             <RefreshCw
               className={`w-3 h-3 ${refresh.isPending ? "animate-spin" : ""}`}
@@ -126,7 +126,7 @@ export function ChunkPanel({
           </button>
         </div>
         {closed && (
-          <p className={`${T.body} text-amber-300 italic`}>
+          <p className={`${T.body} text-amber-700 italic`}>
             Diese Chunk-Untersuchung wurde abgeschlossen.
           </p>
         )}
@@ -136,7 +136,7 @@ export function ChunkPanel({
           onClose={() => stream.reset()}
         />
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         <button
           type="button"
           onClick={() => void handleNextStep()}
@@ -146,8 +146,8 @@ export function ChunkPanel({
           <Sparkles className="w-4 h-4" aria-hidden />
           {stream.isRunning ? "Agent denkt…" : "Was als nächstes?"}
         </button>
-        <details className="rounded border border-chrome2-500 bg-chrome2-900/40">
-          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-slate-400`}>
+        <details className="rounded border border-line bg-canvas">
+          <summary className={`${T.tiny} cursor-pointer px-2 py-1 text-ink-muted`}>
             Manuell wählen
           </summary>
           <div className="p-2 space-y-2">
@@ -165,12 +165,12 @@ export function ChunkPanel({
           type="button"
           onClick={() => void handleDelete()}
           disabled={del.isPending}
-          className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+          className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50`}
         >
           {del.isPending ? "…" : "Tile löschen"}
         </button>
         {(extract.error || del.error || refresh.error) && (
-          <p className={`text-red-400 ${T.tiny}`}>
+          <p className={`text-bam-red ${T.tiny}`}>
             {(extract.error ?? del.error ?? refresh.error)?.message}
           </p>
         )}
@@ -216,7 +216,7 @@ function BoxMetadataStrip({ chunk }: { chunk: ProvNode }): JSX.Element | null {
 
   return (
     <p
-      className={`${T.mono} ${T.tiny} text-slate-400`}
+      className={`${T.mono} ${T.tiny} text-ink-muted`}
       title={title}
     >
       {parts.join(" · ")}
@@ -238,29 +238,29 @@ function OriginContext({ chunk }: { chunk: ProvNode }): JSX.Element | null {
   const query = typeof p.origin_query === "string" ? p.origin_query : "";
   const originBox = typeof p.origin_chunk_box_id === "string" ? p.origin_chunk_box_id : "";
   return (
-    <section className="rounded border border-purple-700/50 bg-purple-900/20 px-3 py-2">
-      <p className={`${T.tinyBold} text-purple-300 flex items-center gap-1`}>
+    <section className="rounded border border-purple-200 bg-purple-50 px-3 py-2">
+      <p className={`${T.tinyBold} text-purple-700 flex items-center gap-1`}>
         <CornerDownRight className="w-3 h-3" aria-hidden /> Recherche-Kontext
       </p>
       {claimText && (
         <div className="mt-1.5">
-          <p className={`${T.tiny} text-purple-300`}>Ursprüngliche Aussage</p>
-          <p className={`${T.body} text-purple-100 italic`}>„{claimText}"</p>
+          <p className={`${T.tiny} text-purple-700`}>Ursprüngliche Aussage</p>
+          <p className={`${T.body} text-purple-900 italic`}>„{claimText}"</p>
         </div>
       )}
       {query && (
         <div className="mt-1.5">
-          <p className={`${T.tiny} text-purple-300`}>Suchanfrage</p>
-          <p className={`${T.body} text-purple-100`}>„{query}"</p>
+          <p className={`${T.tiny} text-purple-700`}>Suchanfrage</p>
+          <p className={`${T.body} text-purple-900`}>„{query}"</p>
         </div>
       )}
       {originBox && (
         <div className="mt-1.5">
-          <p className={`${T.tiny} text-purple-300`}>Ursprünglicher Chunk</p>
-          <p className={`${T.mono} text-purple-100`}>{originBox}</p>
+          <p className={`${T.tiny} text-purple-700`}>Ursprünglicher Chunk</p>
+          <p className={`${T.mono} text-purple-900`}>{originBox}</p>
         </div>
       )}
-      <p className={`${T.tiny} text-purple-300/70 italic mt-2`}>
+      <p className={`${T.tiny} text-purple-700/70 italic mt-2`}>
         Wird beim Extrahieren als Kontext an den LLM übergeben.
       </p>
     </section>

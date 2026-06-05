@@ -13,12 +13,12 @@ const STEP_ICON: Record<string, typeof Brain> = {
 };
 
 const STEP_COLOR: Record<string, string> = {
-  extract_claims: "bg-amber-700 border-amber-400",
-  formulate_task: "bg-cyan-800 border-cyan-400",
-  search: "bg-emerald-800 border-emerald-400",
-  evaluate: "bg-rose-800 border-rose-400",
-  propose_stop: "bg-zinc-700 border-zinc-400",
-  promote_search_result: "bg-purple-800 border-purple-400",
+  extract_claims: "bg-amber-50 border-amber-500",
+  formulate_task: "bg-cyan-50 border-cyan-500",
+  search: "bg-emerald-50 border-emerald-500",
+  evaluate: "bg-rose-50 border-rose-500",
+  propose_stop: "bg-zinc-100 border-zinc-300",
+  promote_search_result: "bg-purple-50 border-purple-500",
 };
 
 /**
@@ -32,11 +32,11 @@ export function AgentStepNode({
 }: NodeProps<{ step: AgentStepInfo }>): JSX.Element {
   const step = data.step;
   const Icon = STEP_ICON[step.kind] ?? Brain;
-  const color = STEP_COLOR[step.kind] ?? "bg-blue-800 border-blue-400";
+  const color = STEP_COLOR[step.kind] ?? "bg-blue-50 border-blue-500";
   return (
     <div
-      className={`rounded-lg px-4 py-2 text-white shadow-md w-56 border-2 ${color} ${
-        selected ? "ring-2 ring-white/60" : ""
+      className={`prov-tile px-4 py-2 w-56 border-2 ${color} ${
+        selected ? "ring-2 ring-blue-400/60" : ""
       }`}
     >
       <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -44,25 +44,25 @@ export function AgentStepNode({
       <Handle type="target" position={Position.Left} className="opacity-0" id="lt" />
       <header className="flex items-center gap-1.5">
         <Icon className="w-4 h-4" aria-hidden />
-        <p className="text-[10px] uppercase tracking-wide text-white/80">Schritt</p>
+        <p className="text-[10px] uppercase tracking-wide text-ink-muted">Schritt</p>
       </header>
       <p className="text-sm font-semibold mt-0.5">{step.label}</p>
-      <p className="text-[11px] text-white/75 mt-0.5">
+      <p className="text-[11px] text-ink-muted mt-0.5">
         {step.input_kind} → {step.output_kind}
       </p>
       <div className="flex flex-wrap gap-1 mt-1.5">
         {step.uses_llm && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/15 uppercase tracking-wide">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/70 border border-line uppercase tracking-wide">
             🧠 LLM
           </span>
         )}
         {step.uses_tool && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/15 uppercase tracking-wide">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/70 border border-line uppercase tracking-wide">
             🔧 {step.uses_tool}
           </span>
         )}
         {step.rules.length > 0 && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/15 uppercase tracking-wide">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/70 border border-line uppercase tracking-wide">
             🛡 {step.rules.length} Regel{step.rules.length === 1 ? "" : "n"}
           </span>
         )}

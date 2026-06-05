@@ -8,9 +8,9 @@ import { Handle, Position } from "reactflow";
 export function FallbackNode({ data }: NodeProps): JSX.Element {
   const kind = (data?.kind as string) ?? "unknown";
   return (
-    <div className="rounded border border-slate-500 bg-slate-700 px-3 py-2 text-xs text-white shadow w-56">
+    <div className="prov-tile px-3 py-2 text-xs w-56">
       <Handle type="target" position={Position.Top} />
-      <p className="font-mono text-[10px] uppercase tracking-wide text-slate-300">
+      <p className="font-mono prov-tile-head">
         {kind}
       </p>
       <Handle type="source" position={Position.Bottom} />

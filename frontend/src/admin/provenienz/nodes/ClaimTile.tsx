@@ -16,13 +16,13 @@ export function ClaimTile({ data }: NodeProps<ClaimView>): JSX.Element {
   const depth = typeof depthRaw === "number" ? depthRaw : 0;
 
   return (
-    <div className="rounded-lg border border-blue-500 bg-blue-700/90 px-3 py-2 text-white shadow-md w-64">
+    <div className="prov-tile border-blue-500 px-3 py-2 w-64">
       <Handle type="target" position={Position.Top} className="opacity-0" />
-      <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-blue-200">
+      <header className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-blue-800">
         <Quote className="w-3 h-3" aria-hidden /> Aussage
         {depth > 0 && (
           <span
-            className="ml-1 font-mono text-cyan-300"
+            className="ml-1 font-mono text-cyan-700"
             title={`Rekursionstiefe: ${depth}. Aus einem ${depth}× abgeleiteten Chunk extrahiert.`}
           >
             ↳ Ebene {depth}
@@ -31,17 +31,17 @@ export function ClaimTile({ data }: NodeProps<ClaimView>): JSX.Element {
       </header>
       <p className="text-xs leading-snug mt-1 line-clamp-3">{text}</p>
       {claimGoal && (
-        <div className="mt-1.5 pt-1.5 border-t border-blue-400/30">
-          <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-pink-300">
+        <div className="mt-1.5 pt-1.5 border-t border-blue-200">
+          <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-pink-700">
             <Target className="w-3 h-3" aria-hidden /> Recherche-Frage
           </p>
-          <p className="text-[11px] italic text-pink-100 line-clamp-2 mt-0.5">
+          <p className="text-[11px] italic text-pink-900 line-clamp-2 mt-0.5">
             {claimGoal}
           </p>
         </div>
       )}
       {closed && (
-        <p className="mt-1 text-[10px] text-amber-300 flex items-center gap-1">
+        <p className="mt-1 text-[10px] text-amber-700 flex items-center gap-1">
           <Lock className="w-3 h-3" aria-hidden /> abgeschlossen
         </p>
       )}

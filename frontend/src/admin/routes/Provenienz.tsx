@@ -54,7 +54,7 @@ export function Provenienz(): JSX.Element {
   const detail = useSession(selectedId, tokenStr);
 
   if (token === null) {
-    return <div className="p-6 text-slate-300">Bitte zuerst anmelden.</div>;
+    return <div className="p-6 text-ink-muted">Bitte zuerst anmelden.</div>;
   }
 
   async function handlePickChunk(boxId: string) {
@@ -74,8 +74,8 @@ export function Provenienz(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-full bg-chrome2-900">
-      <div className="flex items-center justify-between px-4 py-2 bg-chrome2 text-white border-b border-chrome2-500">
+    <div className="flex flex-col h-full bg-canvas">
+      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-line">
         <DocStepTabs slug={slug} />
         <ViewToggle view={view} onChange={setView} />
       </div>
@@ -92,37 +92,37 @@ export function Provenienz(): JSX.Element {
       ) : (
       <div className="flex flex-1 min-h-0">
         {/* Left rail */}
-        <aside className="w-72 shrink-0 border-r border-chrome2-500 bg-chrome2-800/50 overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-chrome2-500">
-            <h2 className={`${T.heading} text-white flex items-center gap-2`}>
+        <aside className="w-72 shrink-0 border-r border-line bg-rail overflow-y-auto">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-line">
+            <h2 className={`${T.heading} text-bam-navy flex items-center gap-2`}>
               <GitMerge className="w-4 h-4" aria-hidden /> Sitzungen
             </h2>
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className={`text-blue-400 hover:text-blue-300 ${T.body} flex items-center gap-1`}
+              className={`text-bam-cyan-700 hover:text-bam-cyan ${T.body} flex items-center gap-1`}
             >
               <Plus className="w-4 h-4" aria-hidden /> Neu
             </button>
           </div>
 
           {isLoading && (
-            <p className={`px-3 py-2 text-slate-400 ${T.body}`}>Lade...</p>
+            <p className={`px-3 py-2 text-ink-muted ${T.body}`}>Lade...</p>
           )}
           {error && (
-            <p className={`px-3 py-2 text-red-400 ${T.body}`}>{error.message}</p>
+            <p className={`px-3 py-2 text-bam-red ${T.body}`}>{error.message}</p>
           )}
           {sessions && sessions.length === 0 && !isLoading && (
-            <p className={`px-3 py-2 text-slate-500 ${T.body} italic`}>
+            <p className={`px-3 py-2 text-ink-muted ${T.body} italic`}>
               Keine Sitzungen für dieses Dokument.
             </p>
           )}
-          <ul className="divide-y divide-chrome2-500">
+          <ul className="divide-y divide-line">
             {sessions?.map((s) => (
               <li
                 key={s.session_id}
-                className={`px-3 py-2 cursor-pointer hover:bg-chrome2-700/40 ${
-                  selectedId === s.session_id ? "bg-chrome2-700/60" : ""
+                className={`px-3 py-2 cursor-pointer hover:bg-rowsel ${
+                  selectedId === s.session_id ? "bg-rowsel" : ""
                 }`}
                 onClick={() => {
                   setSelectedId(s.session_id);
@@ -139,7 +139,7 @@ export function Provenienz(): JSX.Element {
         </aside>
 
         {/* Right area */}
-        <main className="flex-1 min-w-0 flex flex-col text-slate-200">
+        <main className="flex-1 min-w-0 flex flex-col text-ink">
           {creating && (
             <ChunkPicker
               slug={slug}
@@ -151,13 +151,13 @@ export function Provenienz(): JSX.Element {
             />
           )}
           {!creating && !selectedId && (
-            <p className={`${T.body} text-slate-400 italic p-4`}>
+            <p className={`${T.body} text-ink-muted italic p-4`}>
               Sitzung links auswählen oder neu anlegen.
             </p>
           )}
           {!creating && selectedId && detail.isLoading && <p className="p-4">Lade Sitzung...</p>}
           {!creating && selectedId && detail.error && (
-            <p className="p-4 text-red-400">{detail.error.message}</p>
+            <p className="p-4 text-bam-red">{detail.error.message}</p>
           )}
           {!creating && selectedId && detail.data && (
             <>
@@ -175,7 +175,7 @@ export function Provenienz(): JSX.Element {
                     />
                   </ReactFlowProvider>
                 </div>
-                <aside className="w-80 shrink-0 border-l border-chrome2-500 bg-chrome2-800/40 overflow-y-auto">
+                <aside className="w-80 shrink-0 border-l border-line bg-white overflow-y-auto">
                   <SidePanel
                     sessionId={detail.data.meta.session_id}
                     token={tokenStr}
@@ -212,7 +212,7 @@ function ViewToggle({
         className={`px-3 py-1 rounded flex items-center gap-1.5 ${T.body} transition-colors ${
           active
             ? "bg-brand-500 text-white"
-            : "text-slate-300 hover:bg-chrome2-700"
+            : "text-ink-muted hover:bg-white"
         }`}
       >
         <Icon className="w-4 h-4" aria-hidden />
@@ -221,7 +221,7 @@ function ViewToggle({
     );
   };
   return (
-    <nav className="flex items-center gap-1 bg-chrome2-900/60 border border-chrome2-500 rounded p-0.5">
+    <nav className="flex items-center gap-1 bg-canvas border border-line rounded p-0.5">
       {item("sessions", "Sitzungen", FolderTree)}
       {item("agent", "Agent", Bot)}
     </nav>
@@ -266,10 +266,10 @@ function AgentView({
   );
 
   if (isLoading) {
-    return <p className={`p-6 text-slate-400 ${T.body}`}>Lade Agent-Topologie…</p>;
+    return <p className={`p-6 text-ink-muted ${T.body}`}>Lade Agent-Topologie…</p>;
   }
   if (error) {
-    return <p className={`p-6 text-red-400 ${T.body}`}>{error.message}</p>;
+    return <p className={`p-6 text-bam-red ${T.body}`}>{error.message}</p>;
   }
   if (!agentInfo) return <></>;
 
@@ -277,19 +277,19 @@ function AgentView({
     <div className="flex flex-1 min-h-0">
       {/* Left pane: model header + canvas */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="px-4 py-3 border-b border-chrome2-500 space-y-1">
+        <header className="px-4 py-3 border-b border-line space-y-1">
           <div className="flex items-baseline gap-3">
             <span className={T.tinyBold}>Modell aktiv:</span>
-            <code className="text-amber-300">{agentInfo.llm.backend}</code>
-            <code className="text-amber-300">{agentInfo.llm.model || "–"}</code>
+            <code className="text-amber-700">{agentInfo.llm.backend}</code>
+            <code className="text-amber-700">{agentInfo.llm.model || "–"}</code>
           </div>
-          <p className={`${T.tiny} text-slate-400`}>
-            <span className="text-indigo-300 font-semibold">Orchestrator</span>{" "}
+          <p className={`${T.tiny} text-ink-muted`}>
+            <span className="text-indigo-700 font-semibold">Orchestrator</span>{" "}
             oben wählt einen{" "}
-            <span className="text-amber-300 font-semibold">Sub-Agent</span>{" "}
+            <span className="text-amber-700 font-semibold">Sub-Agent</span>{" "}
             aus. Jeder Sub-Agent trägt seine{" "}
-            <span className="text-amber-200">Skills</span> (orange Pills) und{" "}
-            <span className="text-cyan-300">Werkzeuge</span> (cyan Pills)
+            <span className="text-amber-800">Skills</span> (orange Pills) und{" "}
+            <span className="text-cyan-700">Werkzeuge</span> (cyan Pills)
             inline. Klick auf ein Pill → Detail rechts. Datenfluss
             (Chunk → Claim → Task → …) als gedimmte Linie unten —
             Sekundär-Info.
@@ -307,7 +307,7 @@ function AgentView({
       </div>
 
       {/* Right pane: tab-bar + active tab content */}
-      <aside className="w-[420px] shrink-0 border-l border-chrome2-500 bg-chrome2-800/40 flex flex-col">
+      <aside className="w-[420px] shrink-0 border-l border-line bg-white flex flex-col">
         <AgentTabBar tab={tab} onChange={setTab} />
         <div className="flex-1 overflow-y-auto">
           {tab === "auswahl" && (
@@ -355,8 +355,8 @@ function AgentTabBar({
         onClick={() => onChange(key)}
         className={`px-3 py-2 ${T.body} font-medium transition-colors border-b-2 ${
           active
-            ? "border-blue-400 text-white"
-            : "border-transparent text-slate-400 hover:text-white"
+            ? "border-bam-cyan text-bam-navy"
+            : "border-transparent text-ink-muted hover:text-bam-navy"
         }`}
       >
         {label}
@@ -364,7 +364,7 @@ function AgentTabBar({
     );
   };
   return (
-    <nav className="flex items-center border-b border-chrome2-500 px-2 bg-chrome2-900/40">
+    <nav className="flex items-center border-b border-line px-2 bg-rail">
       {item("auswahl", "Auswahl")}
       {item("schritte", "Schritte")}
       {item("tools", "Werkzeuge")}
@@ -406,12 +406,12 @@ function SessionHeader({
   }
 
   return (
-    <header className="border-b border-chrome2-500 px-4 py-2 flex items-start justify-between gap-3">
+    <header className="border-b border-line px-4 py-2 flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className={`${T.cardTitle} text-white`}>
+        <h2 className={`${T.cardTitle} text-bam-navy`}>
           Sitzung {detail.meta.session_id}
         </h2>
-        <p className={`text-slate-400 ${T.body}`}>
+        <p className={`text-ink-muted ${T.body}`}>
           Wurzel-Chunk: {detail.meta.root_chunk_id} · Status:{" "}
           {detail.meta.status} · {detail.nodes.length} Knoten ·{" "}
           {detail.edges.length} Kanten
@@ -422,7 +422,7 @@ function SessionHeader({
         onClick={() => void handleRefreshAll()}
         disabled={refreshAll.isPending || chunkCount === 0}
         title={`Alle ${chunkCount} Chunks gegen aktuelle segments.json prüfen — geänderte werden als neue Chunks angefügt, alte bleiben für den Audit.`}
-        className={`shrink-0 px-3 py-1.5 rounded border border-orange-700/60 text-orange-300 hover:bg-orange-900/30 ${T.tiny} flex items-center gap-1.5 disabled:opacity-50`}
+        className={`shrink-0 px-3 py-1.5 rounded border border-orange-500 text-orange-700 hover:bg-orange-50 ${T.tiny} flex items-center gap-1.5 disabled:opacity-50`}
       >
         <RefreshCw
           className={`w-3.5 h-3.5 ${refreshAll.isPending ? "animate-spin" : ""}`}
@@ -447,13 +447,13 @@ function SessionRow({
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
-        <p className={`text-white ${T.mono} truncate`}>
+        <p className={`text-bam-navy ${T.mono} truncate`}>
           {status} {session.session_id.slice(0, 12)}…
         </p>
-        <p className={`text-slate-400 ${T.tiny} truncate`}>
+        <p className={`text-ink-muted ${T.tiny} truncate`}>
           Wurzel: {session.root_chunk_id}
         </p>
-        <p className="text-slate-500 text-[10px]">{session.last_touched_at}</p>
+        <p className="text-ink-muted text-[10px]">{session.last_touched_at}</p>
       </div>
       <button
         type="button"
@@ -461,7 +461,7 @@ function SessionRow({
           e.stopPropagation();
           onDelete();
         }}
-        className="text-red-400/70 hover:text-red-300"
+        className="text-bam-red/70 hover:text-bam-red"
         aria-label="Sitzung löschen"
       >
         <Trash2 className="w-3.5 h-3.5" />

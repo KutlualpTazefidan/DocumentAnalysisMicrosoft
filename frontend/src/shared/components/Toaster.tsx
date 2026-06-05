@@ -18,8 +18,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {items.map((t) => (
           <RT.Root
             key={t.id}
-            className={`bg-white border rounded p-3 shadow ${
-              t.kind === "error" ? "border-red-500" : t.kind === "success" ? "border-green-500" : "border-slate-300"
+            className={`bg-white border rounded p-3 shadow text-ink ${
+              t.kind === "error" ? "border-red-500" : t.kind === "success" ? "border-green-500" : "border-line"
             }`}
             onOpenChange={(o) => { if (!o) setItems((prev) => prev.filter((x) => x.id !== t.id)); }}
           >

@@ -42,11 +42,11 @@ export function SkillLibrary({ token }: Props): JSX.Element {
   }
 
   return (
-    <div className="border border-chrome2-500 rounded-lg bg-chrome2-800/40 p-4">
+    <div className="card p-4">
       <header className="flex items-center justify-between mb-2">
         <div>
-          <h3 className={`${T.heading} text-white`}>Fähigkeiten-Bibliothek</h3>
-          <p className={`${T.body} text-slate-400`}>
+          <h3 className={`${T.heading} text-ink`}>Fähigkeiten-Bibliothek</h3>
+          <p className={`${T.body} text-ink-muted`}>
             Eine Fähigkeit ergänzt Logik des Provenienz-Agents — kein Code
             nötig. Anreicherungen, Prompt-Erweiterungen, reaktive Regeln,
             Lehr-Notizen oder aktive Sub-Agents.
@@ -61,12 +61,12 @@ export function SkillLibrary({ token }: Props): JSX.Element {
         </button>
       </header>
 
-      {isLoading && <p className={`${T.body} text-slate-400 mt-3`}>Lade…</p>}
+      {isLoading && <p className={`${T.body} text-ink-muted mt-3`}>Lade…</p>}
       {error && (
-        <p className={`${T.body} text-red-400 mt-3`}>{error.message}</p>
+        <p className={`${T.body} text-bam-red mt-3`}>{error.message}</p>
       )}
       {skills && skills.length === 0 && !isLoading && (
-        <p className={`${T.body} text-slate-500 italic mt-3`}>
+        <p className={`${T.body} text-ink-muted italic mt-3`}>
           Noch keine Fähigkeiten definiert.
         </p>
       )}
@@ -200,17 +200,17 @@ function SkillKindGroup({
   const enabledCount = skills.filter((s) => s.enabled).length;
   const label = SKILL_KIND_LABEL[kind] ?? kind;
   return (
-    <section className="rounded border border-chrome2-500 bg-chrome2-900/30">
+    <section className="rounded border border-line bg-canvas">
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-chrome2-800/40"
+        className="w-full flex items-center justify-between px-3 py-2 hover:bg-rail"
       >
         <div className="flex items-center gap-2 text-left">
-          <span className={`${T.tinyBold} text-slate-200`}>
+          <span className={`${T.tinyBold} text-ink`}>
             {collapsed ? "▸" : "▾"} {label}
           </span>
-          <span className={`${T.tiny} text-slate-400`}>
+          <span className={`${T.tiny} text-ink-muted`}>
             {skills.length} ({enabledCount} aktiv)
           </span>
         </div>
@@ -278,15 +278,15 @@ function SkillRow({
     <li
       className={`rounded border p-3 ${
         skill.enabled
-          ? "border-chrome2-500 bg-chrome2-900/40"
-          : "border-chrome2-500 bg-chrome2-900/20 opacity-60"
+          ? "border-line bg-white"
+          : "border-line bg-white opacity-60"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-white font-semibold flex items-center gap-2 flex-wrap">
+          <p className="text-ink font-semibold flex items-center gap-2 flex-wrap">
             {skill.name}{" "}
-            <span className={`${T.tiny} text-slate-400 font-normal`}>
+            <span className={`${T.tiny} text-ink-muted font-normal`}>
               v{skill.version}
             </span>
             <span
@@ -297,7 +297,7 @@ function SkillRow({
             </span>
             {skill.parent_skill && (
               <span
-                className="px-1.5 py-px rounded text-[10px] font-mono bg-orange-900/50 text-orange-200"
+                className="px-1.5 py-px rounded text-[10px] font-mono bg-orange-100 text-orange-800"
                 title={`Sub-Fähigkeit von ${skill.parent_skill}`}
               >
                 ↳ {skill.parent_skill}
@@ -305,19 +305,19 @@ function SkillRow({
             )}
           </p>
           {skill.fires_on.length > 0 && (
-            <p className={`${T.tiny} text-slate-400`}>
+            <p className={`${T.tiny} text-ink-muted`}>
               Bei: {skill.fires_on.join(", ")}
             </p>
           )}
           {skill.description && (
-            <p className={`${T.tiny} text-slate-300 mt-1`}>{skill.description}</p>
+            <p className={`${T.tiny} text-ink-muted mt-1`}>{skill.description}</p>
           )}
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={handleEdit}
-            className={`px-2 py-0.5 rounded text-blue-300 hover:bg-blue-900/30 ${T.tiny} flex items-center gap-1`}
+            className={`px-2 py-0.5 rounded text-blue-700 hover:bg-blue-50 ${T.tiny} flex items-center gap-1`}
             aria-label="Bearbeiten"
             title="Fähigkeit bearbeiten"
           >
@@ -339,7 +339,7 @@ function SkillRow({
             type="button"
             onClick={() => void handleDelete()}
             disabled={del.isPending}
-            className="px-2 py-0.5 rounded text-red-400 hover:bg-red-900/30"
+            className="px-2 py-0.5 rounded text-bam-red hover:bg-red-50"
             aria-label="Löschen"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -347,7 +347,7 @@ function SkillRow({
         </div>
       </div>
       {update.error && (
-        <p className={`text-red-400 ${T.tiny} mt-1`}>{update.error.message}</p>
+        <p className={`text-bam-red ${T.tiny} mt-1`}>{update.error.message}</p>
       )}
     </li>
   );

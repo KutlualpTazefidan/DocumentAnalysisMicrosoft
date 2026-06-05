@@ -72,9 +72,9 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
   return (
     <div className="p-6 h-full overflow-auto">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className={T.cardTitle}>Curators</h1>
+        <h1 className={`${T.cardTitle} text-bam-navy`}>Curators</h1>
         <button
-          className={`ml-auto bg-blue-600 text-white px-3 py-1 rounded ${T.body}`}
+          className="btn-primary ml-auto"
           onClick={() => setCreateOpen(true)}
         >
           Create curator
@@ -84,22 +84,22 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
       {/* List */}
       <table className={`w-full ${T.body}`}>
         <thead>
-          <tr className="text-left border-b">
-            <th className="p-2">Name</th>
-            <th className="p-2">Token prefix</th>
-            <th className="p-2">Created</th>
-            <th className="p-2" />
+          <tr>
+            <th className="bam-th">Name</th>
+            <th className="bam-th">Token prefix</th>
+            <th className="bam-th">Created</th>
+            <th className="bam-th" />
           </tr>
         </thead>
         <tbody>
           {(curators.data ?? []).map((c) => (
-            <tr key={c.id} className="border-b hover:bg-slate-50">
-              <td className="p-2">{c.name}</td>
-              <td className="p-2 font-mono">{c.token_prefix}</td>
-              <td className="p-2 text-slate-500">{new Date(c.created_utc).toLocaleDateString()}</td>
-              <td className="p-2 text-right">
+            <tr key={c.id} className="bam-row">
+              <td className="bam-td">{c.name}</td>
+              <td className="bam-td font-mono">{c.token_prefix}</td>
+              <td className="bam-td text-ink-muted">{new Date(c.created_utc).toLocaleDateString()}</td>
+              <td className="bam-td text-right">
                 <button
-                  className={`text-red-600 hover:underline ${T.body}`}
+                  className={`text-bam-red hover:underline ${T.body}`}
                   onClick={() => handleRevoke(c.id, c.name)}
                   disabled={revokeMut.isPending}
                 >
@@ -110,7 +110,7 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
           ))}
           {curators.data?.length === 0 && (
             <tr>
-              <td colSpan={4} className="p-4 text-center text-slate-400">No curators yet.</td>
+              <td colSpan={4} className="p-4 text-center text-ink-muted">No curators yet.</td>
             </tr>
           )}
         </tbody>
@@ -121,10 +121,10 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40" />
           <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded shadow-lg p-6 w-80">
-            <Dialog.Title className={`${T.cardTitle} mb-4`}>Create curator</Dialog.Title>
+            <Dialog.Title className={`${T.cardTitle} text-bam-navy mb-4`}>Create curator</Dialog.Title>
             <form onSubmit={handleCreateSubmit} className="flex flex-col gap-3">
               <input
-                className={`border rounded px-2 py-1 ${T.body}`}
+                className="input"
                 placeholder="Name"
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
@@ -132,11 +132,11 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
               />
               <div className="flex justify-end gap-2">
                 <Dialog.Close asChild>
-                  <button type="button" className={`px-3 py-1 rounded border ${T.body}`}>Cancel</button>
+                  <button type="button" className="btn-secondary">Cancel</button>
                 </Dialog.Close>
                 <button
                   type="submit"
-                  className={`px-3 py-1 rounded bg-blue-600 text-white ${T.body}`}
+                  className="btn-primary"
                   disabled={createMut.isPending || !nameInput.trim()}
                 >
                   Create
@@ -152,17 +152,17 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40" />
           <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded shadow-lg p-6 w-96">
-            <Dialog.Title className={`${T.cardTitle} mb-2`}>Curator token</Dialog.Title>
-            <p className={`${T.body} text-slate-600 mb-3`}>
+            <Dialog.Title className={`${T.cardTitle} text-bam-navy mb-2`}>Curator token</Dialog.Title>
+            <p className={`${T.body} text-ink-muted mb-3`}>
               Copy this token now — it will not be shown again.
             </p>
             {createdRecord && (
               <div className="flex items-center gap-2 mb-4">
-                <code className={`flex-1 bg-slate-100 rounded px-2 py-1 ${T.mono} break-all`}>
+                <code className={`flex-1 card px-2 py-1 ${T.mono} break-all`}>
                   {createdRecord.token}
                 </code>
                 <button
-                  className={`px-2 py-1 rounded border ${T.body}`}
+                  className="btn-secondary"
                   onClick={() => navigator.clipboard.writeText(createdRecord.token)}
                 >
                   Copy
@@ -171,7 +171,7 @@ export function Curators({ token: tokenProp }: Props = {}): JSX.Element {
             )}
             <div className="flex justify-end">
               <button
-                className={`px-3 py-1 rounded bg-blue-600 text-white ${T.body}`}
+                className="btn-primary"
                 onClick={handleTokenDismiss}
               >
                 Done

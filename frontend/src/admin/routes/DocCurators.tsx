@@ -55,31 +55,31 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* ── Top bar ─────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 bg-chrome2 text-white border-b border-chrome2-700 flex-shrink-0">
+      <div className="flex items-center px-4 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
       <div className="p-6 overflow-auto flex-1">
-      <h1 className={`${T.cardTitle} mb-6`}>Curators for doc: {slug}</h1>
+      <h1 className={`${T.cardTitle} text-bam-navy mb-6`}>Curators for doc: {slug}</h1>
 
       <div className="flex gap-8">
         {/* Left pane: all curators — click to assign */}
         <div className="flex-1">
-          <h2 className={`${T.tinyBold} mb-2`}>All curators</h2>
+          <h2 className={`bam-title mb-2`}>All curators</h2>
           <table className={`w-full ${T.body}`}>
             <thead>
-              <tr className="text-left border-b">
-                <th className="p-2">Name</th>
-                <th className="p-2" />
+              <tr>
+                <th className="bam-th">Name</th>
+                <th className="bam-th" />
               </tr>
             </thead>
             <tbody>
               {(allCuratorsQuery.data ?? []).map((c) => (
-                <tr key={c.id} className="border-b hover:bg-slate-50">
-                  <td className="p-2">{c.name}</td>
-                  <td className="p-2 text-right">
+                <tr key={c.id} className="bam-row">
+                  <td className="bam-td">{c.name}</td>
+                  <td className="bam-td text-right">
                     {!assignedIds.has(c.id) && (
                       <button
-                        className={`text-blue-600 hover:underline ${T.body}`}
+                        className={`text-bam-cyan-700 hover:underline font-medium ${T.body}`}
                         onClick={() => assignMut.mutate(c.id)}
                         disabled={assignMut.isPending}
                         aria-label={`assign ${c.name}`}
@@ -92,7 +92,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
               ))}
               {allCuratorsQuery.data?.length === 0 && (
                 <tr>
-                  <td colSpan={2} className={`p-4 text-center text-slate-400 ${T.body}`}>No curators yet.</td>
+                  <td colSpan={2} className={`p-4 text-center text-ink-muted ${T.body}`}>No curators yet.</td>
                 </tr>
               )}
             </tbody>
@@ -101,21 +101,21 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
 
         {/* Right pane: doc's assigned curators */}
         <div className="flex-1">
-          <h2 className={`${T.tinyBold} mb-2`}>Assigned to this doc</h2>
+          <h2 className={`bam-title mb-2`}>Assigned to this doc</h2>
           <table className={`w-full ${T.body}`}>
             <thead>
-              <tr className="text-left border-b">
-                <th className="p-2">Name</th>
-                <th className="p-2" />
+              <tr>
+                <th className="bam-th">Name</th>
+                <th className="bam-th" />
               </tr>
             </thead>
             <tbody>
               {(docCuratorsQuery.data ?? []).map((c) => (
-                <tr key={c.id} className="border-b hover:bg-slate-50">
-                  <td className="p-2">{c.name}</td>
-                  <td className="p-2 text-right">
+                <tr key={c.id} className="bam-row">
+                  <td className="bam-td">{c.name}</td>
+                  <td className="bam-td text-right">
                     <button
-                      className={`text-red-600 hover:underline ${T.body}`}
+                      className={`text-bam-red hover:underline font-medium ${T.body}`}
                       onClick={() => unassignMut.mutate(c.id)}
                       disabled={unassignMut.isPending}
                       aria-label={`unassign ${c.name}`}
@@ -127,7 +127,7 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
               ))}
               {docCuratorsQuery.data?.length === 0 && (
                 <tr>
-                  <td colSpan={2} className={`p-4 text-center text-slate-400 ${T.body}`}>No curators assigned.</td>
+                  <td colSpan={2} className={`p-4 text-center text-ink-muted ${T.body}`}>No curators assigned.</td>
                 </tr>
               )}
             </tbody>

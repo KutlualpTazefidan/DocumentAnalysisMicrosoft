@@ -87,14 +87,14 @@ export function ActionProposalPanel({
       <div className="p-4 space-y-3 flex-1 overflow-y-auto">
         <div>
           <p className={T.tinyBold}>Schritt</p>
-          <p className={`text-white ${T.mono}`}>{stepKind}</p>
+          <p className={`text-ink ${T.mono}`}>{stepKind}</p>
         </div>
         {typeof payload.pre_reasoning === "string" && payload.pre_reasoning && (
-          <section className="rounded border border-amber-500/40 bg-amber-900/20 p-2">
-            <p className={`${T.tinyBold} text-amber-300`}>
+          <section className="rounded border border-amber-200 bg-amber-50 p-2">
+            <p className={`${T.tinyBold} text-amber-700`}>
               Vor-Reasoning · warum dieser Schritt jetzt
             </p>
-            <p className={`${T.body} text-amber-100 italic mt-1`}>
+            <p className={`${T.body} text-amber-900 italic mt-1`}>
               {String(payload.pre_reasoning)}
             </p>
           </section>
@@ -102,18 +102,18 @@ export function ActionProposalPanel({
         {typeof payload.tool_used === "string" && payload.tool_used && (
           <div>
             <p className={T.tinyBold}>Tool verwendet</p>
-            <p className={`text-emerald-300 ${T.mono}`}>
+            <p className={`text-emerald-700 ${T.mono}`}>
               {String(payload.tool_used)}
             </p>
           </div>
         )}
         {typeof payload.system_prompt_used === "string" &&
           payload.system_prompt_used && (
-            <details className="rounded bg-chrome2-900 border border-chrome2-500">
+            <details className="rounded bg-canvas border border-line">
               <summary className={`${T.tinyBold} cursor-pointer px-2 py-1.5`}>
                 Skill · System-Prompt (mit aktiven Erweiterungen)
               </summary>
-              <pre className="px-2 pb-2 text-[11px] text-slate-200 whitespace-pre-wrap break-words font-mono">
+              <pre className="px-2 pb-2 text-[11px] text-ink whitespace-pre-wrap break-words font-mono">
                 {String(payload.system_prompt_used)}
               </pre>
             </details>
@@ -121,7 +121,7 @@ export function ActionProposalPanel({
         {reasoning && (
           <div>
             <p className={T.tinyBold}>LLM-Begründung der Empfehlung</p>
-            <p className={`text-slate-200 ${T.body} whitespace-pre-wrap`}>
+            <p className={`text-ink ${T.body} whitespace-pre-wrap`}>
               {reasoning}
             </p>
           </div>
@@ -138,14 +138,14 @@ export function ActionProposalPanel({
                   <span
                     className={`shrink-0 px-1.5 py-0.5 rounded ${T.tiny} ${
                       g.kind === "approach"
-                        ? "bg-emerald-900/60 text-emerald-200"
-                        : "bg-amber-900/60 text-amber-200"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
                     }`}
                   >
                     {g.kind}
                   </span>
-                  <span className={`text-slate-200 ${T.tiny}`}>
-                    <span className={`${T.mono} text-slate-400`}>{g.id}</span>{" "}
+                  <span className={`text-ink ${T.tiny}`}>
+                    <span className={`${T.mono} text-ink-muted`}>{g.id}</span>{" "}
                     — {g.summary}
                   </span>
                 </li>
@@ -155,7 +155,7 @@ export function ActionProposalPanel({
         )}
 
         {decided && (
-          <p className={`${T.body} text-amber-300 italic pt-2 border-t border-chrome2-500`}>
+          <p className={`${T.body} text-amber-700 italic pt-2 border-t border-line`}>
             Dieser Vorschlag wurde bereits entschieden — Folge-Knoten zeigen
             das Ergebnis.
           </p>
@@ -163,7 +163,7 @@ export function ActionProposalPanel({
 
         {!decided && (
         <>
-        <div className="space-y-2 pt-2 border-t border-chrome2-500">
+        <div className="space-y-2 pt-2 border-t border-line">
           <label className="flex items-start gap-2">
             <input
               type="radio"
@@ -173,9 +173,9 @@ export function ActionProposalPanel({
               className="mt-0.5"
             />
             <div className="flex-1 min-w-0">
-              <p className={`text-white ${T.body}`}>Empfehlung übernehmen</p>
+              <p className={`text-ink ${T.body}`}>Empfehlung übernehmen</p>
               {recommended && (
-                <p className={`text-slate-300 ${T.tiny}`}>
+                <p className={`text-ink-muted ${T.tiny}`}>
                   {recommended.label}
                 </p>
               )}
@@ -194,7 +194,7 @@ export function ActionProposalPanel({
             <div className="flex-1 min-w-0">
               <p
                 className={`${T.body} ${
-                  alternatives.length === 0 ? "text-slate-500" : "text-white"
+                  alternatives.length === 0 ? "text-ink-muted" : "text-ink"
                 }`}
               >
                 Alternative wählen
@@ -203,7 +203,7 @@ export function ActionProposalPanel({
                 <select
                   value={altIndex}
                   onChange={(e) => setAltIndex(Number(e.target.value))}
-                  className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
+                  className={`mt-1 w-full px-2 py-1 rounded bg-white border border-line text-ink ${T.body}`}
                 >
                   {alternatives.map((a, idx) => (
                     <option key={idx} value={idx}>
@@ -227,13 +227,13 @@ export function ActionProposalPanel({
             <div className="flex-1 min-w-0">
               <p
                 className={`${T.body} ${
-                  overrideAllowed ? "text-white" : "text-slate-500"
+                  overrideAllowed ? "text-ink" : "text-ink-muted"
                 }`}
               >
                 Eigene Eingabe
               </p>
               {!overrideAllowed && (
-                <p className={`text-slate-500 ${T.tiny}`}>
+                <p className={`text-ink-muted ${T.tiny}`}>
                   Nicht erlaubt für Schritt &quot;search&quot;.
                 </p>
               )}
@@ -243,7 +243,7 @@ export function ActionProposalPanel({
                   onChange={(e) => setOverrideText(e.target.value)}
                   rows={4}
                   placeholder={overridePlaceholder(stepKind)}
-                  className={`mt-1 w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
+                  className={`mt-1 w-full px-2 py-1 rounded bg-white border border-line text-ink ${T.body}`}
                 />
               )}
             </div>
@@ -259,16 +259,16 @@ export function ActionProposalPanel({
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className={`w-full px-2 py-1 rounded bg-chrome2-900 border border-chrome2-500 text-white ${T.body}`}
+            className={`w-full px-2 py-1 rounded bg-white border border-line text-ink ${T.body}`}
           />
-          <p className={`text-slate-500 ${T.tiny} mt-1`}>
+          <p className={`text-ink-muted ${T.tiny} mt-1`}>
             Begründung hilft dem System, beim nächsten Mal besser zu empfehlen.
           </p>
         </div>
         </>
         )}
       </div>
-      <footer className="p-3 border-t border-chrome2-500 space-y-2">
+      <footer className="p-3 border-t border-line space-y-2">
         {!decided && (
           <>
             <button
@@ -290,7 +290,7 @@ export function ActionProposalPanel({
                 }
               }}
               disabled={del.isPending || decide.isPending}
-              className={`w-full px-3 py-2 rounded border border-red-700 text-red-300 hover:bg-red-900/30 ${T.body} disabled:opacity-50`}
+              className={`w-full px-3 py-2 rounded border border-bam-red text-bam-red hover:bg-red-50 ${T.body} disabled:opacity-50`}
             >
               {del.isPending ? "…" : "Vorschlag verwerfen"}
             </button>
@@ -310,14 +310,14 @@ export function ActionProposalPanel({
               }
             }}
             disabled={reflect.isPending}
-            className={`w-full px-3 py-2 rounded border border-violet-600 text-violet-200 hover:bg-violet-900/30 ${T.body} disabled:opacity-50`}
+            className={`w-full px-3 py-2 rounded border border-violet-500 text-violet-800 hover:bg-violet-50 ${T.body} disabled:opacity-50`}
             title="Selbst-Kritik anstoßen — prüfe ob ein Satz im Treffer übersehen wurde"
           >
             {reflect.isPending ? "Reflektiert…" : "🪞 Reflektieren"}
           </button>
         )}
         {(decide.error || del.error || reflect.error) && (
-          <p className={`text-red-400 ${T.tiny}`}>
+          <p className={`text-bam-red ${T.tiny}`}>
             {(decide.error ?? del.error ?? reflect.error)?.message}
           </p>
         )}
