@@ -381,7 +381,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
-    <div className="flex items-center justify-between px-4 bg-white border-b border-line flex-shrink-0">
+    <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-line flex-shrink-0">
       <DocStepTabs slug={slug!} />
       {actionButtons}
     </div>

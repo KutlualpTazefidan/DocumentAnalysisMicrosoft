@@ -337,7 +337,7 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {/* Top bar — same chrome as Extract / Synthesise. */}
-      <div className="px-4 bg-white flex-shrink-0">
+      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
         <DocStepTabs slug={slug} />
       </div>
 
