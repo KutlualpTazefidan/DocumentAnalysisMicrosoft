@@ -258,7 +258,11 @@ export async function listDocCurators(slug: string, token: string): Promise<Cura
   return r.json();
 }
 
-export async function assignCurator(slug: string, curatorId: string, token: string): Promise<CuratorRecord> {
+export async function assignCurator(
+  slug: string,
+  curatorId: string,
+  token: string,
+): Promise<{ slug: string; curator_id: string; assigned: boolean }> {
   const r = await apiFetch(`/api/admin/docs/${encodeURIComponent(slug)}/curators`, token, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

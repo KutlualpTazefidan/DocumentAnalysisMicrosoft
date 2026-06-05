@@ -36,9 +36,12 @@ export function DocCurators({ token: tokenProp }: Props = {}): JSX.Element {
 
   const assignMut = useMutation({
     mutationFn: (curatorId: string) => assignCurator(slug, curatorId, token),
-    onSuccess: (data) => {
+    // The assign response is {slug, curator_id, assigned} — no name. Resolve
+    // the display name from the already-loaded curator list via the mutated id.
+    onSuccess: (_data, curatorId) => {
       qc.invalidateQueries({ queryKey: ["doc-curators", slug] });
-      success(`Assigned "${data.name}"`);
+      const c = allCuratorsQuery.data?.find((x) => x.id === curatorId);
+      success(`Assigned "${c?.name ?? curatorId}"`);
     },
     onError: (err) => error(`assign failed: ${(err as Error).message}`),
   });
