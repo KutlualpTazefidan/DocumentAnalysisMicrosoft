@@ -86,7 +86,7 @@ await rec.step(page, `Datei auswählen — „${DEMO_BASENAME}“`, {
 // ── Step 3: New row details ────────────────────────────────────────────────
 const newRow = page.locator("tbody tr").filter({ hasText: DEMO_BASENAME });
 // Visual cue: outline so it pops in screenshot
-await newRow.evaluate(el => el.style.outline = "3px solid #1E7EB2");
+await newRow.evaluate(el => el.style.outline = "3px solid #00aff0");
 await rec.step(page, "Status der neuen Zeile prüfen — „Roh“, 0 Elemente, Aktion „starten“", {
   actions: [`locate row with "${DEMO_BASENAME}"`],
   notes: [

@@ -35,7 +35,7 @@ await page.waitForTimeout(1500);
 await rec.step(page, "Extrahieren-Seite: zwei Eintrittspunkte für Re-Extraktion", {
   actions: [`goto /admin/doc/${SLUG}/extract`],
   notes: [
-    "„Alle Seiten extrahieren“ (oben, blau) startet den Voll-Lauf über alle Seiten — gut für initiale Extraktion oder nach Schema-Updates.",
+    "„Alle Seiten extrahieren“ (oben, BAM-cyan) startet den Voll-Lauf über alle Seiten — gut für initiale Extraktion oder nach Schema-Updates.",
     "„Diese Seite extrahieren“ (rechts) wirkt nur auf die aktuell sichtbare Seite — schnell für Korrektur einzelner Seiten ohne den ganzen PDF neu zu jagen.",
     "Beide rufen denselben /segment-Endpoint, nur mit unterschiedlichem ?start=&end=-Range.",
   ],
@@ -59,7 +59,7 @@ await rec.step(page, "„Diese Seite extrahieren“ → Lauf startet", {
     "Typische Laufzeit für eine Seite: ~30-60s (DocLayout-YOLO + MinerU VLM pro Seite).",
   ],
   shots: [{ annotations: [
-    { kind: "note", text: "Stream-Events landen im Worker-Status-Indicator (oben rechts)" },
+    { kind: "note", text: "Stream-Events landen im Worker-Status-Indicator (unten links)" },
   ] }],
 });
 

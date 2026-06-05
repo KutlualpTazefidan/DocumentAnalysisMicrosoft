@@ -137,7 +137,7 @@ await rec.step(page, `AI-Vorschlag: ${proposal.payload?.name || "—"} (plan_pro
   notes: [
     "/next-step lässt den Planer den Kontext um den Anker zusammensuchen (Chunk-Text, vorhandene Claims, gesteckte Approaches), wählt eine ausführbare Aktion + begründet sie.",
     "Antwort = neuer plan_proposal Node mit payload.name (z.B. „extract_claims“, „formulate_task“, „search“) + reasoning + alt-Vorschlägen.",
-    "Im Canvas erscheint die Vorschlags-Tile als Kind des Anker-Chunks; UI zeigt sie hellblau mit dem Sparkles-Icon.",
+    "Im Canvas erscheint die Vorschlags-Tile als Kind des Anker-Chunks; UI zeigt sie amber (border-amber-500 / bg-amber-50) mit dem Sparkles-Icon.",
     `Konkrete AI-Wahl: ${proposal.payload?.name || "n/a"}`,
     `Begründung (gekürzt): „${(proposal.payload?.reasoning || "").slice(0,140)}…“`,
   ],

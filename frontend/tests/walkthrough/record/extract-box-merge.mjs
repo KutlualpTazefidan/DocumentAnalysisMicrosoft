@@ -66,14 +66,14 @@ if (boxA?.box_id) {
   await page.locator(`[data-testid="box-${boxA.box_id}"]`).click({ force: true });
   await page.waitForTimeout(500);
 }
-await rec.step(page, "Box A selektieren → „Merge down“ im Eigenschaften-Panel", {
+await rec.step(page, "Box A selektieren → „Verbinden ↓“ im Eigenschaften-Panel", {
   actions: [`click [data-testid="box-${boxA?.box_id}"]`],
   notes: [
-    "Eigenschaften-Panel zeigt jetzt „Merge down“ / „Merge up“ — abhängig davon, ob es eine nächste/vorherige Box im selben reading_order gibt.",
-    "Beim Klick auf „Merge down“ schickt der Frontend POST /segments/{id}/merge-down — der Server zieht die nächste Box rein und vereinigt die bboxes.",
+    "Eigenschaften-Panel zeigt jetzt „Verbinden ↓“ / „Verbinden ↑“ — abhängig davon, ob es eine nächste/vorherige Box im selben reading_order gibt.",
+    "Beim Klick auf „Verbinden ↓“ schickt der Frontend POST /segments/{id}/merge-down — der Server zieht die nächste Box rein und vereinigt die bboxes.",
   ],
   shots: [{ annotations: [
-    { kind: "note", text: "Panel-Buttons „Merge up / Merge down“ sichtbar" },
+    { kind: "note", text: "Panel-Buttons „Verbinden ↑ / Verbinden ↓“ sichtbar" },
   ] }],
 });
 

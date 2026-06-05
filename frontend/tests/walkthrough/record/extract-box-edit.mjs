@@ -62,7 +62,7 @@ if (TARGET_ID) {
 await rec.step(page, "Eigenschaften-Panel zeigt Typ + Aktiv-Status", {
   actions: [`click [data-testid="box-${TARGET_ID}"]`],
   notes: [
-    "Panel zeigt: Box-ID, Typ-Dropdown, manually-activated-Toggle, Merge-Up / Merge-Down, „Reset to YOLO“.",
+    "Panel zeigt: Box-ID, Typ-Dropdown, Aktiv/Deaktivieren, „Verbinden ↑“ / „Verbinden ↓“ (Trennen ↑ / ↓), „Zurücksetzen“.",
     "Außerdem ein Diagnose-Block mit dem Confidence-Score + Caption-Rescue-Events vom letzten Extract-Lauf.",
   ],
   shots: [{ annotations: [
