@@ -84,6 +84,7 @@ await page.evaluate(({ t, slug, pg }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "admin");
   sessionStorage.setItem("goldens.name", "probe");
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
   // Mount the Comparison route already on the target question's page so it
   // appears in the visible questionsOnPage list (useState(() => loadCurrentPage)).
   localStorage.setItem(`doc.currentPage.${slug}`, String(pg));

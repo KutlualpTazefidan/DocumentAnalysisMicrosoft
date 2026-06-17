@@ -60,6 +60,7 @@ function setSession(page, { token, role, name }) {
     sessionStorage.setItem("goldens.api_token", t);
     sessionStorage.setItem("goldens.role", r);
     sessionStorage.setItem("goldens.name", n);
+    sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
   }, { t: token, r: role, n: name });
 }
 

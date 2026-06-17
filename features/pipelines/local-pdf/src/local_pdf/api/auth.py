@@ -75,6 +75,10 @@ class AuthIdentity:
     curator_id: str | None
     user_id: str | None
     tenant_slug: str | None
+    # Tenant display name (Anzeigename); session path only, default None on
+    # the legacy token path. Lets the frontend show it without an extra
+    # admin-only tenants fetch (curators can't reach that endpoint).
+    tenant_name: str | None = None
 
 
 def lookup_token(data_root: Path, token: str, *, admin_token: str) -> AuthIdentity | None:
@@ -135,6 +139,7 @@ def lookup_session_cookie(data_root: Path, session_token: str) -> AuthIdentity |
                 curator_id=None,
                 user_id=user.user_id,
                 tenant_slug=tenant.slug,
+                tenant_name=tenant.name,
             )
     except Exception as exc:  # pragma: no cover — defensive only
         _log.warning("session lookup failed: %s", exc)

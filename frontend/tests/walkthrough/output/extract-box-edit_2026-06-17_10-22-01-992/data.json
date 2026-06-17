@@ -1,0 +1,107 @@
+{
+  "name": "extract-box-edit",
+  "startedAt": "2026-06-17T10:22:01.992Z",
+  "endedAt": "2026-06-17T10:22:13.100Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "PDF-Render mit Box-Overlay — Klick selektiert",
+      "startedAtMs": 1781691724946,
+      "endedAtMs": 1781691725079,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Box, die wir gleich bearbeiten",
+              "selector": "[data-testid=\"box-p1-b1\"]",
+              "box": {
+                "x": 272,
+                "y": 338,
+                "width": 193,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Jede MinerU-Box ist im PDF-Render als farbiger Rahmen sichtbar (Typ-Farbe aus Legende links).",
+        "Klick auf eine Box → Eigenschaften-Panel rechts wird gefüllt.",
+        "Verfügbare Edits: Typ-Wechsel (Dropdown), Aktivieren/Deaktivieren, Merge-Up / Merge-Down, Reset, Diagnose.",
+        "Test-Box: p1-b1 (Typ „paragraph“ auf Seite 1)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Eigenschaften-Panel zeigt Typ + Aktiv-Status",
+      "startedAtMs": 1781691725709,
+      "endedAtMs": 1781691725795,
+      "actions": [
+        "click [data-testid=\"box-p1-b1\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Panel rechts: Eigenschaften der gewählten Box"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Panel zeigt: Box-ID, Typ-Dropdown, Aktiv/Deaktivieren, „Verbinden ↑“ / „Verbinden ↓“ (Trennen ↑ / ↓), „Zurücksetzen“.",
+        "Außerdem ein Diagnose-Block mit dem Confidence-Score + Caption-Rescue-Events vom letzten Extract-Lauf."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Typ-Wechsel „paragraph“ → „heading“ + aktivieren",
+      "startedAtMs": 1781691730881,
+      "endedAtMs": 1781691730973,
+      "actions": [
+        "PUT /segments/p1-b1  body={kind:\"heading\", manually_activated:true}",
+        "page.reload() to fetch updated segments"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Box jetzt als „heading“ markiert",
+              "selector": "[data-testid=\"box-p1-b1\"]",
+              "box": {
+                "x": 272,
+                "y": 338,
+                "width": 193,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Server akzeptiert Teil-Updates (PUT mit nur den zu ändernden Feldern).",
+        "Border-Farbe der Box im PDF-Render wechselt auf die neue Typ-Farbe (siehe Legende links).",
+        "Die manually_activated-Flag persistiert, damit ein späterer Re-Extract-Lauf die User-Entscheidung nicht überschreibt."
+      ],
+      "status": "ok"
+    }
+  ]
+}

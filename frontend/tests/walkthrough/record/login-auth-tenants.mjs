@@ -144,6 +144,7 @@ try {
       sessionStorage.setItem("goldens.api_token", ""); // cookie-mode → empty token
       sessionStorage.setItem("goldens.role", id.role || "admin");
       sessionStorage.setItem("goldens.name", id.pseudonym || "probe");
+      sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
       if (id.tenant_slug) sessionStorage.setItem("goldens.tenant_slug", id.tenant_slug);
     }, ident);
     authed = true;

@@ -1,0 +1,123 @@
+{
+  "name": "synthese-box-select",
+  "startedAt": "2026-06-17T10:24:28.284Z",
+  "endedAt": "2026-06-17T10:24:34.120Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Seite 2 geöffnet — keine Box gewählt, Aktionen disabled",
+      "startedAtMs": 1781691871949,
+      "endedAtMs": 1781691872058,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/synthesise",
+        "navigate to page 2"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Disabled solange keine Auswahl",
+              "selector": "button[aria-label=\"Fragen für diese Box generieren\"]",
+              "box": {
+                "x": 1236,
+                "y": 334,
+                "width": 248,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "HTML-Vorschau (iframe links) zeigt den extrahierten Text der aktuellen Seite — jede MinerU-Box bekommt ein eigenes Element mit data-source-box=<box_id>.",
+        "Initial-State: kein highlight, mittleres Panel zeigt den Klicken-Hinweis, rechte „Ausgewählte Box“-Sektion ist leer, „Fragen für diese Box generieren“ ist disabled.",
+        "Selektion ist Voraussetzung für Box-spezifische Aktionen (Generate / Antworten / Remove-Duplicates auf Box-Ebene)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Box p2-b0 angeklickt → 5 Fragen erscheinen",
+      "startedAtMs": 1781691873040,
+      "endedAtMs": 1781691873112,
+      "actions": [
+        "click iframe [data-source-box=\"p2-b0\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Q&A-Liste für die aktive Box",
+              "selector": "[data-testid=\"synthesise-questions\"]",
+              "box": {
+                "x": 634,
+                "y": 100,
+                "width": 586,
+                "height": 850
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Box-Eigenschaften: p2-b0 · paragraph · 5 Fragen"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick-Event im iframe wird vom Document-Listener gefangen, t.closest('[data-source-box]') liest die box_id und sendet sie via onClickElement nach oben in die React-App.",
+        "Visueller Effekt im iframe: angeklicktes Element bekommt die is-highlighted-Klasse → blauer 2px-Outline + helles Hintergrundtint.",
+        "App-State: highlight=<box_id> → mittleres Panel rendert die questions-Liste der Box, rechtes Panel zeigt Box-Eigenschaften (Tag, Vorschau-Text, Q&A-Zähler).",
+        "Diese Box hat 5 bestehende Q&A-Pairs aus früheren Generate-Läufen."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Wechsel zu p2-b5 — leeres Q&A-Panel, Generate-CTA aktiv",
+      "startedAtMs": 1781691874051,
+      "endedAtMs": 1781691874120,
+      "actions": [
+        "click iframe [data-source-box=\"p2-b5\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Jetzt aktiv für die neue Box",
+              "selector": "button[aria-label=\"Fragen für diese Box generieren\"]",
+              "box": {
+                "x": 1236,
+                "y": 403,
+                "width": 248,
+                "height": 32
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Box-Eigenschaften: p2-b5 · paragraph · 0 Fragen"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Neue Auswahl löst dieselbe Sequenz aus: highlight-Klasse wandert, App-State setzt sich auf die neue box_id, Panels re-rendern.",
+        "Diese Box hat noch keine Q&A → mittleres Panel zeigt „0 Fragen“ + Hinweis-Karte; rechts ist „Fragen für diese Box generieren“ aktiv (Single-Click würde den Generate-Workflow auslösen — siehe synthese-generate).",
+        "Vorherige Auswahl ist im iframe entmarkiert (is-highlighted-Klasse entfernt) → immer nur eine aktive Box gleichzeitig."
+      ],
+      "status": "ok"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ const TOKEN_KEY = "goldens.api_token";
 const ROLE_KEY = "goldens.role";
 const NAME_KEY = "goldens.name";
 const TENANT_KEY = "goldens.tenant_slug";
+const TENANT_NAME_KEY = "goldens.tenant_name";
 
 export type Role = "admin" | "curator" | null;
 
@@ -16,6 +17,9 @@ export function useAuth() {
   const [tenantSlug, setTenantSlug] = useState<string | null>(
     sessionStorage.getItem(TENANT_KEY),
   );
+  const [tenantName, setTenantName] = useState<string | null>(
+    sessionStorage.getItem(TENANT_NAME_KEY),
+  );
 
   useEffect(() => {
     const fn = (): void => {
@@ -23,6 +27,7 @@ export function useAuth() {
       setRole(null);
       setName(null);
       setTenantSlug(null);
+      setTenantName(null);
     };
     window.addEventListener("goldens:logout", fn);
     return () => window.removeEventListener("goldens:logout", fn);
@@ -43,10 +48,14 @@ export function useAuth() {
         if (ident.tenant_slug) {
           sessionStorage.setItem(TENANT_KEY, ident.tenant_slug);
         }
+        if (ident.tenant_name) {
+          sessionStorage.setItem(TENANT_NAME_KEY, ident.tenant_name);
+        }
         setToken("");
         setRole(ident.role as Role);
         setName(ident.pseudonym);
         setTenantSlug(ident.tenant_slug);
+        setTenantName(ident.tenant_name);
       })
       .catch(() => {
         /* no active session → stay logged out */
@@ -58,16 +67,25 @@ export function useAuth() {
   }, []);
 
   const login = useCallback(
-    (t: string, r: Role, n: string, tenant?: string | null) => {
+    (
+      t: string,
+      r: Role,
+      n: string,
+      tenant?: string | null,
+      tenantNm?: string | null,
+    ) => {
       sessionStorage.setItem(TOKEN_KEY, t);
       sessionStorage.setItem(ROLE_KEY, r ?? "");
       sessionStorage.setItem(NAME_KEY, n);
       if (tenant) sessionStorage.setItem(TENANT_KEY, tenant);
       else sessionStorage.removeItem(TENANT_KEY);
+      if (tenantNm) sessionStorage.setItem(TENANT_NAME_KEY, tenantNm);
+      else sessionStorage.removeItem(TENANT_NAME_KEY);
       setToken(t);
       setRole(r);
       setName(n);
       setTenantSlug(tenant ?? null);
+      setTenantName(tenantNm ?? null);
     },
     [],
   );
@@ -80,12 +98,14 @@ export function useAuth() {
     sessionStorage.removeItem(ROLE_KEY);
     sessionStorage.removeItem(NAME_KEY);
     sessionStorage.removeItem(TENANT_KEY);
+    sessionStorage.removeItem(TENANT_NAME_KEY);
     setToken(null);
     setRole(null);
     setName(null);
     setTenantSlug(null);
+    setTenantName(null);
     window.dispatchEvent(new Event("goldens:logout"));
   }, []);
 
-  return { token, role, name, tenantSlug, login, logout };
+  return { token, role, name, tenantSlug, tenantName, login, logout };
 }

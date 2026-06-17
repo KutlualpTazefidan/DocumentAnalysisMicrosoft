@@ -6,8 +6,6 @@ import { ADMIN_THEME } from "./shared/ColorThemes";
 import { BamHeader } from "./BamHeader";
 import { IconRail, type RailItem } from "./IconRail";
 import { Inbox, Users, Cpu, BarChart3, Building2 } from "../shared/icons";
-import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "../admin/api/adminClient";
 
 const ADMIN_NAV: RailItem[] = [
   { to: "/admin/inbox", match: "/admin/inbox", label: "Dokumente", icon: Inbox },
@@ -18,21 +16,9 @@ const ADMIN_NAV: RailItem[] = [
 ];
 
 export function AdminShell() {
-  const { token, role, name, tenantSlug, logout } = useAuth();
+  const { token, role, name, tenantName, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  // Resolve the active Fachbereich's display name (Anzeigename) for the
-  // header; falls back to the slug until the lookup resolves.
-  const tenantsQuery = useQuery<{ tenants: { slug: string; name: string }[] }>({
-    queryKey: ["tenants"],
-    queryFn: async () => (await apiFetch("/api/admin/tenants", token ?? "")).json(),
-    enabled: role === "admin",
-    staleTime: 5 * 60 * 1000,
-  });
-  const tenantName =
-    tenantsQuery.data?.tenants.find((t) => t.slug === tenantSlug)?.name ??
-    tenantSlug ??
-    undefined;
   // Cookie-mode logins land here with token=='' and role='admin' — we
   // gate on role only so the cookie flow works. Legacy token-mode still
   // sets both, so it's also fine.

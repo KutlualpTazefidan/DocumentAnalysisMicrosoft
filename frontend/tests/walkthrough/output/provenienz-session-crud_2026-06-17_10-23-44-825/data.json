@@ -1,0 +1,130 @@
+{
+  "name": "provenienz-session-crud",
+  "startedAt": "2026-06-17T10:23:44.825Z",
+  "endedAt": "2026-06-17T10:23:55.339Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Provenienz geöffnet — 9 Sitzung(en) im Rail",
+      "startedAtMs": 1781691827580,
+      "endedAtMs": 1781691827942,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/provenienz"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "„Neu“ öffnet den ChunkPicker",
+              "selector": "button:has-text(\"Neu\")",
+              "box": {
+                "x": 623,
+                "y": 11,
+                "width": 200,
+                "height": 26
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Frischer Start: keine Sitzungen, kein Canvas-Inhalt, Inspector zeigt Platzhalter.",
+        "Eintrittspunkt für neue Sitzungen: „Neu“-Button oben im linken Rail.",
+        "Aus dem leeren Zustand ist „Neu“ die einzige sinnvolle Aktion (außer ViewToggle wechseln)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "„Neu“ → ChunkPicker-Dialog mit Live-Filter",
+      "startedAtMs": 1781691828980,
+      "endedAtMs": 1781691829069,
+      "actions": [
+        "click button \"Neu\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "ChunkPicker-Dialog offen, Such-Input fokussiert"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "ChunkPicker rendert alle Elemente des Dokuments als klickbare Liste mit Suchfeld.",
+        "Live-Filter matcht über Box-Inhalt (lowercased substring), auch Kind/Box-ID treffen.",
+        "Auswahl bestimmt root_chunk_id für die Sitzung — Wurzel des Reasoning-DAG.",
+        "Esc / Abbrechen schließt den Dialog ohne Sitzungs-Erstellung."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Sitzung angelegt — Rail zeigt jetzt 1 Eintrag, Canvas hat den Wurzel-Chunk",
+      "startedAtMs": 1781691832383,
+      "endedAtMs": 1781691832437,
+      "actions": [
+        "POST /sessions {slug, root_chunk_id:\"p2-b0\"}",
+        "(UI: Klick auf einen Chunk im Picker → identischer POST)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Neue Sitzung im Rail (01KVAHQK…)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Server vergibt session_id (ULID) und initialisiert die Sitzung mit genau einem Knoten — dem Wurzel-Chunk.",
+        "Linkes Rail bekommt sofort einen neuen Eintrag (react-query invalidiert die Sessions-Liste).",
+        "Canvas wechselt von leer zu „1 Chunk-Knoten“ + bietet im rechten Inspector die nächste Aktion an (z.B. /next-step für AI-Vorschlag).",
+        "Konkret: session_id=01KVAHQK777M…, root=p2-b0."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Sitzung gelöscht — Rail wieder leer (Audit-Trail bleibt im Event-Log)",
+      "startedAtMs": 1781691835289,
+      "endedAtMs": 1781691835339,
+      "actions": [
+        "DELETE /sessions/01KVAHQK777MFBF4WDCWF3KN34"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Rail wieder leer — Sitzung weg"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "UI-Pfad: „Sitzung löschen“-Button (aria-label) am Sitzungs-Eintrag im Rail; Bestätigungs-Dialog vor harter Aktion.",
+        "Server entfernt die Sitzungs-Datei (sidecar) — react-query refetched und das Rail räumt den Eintrag weg.",
+        "Audit-Trail im Event-Log bleibt erhalten (sessions/{id}/create + sessions/{id}/delete-Events)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

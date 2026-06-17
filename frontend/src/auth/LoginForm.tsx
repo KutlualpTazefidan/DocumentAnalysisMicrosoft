@@ -61,6 +61,7 @@ export function LoginForm({ legacyVisible = false, onSuccess }: Props): JSX.Elem
         ident.role as "admin" | "curator",
         ident.pseudonym,
         ident.tenant_slug,
+        ident.tenant_name,
       );
       localStorage.setItem(LAST_TENANT_KEY, tenantSlug.trim());
       onSuccess?.();

@@ -18,6 +18,8 @@ export interface IdentityResponse {
   pseudonym: string;
   tenant_slug: string | null;
   name: string;
+  /** Tenant display name (Anzeigename); null on the legacy token path. */
+  tenant_name: string | null;
 }
 
 export async function checkToken(token: string): Promise<CheckTokenResponse> {

@@ -1,0 +1,382 @@
+{
+  "name": "statistik-voting",
+  "startedAt": "2026-06-17T10:24:07.775Z",
+  "endedAt": "2026-06-17T10:24:27.402Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Synthese-Tab: generierte Fragen der Box — Voting-Buttons sichtbar",
+      "startedAtMs": 1781691852783,
+      "endedAtMs": 1781691852860,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/synthesise",
+        "navigate to page 2",
+        "click iframe [data-source-box=\"p2-b0\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Fragenliste der aktiven Box",
+              "selector": "[data-testid=\"synthesise-questions\"]",
+              "box": {
+                "x": 584,
+                "y": 100,
+                "width": 536,
+                "height": 800
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Einverstanden (grün)",
+              "selector": "[data-testid=\"question-83a96d20c2d4430e88cee02125a7f79f\"] button[aria-label=\"Einverstanden\"]",
+              "box": {
+                "x": 1046,
+                "y": 179,
+                "width": 22,
+                "height": 22
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Disqualifizieren (rot)",
+              "selector": "[data-testid=\"question-83a96d20c2d4430e88cee02125a7f79f\"] button[aria-label=\"Disqualifizieren\"]",
+              "box": {
+                "x": 1072,
+                "y": 179,
+                "width": 22,
+                "height": 22
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Voting ist Box-scoped: erst ein Element in der HTML-Vorschau (iframe links) anklicken, dann erscheinen im mittleren Panel (data-testid=synthesise-questions) die Fragen dieser Box.",
+        "Jede Fragenkarte trägt unten rechts zwei Icon-Buttons: grünes CheckCircle2 (aria-label „Einverstanden“) und rotes XCircle (aria-label „Disqualifizieren“).",
+        "Ungevotet = linker Rand transparent (border-l-transparent), keine Stimmen-Zeile. Der Vote schreibt Backend-State (POST …/questions/{id}/vote) und invalidiert sowohl die Fragenliste als auch den Synthese-Statistik-Cache."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Frage 1 „Einverstanden“ → smaragdgrüner Streifen + Stimmen-Zeile",
+      "startedAtMs": 1781691853799,
+      "endedAtMs": 1781691853868,
+      "actions": [
+        "click question-83a96d20c2d4430e88cee02125a7f79f → Einverstanden"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Smaragd-Streifen = approved",
+              "selector": "[data-testid=\"question-83a96d20c2d4430e88cee02125a7f79f\"]",
+              "box": {
+                "x": 600,
+                "y": 147,
+                "width": 503,
+                "height": 88
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Aktiv: emerald-700 / bg-emerald-50",
+              "selector": "[data-testid=\"question-83a96d20c2d4430e88cee02125a7f79f\"] button[aria-label=\"Einverstanden\"]",
+              "box": {
+                "x": 1046,
+                "y": 179,
+                "width": 22,
+                "height": 22
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf „Einverstanden“ setzt my_vote=approved. Sofort sichtbar: linker Kartenrand wird emerald-500 (3px), der Button selbst bekommt text-emerald-700 + bg-emerald-50 (aktiver Zustand).",
+        "Unter der Karte erscheint die Stimmen-Zeile „N ✓ · M ✗“ (approved_count / rejected_count über alle Reviewer).",
+        "Erneuter Klick würde revoken (toggle approved → revoked) — hier lassen wir die Zustimmung stehen."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Frage 2 „Disqualifizieren“ → roter Streifen + Stimmen-Zeile",
+      "startedAtMs": 1781691854792,
+      "endedAtMs": 1781691854859,
+      "actions": [
+        "click question-3fd59a84bad244509fa86442fa9daa15 → Disqualifizieren"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Roter Streifen = rejected",
+              "selector": "[data-testid=\"question-3fd59a84bad244509fa86442fa9daa15\"]",
+              "box": {
+                "x": 600,
+                "y": 243,
+                "width": 503,
+                "height": 88
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Aktiv: red-700 / bg-red-50",
+              "selector": "[data-testid=\"question-3fd59a84bad244509fa86442fa9daa15\"] button[aria-label=\"Disqualifizieren\"]",
+              "box": {
+                "x": 1072,
+                "y": 275,
+                "width": 22,
+                "height": 22
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Klick auf „Disqualifizieren“ setzt my_vote=rejected. Linker Rand wird red-500, der Button bekommt text-red-700 + bg-red-50.",
+        "Die Stimmen-Zeile zeigt jetzt für diese Frage die Rejected-Seite — Format bleibt „N ✓ · M ✗“.",
+        "Approve und Reject schließen sich aus: ein Klick auf den anderen Button würde umstimmen, ein Klick auf denselben revoken."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Statistik-Tab geöffnet — Sektionen Extrahieren · Synthese · Provenienz",
+      "startedAtMs": 1781691857238,
+      "endedAtMs": 1781691857297,
+      "actions": [
+        "click nav „Statistik\" (BarChart3)",
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/statistics"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Synthese-Statistik-Sektion",
+              "selector": "section:has(h2:has-text(\"Synthese\"))",
+              "box": {
+                "x": 64,
+                "y": 346,
+                "width": 1320,
+                "height": 550
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Statistik-Tab (BarChart3-Icon) liegt auf /admin/doc/{slug}/statistics. Die Seite rendert drei Sektionen mit navy-Überschriften (text-bam-navy): Extrahieren, Synthese, Provenienz.",
+        "Post-BAM-Reskin: heller Canvas (bg-white), dunkle Schrift (text-ink), Charts sitzen auf weißen Karten (kein dunkles Navy-Theme mehr).",
+        "Der Vote-Mutation invalidiert den Cache-Key [\"stats\",\"synthese\",slug] — die Synthese-Sektion spiegelt also die soeben abgegebenen Stimmen."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Synthese-Metrik: „Curator-Überleben“-Gauge (Fragen-Überlebensrate)",
+      "startedAtMs": 1781691857297,
+      "endedAtMs": 1781691857352,
+      "actions": [
+        "Synthese-Sektion: linke MetricGauge betrachten"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Curator-Überleben-Gauge",
+              "selector": "section:has(h2:has-text(\"Synthese\")) div:has-text(\"Curator-Überleben\")",
+              "box": {
+                "x": 64,
+                "y": 382,
+                "width": 1320,
+                "height": 514
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Linker Radial-Gauge (Recharts RadialBar) zeigt „Curator-Überleben“ = (questions_created − questions_deprecated) / questions_created — der Untertitel nennt genau diesen Bruch.",
+        "Füllfarbe wertabhängig: ≥70 % grün (success #006d00), 40–70 % cyan (accent #00aff0), <40 % rot (danger #d2001f); der Prozentwert steht unter dem Ring.",
+        "Misst, wie viele generierte Fragen NICHT deprecated wurden — hoher Wert = wenig Kurations-Ausschuss."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 5,
+      "title": "Synthese-Metrik: „Reviewer-Zustimmung“-Gauge (Zustimmungsrate)",
+      "startedAtMs": 1781691857352,
+      "endedAtMs": 1781691857418,
+      "actions": [
+        "Synthese-Sektion: rechte MetricGauge betrachten"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/06_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Reviewer-Zustimmung-Gauge",
+              "selector": "section:has(h2:has-text(\"Synthese\")) div:has-text(\"Reviewer-Zustimmung\")",
+              "box": {
+                "x": 64,
+                "y": 382,
+                "width": 1320,
+                "height": 514
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Rechter Gauge „Reviewer-Zustimmung“ = vote_approved / (vote_approved + vote_rejected); der Untertitel zeigt „approved / gesamt“.",
+        "Spiegelt die soeben abgegebenen Stimmen: ein Approve (Frage 1) und ein Reject (Frage 2) fließen in approved_count bzw. rejected_count ein.",
+        "Gleiche Farb-Schwellen wie Curator-Überleben (≥70 % grün, 40–70 % cyan, <40 % rot)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 6,
+      "title": "Synthese-Metrik: „Stimmen pro Frage (Top 20)“ — gestapelter Balken",
+      "startedAtMs": 1781691857937,
+      "endedAtMs": 1781691857991,
+      "actions": [
+        "scroll zu VoteDistributionBar"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/07_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "VoteDistributionBar (approved=grün / rejected=rot)",
+              "selector": "section:has(h2:has-text(\"Synthese\")):has-text(\"Stimmen pro Frage (Top 20)\")",
+              "box": {
+                "x": 64,
+                "y": 346,
+                "width": 1320,
+                "height": 550
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "VoteDistributionBar ist ein horizontaler Stacked-Bar (Recharts BarChart, layout=vertical). Eine Zeile pro Frage, sortiert nach Stimmenzahl, Top 20.",
+        "Grünes Segment = approved (palette.success #006d00), rotes Segment = rejected (palette.danger #d2001f); die Y-Achse zeigt text_short (gekürzter Fragetext, max 180px).",
+        "Höhe ist dynamisch (rows·28px, min 200) — die beiden eben gevoteten Fragen tauchen hier als Balkenzeilen auf. Tooltip beim Hover nennt die exakten Counts."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 7,
+      "title": "Post-BAM-Reskin: heller Canvas, navy Überschriften, cyane Akzente",
+      "startedAtMs": 1781691857991,
+      "endedAtMs": 1781691858047,
+      "actions": [
+        "Hintergründe + Schrift-Kontrast prüfen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/08_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Heller Statistik-Container, navy Headings",
+              "selector": "div.flex.flex-col.h-full:has(h2.text-bam-navy)",
+              "box": {
+                "x": 48,
+                "y": 48,
+                "width": 1352,
+                "height": 852
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der BAM-Reskin hat das Frontend von dunkel auf hell gedreht: Canvas weiß (bg-white), Fließtext dunkle Tinte (text-ink).",
+        "Sektions-Überschriften sind navy (text-bam-navy: Extrahieren / Synthese / Provenienz); Chart-Akzente nutzen BAM-Cyan #00aff0, Gauge/Bar-Hintergründe sind weiße Karten.",
+        "Kein „Blau-Variant“ und keine dunklen Flächen mehr — Charts und Text bleiben durchgehend auf hellem Grund lesbar."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 8,
+      "title": "Zurück im Synthese-Tab — Streifen + Stimmen-Zeilen bleiben erhalten",
+      "startedAtMs": 1781691867317,
+      "endedAtMs": 1781691867383,
+      "actions": [
+        "click nav „Synthese\"",
+        "re-select box p2-b0"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/09_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Frage 1 weiterhin approved (smaragd)",
+              "selector": "[data-testid=\"question-83a96d20c2d4430e88cee02125a7f79f\"]",
+              "box": {
+                "x": 600,
+                "y": 147,
+                "width": 503,
+                "height": 88
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Frage 2 weiterhin rejected (rot)",
+              "selector": "[data-testid=\"question-3fd59a84bad244509fa86442fa9daa15\"]",
+              "box": {
+                "x": 600,
+                "y": 243,
+                "width": 503,
+                "height": 88
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Vote-State ist Backend-State, nicht lokal: beim Re-Mount re-queryt die Fragenliste (/questions) inkl. frischem vote_summary.",
+        "Frage 1 trägt weiter den emerald-500-Streifen (approved), Frage 2 den red-500-Streifen (rejected) — identisch zum Stand vor dem Statistik-Abstecher.",
+        "Damit ist Voting ↔ Statistik konsistent: was hier gefärbt ist, ist dort gezählt."
+      ],
+      "status": "ok"
+    }
+  ]
+}

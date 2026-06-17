@@ -25,6 +25,7 @@ await page.evaluate(({ t }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "admin");
   sessionStorage.setItem("goldens.name", "probe");
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
 }, { t: TOKEN });
 
 // Find two adjacent paragraph boxes on the same page

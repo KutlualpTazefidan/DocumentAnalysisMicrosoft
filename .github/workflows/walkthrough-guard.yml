@@ -1,0 +1,31 @@
+name: walkthrough-guard
+
+# The walkthrough recordings can't run in CI (they drive a live GPU/ML
+# backend against a processed document). This guard instead catches the two
+# cheap-to-detect ways a record script silently rots: syntax/import errors
+# and selectors that no longer exist in the frontend source.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/tests/walkthrough/record/**"
+      - "frontend/tests/walkthrough/ci-guard.mjs"
+      - "frontend/src/**"
+  pull_request:
+    paths:
+      - "frontend/tests/walkthrough/record/**"
+      - "frontend/tests/walkthrough/ci-guard.mjs"
+      - "frontend/src/**"
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Walkthrough record-script guard
+        working-directory: frontend
+        run: node tests/walkthrough/ci-guard.mjs

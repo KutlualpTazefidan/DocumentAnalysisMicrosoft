@@ -13,7 +13,8 @@
     "e2e": "playwright test",
     "lint": "eslint src",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "wt:guard": "node tests/walkthrough/ci-guard.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

@@ -1,0 +1,118 @@
+{
+  "name": "provenienz-iterate",
+  "startedAt": "2026-06-17T10:40:30.624Z",
+  "endedAt": "2026-06-17T10:40:41.893Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Sitzung mit Wurzel-Chunk „p2-b0“ — Canvas zeigt nur den Anker",
+      "startedAtMs": 1781692833687,
+      "endedAtMs": 1781692833740,
+      "actions": [
+        "POST /sessions {slug, root_chunk_id:\"p2-b0\"}",
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/provenienz"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Session-ID: 01KVAJP4D526…"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Neue Sitzung wird mit genau einem Knoten initialisiert — dem Wurzel-Chunk (kind=chunk).",
+        "Linkes Rail: Sitzungs-Liste; Canvas mittig: Graph mit dem Chunk-Anker; rechtes Panel: Detail der ausgewählten Node.",
+        "Sitzung wird über /sessions angelegt; root_chunk_id verweist auf eine MinerU-Box-ID (z.B. p2-b0)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "AI-Vorschlag: Ungültige Step-Wahl (plan_proposal Node)",
+      "startedAtMs": 1781692840525,
+      "endedAtMs": 1781692840585,
+      "actions": [
+        "POST /sessions/01KVAJP4D526XQHZ77NMQ4ZBN8/next-step {anchor_node_id}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Proposal-Node: 01KVAJPB9VM7…"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "/next-step lässt den Planer den Kontext um den Anker zusammensuchen (Chunk-Text, vorhandene Claims, gesteckte Approaches), wählt eine ausführbare Aktion + begründet sie.",
+        "Antwort = neuer plan_proposal Node mit payload.name (z.B. „extract_claims“, „formulate_task“, „search“) + reasoning + alt-Vorschlägen.",
+        "Im Canvas erscheint die Vorschlags-Tile als Kind des Anker-Chunks; UI zeigt sie amber (border-amber-500 / bg-amber-50) mit dem Sparkles-Icon.",
+        "Konkrete AI-Wahl: Ungültige Step-Wahl",
+        "Begründung (gekürzt): „Der Chunk enthält mathematische Notationen und Definitionen, die als Konstrukt-Definitionen interpretiert werden können. Da es sich um eine …“"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "User liest Begründung + Alternativen im rechten Panel",
+      "startedAtMs": 1781692841786,
+      "endedAtMs": 1781692841843,
+      "actions": [
+        "click proposal node in canvas (UI flow)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Plan-Proposal-Panel zeigt Begründung + Alternativen + Apply-Button"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "PlanProposalPanel rendert: Schritt-Name, Begründung, Goal-Alignment, mögliche Alternativen, „Anwenden“-Button.",
+        "Der User entscheidet, ob er die AI-Empfehlung übernimmt, eine Alternative wählt oder komplett überschreibt.",
+        "Drei Entscheidungs-Pfade: recommended (AI-Wahl) · alt (Alternative aus dem Vorschlag) · override (eigene Aktion)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Kein anwendbarer Schritt (Ungültige Step-Wahl) — Apply übersprungen",
+      "startedAtMs": 1781692841843,
+      "endedAtMs": 1781692841890,
+      "actions": [
+        "/next-step → nicht-anwendbarer Vorschlag (z.B. manual_review)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1500,
+          "height": 950,
+          "annotations": []
+        }
+      ],
+      "notes": [
+        "Der Planer lieferte keinen ausführbaren plan_proposal (extract_claims / formulate_task / search), sondern eine „Ungültige Step-Wahl“ / manual_review-Antwort.",
+        "In diesem Zustand trifft „Anwenden“ keinen Step-Endpoint — der Apply-Schritt wird sauber übersprungen; Anker + Vorschlag-Anzeige bleiben aussagekräftig.",
+        "Planer-Modell-/Prompt-Qualität wird separat behandelt (Backend-Backlog)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

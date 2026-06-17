@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from local_pdf.api.auth import SESSION_COOKIE, lookup_token
 from local_pdf.auth.db import ensure_schema, open_auth_db
 from local_pdf.auth.sessions import create_session, revoke_session
+from local_pdf.auth.tenants import get_tenant_by_id
 from local_pdf.auth.users import (
     InactiveUserError,
     LoginLockedError,
@@ -57,6 +58,8 @@ class IdentityResponse(BaseModel):
     pseudonym: str
     tenant_slug: str | None
     name: str
+    # Tenant display name (Anzeigename); None on the legacy token path.
+    tenant_name: str | None = None
 
 
 class CheckTokenRequest(BaseModel):
@@ -94,6 +97,8 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Ide
             )
             session = create_session(conn, user_id=user.user_id)
             tenant_slug = body.tenant_slug
+            tenant_obj = get_tenant_by_id(conn, user.tenant_id)
+            tenant_name = tenant_obj.name if tenant_obj else None
     except LoginLockedError as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -123,6 +128,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Ide
         pseudonym=user.pseudonym,
         tenant_slug=tenant_slug,
         name=user.pseudonym,
+        tenant_name=tenant_name,
     )
 
 
@@ -164,6 +170,7 @@ async def me(request: Request) -> IdentityResponse:
         pseudonym=ident.pseudonym,
         tenant_slug=ident.tenant_slug,
         name=ident.name,
+        tenant_name=ident.tenant_name,
     )
 
 
