@@ -1,0 +1,141 @@
+{
+  "name": "doc-curators",
+  "startedAt": "2026-06-17T10:21:09.982Z",
+  "endedAt": "2026-06-17T10:21:13.721Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Kuratoren-Tab: zwei Spalten („All curators“ / „Assigned to this doc“)",
+      "startedAtMs": 1781691672033,
+      "endedAtMs": 1781691672698,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/curators"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Linke Spalte: alle Kuratoren",
+              "selector": "h2:has-text(\"All curators\")",
+              "box": {
+                "x": 72,
+                "y": 172,
+                "width": 636,
+                "height": 17
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Rechte Spalte: diesem Doc zugewiesen",
+              "selector": "h2:has-text(\"Assigned to this doc\")",
+              "box": {
+                "x": 740,
+                "y": 172,
+                "width": 636,
+                "height": 17
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "„+ assign“ für den Test-Kurator (Cyan)",
+              "selector": "[aria-label=\"assign probe-curator-1781691669952\"]",
+              "box": {
+                "x": 655,
+                "y": 273,
+                "width": 45,
+                "height": 18
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Pro Dokument lässt sich festlegen, welche Kuratoren daran arbeiten dürfen — diese Seite (Route /admin/doc/:slug/curators) verwaltet genau diese Zuordnung.",
+        "Oben läuft die DocStepTabs-Leiste (Dateien · Extrahieren · Synthese · Vergleich · Provenienz · Statistik) durch; für die Kuratoren-Route ist kein Tab aktiv — sie wird direkt per Route angesteuert.",
+        "Links „All curators“ (alle bekannten Kuratoren), rechts „Assigned to this doc“ (die diesem Doc zugewiesenen). Navy-Überschrift „Curators for doc: <slug>“ auf hellem BAM-Surface.",
+        "Test-Kurator „probe-curator-1781691669952“ wurde per API angelegt und erscheint links mit „+ assign“ (BAM-Cyan-Link)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "„+ assign“ geklickt → Kurator steht jetzt rechts unter „Assigned“",
+      "startedAtMs": 1781691673150,
+      "endedAtMs": 1781691673208,
+      "actions": [
+        "click [aria-label=\"assign probe-curator-1781691669952\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Jetzt zugewiesen → „× unassign“ (rot)",
+              "selector": "[aria-label=\"unassign probe-curator-1781691669952\"]",
+              "box": {
+                "x": 1310,
+                "y": 238,
+                "width": 58,
+                "height": 18
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Klick auf „+ assign“ schickt POST /api/admin/docs/<slug>/curators mit { curator_id } — der Server verknüpft Kurator und Dokument.",
+        "Nach Erfolg invalidiert React Query die „doc-curators“-Query und zeigt eine Toast-Bestätigung („Assigned …“).",
+        "Der Kurator wandert in die rechte Spalte; links wird sein „+ assign“ ausgeblendet (assignedIds-Set blendet bereits zugewiesene aus — keine Doppel-Zuweisung möglich).",
+        "Rechts erscheint stattdessen „× unassign“ in BAM-Rot zum Wieder-Entfernen."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "„× unassign“ geklickt → Zuordnung gelöst, Ausgangszustand",
+      "startedAtMs": 1781691673676,
+      "endedAtMs": 1781691673721,
+      "actions": [
+        "click [aria-label=\"unassign probe-curator-1781691669952\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Wieder „+ assign“ — Zuordnung gelöst",
+              "selector": "[aria-label=\"assign probe-curator-1781691669952\"]",
+              "box": {
+                "x": 655,
+                "y": 273,
+                "width": 45,
+                "height": 18
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Rechte Spalte: „No curators assigned.“ (Ausgangszustand)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„× unassign“ schickt DELETE /api/admin/docs/<slug>/curators/<curator_id> — direkt, ohne Bestätigungsdialog.",
+        "Die rechte Spalte fällt auf „No curators assigned.“ zurück; links taucht „+ assign“ für den Kurator wieder auf — Zustand wie vor der Zuweisung.",
+        "Zuweisen und Entfernen sind reine Verknüpfungs-Operationen: der Kurator-Datensatz selbst bleibt unter „All curators“ erhalten."
+      ],
+      "status": "ok"
+    }
+  ]
+}

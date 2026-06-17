@@ -1,0 +1,490 @@
+{
+  "name": "vergleich-microsoft-search",
+  "startedAt": "2026-06-17T10:28:08.395Z",
+  "endedAt": "2026-06-17T10:28:51.137Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Vergleich-Tab: Vier-Pane-Layout (Fragen · Detail · Pipeline · Steuerung)",
+      "startedAtMs": 1781692090988,
+      "endedAtMs": 1781692091106,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/compare"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Fragen-Liste (Seite)",
+              "selector": "[data-testid=\"compare-left\"]",
+              "box": {
+                "x": 48,
+                "y": 100,
+                "width": 300,
+                "height": 800
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Pipeline-Runner",
+              "selector": "[data-testid=\"compare-middle\"]",
+              "box": {
+                "x": 680,
+                "y": 100,
+                "width": 440,
+                "height": 800
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Steuerleiste (Pipeline + Quellen)",
+              "selector": "[data-testid=\"compare-sidebar\"]",
+              "box": {
+                "x": 1120,
+                "y": 100,
+                "width": 280,
+                "height": 800
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Vier Spalten: links die Fragen dieser Seite (300px), daneben Detail + „Ähnliche Fragen“ (flexibel), dann der Pipeline-Runner (440px), rechts die Steuerleiste (280px) mit Seiten-Navigation, Pipeline-Auswahl und Microsoft-Wissensquellen.",
+        "Helle BAM-Oberflächen nach dem Re-Skin; aktive Akzente in BAM-Cyan (#00aff0), die Referenz-Antwort-Karte in Emerald, die Vergleichen-CTA in Emerald.",
+        "Rechts ist „microsoft“ als Pipeline vorgewählt — deshalb zeigt die Steuerleiste das Wissensquellen-Panel."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Frage links wählen → Detail + Referenz-Antwort + ähnliche Fragen laden",
+      "startedAtMs": 1781692091948,
+      "endedAtMs": 1781692092029,
+      "actions": [
+        "click [data-testid=\"compare-question-da0c4fa8ab9c4bf2840872fbdb6a0b7b\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Gewählte (kuratierte) Frage",
+              "selector": "[data-testid=\"compare-question-da0c4fa8ab9c4bf2840872fbdb6a0b7b\"]",
+              "box": {
+                "x": 48,
+                "y": 135,
+                "width": 299,
+                "height": 90
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Detail + Referenz + ähnliche Fragen",
+              "selector": "[data-testid=\"compare-detail\"]",
+              "box": {
+                "x": 348,
+                "y": 100,
+                "width": 332,
+                "height": 800
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die gewählte Frage bekommt links den BAM-Cyan-Akzentstreifen (border-l-4 border-l-bam-cyan).",
+        "Im Detail-Pane erscheinen: „Ausgewählte Frage“-Karte, die lokale Referenz-Antwort (Emerald-Karte) und darunter „Ähnliche Fragen im Dokument“.",
+        "Ähnliche Fragen laden via GET /api/admin/docs/{slug}/questions/{entry_id}/similar?k=5 — BM25 (+ Cosine, falls Embedder konfiguriert).",
+        "Nur eine Frage MIT Referenz-Antwort kann am Ende verglichen werden — die Vergleichen-CTA bleibt sonst deaktiviert."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Microsoft-Wissensquelle wählen (rechts) — bevorzugt „indexed“",
+      "startedAtMs": 1781692092675,
+      "endedAtMs": 1781692092765,
+      "actions": [
+        "click [data-testid=\"ms-source-push-semantic-chunking-1\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Gewählte Microsoft-Quelle",
+              "selector": "[data-testid=\"ms-source-push-semantic-chunking-1\"]",
+              "box": {
+                "x": 1145,
+                "y": 345,
+                "width": 230,
+                "height": 19
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Upload (hier nicht ausgelöst)",
+              "selector": "[data-testid=\"ms-upload\"]",
+              "box": {
+                "x": 1136,
+                "y": 509,
+                "width": 248,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Jeder Quellen-Eintrag zeigt Dateinamen, Seitenzahl und einen State-Chip: neu / 1·4 / 2·4 / 3·4 / ✓ (indexed) / ✗.",
+        "Nur eine „✓ indexed“-Quelle ist sofort durchsuchbar — frisch hochgeladene PDFs durchlaufen erst Azure-Analyse + Embeddings + Indexierung (5–15 min), deshalb nehmen wir hier eine vorindexierte Quelle.",
+        "Gewählte Quelle bekommt den BAM-Cyan-Rahmen + rowsel-Hintergrund; der „🔍 Suchen“-Button ist erst jetzt (Frage + Quelle gewählt) aktiv.",
+        "▲ PDF hochladen würde eine neue Quelle anlegen — kostenpflichtige Azure-Schritte, daher mit Bestätigungsdialog. Hier nicht ausgelöst, um den Doku-Stand sauber zu halten."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Pipeline = microsoft, Frage + Quelle gesetzt → „🔍 Suchen“ aktiv",
+      "startedAtMs": 1781692092765,
+      "endedAtMs": 1781692092839,
+      "actions": [
+        "inspect [data-testid=\"compare-pipeline-select\"]",
+        "inspect [data-testid=\"compare-search\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Pipeline = microsoft",
+              "selector": "[data-testid=\"compare-pipeline-select\"]",
+              "box": {
+                "x": 1136,
+                "y": 266,
+                "width": 248,
+                "height": 30
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "🔍 Suchen (aktiv)",
+              "selector": "[data-testid=\"compare-search\"]",
+              "box": {
+                "x": 1020,
+                "y": 116,
+                "width": 83,
+                "height": 30
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Pipeline-Selektor (rechts) steht auf „microsoft“. Ein Wechsel würde searchChunks / answerText / compareResult zurücksetzen — sauberer Neustart pro Pipeline.",
+        "Der Pipeline-Runner zeigt die Frage und die Referenz-Antwort als Read-only-Karte zur Orientierung während des Laufs.",
+        "„🔍 Suchen“ ist deaktiviert (bg-slate-300), solange keine Frage gewählt ist, die Suche läuft, oder bei microsoft keine Quelle gewählt ist — jetzt ist es aktiv."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "„🔍 Suchen“ klicken → Chunks aus der Microsoft-Quelle",
+      "startedAtMs": 1781692094463,
+      "endedAtMs": 1781692094546,
+      "actions": [
+        "click [data-testid=\"compare-search\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Chunk-Auswahl (alle vorab an)",
+              "selector": "[data-testid^=\"chunk-checkbox-\"]",
+              "box": {
+                "x": 718,
+                "y": 330,
+                "width": 13,
+                "height": 13
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Section-Kopf zählt: „{N} Chunk(s) · {N} ausgewählt“"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "POST /api/admin/pipelines/microsoft/search mit {question, source, top_k: 5} — Azure AI Search liefert die Chunks.",
+        "Jeder Chunk wird zur auswählbaren, aufklappbaren Karte: Checkbox + Titel/chunk_id + „Treffer {score}“ (Retrieval-Score von Azure) + Aufklapp-Pfeil. Beim Suchen sind alle Chunks angehakt.",
+        "Toast: „{N} Chunks von microsoft“. Parallel scored compare-bulk jeden Chunk gegen den lokalen Quell-Box-Text (boxRelevance) — best-effort, ohne UI-Block.",
+        "Die Analyse-Bars bleiben zunächst verborgen (showChunkAnalytics=false) und erscheinen erst nach „Vergleichen“."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 5,
+      "title": "Chunks aufklappen + einen abwählen → Zähler aktualisiert live",
+      "startedAtMs": 1781692095454,
+      "endedAtMs": 1781692095537,
+      "actions": [
+        "click [data-testid^=\"chunk-toggle-\"] (erste zwei)",
+        "click [data-testid^=\"chunk-checkbox-\"] (letzte → abwählen)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/06_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "„Keine“ — Batch-Abwahl",
+              "selector": "[data-testid=\"chunks-select-none\"]",
+              "box": {
+                "x": 1062,
+                "y": 155,
+                "width": 28,
+                "height": 17
+              }
+            },
+            {
+              "kind": "note",
+              "text": "„{N} ausgewählt“ sinkt nach dem Abwählen"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Aufklappen ist lokaler State (setOpen) — der volle Chunk-Text wird sichtbar; in zu der Antwort beitragenden Karten kommen später Analyse-Bars hinzu.",
+        "Abhaken eines Chunks aktualisiert sofort den „{count} ausgewählt“-Zähler im Section-Kopf; nur angehakte Chunks gehen in die Antwort.",
+        "Bei mehr als einem Chunk erscheinen „Alle“ / „Keine“ (chunks-select-all / chunks-select-none) für Batch-Auswahl."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 6,
+      "title": "„💬 Antwort generieren“ → LLM-Antwort aus gewählten Chunks",
+      "startedAtMs": 1781692098072,
+      "endedAtMs": 1781692098155,
+      "actions": [
+        "click [data-testid=\"compare-answer\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/07_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Antwort generieren / Nochmal antworten",
+              "selector": "[data-testid=\"compare-answer\"]",
+              "box": {
+                "x": 696,
+                "y": 812,
+                "width": 205,
+                "height": 30
+              }
+            },
+            {
+              "kind": "note",
+              "text": "microsoft — Antwort (weiße Karte) unter den Chunks"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Button-Text: „💬 Antwort generieren ({N} Chunks)“ — deaktiviert, wenn kein Chunk angehakt ist; nach erfolgreichem Lauf „↻ Nochmal antworten“.",
+        "POST /api/admin/pipelines/microsoft/answer mit {question, chunks} — die Antwort erscheint als weiße Karte unter den Chunks. Toast: „Antwort generiert ({N} Chunks verwendet)“.",
+        "Anschließend scored compare-bulk jeden gewählten Chunk gegen die neue Antwort (chunkRelevance) → speist die „Beitrag zur Antwort“-Bars."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 7,
+      "title": "„▶ Vergleichen“ → Ähnlichkeit Referenz ↔ microsoft (BM25 / Cosine)",
+      "startedAtMs": 1781692130160,
+      "endedAtMs": 1781692130263,
+      "actions": [
+        "click [data-testid=\"compare-compare\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/08_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "▶ Vergleichen",
+              "selector": "[data-testid=\"compare-compare\"]",
+              "box": {
+                "x": 696,
+                "y": 854,
+                "width": 99,
+                "height": 30
+              }
+            },
+            {
+              "kind": "note",
+              "text": "ScoreBars: Sinngleichheit (Cosine) + Wortlaut (BM25)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Nur aktiv, wenn Antwort UND Referenz-Antwort existieren (sonst grau).",
+        "POST /api/admin/compare mit {reference, candidate} → {bm25, cosine, embedder}.",
+        "Die Ergebnis-Karte „Ähnlichkeit Referenz ↔ microsoft“ zeigt zwei ScoreBars: „Sinngleichheit (Cosine)“ und „Wortlaut (BM25)“. Bar-Farbe: ≥ 0.8 Emerald, ≥ 0.5 Amber, < 0.5 Rot.",
+        "Ohne Azure-Embeddings steht Cosine = 0 mit Hinweis „Cosine = 0 weil Azure-Embeddings nicht konfiguriert sind“.",
+        "Der Klick setzt showChunkAnalytics=true → die Per-Chunk-Analyse-Bars werden eingeblendet (siehe nächster Schritt)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 8,
+      "title": "Per-Chunk-Metriken nach „Vergleichen“: Vs lokaler Chunk + Beitrag zur Antwort",
+      "startedAtMs": 1781692130263,
+      "endedAtMs": 1781692130369,
+      "actions": [
+        "inspect [data-testid^=\"chunk-toggle-\"] (erste, weiterhin aufgeklappte Karte)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/09_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Aufgeklappter Chunk mit Analyse-Bars",
+              "selector": "[data-testid^=\"chunk-toggle-\"]",
+              "box": {
+                "x": 739,
+                "y": 186,
+                "width": 342,
+                "height": 17
+              }
+            },
+            {
+              "kind": "note",
+              "text": "Vs lokaler Chunk · Beitrag zur Antwort · Längen-Verhältnis"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Analyse-Bars rendern nur, wenn showChunkAnalytics=true UND der Chunk angehakt ist UND boxRelevance vorliegt.",
+        "„Vs lokaler Chunk“: BM25 (+ Cosine, falls Embedder) des MS-Chunks gegen den lokalen Quell-Box-Text.",
+        "„Beitrag zur Antwort“: BM25 (+ Cosine) des Chunks gegen die generierte Antwort.",
+        "Längen-Bars vergleichen MS-Chunk-Länge (blau) mit lokaler Box-Länge (emerald): „2.5× MS“ / „1.3× lokal“ / „≈ gleich“. Einen Chunk abwählen blendet seine Analyse aus (Cache, kein Re-Fetch)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 9,
+      "title": "„Ähnliche Fragen im Dokument“ — gerankte Treffer im Detail-Pane",
+      "startedAtMs": 1781692130369,
+      "endedAtMs": 1781692130455,
+      "actions": [
+        "inspect [data-testid^=\"similar-card-\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/10_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Ähnliche-Fragen-Karte (Rang + Scores + Chunk)",
+              "selector": "[data-testid^=\"similar-card-\"]",
+              "box": {
+                "x": 364,
+                "y": 355,
+                "width": 299,
+                "height": 168
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Geladen aus GET /api/admin/docs/{slug}/questions/{entry_id}/similar?k=5.",
+        "Jede Karte: Rang-Ribbon (#1, #2 …), links Frage-Text + box_id + BM25/Cosine-ScoreBars, rechts ein Chunk-Auszug aus der Quell-Box jener Frage.",
+        "Ribbon-Farbe nach kombiniertem Score (0.4·BM25 + 0.6·Cosine bei Embedder, sonst BM25): ≥ 0.7 Emerald, ≥ 0.4 Amber, < 0.4 Slate.",
+        "Hilft, verwandte Q&A anderswo im Dokument zu finden, die den aktuellen Vergleich informieren können."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 10,
+      "title": "Seiten-Navigation + Sperren in der Steuerleiste",
+      "startedAtMs": 1781692130999,
+      "endedAtMs": 1781692131097,
+      "actions": [
+        "click [data-testid=\"compare-page-grid-toggle\"]",
+        "(verfügbar: compare-page-prev / compare-page-next / compare-page-btn-{p} / compare-page-lock)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/11_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Seiten-Raster (offen)",
+              "selector": "[data-testid=\"compare-page-grid-toggle\"]",
+              "box": {
+                "x": 1170,
+                "y": 141,
+                "width": 180,
+                "height": 36
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "🔒 Diese Seite sperren",
+              "selector": "[data-testid=\"compare-page-lock\"]",
+              "box": {
+                "x": 1136,
+                "y": 285,
+                "width": 248,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "◀ / ▶ (compare-page-prev / -next) blättern; der mittlere Button öffnet das Seiten-Raster (compare-page-grid-toggle).",
+        "Im Raster: rote Buttons = keine Fragen, grüne = mit Fragen; die aktive Seite trägt einen BAM-Cyan-Ring. compare-page-btn-{p} springt direkt zu Seite p.",
+        "Seitenwechsel setzt selectedEntry, searchChunks, answerText, compareResult und die Analyse zurück — sauberer Start je Seite (kein Reload nötig, alles client-seitig).",
+        "compare-page-lock schaltet die Freigabe der aktuellen Seite um: „🔒 Diese Seite sperren“ ↔ „🔓 Diese Seite entsperren“ (gesperrt = BAM-Cyan-Rahmen + rowsel). Gleicher localStorage-Key wie Extract/Synthese."
+      ],
+      "status": "ok"
+    }
+  ]
+}

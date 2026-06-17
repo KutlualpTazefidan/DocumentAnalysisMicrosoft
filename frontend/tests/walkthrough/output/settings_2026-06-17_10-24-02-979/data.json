@@ -1,0 +1,175 @@
+{
+  "name": "settings",
+  "startedAt": "2026-06-17T10:24:02.979Z",
+  "endedAt": "2026-06-17T10:24:06.863Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Einstellungen: Konto-Übersicht (Pseudonym · Rolle · Fachbereich)",
+      "startedAtMs": 1781691845029,
+      "endedAtMs": 1781691845113,
+      "actions": [
+        "goto /admin/settings"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Seitentitel „Einstellungen“",
+              "selector": "h1:has-text(\"Einstellungen\")",
+              "box": {
+                "x": 72,
+                "y": 72,
+                "width": 624,
+                "height": 24
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Konto-Card: Pseudonym · Rolle · Fachbereich",
+              "selector": "h2:has-text(\"Konto\")",
+              "box": {
+                "x": 73,
+                "y": 139,
+                "width": 622,
+                "height": 38
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die Einstellungen-Seite zeigt das Konto für den aktiven Fachbereich: Pseudonym (hier „probe“), Rolle (Administrator → Cyan-Pill) und Fachbereich („default“).",
+        "Erreichbar über das Rollen-Pill oben rechts → „Einstellungen“, oder direkt per Route /admin/settings.",
+        "BAM-Reskin: helle Card-Fläche, Cyan-Akzent-Pill für die Rolle, der Fachbereich als Monospace-Slug."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Read-only: Benutzername & Passwort sind admin-verwaltet",
+      "startedAtMs": 1781691845113,
+      "endedAtMs": 1781691845163,
+      "actions": [
+        "read account info"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Read-only-Hinweis (keine Selbstverwaltung)",
+              "selector": "p:has-text(\"zentral von der Administration verwaltet\")",
+              "box": {
+                "x": 115,
+                "y": 339,
+                "width": 564,
+                "height": 36
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Einzige Aktion: Abmelden",
+              "selector": "button:has-text(\"Abmelden\")",
+              "box": {
+                "x": 72,
+                "y": 412,
+                "width": 87,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Bewusst keine Edit-Controls: kein Passwort-ändern, kein Benutzername-Feld. Der Info-Hinweis sagt es explizit — Login-Daten werden zentral von der Administration verwaltet und sind hier nicht änderbar.",
+        "Das ist Policy, kein fehlendes Feature: Self-Service-Auth gibt es in diesem Tool nicht.",
+        "Die einzige Aktion auf dieser Seite ist „Abmelden“ (rote btn-danger ganz unten)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Rollen-Pill (Header) → Menü „Einstellungen / Abmelden“",
+      "startedAtMs": 1781691845623,
+      "endedAtMs": 1781691845657,
+      "actions": [
+        "click [aria-label*=\"Menü öffnen\"] (Rollen-Pill rechts oben)"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Dropdown: „Einstellungen“ + „Abmelden“ (gleicher Logout-Pfad)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Das Cyan-Rollen-Pill rechts oben ist klickbar und öffnet ein Dropdown mit „Einstellungen“ und „Abmelden“ — derselbe Logout wie der Button auf der Seite.",
+        "Links daneben der Fachbereichs-Badge („default“) und das Glocken-Icon (Benachrichtigungen).",
+        "Wir schließen das Menü gleich wieder und melden uns über den Seiten-Button ab."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Abmelden → Login-Seite (Session verworfen)",
+      "startedAtMs": 1781691846807,
+      "endedAtMs": 1781691846863,
+      "actions": [
+        "click button:has-text(\"Abmelden\")",
+        "redirect → /login"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "GOLDENS-Login-Lockup",
+              "selector": "h1:has-text(\"Goldens\")",
+              "box": {
+                "x": 644,
+                "y": 251,
+                "width": 112,
+                "height": 28
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Anmelde-Button — wieder ausgeloggt",
+              "selector": "button:has-text(\"Einloggen\")",
+              "box": {
+                "x": 540,
+                "y": 601,
+                "width": 320,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„Abmelden“ leert die Session (sessionStorage-Keys goldens.api_token/role/name/tenant_slug) und widerruft best-effort die Server-Cookie-Session — dann Redirect auf /login.",
+        "Die Login-Seite zeigt die GOLDENS-Lockup (BAM-Logo + Wortmarke), das Anmeldeformular (Fachbereich · Benutzername · Passwort) und den Test-Umgebungs-Warnhinweis.",
+        "Ab hier ist man ausgeloggt: jeder Aufruf von /admin/* leitet zurück auf /login (Rollen-Gate im AdminShell)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

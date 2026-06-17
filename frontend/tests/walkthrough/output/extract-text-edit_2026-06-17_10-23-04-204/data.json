@@ -1,0 +1,117 @@
+{
+  "name": "extract-text-edit",
+  "startedAt": "2026-06-17T10:23:04.204Z",
+  "endedAt": "2026-06-17T10:23:12.842Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "HTML-Editor: pro MinerU-Element ein editierbares Shadow-DOM-Element",
+      "startedAtMs": 1781691787170,
+      "endedAtMs": 1781691787280,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract",
+        "locate first [data-source-box] → p1-b0"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Ziel-Element für die Bearbeitung",
+              "selector": "[data-source-box=\"p1-b0\"]",
+              "box": {
+                "x": 724,
+                "y": 214,
+                "width": 364,
+                "height": 114
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der HTML-Editor lebt komplett im Shadow-DOM — schützt die App vor CSS-Konflikten mit dem extrahierten Inhalt.",
+        "Jedes MinerU-Element trägt data-source-box=<box_id> und ist eigenständig anklickbar.",
+        "Doppelklick-Schema: erster Klick selektiert (das Pendant im PDF-Render blinkt auf), zweiter Klick innerhalb ~800 ms macht das Element contentEditable."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Doppelklick → contentEditable → „[BEARBEITUNGSMARKE]“ tippen → Blur speichert",
+      "startedAtMs": 1781691789079,
+      "endedAtMs": 1781691789162,
+      "actions": [
+        "click [data-source-box=\"p1-b0\"]  (×2 within ~500ms)",
+        "type \" [BEARBEITUNGSMARKE]\"",
+        "blur to trigger PATCH /elements/{box_id}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Marker „[BEARBEITUNGSMARKE]“ am Ende sichtbar",
+              "selector": "[data-source-box=\"p1-b0\"]",
+              "box": {
+                "x": 724,
+                "y": 203,
+                "width": 364,
+                "height": 3190
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Editor merkt sich beim Einstieg den OuterHTML-Snapshot als Original. Beim Blur wird der neue OuterHTML mit dem Original verglichen — nur bei Unterschied wird PATCH abgesetzt.",
+        "Speicher-Endpoint: PATCH /api/admin/docs/{slug}/elements/{box_id} mit body {html_snippet}.",
+        "Server re-rendert LaTeX in der neuen HTML, schreibt mineru-out.json + html.html und invalidiert die react-query-Caches für html + mineru."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Reload bestätigt: Marker im Server-HTML",
+      "startedAtMs": 1781691792734,
+      "endedAtMs": 1781691792832,
+      "actions": [
+        "page.reload()",
+        "count \"text=[BEARBEITUNGSMARKE]\" via locator"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Marker persistiert ✓",
+              "selector": "[data-source-box=\"p1-b0\"]",
+              "box": {
+                "x": 724,
+                "y": 189,
+                "width": 364,
+                "height": 3190
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Nach Reload findet sich der Marker wieder im Editor — PATCH lief sauber durch, html.html + mineru-out.json sind aktualisiert.",
+        "Locator-Hits für „[BEARBEITUNGSMARKE]“: 1",
+        "Geänderter Text landet im sourceelements.json beim nächsten Export-Klick (POST /export liest html.html als Quelle)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

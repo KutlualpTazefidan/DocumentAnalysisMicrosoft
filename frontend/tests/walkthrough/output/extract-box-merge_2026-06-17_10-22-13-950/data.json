@@ -1,0 +1,118 @@
+{
+  "name": "extract-box-merge",
+  "startedAt": "2026-06-17T10:22:13.950Z",
+  "endedAt": "2026-06-17T10:22:20.792Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Zwei benachbarte Boxen — Kandidaten für Merge",
+      "startedAtMs": 1781691736888,
+      "endedAtMs": 1781691737027,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Erste Box (Merge-Anker)",
+              "selector": "[data-testid=\"box-p1-b1\"]",
+              "box": {
+                "x": 272,
+                "y": 338,
+                "width": 193,
+                "height": 32
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Zweite Box (wird hineingezogen)",
+              "selector": "[data-testid=\"box-p1-b2\"]",
+              "box": {
+                "x": 307,
+                "y": 373,
+                "width": 122,
+                "height": 14
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "MinerU teilt einen logisch zusammenhängenden Absatz manchmal in zwei Boxen — typisch bei Zeilen-Abstand-Sprüngen oder Layout-Artefakten.",
+        "Nebeneinander- oder untereinander-stehende Boxen vom gleichen Typ sind Merge-Kandidaten.",
+        "Test-Boxen: p1-b1 (oben) + p1-b2 (darunter) — beide „paragraph“ auf Seite 1."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Box A selektieren → „Verbinden ↓“ im Eigenschaften-Panel",
+      "startedAtMs": 1781691737550,
+      "endedAtMs": 1781691737626,
+      "actions": [
+        "click [data-testid=\"box-p1-b1\"]"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Panel-Buttons „Verbinden ↑ / Verbinden ↓“ sichtbar"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Eigenschaften-Panel zeigt jetzt „Verbinden ↓“ / „Verbinden ↑“ — abhängig davon, ob es eine nächste/vorherige Box im selben reading_order gibt.",
+        "Beim Klick auf „Verbinden ↓“ schickt der Frontend POST /segments/{id}/merge-down — der Server zieht die nächste Box rein und vereinigt die bboxes."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Nach Merge: eine gemeinsame Box, Text gejoint",
+      "startedAtMs": 1781691740683,
+      "endedAtMs": 1781691740772,
+      "actions": [
+        "POST /segments/p1-b1/merge-down",
+        "page.reload() to fetch fresh segments"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Gemergte Box (vereint A + B)",
+              "selector": "[data-testid=\"box-p1-b1\"]",
+              "box": {
+                "x": 272,
+                "y": 338,
+                "width": 193,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Ergebnis: Box A absorbiert Box B — die Quell-Box bleibt mit erweiterter bbox, Box B wird als „continues_to“ markiert.",
+        "Im HTML-Editor erscheint der Text als ein zusammenhängendes Element (kein Absatz-Bruch mehr).",
+        "Cross-page-Merge funktioniert identisch — die continues_from/continues_to-Indikatoren zeigen den Sprung über Seiten an.",
+        "Reversibel via „Unmerge“ am gemergeten Box-Ende oder am Continues-Indikator."
+      ],
+      "status": "ok"
+    }
+  ]
+}

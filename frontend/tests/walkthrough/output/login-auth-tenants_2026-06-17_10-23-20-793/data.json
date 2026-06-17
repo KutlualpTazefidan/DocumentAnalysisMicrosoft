@@ -1,0 +1,207 @@
+{
+  "name": "login-auth-tenants",
+  "startedAt": "2026-06-17T10:23:20.793Z",
+  "endedAt": "2026-06-17T10:23:23.832Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Login: GOLDENS-Lockup auf weißer Karte (BAM-Reskin)",
+      "startedAtMs": 1781691802507,
+      "endedAtMs": 1781691802615,
+      "actions": [
+        "goto /#/login"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "BAM-Logo-Lockup",
+              "selector": "img[alt='BAM']",
+              "box": {
+                "x": 667,
+                "y": 199,
+                "width": 66,
+                "height": 40
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "GOLDENS-Schriftzug",
+              "selector": "h1:has-text('Goldens')",
+              "box": {
+                "x": 644,
+                "y": 251,
+                "width": 112,
+                "height": 28
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Test-Umgebungs-Hinweis (amber)",
+              "selector": "div:has(> strong:has-text('Achtung'))",
+              "box": {
+                "x": 508,
+                "y": 677,
+                "width": 384,
+                "height": 56
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Nach dem BAM-Reskin: weiße Login-Karte auf dunklem Backdrop (bg-backdrop), oben das BAM-Logo + „GOLDENS“-Lockup (Großbuchstaben, gesperrte Letter-Spacing) — kein dunkles/blaues Alt-Theme mehr.",
+        "Unter der Karte der Test-Hinweis: amber-getöntes Band (#fff8e1, Rand-links #ffcb46) mit „Achtung — Test- und Entwicklungsumgebung“.",
+        "Default-Ansicht zeigt nur den Credential-Flow (drei Felder). Der Legacy-API-Token-Tab erscheint nur mit ?legacy=1."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Login: drei Credential-Felder mit Icons",
+      "startedAtMs": 1781691802940,
+      "endedAtMs": 1781691803015,
+      "actions": [
+        "fill input[aria-label='Fachbereich'] = 'default'",
+        "fill input[aria-label='Benutzername'] = 'admin'",
+        "fill input[aria-label='Passwort'] = '…'"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Fachbereich (Building2-Icon)",
+              "selector": "input[aria-label='Fachbereich']",
+              "box": {
+                "x": 540,
+                "y": 327,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Benutzername (User-Icon)",
+              "selector": "input[aria-label='Benutzername']",
+              "box": {
+                "x": 540,
+                "y": 437,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Passwort (Lock + Auge-Toggle)",
+              "selector": "input[aria-label='Passwort']",
+              "box": {
+                "x": 540,
+                "y": 511,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Einloggen-CTA (BAM-Cyan)",
+              "selector": "button:has-text('Einloggen')",
+              "box": {
+                "x": 540,
+                "y": 601,
+                "width": 320,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Drei Felder mit führenden Icons: Building2 (Fachbereich), User (Benutzername), Lock (Passwort).",
+        "Passwort-Feld hat rechts einen Auge-Toggle (aria-label „Passwort anzeigen“ / „Passwort verbergen“) zum Ein-/Ausblenden.",
+        "Hilfetext unter dem Passwort: „Im Audit-Log erscheint dein Pseudonym, nie dein Benutzername.“",
+        "Der „Einloggen“-Button (btn-primary, BAM-Cyan #00aff0) ist aktiv, sobald alle drei Felder gefüllt sind."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Auth-Fehler: falsches Passwort → 401 → Inline-Alert",
+      "startedAtMs": 1781691803646,
+      "endedAtMs": 1781691803697,
+      "actions": [
+        "fill input[aria-label='Passwort'] = 'definitiv-falsch'",
+        "click button:has-text('Einloggen')",
+        "POST /api/auth/login → 401"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "401-Fehlermeldung (rot)",
+              "selector": "div[role='alert']",
+              "box": {
+                "x": 540,
+                "y": 531,
+                "width": 320,
+                "height": 40
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Formular bleibt aktiv",
+              "selector": "button:has-text('Einloggen')",
+              "box": {
+                "x": 540,
+                "y": 627,
+                "width": 320,
+                "height": 32
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "POST /api/auth/login mit falschen Credentials liefert 401. Der Frontend fängt status===401 ab und setzt die Fehlermeldung.",
+        "Inline-Alert (role='alert', rot) unter dem Passwort-Feld: „Login fehlgeschlagen — Fachbereich, Benutzername oder Passwort falsch.“",
+        "Das Formular bleibt auf /login (keine Navigation) und ist weiter bedienbar — korrigieren und erneut versuchen.",
+        "Bei zu vielen Fehlversuchen (429) zeigt dasselbe Alert stattdessen „Zu viele Fehlversuche. Erneut möglich ab HH:MM.“"
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Phase 3 übersprungen — keine gültigen Login-Credentials",
+      "startedAtMs": 1781691803773,
+      "endedAtMs": 1781691803832,
+      "actions": [
+        "POST /api/auth/login → ≠ 200"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": []
+        }
+      ],
+      "notes": [
+        "Tenant-CRUD (Phase 3) braucht eine echte Admin-Session (lpdf_session-Cookie). /api/admin/tenants ist Cookie-only — der seeded X-Auth-Token reicht hier nicht.",
+        "Setze WT_TENANT / WT_USER / WT_PASSWORD passend zum Dev-Backend (Default: default/admin/admin), dann läuft Phase 3 durch."
+      ],
+      "status": "ok"
+    }
+  ]
+}

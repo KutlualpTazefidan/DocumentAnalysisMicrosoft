@@ -1,0 +1,97 @@
+{
+  "name": "extract-register-detect",
+  "startedAt": "2026-06-17T10:22:56.140Z",
+  "endedAt": "2026-06-17T10:23:03.380Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Extrahieren-Topbar: „Verzeichnisse erkennen“",
+      "startedAtMs": 1781691778580,
+      "endedAtMs": 1781691778692,
+      "actions": [
+        "goto /admin/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection/extract"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Trigger für die Verzeichnis-Erkennung",
+              "selector": "button[aria-label=\"Verzeichnisse erkennen und anzeigen\"]",
+              "box": {
+                "x": 736,
+                "y": 59,
+                "width": 173,
+                "height": 30
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„Verzeichnisse erkennen“ startet einen Doc-weiten Scan nach TOC-, Tabellen-, Abbildungs-Verzeichnis-Clustern.",
+        "Ergebnis: einzelne Boxen werden zu Registern gruppiert + ein Panel zur schnellen Navigation listet sie auf."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Detect-Lauf läuft — POST /segments/detect-registers",
+      "startedAtMs": 1781691780216,
+      "endedAtMs": 1781691780293,
+      "actions": [
+        "click button \"Verzeichnisse erkennen\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Spinner / Toast während des Laufs"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Backend ruft den Register-Detector (Heuristik über Box-Layout + Caption-Patterns).",
+        "Antwort enthält Cluster mit Box-IDs + erkanntem Typ (toc / list_of_tables / list_of_figures / bibliography)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Register-Panel sichtbar — Cluster + Navigation",
+      "startedAtMs": 1781691783295,
+      "endedAtMs": 1781691783380,
+      "actions": [
+        "wait for register panel"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Register-Cluster im PDF-Render farbig umrandet"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Pro erkanntes Verzeichnis ein Eintrag mit Typ-Badge + Box-Anzahl.",
+        "Klick auf einen Eintrag → Sprung zur entsprechenden Seite + Box-Hervorhebung im PDF-Render.",
+        "RegisterClusterOverlay zeichnet farbige Umrandung um die Cluster-Boxen (gleiche Skalierung wie BoxOverlay)."
+      ],
+      "status": "ok"
+    }
+  ]
+}

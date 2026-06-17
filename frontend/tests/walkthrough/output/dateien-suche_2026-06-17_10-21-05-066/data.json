@@ -1,0 +1,127 @@
+{
+  "name": "dateien-suche",
+  "startedAt": "2026-06-17T10:21:05.066Z",
+  "endedAt": "2026-06-17T10:21:08.662Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Dateien-Tab: alle Dokumente + „suchen…“-Filter",
+      "startedAtMs": 1781691667620,
+      "endedAtMs": 1781691667722,
+      "actions": [
+        "goto /admin/inbox"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Such-/Filter-Feld",
+              "selector": "input[placeholder^=\"suchen\"]",
+              "box": {
+                "x": 900,
+                "y": 124,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Vollständige Dokumentliste",
+              "selector": "table",
+              "box": {
+                "x": 73,
+                "y": 175,
+                "width": 1302,
+                "height": 157
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der „Dateien“-Tab (/admin/inbox) listet jedes hochgeladene PDF mit Seiten, Status, Elementen und „Zuletzt geändert“.",
+        "Aktuell 3 Dokumente in der Tabelle.",
+        "Oben rechts steht das „suchen…“-Feld (BAM-Light-Surface, btn-primary „PDF hinzufügen“ daneben in BAM-Cyan)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Tippen → Liste filtert live auf „standford“",
+      "startedAtMs": 1781691668134,
+      "endedAtMs": 1781691668188,
+      "actions": [
+        "fill input[placeholder^=\"suchen\"] = \"standford\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Eingetippter Filter-Begriff",
+              "selector": "input[placeholder^=\"suchen\"]",
+              "box": {
+                "x": 900,
+                "y": 124,
+                "width": 320,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Gefilterte Treffer-Zeile(n)",
+              "selector": "table tbody tr",
+              "box": {
+                "x": 73,
+                "y": 208,
+                "width": 1302,
+                "height": 41
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die Tabelle filtert client-seitig bei jedem Tastendruck (useState + Array.filter, inbox.tsx:40) — kein Server-Roundtrip.",
+        "Der Treffer matcht über Dateiname ODER slug, beide case-insensitive — so findet man ein Dokument auch über seinen slug-Teil.",
+        "Es bleiben nur die passenden Zeilen sichtbar; die restlichen werden aus dem Render entfernt."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Filter geleert → vollständige Liste zurück",
+      "startedAtMs": 1781691668600,
+      "endedAtMs": 1781691668662,
+      "actions": [
+        "fill input[placeholder^=\"suchen\"] = \"\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Wieder im Default-Zustand (Filter leer, alle Zeilen sichtbar)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Beim Leeren des Feldes greift der Filter nicht mehr → alle Dokumente erscheinen wieder.",
+        "Der Filter ist nur UI-State (kein localStorage, kein Server) — Reload setzt ihn ohnehin zurück. Read-Only, kein Eingriff in Dokument-Daten."
+      ],
+      "status": "ok"
+    }
+  ]
+}

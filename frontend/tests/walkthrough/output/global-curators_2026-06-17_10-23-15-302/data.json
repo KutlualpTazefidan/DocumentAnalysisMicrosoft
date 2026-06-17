@@ -1,0 +1,225 @@
+{
+  "name": "global-curators",
+  "startedAt": "2026-06-17T10:23:15.302Z",
+  "endedAt": "2026-06-17T10:23:20.313Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Kuratoren-Verwaltung: Liste + „Create curator“",
+      "startedAtMs": 1781691797346,
+      "endedAtMs": 1781691797450,
+      "actions": [
+        "goto /admin/curators"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Create curator (BAM-cyan CTA)",
+              "selector": "button:has-text(\"Create curator\")",
+              "box": {
+                "x": 1263,
+                "y": 72,
+                "width": 113,
+                "height": 32
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Bestehende Kuratoren (nur Token-Präfix sichtbar)",
+              "selector": "table",
+              "box": {
+                "x": 72,
+                "y": 120,
+                "width": 1304,
+                "height": 69
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Globale Kuratoren-Verwaltung (Sidebar „Kuratoren“) — hier legt ein Admin Kurator-Zugänge an und entzieht sie wieder.",
+        "Die Tabelle zeigt pro Kurator nur Name, Token-Präfix und Anlage-Datum — das volle Token wird hier nie angezeigt (BAM-Datengrid, helle Zebra-Zeilen).",
+        "Der BAM-cyan „Create curator“-Button (oben rechts, btn-primary / brand-500 #00aff0) öffnet den Anlege-Dialog."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Anlege-Dialog: Name eingeben",
+      "startedAtMs": 1781691798099,
+      "endedAtMs": 1781691798283,
+      "actions": [
+        "click button \"Create curator\"",
+        "fill Name = \"wt-curator-1781691793217\""
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Name des neuen Kurators",
+              "selector": "[role=\"dialog\"] input[placeholder=\"Name\"]",
+              "box": {
+                "x": 564,
+                "y": 430,
+                "width": 272,
+                "height": 34
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Create (aktiv, sobald Name gesetzt)",
+              "selector": "[role=\"dialog\"] button[type=\"submit\"]",
+              "box": {
+                "x": 770,
+                "y": 476,
+                "width": 66,
+                "height": 34
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der Dialog hat genau ein Feld: den Kurator-Namen (Platzhalter „Name“).",
+        "Wir nutzen einen Wegwerf-Namen mit Zeitstempel (wt-curator-1781691793217), damit Wiederholungs-Läufe nicht kollidieren.",
+        "„Create“ ist deaktiviert, solange das Namensfeld leer ist (btn-primary disabled bei leerem Trim)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Token-Modal: Zugang wird genau EINMAL gezeigt (C16)",
+      "startedAtMs": 1781691798744,
+      "endedAtMs": 1781691798793,
+      "actions": [
+        "click \"Create\" (submit)",
+        "POST /api/admin/curators"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Vollständiges Token (nur einmal sichtbar)",
+              "selector": "[role=\"dialog\"]:has-text(\"Curator token\") code",
+              "box": {
+                "x": 532,
+                "y": 443,
+                "width": 269,
+                "height": 28
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "In Zwischenablage kopieren",
+              "selector": "[role=\"dialog\"] button:has-text(\"Copy\")",
+              "box": {
+                "x": 809,
+                "y": 440,
+                "width": 59,
+                "height": 34
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Nach dem Anlegen erscheint das volle API-Token in einem Modal — „Copy this token now — it will not be shown again.“",
+        "Das ist der einzige Moment, in dem das Klartext-Token sichtbar ist; danach kennt der Server nur noch den Hash + das Präfix.",
+        "„Copy“ schreibt das Token in die Zwischenablage; „Done“ schließt das Modal und lädt die Liste neu (invalidateQueries)."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 3,
+      "title": "Neuer Kurator in der Liste — nur Token-Präfix",
+      "startedAtMs": 1781691799344,
+      "endedAtMs": 1781691799404,
+      "actions": [
+        "click \"Done\"",
+        "Liste neu geladen"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/04_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "highlight",
+              "text": "Neu angelegter Kurator",
+              "selector": "tr:has-text(\"wt-curator-1781691793217\")",
+              "box": {
+                "x": 72,
+                "y": 188,
+                "width": 1304,
+                "height": 35
+              }
+            },
+            {
+              "kind": "highlight",
+              "text": "Revoke (rot, pro Zeile)",
+              "selector": "tr:has-text(\"wt-curator-1781691793217\") button:has-text(\"Revoke\")",
+              "box": {
+                "x": 1327,
+                "y": 197,
+                "width": 41,
+                "height": 18
+              }
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Der neue Kurator „wt-curator-1781691793217“ steht jetzt in der Tabelle — mit Token-Präfix (mono) und heutigem Anlage-Datum.",
+        "Das volle Token taucht nirgends mehr auf: nur das Präfix (token_prefix) wird gespeichert/angezeigt.",
+        "Pro Zeile gibt es rechts einen roten „Revoke“-Link (text-bam-red) zum Entziehen des Zugangs."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 4,
+      "title": "Nach „Revoke“: Zugang entzogen, Zeile verschwindet",
+      "startedAtMs": 1781691800250,
+      "endedAtMs": 1781691800290,
+      "actions": [
+        "click \"Revoke\" in row \"wt-curator-1781691793217\"",
+        "confirm() bestätigt",
+        "DELETE /api/admin/curators/{id}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/05_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Zeile „wt-curator-1781691793217“ ist nach dem Revoke nicht mehr in der Tabelle"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "„Revoke“ fragt vorher per Bestätigungs-Dialog nach („Revoke access for … This cannot be undone.“) — bestätigt löst DELETE auf den Kurator aus.",
+        "Nach Erfolg verschwindet die Zeile aus der Liste (invalidateQueries) und ein Toast meldet „Curator revoked“.",
+        "Das zugehörige Token ist damit serverseitig ungültig — der Kurator kann sich nicht mehr anmelden."
+      ],
+      "status": "ok"
+    }
+  ]
+}

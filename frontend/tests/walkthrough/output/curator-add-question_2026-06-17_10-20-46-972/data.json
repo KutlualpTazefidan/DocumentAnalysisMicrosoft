@@ -1,0 +1,94 @@
+{
+  "name": "curator-add-question",
+  "startedAt": "2026-06-17T10:20:46.972Z",
+  "endedAt": "2026-06-17T10:20:54.175Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "steps": [
+    {
+      "index": 0,
+      "title": "Kurator-Shell: Liste der zugewiesenen Dokumente",
+      "startedAtMs": 1781691649304,
+      "endedAtMs": 1781691649345,
+      "actions": [
+        "goto /curate/"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/01_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Curator-Pseudonym: walkthrough-test-curator (c-66c3…)"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Curator-Login leitet automatisch nach /curate/ (siehe useAuth-Logic).",
+        "Curator sieht nur Dokumente, denen der Admin sie/ihn zugewiesen hat (per POST /api/admin/docs/{slug}/curators).",
+        "Klick auf ein Doc öffnet die Curator-Doc-Page mit den Boxen + bestehenden Q&A."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 1,
+      "title": "Doc öffnen — Quell-Element auswählen für die neue Frage",
+      "startedAtMs": 1781691651348,
+      "endedAtMs": 1781691651397,
+      "actions": [
+        "goto /curate/doc/1997-ronkohavi-standford-accuracy-estimation-model-selection"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/02_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Curator-Doc-View — Element-Auswahl + Frage-Eingabe"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Die Curator-UI zeigt Element-Liste + Eingabefeld für die eigene Frage.",
+        "Jede Frage referenziert ein bestimmtes Element (element_id) — der Bezug zur Quell-Box bleibt nachvollziehbar.",
+        "Vor dem POST: Curator wählt ein Element aus, formuliert die Frage selbst."
+      ],
+      "status": "ok"
+    },
+    {
+      "index": 2,
+      "title": "Eigene Frage absenden → POST /curate/docs/{slug}/questions",
+      "startedAtMs": 1781691654115,
+      "endedAtMs": 1781691654158,
+      "actions": [
+        "POST /api/curate/docs/1997-ronkohavi-standford-accuracy-estimation-model-selection/questions",
+        "body={element_id:\"p1-b1\", query:\"…\"}"
+      ],
+      "screenshots": [
+        {
+          "filename": "screenshots/03_01.png",
+          "width": 1400,
+          "height": 900,
+          "annotations": [
+            {
+              "kind": "note",
+              "text": "Neue question_id: q-65735d…"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        "Curator-Frage: „Welcher der zwei Verfahren liefert auf kleinen Stichproben die genauere Schätzung?“",
+        "Ziel-Element: p1-b1 (paragraph, Seite 1).",
+        "Server vergibt question_id, schreibt sie in curator-questions.json. Admin sieht sie nicht im /admin/questions (separater Bucket), sondern unter den Curator-Beiträgen.",
+        "Refine / Deprecate funktionieren analog: POST /curate/.../questions/{id}/refine bzw. /deprecate."
+      ],
+      "status": "ok"
+    }
+  ]
+}
