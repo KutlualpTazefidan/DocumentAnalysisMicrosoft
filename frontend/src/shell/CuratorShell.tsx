@@ -12,7 +12,7 @@ const CURATOR_NAV: RailItem[] = [
 ];
 
 export function CuratorShell() {
-  const { role, name, tenantSlug, logout } = useAuth();
+  const { role, name, tenantName, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { info } = useToast();
@@ -27,7 +27,7 @@ export function CuratorShell() {
       <BamHeader
         theme={CURATOR_THEME}
         name={name ?? "curator"}
-        tenantName={tenantSlug}
+        tenantName={tenantName}
         onSettings={() => info("Einstellungen folgen in Kürze.")}
         onLogout={handleLogout}
       />
