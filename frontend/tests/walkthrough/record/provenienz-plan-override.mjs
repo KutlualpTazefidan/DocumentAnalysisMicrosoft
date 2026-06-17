@@ -111,7 +111,11 @@ async function clickVerwerfen(page, planNodeId) {
 async function findPlanProposalAnchor() {
   const seg = await (await fetch(`${API}/api/admin/docs/${SLUG}/segments`, { headers: { "X-Auth-Token": TOKEN } })).json();
   const candidates = (seg.boxes ?? []).filter((b) => b.kind === "paragraph").map((b) => b.box_id);
-  for (const boxId of candidates.slice(0, 10)) {
+  // Planer ist nicht-deterministisch und anchor-spezifisch: viele Chunks
+  // werden zu manual_review ("Ungültige Step-Wahl") koerziert. Großzügig
+  // scannen (nicht nur die ersten 10), damit ein plan_proposal-fähiger
+  // Anchor wie p3-b7 gefunden wird; die Schleife bricht beim ersten Treffer ab.
+  for (const boxId of candidates.slice(0, 50)) {
     const s = await createSession(boxId);
     const node = (await getSession(s.session_id)).nodes[0].node_id;
     const p = await triggerNextStep(s.session_id, node);
@@ -144,6 +148,7 @@ await page.evaluate(({ t }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "admin");
   sessionStorage.setItem("goldens.name", "probe");
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
 }, { t: TOKEN });
 
 const rec = new Recorder("provenienz-plan-override", BASE);

@@ -102,10 +102,12 @@ await page.evaluate(({ t }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "admin");
   sessionStorage.setItem("goldens.name", "probe");
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
 }, { t: TOKEN });
 
 const rec = new Recorder("provenienz-iterate", BASE);
 
+try {
 // ── Step 1: Provenienz mit der frischen Sitzung ───────────────────────────
 await page.goto(`${BASE}/#/admin/doc/${SLUG}/provenienz`);
 await page.waitForLoadState("networkidle").catch(() => {});
@@ -162,30 +164,48 @@ await rec.step(page, "User liest Begründung + Alternativen im rechten Panel", {
 });
 
 // ── Step 4: User akzeptiert → ruft step-spezifischen Endpoint (kein /decide) ─
-const result = await applyPlanProposal(session.session_id, proposal);
-const sessAfter = await getSession(session.session_id);
-const newNodes = sessAfter.nodes.filter(n => n.kind !== "chunk" && n.node_id !== proposalId);
-await page.reload();
-await page.waitForLoadState("networkidle").catch(() => {});
-await page.waitForTimeout(2500);
-await rec.step(page, `„Anwenden“ klicken → ${proposal.payload.name} läuft → ${newNodes.length} neue Nodes`, {
-  actions: [`POST /sessions/${session.session_id}/${proposal.payload.name.replace(/_/g,'-')}`],
-  notes: [
-    "PlanProposalPanel.handleAccept routet anhand payload.name auf den passenden Step-Endpoint (extract_claims → /extract-claims, formulate_task → /formulate-task, search → /search).",
-    "Wichtig: /decide ist ein anderer Pfad — er gilt nur für action_proposal-Nodes (z.B. Promote/Decompose/Investigate, wo der User aus mehreren Hits auswählt).",
-    `Konkret hier: ${proposal.payload.name} produziert ${newNodes.length} neue Sub-Node(s) unter dem Chunk-Anker.`,
-    "Damit ist eine Iteration der Provenance-Kette komplett. Vom neuen Node kann erneut /next-step ausgelöst werden — die Kette wächst iterativ zum DAG.",
-    "Audit-Trail bleibt: der plan_proposal-Tile wird NICHT gelöscht („Reviewers sehen agent suggested X → step Y produced Z“).",
-  ],
-  shots: [{ annotations: [
-    { kind: "note", text: `${newNodes.length} neue Node(s) hängen unter dem Anker` },
-  ] }],
-});
+// The planner is non-deterministic and can return a non-applicable proposal
+// (e.g. manual_review / "Ungültige Step-Wahl" — a known backend model-quality
+// gap). Only apply when it's a real, executable plan_proposal; otherwise
+// record the state instead of erroring on an apply that has no endpoint.
+const APPLICABLE = new Set(["extract_claims", "formulate_task", "search"]);
+if (APPLICABLE.has(proposal.payload?.name)) {
+  await applyPlanProposal(session.session_id, proposal);
+  const sessAfter = await getSession(session.session_id);
+  const newNodes = sessAfter.nodes.filter(n => n.kind !== "chunk" && n.node_id !== proposalId);
+  await page.reload();
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(2500);
+  await rec.step(page, `„Anwenden“ klicken → ${proposal.payload.name} läuft → ${newNodes.length} neue Nodes`, {
+    actions: [`POST /sessions/${session.session_id}/${proposal.payload.name.replace(/_/g,'-')}`],
+    notes: [
+      "PlanProposalPanel.handleAccept routet anhand payload.name auf den passenden Step-Endpoint (extract_claims → /extract-claims, formulate_task → /formulate-task, search → /search).",
+      "Wichtig: /decide ist ein anderer Pfad — er gilt nur für action_proposal-Nodes (z.B. Promote/Decompose/Investigate, wo der User aus mehreren Hits auswählt).",
+      `Konkret hier: ${proposal.payload.name} produziert ${newNodes.length} neue Sub-Node(s) unter dem Chunk-Anker.`,
+      "Damit ist eine Iteration der Provenance-Kette komplett. Vom neuen Node kann erneut /next-step ausgelöst werden — die Kette wächst iterativ zum DAG.",
+      "Audit-Trail bleibt: der plan_proposal-Tile wird NICHT gelöscht („Reviewers sehen agent suggested X → step Y produced Z“).",
+    ],
+    shots: [{ annotations: [
+      { kind: "note", text: `${newNodes.length} neue Node(s) hängen unter dem Anker` },
+    ] }],
+  });
+} else {
+  await rec.step(page, `Kein anwendbarer Schritt (${proposal.payload?.name}) — Apply übersprungen`, {
+    actions: ["/next-step → nicht-anwendbarer Vorschlag (z.B. manual_review)"],
+    notes: [
+      "Der Planer lieferte keinen ausführbaren plan_proposal (extract_claims / formulate_task / search), sondern eine „Ungültige Step-Wahl“ / manual_review-Antwort.",
+      "In diesem Zustand trifft „Anwenden“ keinen Step-Endpoint — der Apply-Schritt wird sauber übersprungen; Anker + Vorschlag-Anzeige bleiben aussagekräftig.",
+      "Planer-Modell-/Prompt-Qualität wird separat behandelt (Backend-Backlog).",
+    ],
+  });
+}
 
-// Cleanup
-await deleteSession(session.session_id);
-console.log("Cleanup: session deleted.");
-
-const outDir = await rec.finish();
-await browser.close();
-console.log("Wrote walkthrough to", outDir);
+} finally {
+  // Cleanup runs even if a step threw, so the throwaway session never leaks
+  // and a (possibly partial) recording is still written.
+  await deleteSession(session.session_id);
+  console.log("Cleanup: session deleted.");
+  const outDir = await rec.finish();
+  await browser.close();
+  console.log("Wrote walkthrough to", outDir);
+}

@@ -27,6 +27,7 @@ await page.evaluate(({ t }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "admin");
   sessionStorage.setItem("goldens.name", "probe");
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
   // Seed the active tenant so the Fachbereich-Zeile + Header-Badge eine
   // echte Identität zeigen (Credential-Login setzt das normalerweise).
   sessionStorage.setItem("goldens.tenant_slug", "default");

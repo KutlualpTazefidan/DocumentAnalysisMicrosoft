@@ -57,6 +57,7 @@ await page.evaluate(({ t, n }) => {
   sessionStorage.setItem("goldens.api_token", t);
   sessionStorage.setItem("goldens.role", "curator");
   sessionStorage.setItem("goldens.name", n);
+  sessionStorage.setItem("goldens.tenant_name", "Fachbereich 3.3");
 }, { t: curator.token, n: curator.name });
 
 const rec = new Recorder("curator-add-question", BASE);
