@@ -55,3 +55,35 @@ def build_agent():
         system_prompt=instructions,
         subagents=[research_sub_agent],
     )
+
+
+def _build_model():
+    """Azure GPT-4.1 chat model from our AI_FOUNDRY_* env (shared by the verifier)."""
+    from langchain_openai import AzureChatOpenAI
+
+    return AzureChatOpenAI(
+        azure_endpoint=os.environ["AI_FOUNDRY_ENDPOINT"],
+        azure_deployment=os.environ["CHAT_DEPLOYMENT_NAME"],
+        api_key=os.environ["AI_FOUNDRY_KEY"],
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+        temperature=0.0,
+    )
+
+
+def build_verifier_agent():
+    """Flat (no sub-agents) step-by-step provenance verifier. Requires the `agent` extra.
+
+    Flat on purpose: every step streams from the main loop instead of being hidden in a
+    delegated sub-agent (the opposite of the research agent's design).
+    """
+    from deepagents import create_deep_agent
+
+    from local_pdf.agent.tools import azure_ai_search, record_step
+    from local_pdf.agent.verify_prompts import PROVENANZ_VERIFY
+
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    return create_deep_agent(
+        model=_build_model(),
+        tools=[azure_ai_search, record_step],
+        system_prompt=PROVENANZ_VERIFY.format(date=current_date),
+    )

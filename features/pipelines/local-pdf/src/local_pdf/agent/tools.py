@@ -49,3 +49,31 @@ def think_tool(reflection: str) -> str:
         Confirmation that reflection was recorded for decision-making
     """
     return f"Reflection recorded: {reflection}"
+
+
+@tool(parse_docstring=True)
+def record_step(
+    nr: int,
+    frage: str,
+    aktion: str,
+    befund: str,
+    zwischenfazit: str,
+    quelle: str = "",
+) -> str:
+    """Protokolliere EINEN Schritt der Provenienz-Prüfung.
+
+    Nach jeder Untersuchungs-Aktion aufrufen, bevor du weitermachst.
+
+    Args:
+        nr: Schrittnummer (1, 2, 3, ...).
+        frage: Die Leitfrage dieses Schritts (z.B. "Wo wird dieser Wert genannt?").
+        aktion: Was du getan hast (z.B. "Index nach 'Gesamtwärmeleistung TRINO' durchsucht").
+        befund: Was du gefunden hast — kurz, mit konkreten Werten/Abschnitten.
+        zwischenfazit: Deine Schlussfolgerung aus diesem Schritt.
+        quelle: Optionaler wörtlicher Quellenbeleg (Abschnitt + Zitat), falls in diesem
+            Schritt gefunden.
+
+    Returns:
+        Bestätigung, dass der Schritt protokolliert wurde.
+    """
+    return f"Schritt {nr} protokolliert."
