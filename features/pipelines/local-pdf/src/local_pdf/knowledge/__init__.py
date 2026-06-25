@@ -11,15 +11,18 @@ from local_pdf.knowledge.reader import (
     read_concept,
     search_concepts,
 )
+from local_pdf.knowledge.validator import Issue, validate_base
 
 __all__ = [
     "BaseSummary",
     "Concept",
     "ConceptLink",
     "ConceptSummary",
+    "Issue",
     "docx_to_text",
     "list_bases",
     "list_concepts",
     "read_concept",
     "search_concepts",
+    "validate_base",
 ]
