@@ -9,6 +9,7 @@ import { Synthesise } from "./admin/routes/Synthesise";
 import { Comparison } from "./admin/routes/Comparison";
 import { Provenienz } from "./admin/routes/Provenienz";
 import { Agent } from "./admin/routes/Agent";
+import { Knowledge } from "./admin/routes/Knowledge";
 import { Statistics } from "./admin/routes/Statistics";
 import { DocCurators } from "./admin/routes/DocCurators";
 import { Curators } from "./admin/routes/Curators";
@@ -43,6 +44,7 @@ export function App() {
           <Route path="curators/:id/activity" element={<CuratorActivity />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="knowledge" element={<Knowledge />} />
           <Route path="tenants" element={<TenantsAdmin />} />
           <Route path="settings" element={<Settings />} />
         </Route>

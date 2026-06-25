@@ -5,7 +5,7 @@ import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
 import { BamHeader } from "./BamHeader";
 import { IconRail, type RailItem } from "./IconRail";
-import { Inbox, Users, Cpu, BarChart3, Building2 } from "../shared/icons";
+import { Inbox, Users, Cpu, BarChart3, Building2, Library } from "../shared/icons";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../admin/api/adminClient";
 
@@ -15,6 +15,7 @@ const ADMIN_NAV: RailItem[] = [
   { to: "/admin/tenants", match: "/admin/tenants", label: "Fachbereiche", icon: Building2 },
   { to: "/admin/pipelines", match: "/admin/pipelines", label: "Pipelines", icon: Cpu },
   { to: "/admin/dashboard", match: "/admin/dashboard", label: "Übersicht", icon: BarChart3 },
+  { to: "/admin/knowledge", match: "/admin/knowledge", label: "Wissen", icon: Library },
 ];
 
 export function AdminShell() {
