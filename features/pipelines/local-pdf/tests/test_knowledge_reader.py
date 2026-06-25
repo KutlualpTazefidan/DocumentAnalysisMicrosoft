@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from local_pdf.knowledge.reader import (
@@ -9,9 +9,6 @@ from local_pdf.knowledge.reader import (
     read_concept,
     search_concepts,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _make_base(root: Path) -> None:
@@ -79,3 +76,11 @@ def test_search_concepts_matches_title_and_body(tmp_path: Path) -> None:
     _make_base(tmp_path)
     hits = {c.path for c in search_concepts(tmp_path, "demo", "bam")}
     assert "behoerden/bam.md" in hits
+
+
+def test_read_concept_with_relative_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_base(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    c = read_concept(Path("."), "demo", "behoerden/bam.md")
+    assert c.type == "Behörde"
+    assert c.path == "behoerden/bam.md"

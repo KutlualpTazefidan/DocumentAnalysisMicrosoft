@@ -140,7 +140,7 @@ def read_concept(root: Path, base: str, path: str) -> Concept:
     target = _safe_concept_path(base_dir, path)
     if not target.is_file():
         raise FileNotFoundError(f"unknown concept: {base}/{path}")
-    rel = target.relative_to(base_dir).as_posix()
+    rel = target.relative_to(base_dir.resolve()).as_posix()
     fm, body = _parse_frontmatter(target.read_text(encoding="utf-8"))
     malformed = not fm or "type" not in fm
     return Concept(
