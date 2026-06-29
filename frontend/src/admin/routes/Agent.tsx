@@ -1,13 +1,12 @@
 import { useRef, useState } from "react";
-import { useParams } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
-import { DocStepTabs } from "../components/DocStepTabs";
+import { useActiveFile } from "../hooks/useActiveFile";
 import { apiBase } from "../api/adminClient";
 
 type ToolEvent = { scope: string; name: string };
 
 export function Agent(): JSX.Element {
-  const { slug = "" } = useParams<{ slug: string }>();
+  const { file } = useActiveFile(); const slug = file ?? "";
   const { token } = useAuth();
   const [question, setQuestion] = useState(
     "Was ist die Gesamtwärmeleistung und wie wurde sie berechnet? Erkläre jeden Schritt mit Quellenangabe.",
@@ -33,7 +32,7 @@ export function Agent(): JSX.Element {
       const r = await fetch(`${apiBase()}/api/admin/agent/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Auth-Token": token ?? "" },
-        body: JSON.stringify({ claim }),
+        body: JSON.stringify({ claim, slug }),
         signal: ctrl.signal,
       });
       if (!r.body) throw new Error("no response body");
@@ -75,7 +74,7 @@ export function Agent(): JSX.Element {
       const r = await fetch(`${apiBase()}/api/admin/agent/ask`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, slug }),
         signal: ctrl.signal,
       });
       if (!r.body) throw new Error("no response body");
@@ -109,9 +108,6 @@ export function Agent(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
-        <DocStepTabs slug={slug} />
-      </div>
       <div className="p-6 overflow-auto space-y-4">
         <textarea
           className="w-full border border-line rounded p-2 text-[13px]"

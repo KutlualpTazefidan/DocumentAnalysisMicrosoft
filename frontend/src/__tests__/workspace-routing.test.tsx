@@ -69,4 +69,9 @@ describe("workspace routing", () => {
     renderAt("/admin/provenienz");
     await waitFor(() => expect(screen.getByText(/Bitte wählen Sie oben rechts eine Datei/)).toBeInTheDocument());
   });
+
+  it("agent tab with no file shows the empty state", async () => {
+    renderAt("/admin/agent");
+    await waitFor(() => expect(screen.getByText(/Bitte wählen Sie oben rechts eine Datei/)).toBeInTheDocument());
+  });
 });
