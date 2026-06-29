@@ -7,7 +7,7 @@ import { WORKSPACE_TABS } from "../features/registry";
 
 /** The workspace shell: one tab bar (derived from the registry) + a global file
  * dropdown on the right, with the active tab below. Replaces the per-route
- * DocStepTabs bars. */
+ * tab bars. */
 export function WorkspaceLayout(): JSX.Element {
   const { pathname } = useLocation();
   const { token } = useAuth();

@@ -76,17 +76,5 @@ describe("InboxRoute", () => {
     // only one Publish button (for ext, not rep or spec)
     expect(screen.getAllByRole("button", { name: /veröffentlichen/i })).toHaveLength(1);
   });
-
-  it("renders DocStepTabs in the top bar with Files tab active and doc tabs disabled", async () => {
-    render(wrapped());
-    // TabList must be present
-    expect(screen.getByRole("tablist")).toBeInTheDocument();
-    // Files tab is a link and active
-    const filesTab = screen.getByRole("tab", { name: /dateien/i });
-    expect(filesTab.tagName).toBe("A");
-    expect(filesTab).toHaveAttribute("aria-current", "page");
-    // Extract/Synthesise are disabled spans (no slug yet)
-    expect(screen.getByRole("tab", { name: /extrahieren/i })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("tab", { name: /synthese/i })).toHaveAttribute("aria-disabled", "true");
-  });
 });
+

@@ -74,4 +74,11 @@ describe("workspace routing", () => {
     renderAt("/admin/agent");
     await waitFor(() => expect(screen.getByText(/Bitte wählen Sie oben rechts eine Datei/)).toBeInTheDocument());
   });
+
+  it("the workspace bar shows all seven tabs", async () => {
+    renderAt("/admin/files");
+    for (const label of ["Dateien", "Extrahieren", "Synthese", "Vergleich", "Provenienz", "Agent", "Statistik"]) {
+      expect(await screen.findByText(label)).toBeInTheDocument();
+    }
+  });
 });
