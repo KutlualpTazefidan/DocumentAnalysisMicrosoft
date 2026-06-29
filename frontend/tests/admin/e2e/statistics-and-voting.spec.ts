@@ -101,7 +101,7 @@ async function clearVote(slug: string, entryId: string): Promise<void> {
 // clicking its box in the read-only preview iframe. The QuestionList (and its
 // vote buttons) mount only once `highlight` is set by that click.
 async function openQuestionCard(page: Page, target: Target) {
-  await page.goto(`/#/admin/doc/${target.slug}/synthesise`);
+  await page.goto(`/#/admin/synthesise?file=${encodeURIComponent(target.slug)}`);
   await page
     .frameLocator('iframe[data-testid="synth-html-preview"]')
     .locator(`[data-source-box="${target.boxId}"]`)
@@ -114,13 +114,19 @@ async function openQuestionCard(page: Page, target: Target) {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe("Statistik route structure", () => {
-  test("renders the 6th DocStepTab and all three subsections", async ({ page }) => {
+  test("renders the WorkspaceLayout bar and all three subsections", async ({ page }) => {
     await seedAuth(page);
-    await page.goto(`/#/admin/doc/${PROVIDED_SLUG}/statistics`);
+    await page.goto(`/#/admin/statistics?file=${encodeURIComponent(PROVIDED_SLUG!)}`);
 
-    // DocStepTabs persistence — Statistik is the 6th tab.
-    await expect(page.getByRole("tab")).toHaveCount(6);
-    await expect(page.getByRole("tab", { name: /statistik/i })).toBeVisible();
+    // WorkspaceLayout renders each tab as a plain <Link> (not role="tab").
+    // Assert all seven expected tab labels are visible as links.
+    await expect(page.getByRole("link", { name: "Dateien" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Extrahieren" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Synthese" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Vergleich" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Provenienz" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Agent" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Statistik" })).toBeVisible();
 
     // Three section headings render — h2 by Decision 1.
     await expect(page.getByRole("heading", { name: "Extrahieren", level: 2 })).toBeVisible();
@@ -132,7 +138,7 @@ test.describe("Statistik route structure", () => {
     await page.context().clearCookies();
     // No seedAuth — visit cold. AdminShell's role guard fires before any
     // react-query runs and redirects to the login route.
-    await page.goto(`/#/admin/doc/${PROVIDED_SLUG}/statistics`);
+    await page.goto(`/#/admin/statistics?file=${encodeURIComponent(PROVIDED_SLUG!)}`);
 
     await expect(page).toHaveURL(/#\/login/);
     await expect(page.getByRole("heading", { name: /goldens/i })).toBeVisible();
