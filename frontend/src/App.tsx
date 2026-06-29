@@ -3,7 +3,6 @@ import { Landing } from "./landing/Landing";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
-import { Extract } from "./admin/routes/extract";
 import { Synthesise } from "./admin/routes/Synthesise";
 import { Comparison } from "./admin/routes/Comparison";
 import { Provenienz } from "./admin/routes/Provenienz";
@@ -45,7 +44,7 @@ export function App() {
           {/* Segment route was merged into extract — redirect any legacy
               navigation to extract so old bookmarks still resolve. */}
           <Route path="doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
-          <Route path="doc/:slug/extract" element={<Extract />} />
+          <Route path="doc/:slug/extract" element={<RedirectWithSlug to="/admin/extract?file=:slug" />} />
           <Route path="doc/:slug/synthesise" element={<Synthesise />} />
           <Route path="doc/:slug/compare" element={<Comparison />} />
           <Route path="doc/:slug/provenienz" element={<Provenienz />} />

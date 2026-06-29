@@ -1,10 +1,10 @@
 // frontend/src/admin/routes/extract.tsx
 import { useCallback, useMemo, useReducer, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { loadCurrentPage, saveCurrentPage } from "../lib/currentPage";
 import { useAuth } from "../../auth/useAuth";
+import { useActiveFile } from "../hooks/useActiveFile";
 import { useToast } from "../../shared/components/useToast";
 import { getDoc } from "../api/docs";
 import { T } from "../styles/typography";
@@ -13,7 +13,6 @@ import { Crop, Download, FolderTree, Lock, Play, Plus, RefreshCw, Trash2, Unlock
 import { BoxLegend } from "../components/BoxLegend";
 import { ExtractDiagnose } from "../components/ExtractDiagnose";
 import { BoxOverlay } from "../components/BoxOverlay";
-import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlEditor } from "../components/HtmlEditor";
 import { PdfPage } from "../components/PdfPage";
 import { StageIndicator } from "../components/StageIndicator";
@@ -89,7 +88,7 @@ function pageButtonClasses(state: PageState, isActive: boolean): string {
 }
 
 export function ExtractRoute({ token }: Props): JSX.Element {
-  const { slug } = useParams<{ slug: string }>();
+  const { file } = useActiveFile(); const slug = file ?? "";
   const segments = useSegments(slug ?? "", token);
   const html = useHtml(slug ?? "", token);
   const mineru = useMineru(slug ?? "", token);
@@ -381,8 +380,7 @@ export function ExtractRoute({ token }: Props): JSX.Element {
 
   // ── Top bar ──────────────────────────────────────────────────────────────
   const topBar = (
-    <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-line flex-shrink-0">
-      <DocStepTabs slug={slug!} />
+    <div className="flex items-center justify-end px-4 py-2 bg-white border-b border-line flex-shrink-0">
       {actionButtons}
     </div>
   );

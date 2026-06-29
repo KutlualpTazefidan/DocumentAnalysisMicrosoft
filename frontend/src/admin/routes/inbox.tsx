@@ -78,7 +78,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
               <td className="p-2">{d.box_count}</td>
               <td className={`p-2 ${T.body} text-ink-muted`}>{d.last_touched_utc}</td>
               <td className="p-2 flex items-center gap-2">
-                <Link className="text-bam-cyan-700 font-medium hover:underline" to={`/admin/doc/${d.slug}/extract`}>
+                <Link className="text-bam-cyan-700 font-medium hover:underline" to={`/admin/extract?file=${d.slug}`}>
                   {d.status === "raw" ? "starten" : d.status === "done" ? "ansehen" : "fortsetzen"}
                 </Link>
                 {(d.status === "extracted" || d.status === "synthesised") && (
