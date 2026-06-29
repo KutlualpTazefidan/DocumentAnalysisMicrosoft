@@ -19,6 +19,7 @@ class ApiConfig(BaseSettings):
 
     api_token: str = Field(min_length=1, validation_alias="GOLDENS_API_TOKEN")
     data_root: Path = Field(default=Path("data/raw-pdfs"), validation_alias="LOCAL_PDF_DATA_ROOT")
+    knowledge_root: Path = Field(default=Path("data/knowledge"), validation_alias="KNOWLEDGE_ROOT")
     log_level: Literal["debug", "info", "warning", "error"] = Field(
         default="info", validation_alias="LOCAL_PDF_LOG_LEVEL"
     )

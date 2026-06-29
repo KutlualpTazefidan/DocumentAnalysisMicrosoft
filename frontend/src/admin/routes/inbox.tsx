@@ -7,7 +7,6 @@ import { Plus, Trash2 } from "../../shared/icons";
 
 import { useDeleteDoc, useDocs, usePublishDoc, useUploadDoc } from "../hooks/useDocs";
 import { DocStatusBadge } from "../components/StatusBadge";
-import { DocStepTabs } from "../components/DocStepTabs";
 import { T } from "../styles/typography";
 
 interface Props {
@@ -41,9 +40,6 @@ export function InboxRoute({ token }: Props): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
-        <DocStepTabs />
-      </div>
       <div className="p-6 flex-1 overflow-auto">
       <div className="flex items-center gap-3 mb-4">
         <h1 className={T.cardTitle}>Dokumente</h1>
@@ -82,7 +78,7 @@ export function InboxRoute({ token }: Props): JSX.Element {
               <td className="p-2">{d.box_count}</td>
               <td className={`p-2 ${T.body} text-ink-muted`}>{d.last_touched_utc}</td>
               <td className="p-2 flex items-center gap-2">
-                <Link className="text-bam-cyan-700 font-medium hover:underline" to={`/admin/doc/${d.slug}/extract`}>
+                <Link className="text-bam-cyan-700 font-medium hover:underline" to={`/admin/extract?file=${d.slug}`}>
                   {d.status === "raw" ? "starten" : d.status === "done" ? "ansehen" : "fortsetzen"}
                 </Link>
                 {(d.status === "extracted" || d.status === "synthesised") && (

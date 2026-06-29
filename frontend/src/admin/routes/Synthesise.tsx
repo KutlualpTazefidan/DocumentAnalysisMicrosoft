@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../../auth/useAuth";
+import { useActiveFile } from "../hooks/useActiveFile";
 import { useToast } from "../../shared/components/useToast";
-import { DocStepTabs } from "../components/DocStepTabs";
 import { HtmlPreview } from "../components/HtmlPreview";
 import { QuestionList } from "../components/QuestionList";
 import { StageIndicator } from "../components/StageIndicator";
@@ -304,9 +303,8 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Top bar: DocStepTabs left, page/file Generate actions right ── */}
+      {/* ── Top bar: page/file Generate actions ── */}
       <div className="flex items-center gap-2 px-4 py-2 bg-white flex-shrink-0">
-        <DocStepTabs slug={slug} />
         <div className="ml-auto flex items-center gap-2">
           {docDuplicateIds.length > 0 && (
             <button
@@ -658,7 +656,7 @@ function SynthesiseInner({ slug, token }: InnerProps): JSX.Element {
 }
 
 export function Synthesise(): JSX.Element {
-  const { slug } = useParams<{ slug: string }>();
+  const { file } = useActiveFile(); const slug = file ?? "";
   const { token } = useAuth();
   if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <SynthesiseInner slug={slug!} token={token} />;

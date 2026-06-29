@@ -64,9 +64,9 @@ function wrap() {
   return (
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <MemoryRouter initialEntries={["/admin/doc/spec/synthesise"]}>
+        <MemoryRouter initialEntries={["/admin/synthesise?file=spec"]}>
           <Routes>
-            <Route path="/admin/doc/:slug/synthesise" element={<Synthesise />} />
+            <Route path="/admin/synthesise" element={<Synthesise />} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -113,14 +113,11 @@ describe("Synthesise", () => {
     );
   });
 
-  it("HTML preview iframe + DocStepTabs are present", async () => {
+  it("HTML preview iframe is present", async () => {
     render(wrap());
     await waitFor(() =>
       expect(screen.getByTestId("synth-html-preview")).toBeInTheDocument(),
     );
-    expect(
-      screen.getByRole("tab", { name: /synthese/i }),
-    ).toHaveAttribute("aria-current", "page");
   });
 
   it("Cancel button is NOT visible before a stream starts", async () => {

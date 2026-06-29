@@ -92,11 +92,13 @@ def create_app() -> FastAPI:
         return HealthResponse(data_root=str(cfg.data_root))
 
     from local_pdf.api.routers._gone import router as gone_router
+    from local_pdf.api.routers.admin.agent import router as agent_router
     from local_pdf.api.routers.admin.auth_mgmt import router as admin_auth_mgmt_router
     from local_pdf.api.routers.admin.comparison import router as comparison_router
     from local_pdf.api.routers.admin.curators import router as admin_curators_router
     from local_pdf.api.routers.admin.docs import router as admin_docs_router
     from local_pdf.api.routers.admin.extract import router as extract_router
+    from local_pdf.api.routers.admin.knowledge import router as knowledge_router
     from local_pdf.api.routers.admin.llm_server import router as llm_server_router
     from local_pdf.api.routers.admin.pipelines import router as pipelines_router
     from local_pdf.api.routers.admin.provenienz import router as provenienz_router
@@ -122,6 +124,8 @@ def create_app() -> FastAPI:
     app.include_router(pipelines_router)
     app.include_router(provenienz_router)
     app.include_router(provenienz_approaches_router)
+    app.include_router(agent_router)
+    app.include_router(knowledge_router)
     app.include_router(skills_router)
     app.include_router(statistics_router)
     app.include_router(llm_server_router)

@@ -78,9 +78,9 @@ function wrap() {
   return (
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <MemoryRouter initialEntries={["/admin/doc/rep/extract"]}>
+        <MemoryRouter initialEntries={["/admin/extract?file=rep"]}>
           <Routes>
-            <Route path="/admin/doc/:slug/extract" element={<ExtractRoute token="tok" />} />
+            <Route path="/admin/extract" element={<ExtractRoute token="tok" />} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -93,9 +93,9 @@ function wrapNoHtml() {
   return (
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <MemoryRouter initialEntries={["/admin/doc/rep/extract"]}>
+        <MemoryRouter initialEntries={["/admin/extract?file=rep"]}>
           <Routes>
-            <Route path="/admin/doc/:slug/extract" element={<ExtractRoute token="tok" />} />
+            <Route path="/admin/extract" element={<ExtractRoute token="tok" />} />
           </Routes>
         </MemoryRouter>
       </ToastProvider>
@@ -130,18 +130,6 @@ describe("ExtractRoute", () => {
     expect(screen.queryByTestId("stage-toggle")).not.toBeInTheDocument();
   });
 
-  // ── Top bar tests ──────────────────────────────────────────────────────
-
-  it("top bar shows DocStepTabs with Extract tab active", async () => {
-    render(wrap());
-    await waitForEditor();
-    // The Extract tab must be present and marked active (aria-current=page)
-    const extractTab = screen.getByRole("tab", { name: /extrahieren/i });
-    expect(extractTab).toHaveAttribute("aria-current", "page");
-    // Other tabs present but not active
-    expect(screen.getByRole("tab", { name: /synthese/i })).not.toHaveAttribute("aria-current");
-  });
-
   it("Re-extract this box is disabled when no box is highlighted, enabled after clicking one", async () => {
     render(wrap());
     await waitForEditor();
@@ -166,12 +154,10 @@ describe("ExtractRoute", () => {
     );
     render(wrapNoHtml());
 
-    // Full chrome renders: DocStepTabs in the top bar
-    await waitFor(() => expect(screen.getByRole("tab", { name: /extrahieren/i })).toBeInTheDocument());
+    // Hint card overlay is visible once the empty state renders
+    await waitFor(() => expect(screen.getByTestId("empty-extract-hint")).toBeInTheDocument());
     // Top-bar action button "Re-extract all" remains the entry point
     expect(screen.getByLabelText("Re-extract all")).toBeInTheDocument();
-    // Hint card overlay is visible
-    expect(screen.getByTestId("empty-extract-hint")).toBeInTheDocument();
   });
 
   // ── Phase 4: colored page buttons ─────────────────────────────────────

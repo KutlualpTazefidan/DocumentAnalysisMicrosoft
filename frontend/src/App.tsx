@@ -3,13 +3,11 @@ import { Landing } from "./landing/Landing";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
-import { Inbox } from "./admin/routes/inbox";
-import { Extract } from "./admin/routes/extract";
-import { Synthesise } from "./admin/routes/Synthesise";
-import { Comparison } from "./admin/routes/Comparison";
-import { Provenienz } from "./admin/routes/Provenienz";
-import { Statistics } from "./admin/routes/Statistics";
+import { Knowledge } from "./admin/routes/Knowledge";
 import { DocCurators } from "./admin/routes/DocCurators";
+import { WorkspaceLayout } from "./admin/components/WorkspaceLayout";
+import { TabRoute } from "./admin/components/TabRoute";
+import { WORKSPACE_TABS } from "./admin/features/registry";
 import { Curators } from "./admin/routes/Curators";
 import { CuratorActivity } from "./admin/routes/CuratorActivity";
 import { Pipelines } from "./admin/routes/Pipelines";
@@ -26,21 +24,33 @@ export function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/admin" element={<AdminShell />}>
-          <Route index element={<Navigate to="inbox" replace />} />
-          <Route path="inbox" element={<Inbox />} />
+          <Route index element={<Navigate to="files" replace />} />
+
+          {/* Workspace: registry-driven top-level tabs (Dateien, Statistik, …). */}
+          <Route element={<WorkspaceLayout />}>
+            {WORKSPACE_TABS.map((d) => (
+              <Route key={d.key} path={d.key} element={<TabRoute descriptor={d} />} />
+            ))}
+          </Route>
+
+          {/* Bridges for converted tabs. */}
+          <Route path="inbox" element={<Navigate to="/admin/files" replace />} />
+          <Route path="doc/:slug/statistics" element={<RedirectWithSlug to="/admin/statistics?file=:slug" />} />
+
           {/* Segment route was merged into extract — redirect any legacy
               navigation to extract so old bookmarks still resolve. */}
           <Route path="doc/:slug/segment" element={<RedirectWithSlug to="/admin/doc/:slug/extract" />} />
-          <Route path="doc/:slug/extract" element={<Extract />} />
-          <Route path="doc/:slug/synthesise" element={<Synthesise />} />
-          <Route path="doc/:slug/compare" element={<Comparison />} />
-          <Route path="doc/:slug/provenienz" element={<Provenienz />} />
-          <Route path="doc/:slug/statistics" element={<Statistics />} />
+          <Route path="doc/:slug/extract" element={<RedirectWithSlug to="/admin/extract?file=:slug" />} />
+          <Route path="doc/:slug/synthesise" element={<RedirectWithSlug to="/admin/synthesise?file=:slug" />} />
+          <Route path="doc/:slug/compare" element={<RedirectWithSlug to="/admin/compare?file=:slug" />} />
+          <Route path="doc/:slug/provenienz" element={<RedirectWithSlug to="/admin/provenienz?file=:slug" />} />
+          <Route path="doc/:slug/agent" element={<RedirectWithSlug to="/admin/agent?file=:slug" />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
           <Route path="curators" element={<Curators />} />
           <Route path="curators/:id/activity" element={<CuratorActivity />} />
           <Route path="pipelines" element={<Pipelines />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="knowledge" element={<Knowledge />} />
           <Route path="tenants" element={<TenantsAdmin />} />
           <Route path="settings" element={<Settings />} />
         </Route>

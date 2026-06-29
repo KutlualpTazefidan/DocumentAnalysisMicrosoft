@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { useAuth } from "../../auth/useAuth";
 import { useToast } from "../../shared/components/useToast";
-import { DocStepTabs } from "../components/DocStepTabs";
+import { useActiveFile } from "../hooks/useActiveFile";
 import { getDoc } from "../api/docs";
 import { useMineru } from "../hooks/useExtract";
 import { useQuestions, type Question } from "../hooks/useSynthesise";
@@ -336,11 +335,6 @@ function ComparisonInner({ slug, token }: InnerProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top bar — same chrome as Extract / Synthesise. */}
-      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
-        <DocStepTabs slug={slug} />
-      </div>
-
       <div className="flex flex-1 min-h-0">
         {/* ── Pane 1: Questions list (narrow). ──────────────────── */}
         <div
@@ -1230,7 +1224,7 @@ function SimilarCard({
 }
 
 export function Comparison(): JSX.Element {
-  const { slug } = useParams<{ slug: string }>();
+  const { file } = useActiveFile(); const slug = file ?? "";
   const { token } = useAuth();
   if (token === null) return <div className="p-6">Nicht angemeldet.</div>;
   return <ComparisonInner slug={slug!} token={token} />;

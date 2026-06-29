@@ -20,6 +20,10 @@ dependencies = [
     # HybridDependencyError when extraction kicks off. See PR #26 follow-up.
     "mineru[core]>=3.0,<4",
     "python-multipart>=0.0.9",
+    # OKF knowledge reader parses YAML frontmatter; declared directly because
+    # reader.py is on the app-startup path (do not rely on mineru's transitive
+    # pyyaml).
+    "pyyaml>=6,<7",
     # LaTeX → MathML for rendering display equations ($$...$$) in the
     # sandboxed preview iframe. Modern browsers render MathML natively,
     # so we don't need to lift the sandbox to load KaTeX/MathJax JS.
@@ -36,6 +40,10 @@ test = [
     "pytest>=8",
     "pytest-cov>=4",
     "httpx>=0.25",
+]
+agent = [
+    "deepagents==0.6.11",
+    "langchain-openai>=0.2",
 ]
 
 [tool.setuptools.packages.find]

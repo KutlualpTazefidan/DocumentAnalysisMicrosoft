@@ -48,9 +48,9 @@ describe("Statistics page", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/admin/doc/doc-a/statistics"]}>
+        <MemoryRouter initialEntries={["/admin/statistics?file=doc-a"]}>
           <Routes>
-            <Route path="/admin/doc/:slug/statistics" element={<Statistics />} />
+            <Route path="/admin/statistics" element={<Statistics />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>
@@ -73,9 +73,9 @@ describe("Statistics page", () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/admin/doc/doc-a/statistics"]}>
+        <MemoryRouter initialEntries={["/admin/statistics?file=doc-a"]}>
           <Routes>
-            <Route path="/admin/doc/:slug/statistics" element={<Statistics />} />
+            <Route path="/admin/statistics" element={<Statistics />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>
