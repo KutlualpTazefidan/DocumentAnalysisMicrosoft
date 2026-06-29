@@ -1,10 +1,9 @@
 import { useCallback, useState } from "react";
-import { useParams } from "react-router-dom";
 import { Bot, FolderTree, GitMerge, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { ReactFlowProvider } from "reactflow";
 
 import { useAuth } from "../../auth/useAuth";
-import { DocStepTabs } from "../components/DocStepTabs";
+import { useActiveFile } from "../hooks/useActiveFile";
 import { AgentCanvas } from "../provenienz/AgentCanvas";
 import { AgentInspector } from "../provenienz/AgentInspector";
 import { CapabilityRequestsTab } from "../provenienz/CapabilityRequestsTab";
@@ -30,7 +29,7 @@ import { T } from "../styles/typography";
 type View = "sessions" | "agent";
 
 export function Provenienz(): JSX.Element {
-  const { slug = "" } = useParams<{ slug: string }>();
+  const { file } = useActiveFile(); const slug = file ?? "";
   const { token } = useAuth();
   const tokenStr = token ?? "";
 
@@ -75,8 +74,7 @@ export function Provenienz(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full bg-canvas">
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-line">
-        <DocStepTabs slug={slug} />
+      <div className="flex items-center justify-end px-4 py-2 bg-white border-b border-line">
         <ViewToggle view={view} onChange={setView} />
       </div>
 

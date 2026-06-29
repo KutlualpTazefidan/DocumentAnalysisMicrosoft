@@ -3,7 +3,6 @@ import { Landing } from "./landing/Landing";
 import { Login } from "./auth/routes/Login";
 import { AdminShell } from "./shell/AdminShell";
 import { CuratorShell } from "./shell/CuratorShell";
-import { Provenienz } from "./admin/routes/Provenienz";
 import { Agent } from "./admin/routes/Agent";
 import { Knowledge } from "./admin/routes/Knowledge";
 import { DocCurators } from "./admin/routes/DocCurators";
@@ -45,7 +44,7 @@ export function App() {
           <Route path="doc/:slug/extract" element={<RedirectWithSlug to="/admin/extract?file=:slug" />} />
           <Route path="doc/:slug/synthesise" element={<RedirectWithSlug to="/admin/synthesise?file=:slug" />} />
           <Route path="doc/:slug/compare" element={<RedirectWithSlug to="/admin/compare?file=:slug" />} />
-          <Route path="doc/:slug/provenienz" element={<Provenienz />} />
+          <Route path="doc/:slug/provenienz" element={<RedirectWithSlug to="/admin/provenienz?file=:slug" />} />
           <Route path="doc/:slug/agent" element={<Agent />} />
           <Route path="doc/:slug/curators" element={<DocCurators />} />
           <Route path="curators" element={<Curators />} />
