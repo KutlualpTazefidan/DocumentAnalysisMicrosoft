@@ -59,4 +59,9 @@ describe("workspace routing", () => {
     renderAt("/admin/synthesise");
     await waitFor(() => expect(screen.getByText(/Bitte wählen Sie oben rechts eine Datei/)).toBeInTheDocument());
   });
+
+  it("compare tab with no file shows the empty state", async () => {
+    renderAt("/admin/compare");
+    await waitFor(() => expect(screen.getByText(/Bitte wählen Sie oben rechts eine Datei/)).toBeInTheDocument());
+  });
 });
