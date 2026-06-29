@@ -33,9 +33,14 @@ def author_base(
     files: dict = result.get("files", {})  # virtual-FS: path -> file data
     written: list[str] = []
     out_dir.mkdir(parents=True, exist_ok=True)
+    base = out_dir.resolve()
     for vpath, data in files.items():
         rel = vpath.lstrip("/")
-        dest = out_dir / rel
+        dest = (out_dir / rel).resolve()
+        # Containment guard: a model emitting `../foo.md` must not escape out_dir
+        # (mirrors the reader's _safe_concept_path on the write side).
+        if dest != base and base not in dest.parents:
+            raise ValueError(f"agent tried to write outside the base dir: {vpath!r}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(file_data_to_string(data), encoding="utf-8")
         written.append(rel)
