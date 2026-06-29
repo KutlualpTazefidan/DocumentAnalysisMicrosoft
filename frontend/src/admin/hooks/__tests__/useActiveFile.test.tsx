@@ -19,6 +19,19 @@ function Probe() {
 }
 
 describe("useActiveFile", () => {
+  it("setFile preserves sibling query params", async () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/extract?tab=x&file=a"]}>
+        <Probe />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("file")).toHaveTextContent("a");
+
+    await userEvent.click(screen.getByText("set-b"));
+    expect(screen.getByTestId("search")).toHaveTextContent("tab=x");
+    expect(screen.getByTestId("search")).toHaveTextContent("file=b");
+  });
+
   it("reads, sets, and clears the ?file= param", async () => {
     render(
       <MemoryRouter initialEntries={["/admin/extract?file=a"]}>
