@@ -5,12 +5,11 @@ import { useAuth } from "../auth/useAuth";
 import { ADMIN_THEME } from "./shared/ColorThemes";
 import { BamHeader } from "./BamHeader";
 import { IconRail, type RailItem } from "./IconRail";
-import { Inbox, Users, Cpu, BarChart3, Building2, Library } from "../shared/icons";
+import { Users, Cpu, BarChart3, Building2, Library } from "../shared/icons";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../admin/api/adminClient";
 
 const ADMIN_NAV: RailItem[] = [
-  { to: "/admin/inbox", match: "/admin/inbox", label: "Dokumente", icon: Inbox },
   { to: "/admin/curators", match: "/admin/curators", label: "Kuratoren", icon: Users },
   { to: "/admin/tenants", match: "/admin/tenants", label: "Fachbereiche", icon: Building2 },
   { to: "/admin/pipelines", match: "/admin/pipelines", label: "Pipelines", icon: Cpu },

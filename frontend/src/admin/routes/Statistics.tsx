@@ -1,7 +1,6 @@
-import { useParams } from "react-router-dom";
+import { useActiveFile } from "../hooks/useActiveFile";
 
 import { useAuth } from "../../auth/useAuth";
-import { DocStepTabs } from "../components/DocStepTabs";
 import { CapabilityWishesSunburst } from "../components/charts/CapabilityWishesSunburst";
 import { DiagnosticBar } from "../components/charts/DiagnosticBar";
 import { MetricCounter } from "../components/charts/MetricCounter";
@@ -32,7 +31,8 @@ function SectionStatus({
 }
 
 export function Statistics(): JSX.Element {
-  const { slug = "" } = useParams<{ slug: string }>();
+  const { file } = useActiveFile();
+  const slug = file ?? "";
   const { token } = useAuth();
   const tokenStr = token ?? "";
   const extract = useExtractStats(slug, tokenStr);
@@ -46,10 +46,6 @@ export function Statistics(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 py-2 bg-white flex-shrink-0">
-        <DocStepTabs slug={slug} />
-      </div>
-
       <div className="p-4 space-y-6">
         <section>
           <h2 className={`${T.cardTitle} text-bam-navy mb-3`}>Extrahieren</h2>
