@@ -1,12 +1,10 @@
 import { useRef, useState } from "react";
 import { useAuth } from "../../auth/useAuth";
-import { useActiveFile } from "../hooks/useActiveFile";
 import { apiBase } from "../api/adminClient";
 
 type ToolEvent = { scope: string; name: string };
 
 export function Agent(): JSX.Element {
-  const { file } = useActiveFile(); const slug = file ?? "";
   const { token } = useAuth();
   const [question, setQuestion] = useState(
     "Was ist die Gesamtwärmeleistung und wie wurde sie berechnet? Erkläre jeden Schritt mit Quellenangabe.",
@@ -32,7 +30,7 @@ export function Agent(): JSX.Element {
       const r = await fetch(`${apiBase()}/api/admin/agent/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Auth-Token": token ?? "" },
-        body: JSON.stringify({ claim, slug }),
+        body: JSON.stringify({ claim }),
         signal: ctrl.signal,
       });
       if (!r.body) throw new Error("no response body");
@@ -74,7 +72,7 @@ export function Agent(): JSX.Element {
       const r = await fetch(`${apiBase()}/api/admin/agent/ask`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ question, slug }),
+        body: JSON.stringify({ question }),
         signal: ctrl.signal,
       });
       if (!r.body) throw new Error("no response body");
